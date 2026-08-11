@@ -22,6 +22,8 @@ been modified.
 > A2 baseline "anomaly" turned out to have an exact explanation, and the bidi oracle is weaker than
 > claimed. Each correction is marked **[revised]** and was re-verified by running new probes, not by
 > accepting the reviewer's word. §8 lists what remains unverified.
+>
+> **`docs/architecture.md` has since been updated** with the corrections in §6.
 
 ---
 
@@ -750,10 +752,22 @@ Carry-forward items for later increments, none blocking:
 
 ---
 
-## 6. Proposed changes to `docs/architecture.md`
+## 6. Changes made to `docs/architecture.md`
 
-**`docs/architecture.md` has not been modified.** These are proposals; the decision is the
-human's.
+> **Status: applied (2026-08-11), on the author's instruction.** These were proposals while this
+> spike was in review; all three have now been made, plus two consequential updates the review
+> surfaced. The wording below is what was proposed — see `docs/architecture.md` for what was
+> actually written, which is slightly expanded in places.
+
+Applied:
+
+| # | where | change |
+|---|---|---|
+| **P1** | §2.3 A1, §9 R3 | A1 recorded as *partly* invalidated; R3 dropped Medium → Low as realised-and-resolved |
+| **P2** | §4.7 | `EmbedRun.Properties` added to the sketch, with the paint-time crash and draw-origin notes |
+| **P3** | §8 scenario 3 | Backspace corrected to component-peel + ZWJ absorption; grapheme oracle changed to `GraphemeBreakTest` equality |
+| — | §2.3 A2 | marked validated, with the three traps referenced |
+| — | §10 | Increment 0 marked complete and linked here |
 
 **P1 — §2.3 / §9 R3: record A1 as *partly* invalidated.** Suggested wording for the A1 bullet:
 

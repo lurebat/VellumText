@@ -82,8 +82,8 @@ Avalonia already provides the hardest infrastructure, MIT-licensed. This is the 
 
 ### 2.3 Assumptions (to validate in Increment 0)
 
-- **A1** — `TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph edits. *Not documented; must be measured.*
-- **A2** — `DrawableTextRun` inside a custom `ITextSource` correctly participates in line breaking, baseline alignment, and `GetTextBounds`.
+- **A1** — ~~`TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph edits.~~ **Partly invalidated (Increment 0 — see [`increment-0-findings.md`](increment-0-findings.md) §2).** `InvalidateFrom(k>0)` returns a stale, *pre-edit* layout: invalidation is entry-granular and a paragraph is a single entry keyed 0. The correct usages (`InvalidateFrom(0)` / `Invalidate()`) measure **1.00×** against no cache, so R3's fallback — wholesale paragraph rebuild — is adopted **for edits**. **However**, reusing a persistent cache across a *wrap-width* change with unchanged text is correct and **≈3.5× faster** (median of 7 reps, range 2.9–5.2×), which matters because a resize rewraps every paragraph at once. Vellum therefore keeps a per-paragraph `TextRunCache` and drives it by **lifetime, not offset**: `Invalidate()` on a text edit, reuse untouched on width-only relayout.
+- **A2** — ~~`DrawableTextRun` inside a custom `ITextSource` correctly participates in line breaking, baseline alignment, and `GetTextBounds`.~~ **Validated (Increment 0).** Three traps are documented in the findings: `Properties` must be overridden (§4.7), `TextEndOfParagraph.Length == 1`, and `Top`/`TextTop` are offset by Avalonia's baseline formula.
 - **A3** — X11/Wayland compositors in practice honour `text/html` and `text/rtf` targets. *API-level support is confirmed; real-world behaviour varies by compositor.*
 - **A4** — Per-paragraph `TextLayout` construction is cheap enough that a 50k-paragraph document can be virtualized with measure-on-demand plus estimated heights.
 
@@ -313,12 +313,18 @@ internal sealed class InlineTextSource : ITextSource
 
 internal sealed class EmbedRun : DrawableTextRun
 {
+    public override TextRunProperties Properties { get; }         // REQUIRED — see note below
     public override Size Size { get; }
     public override double Baseline { get; }
     public override int Length => 1;                              // matches the \uFFFC placeholder
     public override void Draw(DrawingContext ctx, Point origin) { /* image / inline control */ }
 }
 ```
+
+Two measured details from Increment 0 ([findings §1](increment-0-findings.md)):
+
+- **`Properties` must be overridden.** `TextRun.Properties` is virtual and defaults to `null`. A run that leaves it null **formats successfully** and only throws when drawn — `ArgumentOutOfRangeException (Parameter 'baselineAlignment')` from `TextLineImpl.GetBaselineOffset`. The failure therefore surfaces at paint time, far from its cause.
+- **`Draw`'s `origin` is the top-left of the run's box**, with `Baseline` measured downward from it. Use `BaselineAlignment.Baseline`; `Top`/`TextTop` are displaced by Avalonia's baseline formula (`-run.Baseline + line.Height - line.Extent + run.Height / 2`), which is the implementation's behaviour rather than a defect.
 
 Because `Length` is 1 and the model reserves exactly one `\uFFFC`, positions from `TextLayout.HitTestPoint` map to model positions by a single additive block offset. No index translation table.
 
@@ -480,7 +486,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 
 1. **Undo round-trip property test** — random op sequences (FsCheck), documents compared structurally.
 2. **Position mapping property test** — a position tracked through random edits equals the position recomputed from a re-derived document.
-3. **Grapheme integrity** — arrow keys and Backspace across "👨‍👩‍👧‍👦", "é" (combining), and Devanagari clusters never split a cluster. Uses `GetBackspaceCaretCharacterHit`.
+3. **Grapheme integrity** — arrow keys across "👨‍👩‍👧‍👦", "é" (combining), and Devanagari clusters never split a cluster. **Backspace is different and intentionally so:** `GetBackspaceCaretCharacterHit` peels one *component* off a ZWJ or combining sequence, matching Word, browsers and most native editors. The test asserts that component-peel behaviour positively — not whole-cluster deletion — plus monotonic progress and that no operation ever produces invalid UTF-16. Backspace must additionally **absorb a trailing ZWJ** into the same keystroke, since the raw API leaves 👨‍👩‍👧‍ (dangling ZWJ) after one press. Grapheme assertions compare **equality** against pinned Unicode `GraphemeBreakTest` data, *not* subset membership against `System.Globalization.StringInfo`, which predates UAX #29 GB9c and disagrees with Avalonia on Indic conjuncts. (Measured in Increment 0 — [findings §4](increment-0-findings.md).)
 4. **Bidi caret & selection** — mixed Hebrew/English paragraph: visual caret order, and `GetTextBounds` producing multiple disjoint rects for a logically contiguous selection.
 5. **IME** — scripted preedit set/replace/commit/cancel; assert document unchanged during composition, one undo entry after commit.
 6. **Clipboard round-trip** — copy → paste in-app is byte-identical; HTML/RTF/DOCX exports validated (OOXML schema validation via the SDK; RTF parsed by a reference parser in tests).
@@ -498,7 +504,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 |---|---|---|---|
 | **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | High | Ship `IValueProvider` + `AutomationProperties` in v1. Open an upstream Avalonia issue/PR proposing `ITextProvider`/`ITextRangeProvider`; this is plausibly the highest-value upstream contribution the project could make. Document the limitation honestly in the README. |
 | **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
-| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | Medium | Increment 0 spike measures it. Fallback: rebuild the paragraph's `TextLayout` wholesale — acceptable at paragraph granularity, which is precisely why B2 was chosen. |
+| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. |
 | **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
 | **R5** | Scope creep — the AC list is a commercial product's feature list. | High | Increment gating (§10). Increments 0–5 are a genuinely useful editor on their own; 6–8 are the long tail. |
 | **R6** | Trimming/NativeAOT regressions from Open XML SDK. | Low | DOCX lives in a separate package; core and the demo stay trimming-clean. |
@@ -512,7 +518,7 @@ Each increment is independently useful and independently shippable. No compatibi
 
 | # | Increment | Proves / delivers | Rough size |
 |---|---|---|---|
-| **0** | **Spike (throwaway).** Read-only styled paragraph via `TextLayout` + `textStyleOverrides`; second spike with a custom `ITextSource` + one `DrawableTextRun` image; measure `TextRunCache.InvalidateFrom`. | Validates A1, A2, and the whole B2/C2 premise before any architecture is committed. | 1–2 days |
+| **0** | ~~**Spike (throwaway).**~~ **✅ Complete — see [`increment-0-findings.md`](increment-0-findings.md).** Read-only styled paragraph via `TextLayout` + `textStyleOverrides`; second spike with a custom `ITextSource` + one `DrawableTextRun` image; measure `TextRunCache.InvalidateFrom`. | A2 and the B2/C2 premise **validated**; A1 **partly invalidated** (stale for edits, ≈3.5× for width-only relayout). C1 confirmed as a ceiling. Spike code deleted; findings and evidence retained under `docs/`. | *actual: ~1 day* |
 | **1** | **Core model, headless.** Nodes, positions, `Step`/`Transaction`/`Mapping`, schema validation, history. Full unit + property tests. No UI. | The foundation everything else rests on, verified without a window. | 1–2 weeks |
 | **2** | **Editable single paragraph.** `RichTextView` with one `ParagraphView`: caret, mouse/keyboard selection, typing, Backspace/Delete, undo/redo, IME. | The hard interactive core. If this is right, the rest is largely additive. | 1–2 weeks |
 | **3** | **Multi-block + virtualization.** Block host, `BlockHeightIndex`, scrolling, cross-block selection, Enter/split/merge, headings, alignment, indent, lists, blockquote, rule. | AC2, AC12. **First genuinely usable editor.** | 1–2 weeks |
