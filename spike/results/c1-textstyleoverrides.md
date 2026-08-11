@@ -1,5 +1,5 @@
 # C1 — the `textStyleOverrides` shortcut
-_generated 2026-08-11 14:11:01_
+_generated 2026-08-11 15:24:06_
 
 ## 1. Character formatting via textStyleOverrides
 

@@ -9,13 +9,19 @@ deleted once its conclusions are absorbed.
 | # | Assumption | Verdict |
 |---|---|---|
 | **A2** | `DrawableTextRun` in a custom `ITextSource` participates correctly in line breaking, baseline alignment, and `GetTextBounds` | ✅ **Validated** — with three traps worth knowing about |
-| **A1** | `TextRunCache.InvalidateFrom` gives usable incremental reshaping | ❌ **Invalidated** — `InvalidateFrom(k>0)` returns a *stale* layout; used correctly it is 1.00× |
-| **C1** | The `textStyleOverrides` shortcut | ✅ **Validated as a ceiling** — good for character formatting, structurally cannot express embeds |
+| **A1** | `TextRunCache.InvalidateFrom` gives usable incremental reshaping | ⚠️ **Partly invalidated** — useless for *edits* (`InvalidateFrom(k>0)` returns a **stale** layout; used correctly it is 1.00×), but a **3.5× win for width-only relayout**. See §2 |
+| **C1** | The `textStyleOverrides` shortcut | ✅ **Validated as a ceiling** — good for character formatting; cannot inject a run or control embed metrics/identity (it *can* fake visuals with a brush — see §3) |
 | — | Bidi & grapheme caret sanity | ✅ **Validated**, except backspace, which is intentionally sub-cluster (see §4) |
 
 **Recommendation: Increment 1 proceeds as designed.** No architectural change is required. Three
 small documentation corrections are proposed in §6 — proposed only; `docs/architecture.md` has not
 been modified.
+
+> **This report was adversarially reviewed after it was first written, and several claims below did
+> not survive.** The A1 recommendation was too broad, the C1 impossibility proof was too strong, the
+> A2 baseline "anomaly" turned out to have an exact explanation, and the bidi oracle is weaker than
+> claimed. Each correction is marked **[revised]** and was re-verified by running new probes, not by
+> accepting the reviewer's word. §8 lists what remains unverified.
 
 ---
 
@@ -53,7 +59,7 @@ spike/
   Shared/                      SpikeTextSource, BoxRun, ImageRun, properties subclasses
   Vellum.Spike.Probe/          console; deterministic assertion probes + benchmarks
   Vellum.Spike.App/            Avalonia window; live interaction + PNG capture
-  results/                     committed evidence: 6 markdown reports + 25 PNGs
+  results/                     committed evidence: 8 markdown reports + 29 PNGs
 ```
 
 Reproduce:
@@ -152,9 +158,24 @@ downward from that top edge.** Painting content downward from the origin is corr
 
 But `Top` and `TextTop` place the run **10.078px above the line box** — a constant offset, not
 drift, reproducible at both origins. `Center`, `Bottom` and `Baseline` all match prediction
-exactly, so this is specific to the top-anchored alignments. This looks like an upstream Avalonia
-bug; it was not root-caused, since the practical answer is simply **use
-`BaselineAlignment.Baseline`** (which is what §4.7 implies anyway).
+exactly, so this is specific to the top-anchored alignments.
+
+**[revised] This is not a bug — it is exactly what Avalonia's formula computes.** The first version
+of this report called it a probable upstream defect and left it un-root-caused. Adversarial review
+supplied the arithmetic, and it reproduces the number exactly. `TextLineImpl.GetBaselineOffset`
+computes, for the top-anchored cases:
+
+```
+-run.Baseline + line.Height - line.Extent + run.Height / 2
+= -24     + 31.921875   - 30          + 12
+= -10.078125          ← matches the measured −10.078 exactly
+```
+
+So the probe's "predicted 0" was the wrong prediction, not Avalonia's wrong answer: the prediction
+was asserted from intuition rather than derived from the implementation's contract. Calling this a
+bug would need separate evidence that the formula violates the documented contract, which this spike
+does not have. The practical guidance is unchanged — **use `BaselineAlignment.Baseline`**, and treat
+`Top`/`TextTop` as offset by this formula rather than as broken.
 
 ### ⚠️ Trap 1 — a null `Properties` crashes at paint time, not at format time
 
@@ -216,6 +237,12 @@ position 19. The live app agrees with the headless midpoint.
 Across both sweeps `IsTrailing` never became true. `TextHitTestResult.TextPosition` already has
 the trailing length folded in. An editor must use `TextPosition` **directly** and must *not* add
 `IsTrailing` to it — doing so would double-count and put the caret one position too far right.
+
+**[revised] Scope of the "always `False`" claim.** The sweeps sampled only *interior* points of a
+single LTR line. Avalonia does set `IsTrailing` in cases this spike never exercised — notably a hit
+past the line's trailing edge, or a point below the layout. The safe statement is "`IsTrailing`
+stayed `False` across every interior point tested"; the advice to use the already-folded
+`TextPosition` is unaffected either way.
 
 ### (e) Caret movement over the embed — correct
 
@@ -359,7 +386,12 @@ speedup at 800 chars / 50% gave:
 |---|---|---|
 | 1 | 1.28× | 448.9 |
 | 2 | 0.94× | 585.6 |
-| 3 | 1.00× | 374.2 |
+| 3 | 0.94× | 374.2 |
+
+*(**[revised]** the third row previously read `1.00×` against this `374.2 µs` baseline. Those two
+numbers came from **different measurements** — the `1.00×` is from the percentile block, whose
+NoCache baseline is `334.5 µs`. Both runs support the same conclusion, but pairing them in one row
+was wrong. The row now uses the `0.94×`/`374.163 µs` pair that actually belong together.)*
 
 That is a ±30% swing on the ratio and a 1.6× swing on the absolute baseline, on an unchanged
 binary — this is a loaded Hyper-V guest, and the harness is not isolated from it. **No individual
@@ -377,26 +409,76 @@ more reproducible than one that does. In hindsight that stability was itself a w
    reuse mechanism is passing the same `TextRunCache` into a **new** `TextLayout`. So even in the
    best case this measures shaping/run reuse, never layout-object reuse — a ceiling on how much
    A1 could ever have been worth.
-2. Whether the staleness is an Avalonia bug or an undocumented contract (perhaps `InvalidateFrom`
-   assumes the source's *content before the offset* is byte-identical, which an insert violates by
-   shifting everything after it) was not determined. It does not change the conclusion: there is no
-   usage of this API that is both correct and faster.
+2. **[revised] The staleness is entry-granularity, not necessarily a bug.** The first version of
+   this report called `InvalidateFrom(k>0)` "broken". A reviewer pointed out the more defensible
+   reading, which matches every observation here: cache entries are keyed by the index a shaped run
+   *starts* at, and `InvalidateFrom(k)` drops entries whose **key** is `>= k`. A single-paragraph
+   `TextLayout` formats from index 0, producing essentially one entry keyed 0 — so
+   `InvalidateFrom(50)` correctly finds nothing at or after key 50 to drop and leaves entry 0 intact.
+   The observable consequence is unchanged and still a trap: after an edit, any `k > 0` yields the
+   **pre-edit layout**. But the correct characterisation is "invalidation is entry-granular and a
+   paragraph is one entry", not "Avalonia has an off-by-one bug".
+
+### ⚠️ [revised] A1 is only half-invalidated: width-only relayout is a real 3.5× win
+
+The original benchmark only ever measured **edits** — every arm mutated the text. That missed the
+other thing an editor does constantly: relayout **unchanged** text at a **new wrap width**, which is
+what happens on every frame of a pane resize. Shaping is width-independent, so a run cache should
+help there, and it does.
+
+The trap that killed the edit arm applies here too — a cache that returns the *previous* width's
+layout would also look fast — so correctness was tested as "matches an uncached layout built at the
+**same new width**", not "matches itself":
+
+| wrap width | line 1 length | cached matches uncached at that width? |
+|---|---|---|
+| 320 | 40 | yes |
+| 360 | 44 | yes |
+| 400 | 50 | yes |
+| 440 | 58 | yes |
+| 480 | 65 | yes |
+| 520 | 70 | yes |
+| 560 | 75 | yes |
+| 600 | 81 | yes |
+
+The line breaks genuinely differ per width, and each matches its uncached reference — so the cache
+is really re-breaking lines while reusing shaped runs, not returning a stale answer. `GetTextRun`
+calls confirm the mechanism: **33** on the cold build, **0** on a later build at a different width.
+
+Timing, 800 chars, 8 widths cycled, 200 iterations/rep, 7 reps after a discarded warmup:
+
+| rep | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| no cache (µs/op) | 981.1 | 546.7 | 544.1 | 441.4 | 404.8 | 364.2 | 390.2 |
+| persistent cache (µs/op) | 187.3 | 186.4 | 140.8 | 126.0 | 133.2 | 110.2 | 108.8 |
+| ratio | 5.24× | 2.93× | 3.87× | 3.50× | 3.04× | 3.30× | 3.59× |
+
+**Median 3.50×** (range 2.93×–5.24×). Unlike the ±30% noise that swamped the edit measurement, the
+*smallest* observed ratio is still ~2.9×, so this survives the noise on this VM comfortably.
+
+Evidence: [`results/a1-width-only-relayout.md`](results/a1-width-only-relayout.md).
 
 ### What A1 means for the architecture
 
-**§9 R3's stated fallback is the right path, and it costs nothing.** Rebuild the paragraph's
-`TextLayout` wholesale on edit. Concretely:
+**§9 R3's stated fallback is the right path for edits, and it costs nothing.** Rebuild the
+paragraph's `TextLayout` wholesale on edit. Concretely:
 
 - a full rebuild of an 800-char paragraph costs roughly **0.35–0.6 ms** (the spread across runs on
   a noisy VM; ~0.05 ms at 100 chars), leaving at least ~25× headroom inside a 16 ms frame budget,
   which is why B2's paragraph granularity was the right choice;
-- **Vellum should not use `TextRunCache` at all** in Increment 2. It adds an object to manage, a
-  correctness hazard, and no measurable benefit;
-- if paragraph rebuild ever *does* become the bottleneck, the lever is smaller paragraphs or
-  caching whole `TextLayout` objects per unmodified paragraph — not `InvalidateFrom`.
+- **[revised] Vellum should keep a per-paragraph `TextRunCache` after all** — but drive it by
+  *lifetime*, not by offset. The rule that matches the measurements is:
+  - **on a text edit**, call `Invalidate()` (or equivalently discard the cache). Never
+    `InvalidateFrom(k>0)` — it silently returns the pre-edit layout.
+  - **on a width change with unchanged text**, reuse the cache untouched: correct, and ~3.5× faster.
+  This is worth having, because resizing rewraps *every* paragraph at once, which is exactly the
+  case where a 3.5× difference is felt.
+- if paragraph rebuild ever *does* become the bottleneck for edits, the lever is smaller paragraphs
+  or caching whole `TextLayout` objects per unmodified paragraph — not `InvalidateFrom`.
 
-A1 being invalidated is a **cheap** negative: it removes an optimization from the design without
-requiring any structural change.
+So A1 **as literally stated in §2.3** — "incremental reshaping for single-paragraph *edits*" —
+remains **invalidated**. The first version of this report then over-generalised that into "don't use
+`TextRunCache` at all", which the width-only measurement disproves.
 
 ---
 
@@ -437,6 +519,35 @@ Weight, style, size and brush all attribute correctly. **[live]** confirmed visu
 3. **`\uFFFC` stays a glyph.** Placed in the string, it renders as an ordinary character via font
    fallback — a 19.2px tofu advance, not an embed box
    ([`results/c1-objectreplacement.png`](results/c1-objectreplacement.png)).
+
+### ⚠️ [revised] Proof 3 was too strong: a brush *can* paint arbitrary content
+
+The first version of this report said the C1 path "can draw nothing but the tofu glyph". That is
+wrong. `TextRunProperties.BackgroundBrush` is painted across the run's bounds, and a brush is not
+restricted to a flat colour — a `DrawingBrush` (or `VisualBrush`/`ImageBrush`) carries renderable
+content. Supplying one over a styled `\uFFFC` run visibly paints a drawing between the neighbouring
+characters:
+
+```
+U+FFFC run rect with a DrawingBrush background: 15.48, 0, 57.61, 63.84
+rendered output contains brush-painted (non-greyscale) pixels: True
+```
+
+([`results/review-c1-drawingbrush.png`](results/review-c1-drawingbrush.png),
+[`results/review-verification.md`](results/review-verification.md).)
+
+So the honest ceiling is narrower than "cannot draw", but it is still a real ceiling, and it still
+points the same way:
+
+- you **cannot inject a custom `TextRun`** — proofs 1 and 2 stand unmodified;
+- you therefore **cannot control the embed's metrics or identity**: its advance width and height are
+  whatever the *glyph* is, so the "embed" cannot size itself to its content, and there is no object
+  to hit-test, select, or resize as a unit;
+- the painted content is clipped to the glyph's box, and `ForegroundBrush` is additionally clipped to
+  the glyph *shape*.
+
+A custom font supplying an icon glyph with a tuned advance is a further variation on the same
+workaround; it was not tested. Both are hacks that would fail AC4's real requirements.
 
 ### One correction worth flagging
 
@@ -482,6 +593,30 @@ The 11-unit family emoji is traversed in a single step in both directions (7 ↔
 combining sequence in one step (24 ↔ 26). **Every** forward and backward stop lands on a reference
 grapheme boundary, in both the bidi and the cluster string. **[live]** confirmed: one Right press
 at position 7 moved the caret to 18.
+
+### ⚠️ [revised] The `StringInfo` oracle is one-way, and can false-pass
+
+The assertion above is a **subset** test: every Avalonia stop must be a `StringInfo` boundary. That
+catches Avalonia stopping somewhere `StringInfo` forbids, but *not* Avalonia stopping somewhere
+`StringInfo` wrongly permits — and the two disagree, because .NET's segmentation predates UAX #29's
+GB9c Indic-conjunct rule while Avalonia 12.1.1 implements it. Measured on `क्ष`
+(U+0915 U+094D U+0937):
+
+```
+StringInfo boundaries : {0,2,3}
+Avalonia caret stops  : {0,3}
+subset assertion holds: True      ← the probe passes
+oracles actually agree: False     ← but they disagree
+```
+
+Avalonia is the *more* correct of the two here. The consequence is that the passing result above is
+weaker evidence than it looked: a regression in which Avalonia started stopping at 2 would still
+pass this check. Devanagari is called out in `docs/architecture.md` §8 and was **not** among the
+tested strings, so **Indic conjunct behaviour is untested by this spike**.
+
+Increment 1 should assert *equality* against boundaries from Unicode `GraphemeBreakTest` data at a
+pinned Unicode version, not subset membership against `StringInfo`, and should include Devanagari.
+Evidence: [`results/review-verification.md`](results/review-verification.md).
 
 ### `GetTextBounds` splits correctly across the bidi boundary ✅
 
@@ -547,6 +682,28 @@ a policy:
 > - Delete-forward is *not* covered by this measurement. Avalonia exposes no
 >   `GetDeleteCaretCharacterHit`, so Increment 2 must choose its own forward-delete policy;
 >   symmetry with component-peel is the obvious default but is unverified here.
+>
+> **[revised] One consequence discovered after this decision was recorded.** The probe logged caret
+> *positions* but never applied the deletions, so it never saw what the string becomes. Applying
+> them shows component-peel passes through **intermediate states ending in a dangling ZWJ**:
+>
+> | from | to | deleted | resulting emoji region | dangling? |
+> |---|---|---|---|---|
+> | 18 | 16 | boy | `👨<ZWJ>👩<ZWJ>👧<ZWJ>` | **yes** |
+> | 16 | 15 | `<ZWJ>` | `👨<ZWJ>👩<ZWJ>👧` | no |
+> | 15 | 13 | girl | `👨<ZWJ>👩<ZWJ>` | **yes** |
+> | 13 | 12 | `<ZWJ>` | `👨<ZWJ>👩` | no |
+> | 12 | 10 | woman | `👨<ZWJ>` | **yes** |
+>
+> So a single Backspace on 👨‍👩‍👧‍👦 does **not** cleanly yield 👨‍👩‍👧 as stated above — it yields
+> `👨‍👩‍👧‍` with a trailing ZWJ, and it takes a *second* Backspace to drop that ZWJ. Whether the
+> trailing ZWJ is visible depends on the font's fallback rendering.
+>
+> This does not reverse the decision — component-peel is still the platform-conventional choice —
+> but Increment 2 should **absorb a trailing ZWJ into the same keystroke** so one Backspace moves
+> 👨‍👩‍👧‍👦 → 👨‍👩‍👧 in one visible step. That is a small addition to the "no snapping layer needed"
+> claim above: no *cluster* snapping is needed, but ZWJ absorption is.
+> Evidence: [`results/review-verification.md`](results/review-verification.md).
 
 
 ---
@@ -560,9 +717,9 @@ entirely headless and entirely unaffected.
 The premises that Increment 1 rests on are intact:
 
 - **B2 (per-paragraph `TextLayout`) is confirmed and is now better justified than before.** A1's
-  failure makes wholesale paragraph rebuild the *only* path, and the measurement shows it is
-  cheap: roughly 0.35–0.6 ms for 800 characters and ~0.05 ms for 100, i.e. at least ~25× inside a
-  frame budget.
+  failure *for edits* makes wholesale paragraph rebuild the only path on the edit route, and the
+  measurement shows it is cheap: roughly 0.35–0.6 ms for 800 characters and ~0.05 ms for 100, i.e.
+  at least ~25× inside a frame budget.
 - **C2 (custom `ITextSource` + `EmbedRun`) is confirmed viable**, so §4.7's design and the single
   additive block offset from `HitTestPoint` to model positions both stand. Increment 4's inline
   images have a validated foundation.
@@ -573,14 +730,14 @@ Carry-forward items for later increments, none blocking:
 
 | when | item |
 |---|---|
-| Increment 2 | Do **not** introduce `TextRunCache`. Rebuild paragraph layouts wholesale. |
+| Increment 2 | **[revised]** Keep a per-paragraph `TextRunCache`, driven by lifetime: `Invalidate()` on a text edit, reuse untouched across width-only relayout (≈3.5×). **Never** `InvalidateFrom(k>0)` — it returns the pre-edit layout. |
 | Increment 2 | Use `TextHitTestResult.TextPosition` directly; never add `IsTrailing`. |
 | Increment 2 | Account for `TextEndOfParagraph.Length == 1` when reconciling line lengths to model offsets. |
-| Increment 2 | Decide the backspace policy (§4); recommendation is component-peel. |
+| Increment 2 | Backspace is component-peel (decided, §4) — and must **absorb a trailing ZWJ** into the same keystroke. |
+| Increment 2 | Grapheme tests must assert **equality** against pinned Unicode `GraphemeBreakTest` data, not subset membership against `StringInfo`, and must include Devanagari. |
 | Increment 4 | `EmbedRun` **must** override `Properties`; a null there crashes only at paint time. |
-| Increment 4 | Use `BaselineAlignment.Baseline`; `Top`/`TextTop` misplace by −10.078px. |
+| Increment 4 | Use `BaselineAlignment.Baseline`; `Top`/`TextTop` are offset by Avalonia's baseline formula (−10.078px in the tested case). |
 | Increment 4 | Define a policy for embeds wider than the wrap width — the formatter lets them overflow. |
-| Increment 8 | Consider filing the `Top`/`TextTop` offset upstream with the repro in `results/a2-drawabletextrun.md`. |
 
 ---
 
@@ -589,12 +746,16 @@ Carry-forward items for later increments, none blocking:
 **`docs/architecture.md` has not been modified.** These are proposals; the decision is the
 human's.
 
-**P1 — §2.3 / §9 R3: record A1 as invalidated.** Suggested wording for the A1 bullet:
+**P1 — §2.3 / §9 R3: record A1 as *partly* invalidated.** Suggested wording for the A1 bullet:
 
 > **A1** — ~~`TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph
-> edits.~~ **Invalidated (Increment 0).** `InvalidateFrom(k>0)` returns a stale, pre-edit layout;
-> used correctly (`InvalidateFrom(0)` / `Invalidate()`) it measures 1.00× against no cache.
-> R3's fallback — wholesale paragraph rebuild — is adopted. Vellum does not use `TextRunCache`.
+> edits.~~ **Invalidated for edits (Increment 0).** `InvalidateFrom(k>0)` returns a stale, pre-edit
+> layout — invalidation is entry-granular and a paragraph is one entry keyed 0 — and the correct
+> usages (`InvalidateFrom(0)` / `Invalidate()`) measure 1.00× against no cache. R3's fallback,
+> wholesale paragraph rebuild, is adopted **for edits**.
+> **However**, a persistent `TextRunCache` reused across a *width* change with unchanged text is
+> correct and ~3.5× faster, so Vellum keeps one per paragraph and drives it by lifetime rather than
+> by offset.
 
 R3's severity could reasonably drop from Medium to Low: the risk has been realised, the fallback
 measured, and the cost is zero.
@@ -636,7 +797,45 @@ components. Suggested replacement:
 | [`results/a1-benchmarkdotnet.md`](results/a1-benchmarkdotnet.md) | A1 via BenchmarkDotNet — retained because it reproduces the *illusion* |
 | [`results/c1-textstyleoverrides.md`](results/c1-textstyleoverrides.md) | C1: styled runs, constructor surface, `TextRunProperties` surface, U+FFFC glyph |
 | [`results/bidi-graphemes.md`](results/bidi-graphemes.md) | Caret walks vs `StringInfo`, backspace decomposition, `GetTextBounds` rects |
-| `results/*.png` | 25 rendered captures: wrapping, alignment matrix, baseline sweep, bitmap embed, C1 styled + tofu, bidi and cluster rendering, selection rects |
+| [`results/a1-width-only-relayout.md`](results/a1-width-only-relayout.md) | **[revised]** A1 part 2: width-only relayout correctness per width, `GetTextRun` counts, 7-rep timing |
+| [`results/review-verification.md`](results/review-verification.md) | **[revised]** Re-tests of three challenged claims: DrawingBrush loophole, `StringInfo` oracle, dangling ZWJ |
+| `results/*.png` | 29 rendered captures: wrapping, alignment matrix, baseline sweep, bitmap embed, C1 styled + tofu, bidi and cluster rendering, selection rects |
+
+---
+
+## 8. Limitations — what this spike does *not* establish
+
+Recorded honestly, because the first version of this report stated several things more confidently
+than the evidence supported. Adversarial review found these; they are listed rather than quietly
+fixed.
+
+**Untested cases that a reader might assume were covered:**
+
+- **Embeds in RTL/bidi context** — every A2 measurement used a single LTR line. Embeds inside
+  right-to-left runs, selection across an embed on a *wrapped* line, and hit-testing exactly at line
+  boundaries are all untested.
+- **Indic conjuncts** — no Devanagari string was in the caret walk, despite §8 naming it.
+- **`IsTrailing` at line ends / below the layout** — only interior points were sampled.
+- **The oversized-embed case was never rendered**, so "not clipped" is inferred from geometry, not
+  observed.
+- **Wrapping was sampled at 7 widths**, not swept continuously; the "embed appears exactly once"
+  assertion was checked on the 400px layout only.
+
+**Harness weaknesses — these mean "0 failures" is weaker evidence than it looks:**
+
+- The probe process **always exits 0**, whatever the failure count, and an unrecognised mode runs
+  nothing and reports success. Every "0 failures" in this document was read from stdout, not from an
+  exit code, but a CI harness built this way would be worthless.
+- Several checks are **too broad to fail usefully**: the null-`Properties` check accepts *any*
+  exception rather than the specific `ArgumentOutOfRangeException`; the `Top`/`TextTop` displacement
+  is printed but never asserted; the bidi walk would pass if a caret API simply returned its input.
+- The documented `bench` command **does not regenerate** `results/a1-benchmarkdotnet.md`; that file
+  was transformed by hand from BenchmarkDotNet's artifacts.
+- The bidi evidence is **Windows-font-dependent** (`Typeface.Default` resolving emoji to Segoe UI
+  Emoji); results on another platform are unverified.
+
+None of these change the three verdicts, which rest on the direct measurements quoted above. They do
+mean Increment 1's test suite should not be modelled on this harness.
 
 **Disposal.** Per §10 this spike is throwaway. Delete `spike/` once Increment 1 begins; this
 document and `results/` are the only artefacts worth keeping, and are best relocated into `docs/`

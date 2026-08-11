@@ -1,5 +1,5 @@
 # A2 — `DrawableTextRun` inside a custom `ITextSource`
-_generated 2026-08-11 14:10:58_
+_generated 2026-08-11 15:24:05_
 
 Text length: 148; embeds at indices 18, 142 (both U+FFFC).
 
