@@ -1,0 +1,299 @@
+using System.Collections.Immutable;
+
+namespace Vellum;
+
+/// <summary>
+/// What kind of edit a transaction was, for the benefit of undo grouping.
+/// </summary>
+/// <remarks>
+/// History needs to know why a change happened, not just what changed. Twenty keystrokes should
+/// undo as one word; a paste should never be swallowed into the keystrokes on either side of it.
+/// Nothing else in the model consults this - it is a note the editor leaves for history.
+/// </remarks>
+public enum TransactionKind
+{
+    /// <summary>Characters entered one at a time.</summary>
+    Typing,
+
+    /// <summary>Backspace, Delete, or removing a selection.</summary>
+    Delete,
+
+    /// <summary>Bold, colour, alignment - anything that changes appearance.</summary>
+    Format,
+
+    /// <summary>Splitting, joining, lists, tables - anything that changes the shape.</summary>
+    Structure,
+
+    /// <summary>Content arriving from outside.</summary>
+    Paste,
+
+    /// <summary>Composition in progress. Provisional until the input method commits it.</summary>
+    Ime,
+
+    /// <summary>Undo or redo replaying recorded steps.</summary>
+    History,
+}
+
+/// <summary>
+/// A change to the editor, assembled before it is applied.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A transaction is built by adding steps to it, each applied immediately so that the next can be
+/// expressed against the document as it now stands. That is what makes "delete the selection,
+/// then type the character" writable as two independent steps rather than one fused operation
+/// that has to do the arithmetic itself.
+/// </para>
+/// <para>
+/// A step that cannot be applied is dropped and recorded in <see cref="Failures"/> rather than
+/// throwing. Steps fail for ordinary reasons - a range whose two ends are in different blocks -
+/// and a command that composes several of them should be able to try one and carry on.
+/// </para>
+/// </remarks>
+public sealed class Transaction
+{
+    private readonly ImmutableArray<Step>.Builder _steps = ImmutableArray.CreateBuilder<Step>();
+
+    private readonly ImmutableArray<DocumentNode>.Builder _docs =
+        ImmutableArray.CreateBuilder<DocumentNode>();
+
+    private readonly ImmutableArray<string>.Builder _failures =
+        ImmutableArray.CreateBuilder<string>();
+
+    private Mapping _mapping = Mapping.Empty;
+    private Selection? _selection;
+    private MarkSet? _storedMarks;
+    private bool _storedMarksSet;
+
+    /// <summary>Starts a transaction from a state.</summary>
+    /// <param name="before">The state to change.</param>
+    public Transaction(EditorState before)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+
+        Before = before;
+        Doc = before.Doc;
+    }
+
+    /// <summary>The state this transaction started from.</summary>
+    public EditorState Before { get; }
+
+    /// <summary>The document as it stands with the steps so far applied.</summary>
+    public DocumentNode Doc { get; private set; }
+
+    /// <summary>The steps that were applied, in order.</summary>
+    public ImmutableArray<Step> Steps => _steps.ToImmutable();
+
+    /// <summary>
+    /// The document each step was applied to, in order. What inverting the steps needs.
+    /// </summary>
+    public ImmutableArray<DocumentNode> DocsBefore => _docs.ToImmutable();
+
+    /// <summary>Why each dropped step was dropped.</summary>
+    public ImmutableArray<string> Failures => _failures.ToImmutable();
+
+    /// <summary>How the whole transaction moves positions.</summary>
+    public Mapping Mapping => _mapping;
+
+    /// <summary>Whether any step was applied.</summary>
+    public bool ChangedDoc => _steps.Count > 0;
+
+    /// <summary>What kind of edit this is.</summary>
+    public TransactionKind Kind { get; set; } = TransactionKind.Structure;
+
+    /// <summary>
+    /// When this edit happened, for undo grouping.
+    /// </summary>
+    /// <remarks>
+    /// Settable so that tests and replayed history are not at the mercy of the wall clock.
+    /// </remarks>
+    public DateTimeOffset Time { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// The selection after this transaction: the one that was set, or the old one moved forward.
+    /// </summary>
+    public Selection SelectionAfter => _selection ?? Before.Selection.Map(Doc, _mapping);
+
+    /// <summary>
+    /// The formatting armed for the next character typed, or null if there is none.
+    /// </summary>
+    /// <remarks>
+    /// Pressing Ctrl+B with a caret arms boldness that has nowhere to live yet. It has to survive
+    /// until something is typed and be dropped the moment anything is, which is why it belongs to
+    /// the state rather than to the document.
+    /// </remarks>
+    public MarkSet? StoredMarks =>
+        _storedMarksSet ? _storedMarks
+        : ChangedDoc ? null
+        : Before.StoredMarks;
+
+    /// <summary>Applies a step, or records why it could not be applied.</summary>
+    /// <param name="step">The step.</param>
+    /// <returns>This transaction, for chaining.</returns>
+    public Transaction Step(Step step)
+    {
+        ArgumentNullException.ThrowIfNull(step);
+
+        var result = step.Apply(Doc);
+
+        if (!result.IsOk)
+        {
+            _failures.Add(result.Failure!);
+
+            return this;
+        }
+
+        _steps.Add(step);
+        _docs.Add(Doc);
+        _mapping = _mapping.Append(step.GetMap());
+        Doc = result.Doc!;
+
+        return this;
+    }
+
+    /// <summary>Replaces a range with a slice.</summary>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    /// <param name="slice">What to put there.</param>
+    public Transaction Replace(int from, int to, Slice slice) =>
+        Step(new ReplaceStep(from, to, slice));
+
+    /// <summary>Removes a range.</summary>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    public Transaction Delete(int from, int to) => Step(ReplaceStep.Delete(from, to));
+
+    /// <summary>Inserts text.</summary>
+    /// <param name="pos">Where to insert.</param>
+    /// <param name="text">What to insert.</param>
+    /// <param name="mark">The formatting to give it.</param>
+    public Transaction InsertText(int pos, string text, MarkSet mark = default) =>
+        Step(ReplaceStep.Insert(pos, Slice.OfInline(InlineContent.FromText(text, mark))));
+
+    /// <summary>Where the selection should be once this transaction is applied.</summary>
+    /// <param name="selection">The selection.</param>
+    /// <remarks>
+    /// Set this after the steps. It is taken as given rather than mapped, so a selection set
+    /// before a later step will not follow that step's changes.
+    /// </remarks>
+    public Transaction SetSelection(Selection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+
+        _selection = selection;
+
+        return this;
+    }
+
+    /// <summary>Arms formatting for the next character typed.</summary>
+    /// <param name="marks">The formatting, or null to disarm.</param>
+    public Transaction SetStoredMarks(MarkSet? marks)
+    {
+        _storedMarks = marks;
+        _storedMarksSet = true;
+
+        return this;
+    }
+
+    /// <summary>Records what kind of edit this is.</summary>
+    /// <param name="kind">The kind.</param>
+    public Transaction As(TransactionKind kind)
+    {
+        Kind = kind;
+
+        return this;
+    }
+
+    /// <summary>Records when this edit happened.</summary>
+    /// <param name="time">The time.</param>
+    public Transaction At(DateTimeOffset time)
+    {
+        Time = time;
+
+        return this;
+    }
+
+    /// <summary>
+    /// The steps that undo this transaction: reversed, and each inverted against the document it
+    /// was applied to.
+    /// </summary>
+    public ImmutableArray<Step> Invert()
+    {
+        var inverted = ImmutableArray.CreateBuilder<Step>(_steps.Count);
+
+        for (var i = _steps.Count - 1; i >= 0; i--)
+        {
+            inverted.Add(_steps[i].Invert(_docs[i]));
+        }
+
+        return inverted.ToImmutable();
+    }
+}
+
+/// <summary>
+/// Everything the editor knows: a document, a selection, and any armed formatting.
+/// </summary>
+/// <remarks>
+/// The state is immutable and replaced wholesale. Nothing edits a document in place, so there is
+/// never a moment when the selection refers to a document that no longer exists, and any state
+/// can be kept and compared with any other - which is what undo, and later collaboration, need.
+/// </remarks>
+public sealed record EditorState
+{
+    private EditorState(DocumentNode doc, Selection selection, MarkSet? storedMarks)
+    {
+        Doc = doc;
+        Selection = selection;
+        StoredMarks = storedMarks;
+    }
+
+    /// <summary>The document.</summary>
+    public DocumentNode Doc { get; }
+
+    /// <summary>What is selected.</summary>
+    public Selection Selection { get; }
+
+    /// <summary>Formatting armed for the next character typed, if any.</summary>
+    public MarkSet? StoredMarks { get; }
+
+    /// <summary>A state holding a document, with the caret at the first place it can sit.</summary>
+    /// <param name="doc">The document.</param>
+    public static EditorState Create(DocumentNode doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        return new EditorState(doc, Vellum.Selection.AtStart(doc), null);
+    }
+
+    /// <summary>A state holding a document and a selection.</summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="selection">What is selected.</param>
+    public static EditorState Create(DocumentNode doc, Selection selection)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(selection);
+
+        return new EditorState(doc, selection, null);
+    }
+
+    /// <summary>Begins a transaction against this state.</summary>
+    public Transaction Transaction() => new(this);
+
+    /// <summary>The state this one becomes once a transaction is applied.</summary>
+    /// <param name="tr">The transaction.</param>
+    /// <exception cref="ArgumentException">The transaction was built against another state.</exception>
+    public EditorState Apply(Transaction tr)
+    {
+        ArgumentNullException.ThrowIfNull(tr);
+
+        if (!ReferenceEquals(tr.Before, this))
+        {
+            throw new ArgumentException(
+                "The transaction was built against a different state. Its positions are measured "
+                + "against that state's document and mean nothing here.",
+                nameof(tr));
+        }
+
+        return new EditorState(tr.Doc, tr.SelectionAfter, tr.StoredMarks);
+    }
+}
