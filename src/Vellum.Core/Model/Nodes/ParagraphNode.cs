@@ -79,6 +79,8 @@ public sealed class ParagraphNode : BlockNode
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentOutOfRangeException.ThrowIfNegative(indentLevel);
+        NodeAttr.Require(kind);
+        NodeAttr.Require(align);
 
         Content = content;
         Kind = kind;

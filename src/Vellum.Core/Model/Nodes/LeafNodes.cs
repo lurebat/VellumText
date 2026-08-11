@@ -50,6 +50,7 @@ public sealed class BlockImageNode : BlockNode
     public BlockImageNode(ImageEmbed image, TextAlign align = TextAlign.Default)
     {
         ArgumentNullException.ThrowIfNull(image);
+        NodeAttr.Require(align);
 
         Image = image;
         Align = align;

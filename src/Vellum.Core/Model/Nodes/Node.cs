@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 namespace Vellum;
 
@@ -148,3 +149,28 @@ public abstract class Node : IEquatable<Node>
 
 /// <summary>A node that can appear where block content is expected.</summary>
 public abstract class BlockNode : Node;
+
+/// <summary>Guards for the enum-valued attributes nodes carry.</summary>
+/// <remarks>
+/// A cast is not a check. <c>(TextAlign)999</c> compiles, so an attribute set by a caller,
+/// deserialized from a file, or read back from an older version can be a value no renderer has
+/// a case for. Node constructors enforce their own attributes for the same reason they enforce
+/// child types: it is the only place that cannot be bypassed (architecture §7).
+/// </remarks>
+internal static class NodeAttr
+{
+    /// <summary>Throws unless <paramref name="value"/> is a named member of its enum.</summary>
+    /// <typeparam name="T">The enum type.</typeparam>
+    /// <param name="value">The value to check.</param>
+    /// <param name="name">The parameter being checked, supplied by the compiler.</param>
+    internal static void Require<T>(
+        T value, [CallerArgumentExpression(nameof(value))] string? name = null)
+        where T : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentOutOfRangeException(
+                name, value, $"{typeof(T).Name} has no member with this value.");
+        }
+    }
+}

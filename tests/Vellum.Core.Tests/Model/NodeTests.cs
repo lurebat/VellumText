@@ -223,6 +223,23 @@ public class NodeConstructionTests
     }
 
     [Fact]
+    public void An_attribute_outside_its_enum_is_refused()
+    {
+        // A cast is not a check, and SetBlockAttrStep is not the only way in.
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ParagraphNode(InlineContent.Empty, (ParagraphKind)999));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ParagraphNode(InlineContent.Empty, align: (TextAlign)999));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ListNode([new ListItemNode([ParagraphNode.Empty])], (ListKind)999));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new BlockImageNode(new ImageEmbed("c.png"), (TextAlign)999));
+    }
+
+    [Fact]
     public void WithChildren_recomputes_the_size()
     {
         var doc = DocumentNode.FromParagraphs("a");

@@ -30,6 +30,7 @@ public sealed class ListNode : BlockNode
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentOutOfRangeException.ThrowIfNegative(start);
+        NodeAttr.Require(kind);
 
         _items = items.ToImmutableArray();
 
