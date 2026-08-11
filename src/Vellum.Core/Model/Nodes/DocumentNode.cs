@@ -48,6 +48,11 @@ public sealed class DocumentNode : Node
     /// <summary>The top-level blocks.</summary>
     public ImmutableArray<BlockNode> Blocks => _blocks;
 
+    /// <summary>Works out the ancestor chain for a position.</summary>
+    /// <param name="pos">A position in <c>[0, ContentSize]</c>.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The position is outside the document.</exception>
+    public ResolvedPos Resolve(int pos) => ResolvedPos.Resolve(this, pos);
+
     /// <inheritdoc/>
     public override int ContentSize => _contentSize;
 
