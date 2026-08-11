@@ -1,0 +1,446 @@
+namespace Vellum.Tests.State;
+
+/// <summary>Recording, grouping, undoing and redoing edits.</summary>
+public class HistoryTests
+{
+    private static readonly DateTimeOffset T0 = new(2024, 1, 1, 12, 0, 0, TimeSpan.Zero);
+
+    /// <summary>"hello" at 1..6, "world" at 8..13.</summary>
+    private static EditorState Start() =>
+        EditorState.Create(new DocumentNode(
+        [
+            ParagraphNode.FromText("hello"),
+            ParagraphNode.FromText("world"),
+        ]));
+
+    /// <summary>A state, its history, and the two operations that keep them together.</summary>
+    private sealed class Editor
+    {
+        public Editor(HistoryPolicy? policy = null)
+        {
+            State = Start();
+            History = policy is null ? History.Empty : History.With(policy.Value);
+        }
+
+        public EditorState State { get; private set; }
+
+        public History History { get; private set; }
+
+        public DocumentNode Doc => State.Doc;
+
+        public string Text(int block) => ((ParagraphNode)State.Doc.Children[block]).Content.Text;
+
+        public Transaction Begin(TransactionKind kind, TimeSpan at) =>
+            State.Transaction().As(kind).At(T0 + at);
+
+        public Editor Commit(Transaction tr)
+        {
+            History = History.Record(tr);
+            State = State.Apply(tr);
+
+            return this;
+        }
+
+        public Editor Type(int pos, string text, TimeSpan at)
+        {
+            Commit(Begin(TransactionKind.Typing, at).InsertText(pos, text));
+
+            return this;
+        }
+
+        public Editor Backspace(int pos, TimeSpan at)
+        {
+            Commit(Begin(TransactionKind.Delete, at).Delete(pos - 1, pos));
+
+            return this;
+        }
+
+        public Editor Select(Vellum.Selection selection)
+        {
+            Commit(State.Transaction().SetSelection(selection));
+
+            return this;
+        }
+
+        public Editor Undo()
+        {
+            (State, History) = History.Undo(State);
+
+            return this;
+        }
+
+        public Editor Redo()
+        {
+            (State, History) = History.Redo(State);
+
+            return this;
+        }
+    }
+
+    [Fact]
+    public void UndoRestoresTheDocumentExactly()
+    {
+        var editor = new Editor();
+        var before = editor.Doc;
+
+        editor.Type(1, "X", TimeSpan.Zero);
+
+        Assert.Equal("Xhello", editor.Text(0));
+
+        editor.Undo();
+
+        Assert.Equal(before, editor.Doc);
+    }
+
+    [Fact]
+    public void RedoRestoresTheLaterDocumentExactly()
+    {
+        var editor = new Editor().Type(1, "X", TimeSpan.Zero);
+        var after = editor.Doc;
+
+        editor.Undo().Redo();
+
+        Assert.Equal(after, editor.Doc);
+    }
+
+    [Fact]
+    public void UndoingAndRedoingRepeatedlyStaysExact()
+    {
+        var editor = new Editor();
+        var before = editor.Doc;
+
+        editor.Type(1, "X", TimeSpan.Zero);
+
+        var after = editor.Doc;
+
+        for (var i = 0; i < 4; i++)
+        {
+            Assert.Equal(before, editor.Undo().Doc);
+            Assert.Equal(after, editor.Redo().Doc);
+        }
+    }
+
+    [Fact]
+    public void UndoAndRedoMoveTheEventBetweenTheStacks()
+    {
+        var editor = new Editor().Type(1, "X", TimeSpan.Zero);
+
+        Assert.Equal(1, editor.History.UndoDepth);
+        Assert.Equal(0, editor.History.RedoDepth);
+        Assert.True(editor.History.CanUndo);
+        Assert.False(editor.History.CanRedo);
+
+        editor.Undo();
+
+        Assert.Equal(0, editor.History.UndoDepth);
+        Assert.Equal(1, editor.History.RedoDepth);
+        Assert.False(editor.History.CanUndo);
+        Assert.True(editor.History.CanRedo);
+    }
+
+    [Fact]
+    public void AnOrdinaryEditClearsTheRedoStack()
+    {
+        // The recorded way forward describes a document that no longer exists.
+        var editor = new Editor()
+            .Type(1, "X", TimeSpan.Zero)
+            .Undo();
+
+        Assert.Equal(1, editor.History.RedoDepth);
+
+        editor.Type(1, "Y", TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, editor.History.RedoDepth);
+        Assert.Equal("Yhello", editor.Text(0));
+    }
+
+    [Fact]
+    public void UndoOnAnEmptyStackIsANoOp()
+    {
+        var state = Start();
+        var (after, history) = History.Empty.Undo(state);
+
+        Assert.Same(state, after);
+        Assert.Same(History.Empty, history);
+    }
+
+    [Fact]
+    public void RedoOnAnEmptyStackIsANoOp()
+    {
+        var state = Start();
+        var (after, history) = History.Empty.Redo(state);
+
+        Assert.Same(state, after);
+        Assert.Same(History.Empty, history);
+    }
+
+    [Fact]
+    public void ATransactionThatChangedNothingIsNotRecorded()
+    {
+        // Moving the caret is not an edit. Recording it would make Ctrl+Z do nothing at all.
+        var editor = new Editor().Select(new TextSelection(3, 3));
+
+        Assert.Equal(0, editor.History.UndoDepth);
+        Assert.Equal(new TextSelection(3, 3), editor.State.Selection);
+    }
+
+    [Fact]
+    public void TypingInsideTheWindowUndoesAsOneStep()
+    {
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Type(2, "b", TimeSpan.FromMilliseconds(100))
+            .Type(3, "c", TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal("abchello", editor.Text(0));
+        Assert.Equal(1, editor.History.UndoDepth);
+
+        editor.Undo();
+
+        Assert.Equal("hello", editor.Text(0));
+        Assert.Equal(0, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void TypingOutsideTheWindowStartsANewStep()
+    {
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Type(2, "b", TimeSpan.FromMilliseconds(600));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+
+        editor.Undo();
+
+        Assert.Equal("ahello", editor.Text(0));
+    }
+
+    [Fact]
+    public void BackspaceCoalescesEvenThoughItMovesWhatCameBefore()
+    {
+        // Each deletion drags the previous one's range backwards. Comparing raw numbers would
+        // find them a character apart every time and never group.
+        var editor = new Editor()
+            .Backspace(6, TimeSpan.Zero)
+            .Backspace(5, TimeSpan.FromMilliseconds(100))
+            .Backspace(4, TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal("he", editor.Text(0));
+        Assert.Equal(1, editor.History.UndoDepth);
+
+        editor.Undo();
+
+        Assert.Equal("hello", editor.Text(0));
+    }
+
+    [Fact]
+    public void ASelectionJumpBetweenTwoEditsPreventsCoalescing()
+    {
+        // Both are typing, both are inside the window, and the ranges touch. Only the caret
+        // having been moved in between separates them.
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Select(new TextSelection(4, 4))
+            .Type(2, "b", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void WithoutTheJumpTheSameTwoEditsDoCoalesce()
+    {
+        // The control for the test above: everything else about it groups, so the jump is what
+        // did the work there.
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Type(2, "b", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(1, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void AnEditSomewhereElseStartsANewStep()
+    {
+        // Same kind, same window, and the caret was never moved - but the second edit is in the
+        // other paragraph, so undoing them together would move text the reader never saw move.
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Type(9, "b", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+    }
+
+    [Theory]
+    [InlineData(TransactionKind.Structure)]
+    [InlineData(TransactionKind.Paste)]
+    public void SomeKindsAreLandmarksAndNeverCoalesce(TransactionKind kind)
+    {
+        // A reader undoing past a paste expects to arrive exactly there, not inside it.
+        var editor = new Editor();
+
+        editor.Commit(editor.Begin(kind, TimeSpan.Zero).InsertText(1, "a"));
+        editor.Commit(editor.Begin(kind, TimeSpan.FromMilliseconds(100)).InsertText(2, "b"));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void TypingAndDeletingDoNotCoalesceWithEachOther()
+    {
+        var editor = new Editor()
+            .Type(1, "a", TimeSpan.Zero)
+            .Backspace(2, TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+        Assert.Equal("hello", editor.Text(0));
+    }
+
+    [Fact]
+    public void TheNeverPolicyMakesEveryTransactionItsOwnStep()
+    {
+        var editor = new Editor(HistoryPolicy.Never)
+            .Type(1, "a", TimeSpan.Zero)
+            .Type(2, "b", TimeSpan.FromMilliseconds(10))
+            .Type(3, "c", TimeSpan.FromMilliseconds(20));
+
+        Assert.Equal(3, editor.History.UndoDepth);
+
+        editor.Undo();
+
+        Assert.Equal("abhello", editor.Text(0));
+    }
+
+    [Fact]
+    public void CoalescedStepsUndoInTheOrderTheyHappened()
+    {
+        // The steps recorded last have to undo first, or they are applied to positions that the
+        // earlier ones have already moved.
+        var editor = new Editor()
+            .Type(1, "abc", TimeSpan.Zero)
+            .Type(4, "de", TimeSpan.FromMilliseconds(50))
+            .Type(6, "f", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal("abcdefhello", editor.Text(0));
+        Assert.Equal(3, editor.History.Pending!.Undo.Length);
+
+        editor.Undo();
+
+        Assert.Equal("hello", editor.Text(0));
+    }
+
+    [Fact]
+    public void UndoRestoresTheSelectionTheEditStartedFrom()
+    {
+        // Undo puts the reader back where they were working. That is not something the steps
+        // carry, so it has to be recorded alongside them.
+        var editor = new Editor().Select(new TextSelection(1, 4));
+
+        editor.Commit(editor.Begin(TransactionKind.Paste, TimeSpan.Zero)
+            .Delete(1, 4)
+            .InsertText(1, "WXYZ"));
+
+        Assert.NotEqual(new TextSelection(1, 4), editor.State.Selection);
+
+        editor.Undo();
+
+        Assert.Equal(new TextSelection(1, 4), editor.State.Selection);
+    }
+
+    [Fact]
+    public void RedoRestoresTheSelectionTheEditEndedAt()
+    {
+        var editor = new Editor().Select(new TextSelection(1, 4));
+
+        editor.Commit(editor.Begin(TransactionKind.Paste, TimeSpan.Zero)
+            .Delete(1, 4)
+            .InsertText(1, "WXYZ"));
+
+        var after = editor.State.Selection;
+
+        editor.Undo().Redo();
+
+        Assert.Equal(after, editor.State.Selection);
+    }
+
+    [Fact]
+    public void ReplayIsNotItselfRecorded()
+    {
+        // Otherwise Ctrl+Z would undo itself and nothing would ever move.
+        var editor = new Editor().Type(1, "X", TimeSpan.Zero).Undo();
+
+        Assert.Equal(0, editor.History.UndoDepth);
+        Assert.Equal(1, editor.History.RedoDepth);
+    }
+
+    [Fact]
+    public void ATransactionMarkedAsReplayIsNotRecorded()
+    {
+        // An application funnels everything it applies through Record. Undo and Redo keep the
+        // stacks themselves, so anything they produce has to pass straight through.
+        var editor = new Editor();
+
+        editor.Commit(editor.Begin(TransactionKind.History, TimeSpan.Zero).InsertText(1, "X"));
+
+        Assert.Equal("Xhello", editor.Text(0));
+        Assert.Equal(0, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void UndoAndRedoWalkASequenceOfStepsInOrder()
+    {
+        var editor = new Editor();
+        var snapshots = new List<DocumentNode> { editor.Doc };
+
+        // A second apart, so nothing groups and each edit is its own step.
+        for (var i = 0; i < 5; i++)
+        {
+            editor.Type(1, "X", TimeSpan.FromSeconds(i * 2));
+            snapshots.Add(editor.Doc);
+        }
+
+        Assert.Equal(5, editor.History.UndoDepth);
+
+        for (var i = 4; i >= 0; i--)
+        {
+            Assert.Equal(snapshots[i], editor.Undo().Doc);
+        }
+
+        for (var i = 1; i <= 5; i++)
+        {
+            Assert.Equal(snapshots[i], editor.Redo().Doc);
+        }
+    }
+
+    [Fact]
+    public void FormattingUndoesWithoutDisturbingTheDocumentAroundIt()
+    {
+        var editor = new Editor();
+        var before = editor.Doc;
+
+        editor.Commit(editor.Begin(TransactionKind.Format, TimeSpan.Zero)
+            .Step(new AddMarkStep(1, 4, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold)));
+
+        Assert.NotEqual(before, editor.Doc);
+
+        editor.Undo();
+
+        Assert.Equal(before, editor.Doc);
+    }
+
+    [Fact]
+    public void HistoryIsImmutableSoAnOldOneStillWorks()
+    {
+        var editor = new Editor().Type(1, "a", TimeSpan.Zero);
+        var early = editor.History;
+        var earlyState = editor.State;
+
+        editor.Type(1, "b", TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+        Assert.Equal(1, early.UndoDepth);
+
+        var (undone, _) = early.Undo(earlyState);
+
+        Assert.Equal("hello", ((ParagraphNode)undone.Doc.Children[0]).Content.Text);
+    }
+}
