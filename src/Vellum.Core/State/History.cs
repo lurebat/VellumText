@@ -222,6 +222,8 @@ public sealed class History
     {
         ArgumentNullException.ThrowIfNull(tr);
 
+        tr.Seal();
+
         if (!tr.ChangedDoc || tr.Kind == TransactionKind.History)
         {
             return this;

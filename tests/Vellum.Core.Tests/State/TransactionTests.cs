@@ -160,6 +160,68 @@ public class TransactionTests
     }
 
     [Fact]
+    public void ArmedFormattingSurvivesAnEditThatTypesNothing()
+    {
+        // Bolding a word that is already there, or centring the paragraph, is not the
+        // "first character typed" that the armed formatting is waiting for.
+        var before = Start();
+        var armed = before.Apply(
+            before.Transaction().SetStoredMarks(new MarkSet { Style = TextStyle.Italic }));
+
+        var formatted = armed.Apply(armed.Transaction().Step(
+            new AddMarkStep(1, 3, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold)));
+
+        Assert.Equal(new MarkSet { Style = TextStyle.Italic }, formatted.StoredMarks);
+
+        var aligned = formatted.Apply(formatted.Transaction().Step(
+            new SetBlockAttrStep(0, BlockAttr.Align, (int)TextAlign.Center)));
+
+        Assert.Equal(new MarkSet { Style = TextStyle.Italic }, aligned.StoredMarks);
+    }
+
+    [Fact]
+    public void AStepThatLeavesTheDocumentAloneIsNotAStep()
+    {
+        // It applied, but it changed nothing, so there is nothing to undo and nothing to map.
+        var tr = Start().Transaction().Step(
+            new AddMarkStep(1, 1, new MarkSet { Style = TextStyle.Bold }, MarkFields.None));
+
+        Assert.False(tr.ChangedDoc);
+        Assert.Empty(tr.Steps);
+        Assert.Empty(tr.Failures);
+        Assert.Equal(0, History.Empty.Record(tr).UndoDepth);
+    }
+
+    [Fact]
+    public void AnExplicitSelectionIsStillCheckedAgainstTheFinishedDocument()
+    {
+        // Taken as given means not moved, not trusted. The ground under position 5 is gone.
+        var before = Start();
+        var tr = before.Transaction()
+            .SetSelection(new TextSelection(5, 5))
+            .Delete(1, 6);
+
+        var after = before.Apply(tr);
+
+        Assert.InRange(after.Selection.Head, 0, after.Doc.ContentSize);
+    }
+
+    [Fact]
+    public void ARecordedTransactionCannotBeChangedAfterwards()
+    {
+        // History derived an inverse from what it read. Letting the transaction grow after
+        // that would leave undo unable to reach back past the steps it never saw.
+        var before = Start();
+        var tr = before.Transaction().As(TransactionKind.Typing).InsertText(1, "X");
+
+        History.Empty.Record(tr);
+
+        Assert.Throws<InvalidOperationException>(() => tr.InsertText(1, "Y"));
+        Assert.Throws<InvalidOperationException>(() => tr.SetSelection(new TextSelection(1, 1)));
+        Assert.Throws<InvalidOperationException>(() => tr.As(TransactionKind.Delete));
+    }
+
+    [Fact]
     public void InvertingATransactionUndoesItExactly()
     {
         var before = Start();

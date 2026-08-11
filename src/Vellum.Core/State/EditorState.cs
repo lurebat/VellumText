@@ -64,6 +64,8 @@ public sealed class Transaction
     private Selection? _selection;
     private MarkSet? _storedMarks;
     private bool _storedMarksSet;
+    private bool _changedContent;
+    private bool _sealed;
 
     /// <summary>Starts a transaction from a state.</summary>
     /// <param name="before">The state to change.</param>
@@ -112,7 +114,15 @@ public sealed class Transaction
     /// <summary>
     /// The selection after this transaction: the one that was set, or the old one moved forward.
     /// </summary>
-    public Selection SelectionAfter => _selection ?? Before.Selection.Map(Doc, _mapping);
+    /// <remarks>
+    /// An explicitly set selection is still checked against the finished document. Taking it as
+    /// given means not moving it, not trusting it: a caller that sets a selection and then adds
+    /// a step that deletes the ground under it would otherwise hand the editor a caret outside
+    /// the document.
+    /// </remarks>
+    public Selection SelectionAfter => _selection is { } set
+        ? set.Map(Doc, Mapping.Empty)
+        : Before.Selection.Map(Doc, _mapping);
 
     /// <summary>
     /// The formatting armed for the next character typed, or null if there is none.
@@ -120,19 +130,22 @@ public sealed class Transaction
     /// <remarks>
     /// Pressing Ctrl+B with a caret arms boldness that has nowhere to live yet. It has to survive
     /// until something is typed and be dropped the moment anything is, which is why it belongs to
-    /// the state rather than to the document.
+    /// the state rather than to the document. Changing existing formatting or a block attribute
+    /// is not something being typed, so it leaves the armed formatting alone.
     /// </remarks>
     public MarkSet? StoredMarks =>
         _storedMarksSet ? _storedMarks
-        : ChangedDoc ? null
+        : _changedContent ? null
         : Before.StoredMarks;
 
     /// <summary>Applies a step, or records why it could not be applied.</summary>
     /// <param name="step">The step.</param>
     /// <returns>This transaction, for chaining.</returns>
+    /// <exception cref="InvalidOperationException">This transaction has been recorded.</exception>
     public Transaction Step(Step step)
     {
         ArgumentNullException.ThrowIfNull(step);
+        RequireOpen();
 
         var result = step.Apply(Doc);
 
@@ -143,9 +156,21 @@ public sealed class Transaction
             return this;
         }
 
+        // A step that applied cleanly and left the very same document did nothing. Recording it
+        // would put an entry on the undo stack that undoes nothing, which reads to the user as
+        // an undo that did not work.
+        if (ReferenceEquals(result.Doc, Doc))
+        {
+            return this;
+        }
+
         _steps.Add(step);
         _docs.Add(Doc);
-        _mapping = _mapping.Append(step.GetMap());
+
+        var map = step.GetMap();
+
+        _mapping = _mapping.Append(map);
+        _changedContent |= !map.IsIdentity;
         Doc = result.Doc!;
 
         return this;
@@ -179,6 +204,7 @@ public sealed class Transaction
     public Transaction SetSelection(Selection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
+        RequireOpen();
 
         _selection = selection;
 
@@ -189,6 +215,8 @@ public sealed class Transaction
     /// <param name="marks">The formatting, or null to disarm.</param>
     public Transaction SetStoredMarks(MarkSet? marks)
     {
+        RequireOpen();
+
         _storedMarks = marks;
         _storedMarksSet = true;
 
@@ -199,6 +227,7 @@ public sealed class Transaction
     /// <param name="kind">The kind.</param>
     public Transaction As(TransactionKind kind)
     {
+        RequireOpen();
         Kind = kind;
 
         return this;
@@ -208,9 +237,31 @@ public sealed class Transaction
     /// <param name="time">The time.</param>
     public Transaction At(DateTimeOffset time)
     {
+        RequireOpen();
         Time = time;
 
         return this;
+    }
+
+    /// <summary>
+    /// Closes this transaction to further change.
+    /// </summary>
+    /// <remarks>
+    /// History reads a transaction once, at the moment it is recorded, and keeps the inverse it
+    /// derived. If the same transaction were then extended and applied, the document would move
+    /// further than the undo entry knows how to move it back, and undo would silently leave the
+    /// later edit behind. Sealing turns that into an exception at the point of the mistake.
+    /// </remarks>
+    internal void Seal() => _sealed = true;
+
+    private void RequireOpen()
+    {
+        if (_sealed)
+        {
+            throw new InvalidOperationException(
+                "This transaction has already been recorded in history and cannot be changed. "
+                + "Begin a new transaction for further edits.");
+        }
     }
 
     /// <summary>
