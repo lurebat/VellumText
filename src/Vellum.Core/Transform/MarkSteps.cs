@@ -146,7 +146,10 @@ public sealed record AddMarkStep(int From, int To, MarkSet Value, MarkFields Fie
         var from = mapping.MapWithResult(From, Assoc.After);
         var to = mapping.MapWithResult(To, Assoc.Before);
 
-        return from.Deleted && to.Deleted ? null : this with { From = from.Pos, To = to.Pos };
+        // The ends bind to opposite edges, so an insertion inside the range can carry them past
+        // one another. Either way there is no text left to format, and an inverted range is a
+        // step nothing downstream could apply.
+        return to.Pos <= from.Pos ? null : this with { From = from.Pos, To = to.Pos };
     }
 }
 
@@ -188,7 +191,10 @@ public sealed record RemoveMarkStep(int From, int To, MarkFields Fields) : Step
         var from = mapping.MapWithResult(From, Assoc.After);
         var to = mapping.MapWithResult(To, Assoc.Before);
 
-        return from.Deleted && to.Deleted ? null : this with { From = from.Pos, To = to.Pos };
+        // The ends bind to opposite edges, so an insertion inside the range can carry them past
+        // one another. Either way there is no text left to format, and an inverted range is a
+        // step nothing downstream could apply.
+        return to.Pos <= from.Pos ? null : this with { From = from.Pos, To = to.Pos };
     }
 }
 

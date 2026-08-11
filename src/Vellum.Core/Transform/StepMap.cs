@@ -48,11 +48,25 @@ public readonly record struct StepMap
     /// <param name="start">Where the replaced range begins.</param>
     /// <param name="oldSize">How many positions the range covered before.</param>
     /// <param name="newSize">How many positions it covers after.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A value is negative, or the range described could not fit in a document.
+    /// </exception>
     public StepMap(int start, int oldSize, int newSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(start);
         ArgumentOutOfRangeException.ThrowIfNegative(oldSize);
         ArgumentOutOfRangeException.ThrowIfNegative(newSize);
+
+        // Mapping is addition, and it runs on every keystroke for every held position, so it
+        // cannot afford checked arithmetic. Refusing a map that could overflow costs nothing
+        // here and is the difference between a position landing past the end of the document
+        // and one landing at a large negative number, which reads as valid to everything.
+        if (start > int.MaxValue - oldSize || start > int.MaxValue - newSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(newSize),
+                "A step map cannot describe a range that runs past the end of the position space.");
+        }
 
         Start = start;
         OldSize = oldSize;

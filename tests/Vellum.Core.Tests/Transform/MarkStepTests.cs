@@ -347,6 +347,19 @@ public class MarkStepMappingTests
     }
 
     [Fact]
+    public void ARangeWhoseEndsCrossOverDisappears()
+    {
+        // The two ends bind to opposite edges so that text typed inside a bold range inherits
+        // the bold. An empty range has both ends at the same place, so a pure insertion there
+        // pushes them past one another: from moves with the insertion, to stays. The result was
+        // an inverted range that no consumer could make sense of.
+        var mapping = Mapping.Of(new StepMap(3, 0, 2));
+
+        Assert.Null(new AddMarkStep(3, 3, MixedSample.Bold, MarkFields.Bold).Map(mapping));
+        Assert.Null(new RemoveMarkStep(3, 3, MarkFields.Bold).Map(mapping));
+    }
+
+    [Fact]
     public void ARestoreStepDeclinesToRebase()
     {
         var step = new RestoreMarksStep(1, 3, [new ValueSpan<MarkSet>(1, 2, MixedSample.Bold)]);

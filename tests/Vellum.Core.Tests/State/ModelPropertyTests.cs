@@ -299,6 +299,41 @@ public class ModelPropertyTests
         }
     }
 
+    [Property(MaxTest = 400)]
+    public void EveryStepsMapAgreesWithTheDocumentThatStepMade(int[] script)
+    {
+        // A step's map is a promise about the document the step produced. If the two ever
+        // disagree by even one position, every position mapped through that step afterwards is
+        // wrong, and the step's own inverse will not fit the document it is asked to undo. The
+        // disagreement is silent everywhere else, so it is checked here on every generated edit.
+        var state = EditorState.Create(Seed());
+
+        foreach (var op in Ops(script))
+        {
+            var before = state.Doc;
+            var tr = Build(state, op);
+
+            if (tr is null)
+            {
+                continue;
+            }
+
+            state = state.Apply(tr);
+
+            var claimed = 0;
+
+            foreach (var map in tr.Mapping.Maps)
+            {
+                claimed += map.SizeDelta;
+            }
+
+            Assert.True(
+                claimed == state.Doc.ContentSize - before.ContentSize,
+                $"after {op}: maps claim {claimed}, document moved by "
+                + $"{state.Doc.ContentSize - before.ContentSize}");
+        }
+    }
+
     // ---------------------------------------------------------------- non-vacuity
 
     [Fact]

@@ -44,6 +44,30 @@ public class SliceTests
     }
 
     [Fact]
+    public void ASliceCannotBeOpenerThanItIsDeep()
+    {
+        // An open depth is a claim about shape, not just about size. A list item with nothing
+        // in it has one level to give, so being open two deep at that edge describes a fragment
+        // of a child that is not there. Left unchecked the slice's size stops matching what
+        // joining it into a document produces, and a step's map ends up disagreeing with the
+        // document that step just made.
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new Slice([new ListItemNode([])], 0, 2));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new Slice([new ListItemNode([])], 2, 0));
+
+        // One level deep is exactly what it has, and stays legal.
+        Assert.Equal(1, new Slice([new ListItemNode([])], 0, 1).Size);
+
+        // Three levels of real nesting support three levels of openness.
+        var nested = new ListNode([new ListItemNode([ParagraphNode.FromText("x")])]);
+
+        Assert.Equal(4, new Slice([nested], 0, 3).Size);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Slice([nested], 0, 4));
+    }
+
+    [Fact]
     public void CuttingAnEmptyRangeGivesNothing()
     {
         Assert.Same(Slice.Empty, Slice.Cut(Sample.Nested, 5, 5));

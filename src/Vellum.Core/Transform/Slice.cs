@@ -48,12 +48,47 @@ public sealed record Slice
             raw += node.NodeSize;
         }
 
+        // An open depth is a claim about the shape of the content: openStart of two says the
+        // first node is a fragment and so is its first child. If that child is not there, the
+        // claim is unmeetable, and the damage surfaces far away - the size computed here no
+        // longer matches what joining the slice into the document actually produces, so a step's
+        // map disagrees with the document it just made and every position after it is wrong.
+        if (openStart > AvailableDepth(Content, first: true))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(openStart),
+                "The content is not nested deeply enough to be open that far at its start.");
+        }
+
+        if (openEnd > AvailableDepth(Content, first: false))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(openEnd),
+                "The content is not nested deeply enough to be open that far at its end.");
+        }
+
         Size = raw - openStart - openEnd;
 
         ArgumentOutOfRangeException.ThrowIfNegative(Size, nameof(openStart));
 
         OpenStart = openStart;
         OpenEnd = openEnd;
+    }
+
+    /// <summary>How many levels of nesting an edge of some content actually has to give.</summary>
+    /// <param name="content">The nodes at this level.</param>
+    /// <param name="first">Whether to follow the leading edge rather than the trailing one.</param>
+    private static int AvailableDepth(IReadOnlyList<Node> content, bool first)
+    {
+        var depth = 0;
+
+        while (content.Count > 0)
+        {
+            depth++;
+            content = (first ? content[0] : content[^1]).Children;
+        }
+
+        return depth;
     }
 
     /// <summary>A slice holding nothing, which is what a pure deletion inserts.</summary>

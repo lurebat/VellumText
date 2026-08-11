@@ -27,6 +27,20 @@ public class StepMapTests
     }
 
     [Fact]
+    public void AMapThatCouldOverflowIsRefusedWhenItIsMade()
+    {
+        // Mapping is addition without a bounds check, because it runs for every held position
+        // on every keystroke. A map whose range runs off the end of the position space would
+        // send positions to large negative numbers, which read as valid to everything they
+        // reach. Refusing it at construction costs nothing on the hot path.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StepMap(1, 0, int.MaxValue));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new StepMap(1, int.MaxValue, 0));
+
+        // The largest honest map is still allowed.
+        Assert.Equal(int.MaxValue, new StepMap(0, 0, int.MaxValue).NewSize);
+    }
+
+    [Fact]
     public void PositionsAfterTheEditShiftByTheSizeChange()
     {
         Assert.Equal(9, Insert3At5.Map(6));
