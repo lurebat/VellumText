@@ -23,9 +23,13 @@ namespace Vellum.Tests.State;
 /// into a test of nothing.
 /// </para>
 /// <para>
-/// Measured, so that "random edits" is not taken on trust. FsCheck hands each property 400 scripts
-/// with a median of 19 numbers and a maximum of 87, which is 2321 edits per property; 53.7% of
-/// them apply, and the least common of the six kinds still applies 94 times per sample.
+/// Measured, so that "random edits" is not taken on trust. The fixed-seed sample in
+/// <see cref="EnoughOfTheGeneratedEditsActuallyApply"/> attempts 4000 edits across eight kinds;
+/// 47.1% of them apply, and the least common kind still applies 61 times. The apply rate is
+/// below half because the two structural kinds - splitting a paragraph and pasting closed
+/// blocks - are pointed at arbitrary positions, and a great many positions are places where a
+/// block genuinely cannot go. Those rejections are the model refusing correctly, and the
+/// property bodies see them as steps that were dropped.
 /// </para>
 /// </remarks>
 public class ModelPropertyTests
@@ -37,6 +41,15 @@ public class ModelPropertyTests
     private const char Marker = '\uE000';
 
     private const string Alphabet = "abcde";
+
+    /// <summary>
+    /// Text the generated edits also insert: an accented letter, a combining mark, a character
+    /// outside the basic plane, and a Hebrew pair. Positions count UTF-16 code units, so an
+    /// astral character is two of them and a step that cuts one in half produces text that is
+    /// not well-formed - which the model refuses, and which the properties must therefore see.
+    /// </summary>
+    private static readonly string[] Awkward =
+        ["\u00e9", "e\u0301", "\U0001F600", "\u05d0\u05d1", "\U0001F468\u200D\U0001F467"];
 
     /// <summary>
     /// Two levels of nesting and a table, so that positions are exercised against real depth
@@ -354,7 +367,7 @@ public class ModelPropertyTests
         var random = new Random(20240101);
         var attempted = 0;
         var applied = 0;
-        var kinds = new int[6];
+        var kinds = new int[8];
 
         for (var run = 0; run < 400; run++)
         {
@@ -386,7 +399,7 @@ public class ModelPropertyTests
         var ratio = (double)applied / attempted;
 
         Assert.True(
-            ratio > 0.5,
+            ratio > 0.4,
             $"only {applied} of {attempted} generated edits applied ({ratio:P0})");
 
         for (var kind = 0; kind < kinds.Length; kind++)
@@ -556,7 +569,7 @@ public class ModelPropertyTests
 
         for (var i = 0; i + 3 < script.Length; i += 4)
         {
-            yield return new Op(Mod(script[i], 6), script[i + 1], script[i + 2], script[i + 3]);
+            yield return new Op(Mod(script[i], 8), script[i + 1], script[i + 2], script[i + 3]);
         }
     }
 
@@ -607,7 +620,37 @@ public class ModelPropertyTests
                 var pos = blocks[Mod(op.A, blocks.Count)];
 
                 tr.As(TransactionKind.Structure)
-                    .Step(new SetBlockAttrStep(pos, BlockAttr.Align, Mod(op.C, 5)));
+                    .Step(new SetBlockAttrStep(pos, AttrAt(op.C), AttrValue(op.C)));
+                break;
+
+            case 6:
+                // Enter: an open slice that splits whatever paragraph it lands in. The one
+                // structural edit a reader makes constantly, and the one whose size arithmetic
+                // depends on open depths rather than on node sizes alone.
+                tr.As(TransactionKind.Structure).Replace(from, to, Slice.ParagraphSplit);
+                break;
+
+            case 7:
+                // Whole blocks arriving closed, which is what a paste of several paragraphs is,
+                // and an embed, which is one position holding something that is not text. Closed
+                // blocks only fit where a block fits, so that half aims at block boundaries; the
+                // embed is inline and goes wherever the generator points it.
+                var into = BlockPositions(state.Doc);
+                var edge = into[Mod(op.A, into.Count)];
+
+                tr.As(TransactionKind.Paste).Replace(
+                    Mod(op.C, 3) == 2 ? from : edge,
+                    Mod(op.C, 3) == 2 ? to : edge,
+                    Mod(op.C, 3) switch
+                    {
+                        0 => Slice.OfBlocks(
+                            ParagraphNode.FromText(Word(op.C, 3)),
+                            ParagraphNode.FromText(Word(op.C + 1, 3))),
+                        1 => Slice.OfBlocks(
+                            new ListNode([new ListItemNode([ParagraphNode.FromText(Word(op.C, 2))])])),
+                        _ => Slice.OfInline(
+                            InlineContent.FromEmbed(new ImageEmbed($"img{Mod(op.C, 3)}.png"))),
+                    });
                 break;
 
             default:
@@ -616,6 +659,23 @@ public class ModelPropertyTests
 
         return tr.ChangedDoc ? tr : null;
     }
+
+    /// <summary>Which block attribute a generated structure edit sets.</summary>
+    private static BlockAttr AttrAt(int seed) => Mod(seed, 4) switch
+    {
+        0 => BlockAttr.Align,
+        1 => BlockAttr.ParagraphKind,
+        2 => BlockAttr.IndentLevel,
+        _ => BlockAttr.ListKind,
+    };
+
+    private static int AttrValue(int seed) => AttrAt(seed) switch
+    {
+        BlockAttr.Align => Mod(seed, 5),
+        BlockAttr.ParagraphKind => Mod(seed / 7, 5),
+        BlockAttr.IndentLevel => Mod(seed / 7, 4),
+        _ => Mod(seed / 7, 3),
+    };
 
     private static MarkSet MarkAt(int seed) => Mod(seed, 4) switch
     {
@@ -635,6 +695,13 @@ public class ModelPropertyTests
 
     private static string Word(int seed, int maxLength)
     {
+        // Every fourth word is one of the awkward ones, so that the properties are exercised
+        // against text where a code unit is not a character.
+        if (Mod(seed, 4) == 3)
+        {
+            return Awkward[Mod(seed / 4, Awkward.Length)];
+        }
+
         var length = 1 + Mod(seed, maxLength);
         var text = new StringBuilder(length);
 
