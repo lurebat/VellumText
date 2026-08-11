@@ -532,7 +532,22 @@ a policy:
 - **(ii) whole-cluster delete** — snap the result back to the enclosing `StringInfo` boundary.
   Simpler to explain; diverges from platform convention.
 
-This is a scope decision, so it is proposed in §6 rather than made here.
+> **DECIDED (2026-08-11): (i) component-peel.** Vellum passes
+> `GetBackspaceCaretCharacterHit` through unmodified. Backspace on 👨‍👩‍👧‍👦 removes the boy and
+> leaves 👨‍👩‍👧; Backspace on `é` (combining) removes the acute and leaves `e`.
+>
+> Consequences for Increment 2:
+> - No snapping layer is needed — this is the *cheaper* option as well as the conventional one.
+> - The §8 scenario 3 test must assert **component-peel plus UTF-16 validity**, not whole-cluster
+>   deletion. Concretely: every backspace stop is a valid UTF-16 index (never inside a surrogate
+>   pair), the sequence is monotonic toward 0, and clusters are peeled one component at a time.
+> - **Arrow keys remain whole-cluster** — this decision applies to Backspace only. That asymmetry
+>   is intentional and matches platform behaviour; it should be stated in the test's name so it
+>   is not later "fixed" into consistency.
+> - Delete-forward is *not* covered by this measurement. Avalonia exposes no
+>   `GetDeleteCaretCharacterHit`, so Increment 2 must choose its own forward-delete policy;
+>   symmetry with component-peel is the obvious default but is unverified here.
+
 
 ---
 
