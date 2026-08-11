@@ -1,0 +1,321 @@
+using System.Collections.Immutable;
+
+namespace Vellum;
+
+/// <summary>
+/// Where one cell sits in a table once merges are taken into account.
+/// </summary>
+/// <param name="Pos">The position directly before the cell.</param>
+/// <param name="Top">The first row it occupies.</param>
+/// <param name="Left">The first column it occupies.</param>
+/// <param name="Bottom">One past the last row it occupies.</param>
+/// <param name="Right">One past the last column it occupies.</param>
+public readonly record struct TableSlot(int Pos, int Top, int Left, int Bottom, int Right);
+
+/// <summary>
+/// A table laid out as a grid, so that merged cells can be reasoned about by row and column
+/// rather than by index within a row.
+/// </summary>
+/// <remarks>
+/// The document stores a table as rows of cells, which is the right shape for editing and the
+/// wrong shape for every geometric question. A cell spanning two rows appears in one row's child
+/// list and simply is not present in the next, so the third cell of row two may be the fourth
+/// column. Selecting a rectangle, or asking what is above a cell, needs the grid, and building it
+/// on demand is cheaper than maintaining it in the tree, where every edit would have to keep it
+/// consistent.
+/// </remarks>
+public sealed class TableGrid
+{
+    private readonly int[,] _slots;
+    private readonly ImmutableDictionary<int, TableSlot> _cells;
+
+    private TableGrid(
+        int tablePos,
+        int rows,
+        int columns,
+        int[,] slots,
+        ImmutableDictionary<int, TableSlot> cells)
+    {
+        TablePos = tablePos;
+        Rows = rows;
+        Columns = columns;
+        _slots = slots;
+        _cells = cells;
+    }
+
+    /// <summary>The position directly before the table.</summary>
+    public int TablePos { get; }
+
+    /// <summary>How many rows the table has.</summary>
+    public int Rows { get; }
+
+    /// <summary>How many columns it takes to hold every cell.</summary>
+    public int Columns { get; }
+
+    /// <summary>Every cell, by the position directly before it.</summary>
+    public ImmutableDictionary<int, TableSlot> Cells => _cells;
+
+    /// <summary>
+    /// Lays out the table that contains a given cell position.
+    /// </summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="cellPos">A position directly before a table cell.</param>
+    /// <returns>The grid, or null if that position is not directly before a cell.</returns>
+    public static TableGrid? ForCell(DocumentNode doc, int cellPos)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        if (cellPos < 0 || cellPos > doc.ContentSize)
+        {
+            return null;
+        }
+
+        var at = doc.Resolve(cellPos);
+
+        if (at.NodeAfter is not TableCellNode
+            || at.Depth < 2
+            || at.NodeAt(at.Depth) is not TableRowNode
+            || at.NodeAt(at.Depth - 1) is not TableNode table)
+        {
+            return null;
+        }
+
+        return Build(at.Before(at.Depth - 1), table);
+    }
+
+    /// <summary>
+    /// Lays out a table.
+    /// </summary>
+    /// <param name="tablePos">The position directly before the table.</param>
+    /// <param name="table">The table.</param>
+    public static TableGrid Build(int tablePos, TableNode table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        var cells = ImmutableDictionary.CreateBuilder<int, TableSlot>();
+        var placed = new List<TableSlot>();
+        var width = 0;
+
+        // A first pass places every cell, because the width is not known until it is done: a
+        // trailing merged cell can widen the table beyond any single row's cell count.
+        var occupied = new HashSet<(int Row, int Column)>();
+        var rowPos = tablePos + 1;
+
+        for (var row = 0; row < table.Rows.Length; row++)
+        {
+            var cellPos = rowPos + 1;
+            var column = 0;
+
+            foreach (var cell in table.Rows[row].Cells)
+            {
+                while (occupied.Contains((row, column)))
+                {
+                    column++;
+                }
+
+                var slot = new TableSlot(
+                    cellPos,
+                    row,
+                    column,
+                    row + cell.RowSpan,
+                    column + cell.ColumnSpan);
+
+                for (var r = slot.Top; r < slot.Bottom; r++)
+                {
+                    for (var c = slot.Left; c < slot.Right; c++)
+                    {
+                        occupied.Add((r, c));
+                    }
+                }
+
+                placed.Add(slot);
+                cells.Add(cellPos, slot);
+                width = Math.Max(width, slot.Right);
+                column = slot.Right;
+                cellPos += cell.NodeSize;
+            }
+
+            rowPos += table.Rows[row].NodeSize;
+        }
+
+        var height = table.Rows.Length;
+        var slots = new int[height, Math.Max(width, 1)];
+
+        for (var r = 0; r < height; r++)
+        {
+            for (var c = 0; c < slots.GetLength(1); c++)
+            {
+                slots[r, c] = -1;
+            }
+        }
+
+        foreach (var slot in placed)
+        {
+            for (var r = slot.Top; r < Math.Min(slot.Bottom, height); r++)
+            {
+                for (var c = slot.Left; c < slot.Right; c++)
+                {
+                    slots[r, c] = slot.Pos;
+                }
+            }
+        }
+
+        return new TableGrid(tablePos, height, width, slots, cells.ToImmutable());
+    }
+
+    /// <summary>The cell occupying a slot, or null if the table is ragged and it is empty.</summary>
+    /// <param name="row">The row.</param>
+    /// <param name="column">The column.</param>
+    public TableSlot? At(int row, int column)
+    {
+        if (row < 0 || column < 0 || row >= Rows || column >= _slots.GetLength(1))
+        {
+            return null;
+        }
+
+        var pos = _slots[row, column];
+
+        return pos < 0 ? null : _cells[pos];
+    }
+
+    /// <summary>
+    /// Every cell in the smallest rectangle containing two cells, in document order.
+    /// </summary>
+    /// <param name="anchorCell">The position before one corner cell.</param>
+    /// <param name="headCell">The position before the other.</param>
+    /// <remarks>
+    /// The rectangle grows until it is closed under the cells it touches. Dragging from a plain
+    /// cell to one merged across two columns has to take the whole merged cell, and taking it
+    /// widens the rectangle, which may then take another - so this iterates rather than computing
+    /// a bounding box once.
+    /// </remarks>
+    public ImmutableArray<int> Rectangle(int anchorCell, int headCell)
+    {
+        if (!_cells.TryGetValue(anchorCell, out var anchor)
+            || !_cells.TryGetValue(headCell, out var head))
+        {
+            return [];
+        }
+
+        var top = Math.Min(anchor.Top, head.Top);
+        var left = Math.Min(anchor.Left, head.Left);
+        var bottom = Math.Max(anchor.Bottom, head.Bottom);
+        var right = Math.Max(anchor.Right, head.Right);
+
+        bool grew;
+
+        do
+        {
+            grew = false;
+
+            for (var r = top; r < bottom; r++)
+            {
+                for (var c = left; c < right; c++)
+                {
+                    if (At(r, c) is not { } slot)
+                    {
+                        continue;
+                    }
+
+                    if (slot.Top < top || slot.Left < left || slot.Bottom > bottom
+                        || slot.Right > right)
+                    {
+                        top = Math.Min(top, slot.Top);
+                        left = Math.Min(left, slot.Left);
+                        bottom = Math.Max(bottom, slot.Bottom);
+                        right = Math.Max(right, slot.Right);
+                        grew = true;
+                    }
+                }
+            }
+        }
+        while (grew);
+
+        var found = new SortedSet<int>();
+
+        for (var r = top; r < bottom; r++)
+        {
+            for (var c = left; c < right; c++)
+            {
+                if (At(r, c) is { } slot)
+                {
+                    found.Add(slot.Pos);
+                }
+            }
+        }
+
+        return [.. found];
+    }
+}
+
+/// <summary>
+/// A rectangular region of table cells.
+/// </summary>
+/// <param name="AnchorCell">The position directly before the cell the drag started in.</param>
+/// <param name="HeadCell">The position directly before the cell it is currently over.</param>
+/// <remarks>
+/// <para>
+/// The two ends are cell positions rather than the corners of a range, because a rectangle in a
+/// table is not a contiguous range of the document: selecting the left column of a two-column
+/// table skips over the right one in every row. Commands that act on the selection must therefore
+/// ask <see cref="Cells"/> what it covers rather than reading <c>From</c> and <c>To</c>, which
+/// only bound it.
+/// </para>
+/// <para>
+/// It exists this early because retro-fitting a third selection kind means revisiting every
+/// command that ever assumed two, and there will be more commands later than there are now.
+/// </para>
+/// </remarks>
+public sealed record CellSelection(int AnchorCell, int HeadCell)
+    : Selection(AnchorCell, HeadCell)
+{
+    /// <summary>
+    /// A cell selection between two cells, or null if they are not two cells of one table.
+    /// </summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="anchorCell">The position before one cell.</param>
+    /// <param name="headCell">The position before the other.</param>
+    public static CellSelection? Create(DocumentNode doc, int anchorCell, int headCell)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        var grid = TableGrid.ForCell(doc, anchorCell);
+
+        return grid is not null
+            && grid.Cells.ContainsKey(headCell)
+            && TableGrid.ForCell(doc, headCell)?.TablePos == grid.TablePos
+            ? new CellSelection(anchorCell, headCell)
+            : null;
+    }
+
+    /// <summary>
+    /// The positions before each selected cell, in document order.
+    /// </summary>
+    /// <param name="doc">The document this selection was measured against.</param>
+    public ImmutableArray<int> Cells(DocumentNode doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        return TableGrid.ForCell(doc, AnchorCell)?.Rectangle(AnchorCell, HeadCell) ?? [];
+    }
+
+    /// <inheritdoc/>
+    public override Selection Map(DocumentNode doc, Mapping mapping)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(mapping);
+
+        var anchor = mapping.MapWithResult(AnchorCell, Assoc.After);
+        var head = mapping.MapWithResult(HeadCell, Assoc.After);
+
+        if (!anchor.Deleted && !head.Deleted
+            && Create(doc, anchor.Pos, head.Pos) is { } survived)
+        {
+            return survived;
+        }
+
+        // The table, or one of the two cells, is gone. Degrading to a caret is the only honest
+        // answer: there is no smaller rectangle to fall back to that the reader asked for.
+        return Near(doc, head.Deleted ? head.Pos : HeadCell);
+    }
+}
