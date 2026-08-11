@@ -1,5 +1,5 @@
 # A1 diagnostic — is the cached layout stale, and is that our fault?
-_generated 2026-08-11 13:44:11_
+_generated 2026-08-11 14:18:56_
 
 The timing harness found the `InvalidateFrom` arm returning identical geometry for every edit. This section establishes what the cache actually does.
 

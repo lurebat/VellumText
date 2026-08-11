@@ -1,5 +1,5 @@
 # Bidi and grapheme-cluster sanity check
-_generated 2026-08-11 13:32:49_
+_generated 2026-08-11 14:11:03_
 
 ## bidi (Hebrew + English + digits)
 

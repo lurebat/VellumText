@@ -26,16 +26,23 @@ been modified.
 | | |
 |---|---|
 | Avalonia | 12.1.1 |
-| Target framework | **`net8.0`** |
-| Runtime | .NET 8.0.423, Release configuration |
+| Target framework | **`net10.0`** (every result also independently reproduced on `net8.0`) |
+| Runtime | .NET 10.0.10 (SDK 10.0.302), Release configuration |
 | OS | Windows, x64 (Hyper-V guest — noted because it widens benchmark variance) |
 | Rendering | real Skia, not the headless no-op drawing backend |
 
 **On the target framework:** the brief asked for .NET 9 with .NET 8 as fallback. **.NET 9 is not
-installed on this machine** (SDKs present: 5.0.408, 6.0.428, 8.0.423, 10.0.302). Avalonia 12.1.1
-ships `lib/net8.0` and `lib/net10.0`. `net8.0` was chosen as the stated fallback rather than
-net10.0, so the spike measures the runtime Vellum is most likely to support. Nothing in these
-findings is framework-sensitive: they are all about Avalonia's text formatter.
+installed on this machine** (SDKs present: 5.0.408, 6.0.428, 8.0.423, 10.0.302).
+
+The spike was first written against `net8.0`, then retargeted to `net10.0`. **Avalonia 12.1.1
+ships first-class `lib/net8.0` *and* `lib/net10.0` assemblies** — verified for every package used
+here (`Avalonia`, `.Desktop`, `.Skia`, `.Themes.Fluent`, `.Fonts.Inter`, `.Headless`) — so there
+was no packaging reason to avoid .NET 10.
+
+Having run the full probe set on both is a bonus rather than a cost: it upgrades "these findings
+are not framework-sensitive" from an assertion to a measurement. **Every probe reports 0 failures
+on both frameworks, and the A1 layout fingerprints are byte-for-byte identical between them.**
+Where the two differ is only in timing noise, discussed in §2.
 
 ### Layout
 
@@ -75,6 +82,16 @@ Headless probes produce the numbers. The app was then launched and driven intera
 clicks into the text, arrow keys, Backspace, and an extend-selection mode — and its live readout
 matched the headless numbers exactly. Specific live confirmations are recorded inline below and
 marked **[live]**.
+
+The interactive pass was repeated after retargeting to net10.0, and every live reading was
+identical to the net8.0 session:
+
+| live check | net8.0 | net10.0 |
+|---|---|---|
+| click left half of embed | pos 18, `IsTrailing` False | pos 18, `IsTrailing` False |
+| click right half of embed | pos 19 | pos 19 |
+| Right arrow before family emoji | 7 → 18 (one press) | 7 → 18 (one press) |
+| Backspace at 18 | → 16 (component peel) | → 16 (component peel) |
 
 ---
 
@@ -299,7 +316,8 @@ speed of returning a stale answer.
 ### The honest numbers
 
 Comparing the uncached baseline against the only cached usages that produce a **correct** layout
-(20,000 measured iterations after 2,000 warmup, 480px wrap, style-run boundary every 25 chars):
+(20,000 measured iterations after 2,000 warmup, 480px wrap, style-run boundary every 25 chars).
+This table is the **net8.0** run:
 
 | chars | edit at | NoCache µs | `InvalidateFrom(0)` µs | `Invalidate()` µs | FreshCache µs |
 |---|---|---|---|---|---|
@@ -323,6 +341,36 @@ Percentiles at 800 chars / 50%:
 **Speedup from the correct cached path: 1.00×.** Within noise at every size and every edit
 position. Allocation is also unchanged (63.54 KB versus 63.83 KB at 800 chars).
 
+### Cross-framework confirmation, and how noisy this measurement is
+
+Re-running everything on **net10.0** reproduces the defect exactly. The offset sweep, the
+zero-`GetTextRun`-call result, and the stale-text proof are all unchanged, and the layout
+fingerprints are **byte-for-byte identical** to the net8.0 run:
+
+```
+InvalidateFrom(0)  -> 0,62,460.2656,... len sum 102  correct
+InvalidateFrom(k>=1) -> 0,65,479.6641,... len sum 101  stale   (identical string on both TFMs)
+```
+
+The *timings*, however, deserve a caveat. Three consecutive net10.0 runs of the correct-path
+speedup at 800 chars / 50% gave:
+
+| run | speedup | NoCache mean µs |
+|---|---|---|
+| 1 | 1.28× | 448.9 |
+| 2 | 0.94× | 585.6 |
+| 3 | 1.00× | 374.2 |
+
+That is a ±30% swing on the ratio and a 1.6× swing on the absolute baseline, on an unchanged
+binary — this is a loaded Hyper-V guest, and the harness is not isolated from it. **No individual
+speedup figure here should be read to better than about ±30%.** The conclusion survives easily,
+because the claim is only that the correct path is *not usefully faster*, and three runs scattered
+around 1.00× say exactly that.
+
+One detail is worth noting for its own sake: the **stale** arm measured 0.25–0.32× in *every* run
+on *both* frameworks, with far tighter variance than the honest arms. A path that does no work is
+more reproducible than one that does. In hindsight that stability was itself a warning sign.
+
 ### Two structural notes
 
 1. **Avalonia exposes no re-layout-in-place API.** `TextLayout` has no "reflow" method. The only
@@ -339,8 +387,9 @@ position. Allocation is also unchanged (63.54 KB versus 63.83 KB at 800 chars).
 **§9 R3's stated fallback is the right path, and it costs nothing.** Rebuild the paragraph's
 `TextLayout` wholesale on edit. Concretely:
 
-- a full rebuild of an 800-char paragraph costs **~376 µs**, comfortably inside a 16 ms frame
-  budget with ~40× headroom, which is why B2's paragraph granularity was the right choice;
+- a full rebuild of an 800-char paragraph costs roughly **0.35–0.6 ms** (the spread across runs on
+  a noisy VM; ~0.05 ms at 100 chars), leaving at least ~25× headroom inside a 16 ms frame budget,
+  which is why B2's paragraph granularity was the right choice;
 - **Vellum should not use `TextRunCache` at all** in Increment 2. It adds an object to manage, a
   correctness hazard, and no measurable benefit;
 - if paragraph rebuild ever *does* become the bottleneck, the lever is smaller paragraphs or
@@ -497,7 +546,8 @@ The premises that Increment 1 rests on are intact:
 
 - **B2 (per-paragraph `TextLayout`) is confirmed and is now better justified than before.** A1's
   failure makes wholesale paragraph rebuild the *only* path, and the measurement shows it is
-  cheap: ~376 µs for 800 characters, ~53 µs for 100.
+  cheap: roughly 0.35–0.6 ms for 800 characters and ~0.05 ms for 100, i.e. at least ~25× inside a
+  frame budget.
 - **C2 (custom `ITextSource` + `EmbedRun`) is confirmed viable**, so §4.7's design and the single
   additive block offset from `HitTestPoint` to model positions both stand. Increment 4's inline
   images have a validated foundation.

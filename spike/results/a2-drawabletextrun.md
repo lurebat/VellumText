@@ -1,5 +1,5 @@
 # A2 — `DrawableTextRun` inside a custom `ITextSource`
-_generated 2026-08-11 13:30:11_
+_generated 2026-08-11 14:10:58_
 
 Text length: 148; embeds at indices 18, 142 (both U+FFFC).
 
@@ -61,11 +61,11 @@ Note: the embed's own line is 500px wide against a 300px wrap width — an unbre
 Formatting succeeds: 1 line(s), width 1097.88. Now drawing it:
 
 ```
-ArgumentOutOfRangeException: Exception of type 'System.ArgumentOutOfRangeException' was thrown. (Parameter 'baselineAlignment')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'baselineAlignment')
 at Avalonia.Media.TextFormatting.TextLineImpl.GetBaselineOffset(TextLine textLine, DrawableTextRun textRun)
 ```
 
-- PASS — **drawing throws when a DrawableTextRun has null Properties** — measurement succeeds, rendering does not, so the failure surfaces only at paint time (ArgumentOutOfRangeException: Exception of type 'System.ArgumentOutOfRangeException' was thrown. (Parameter 'baselineAlignment'))
+- PASS — **drawing throws when a DrawableTextRun has null Properties** — measurement succeeds, rendering does not, so the failure surfaces only at paint time (ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'baselineAlignment'))
 
 ### b.1 — BaselineAlignment matrix
 

@@ -1,5 +1,5 @@
 # A1 — `TextRunCache.InvalidateFrom` (stopwatch harness)
-_generated 2026-08-11 13:40:12_
+_generated 2026-08-11 14:18:56_
 
 Avalonia exposes no re-layout-in-place API: the only reuse mechanism is passing the same `TextRunCache` into a **new** `TextLayout`. So this measures shaping/run reuse, not layout-object reuse.
 
@@ -31,23 +31,23 @@ Mismatches: 360/360. Every arm here used `InvalidateFrom(offset)` with `offset >
 
 | chars|edit at|NoCache µs|InvalidateFrom(edit) µs **[STALE]**|InvalidateFrom(0) µs|Invalidate() µs|FreshCache µs |
 |---|---|---|---|---|---|---|
-| 100|10%|57.048|13.248 (0.23x)|57.143 (1.00x)|51.61 (0.90x)|52.936 (0.93x) |
-| 100|50%|52.578|12.672 (0.24x)|53.646 (1.02x)|50.756 (0.97x)|56.213 (1.07x) |
-| 100|90%|51.944|13.66 (0.26x)|55.689 (1.07x)|52.103 (1.00x)|53.286 (1.03x) |
-| 400|10%|216.64|58.543 (0.27x)|195.27 (0.90x)|196.752 (0.91x)|189.509 (0.87x) |
-| 400|50%|193.57|57.808 (0.30x)|193.692 (1.00x)|194.21 (1.00x)|202.528 (1.05x) |
-| 400|90%|188.499|57.537 (0.31x)|194.114 (1.03x)|189.068 (1.00x)|214.638 (1.14x) |
-| 800|10%|373.098|118.894 (0.32x)|395.241 (1.06x)|381.582 (1.02x)|411.153 (1.10x) |
-| 800|50%|378.523|116.95 (0.31x)|375.786 (0.99x)|373.048 (0.99x)|373.027 (0.99x) |
-| 800|90%|370.808|116.061 (0.31x)|373.307 (1.01x)|372.51 (1.00x)|372.984 (1.01x) |
+| 100|10%|69.351|15.455 (0.22x)|63.238 (0.91x)|67.869 (0.98x)|46.904 (0.68x) |
+| 100|50%|51.143|14.623 (0.29x)|49.985 (0.98x)|49.623 (0.97x)|56.426 (1.10x) |
+| 100|90%|47.218|10.495 (0.22x)|44.067 (0.93x)|44.969 (0.95x)|43.51 (0.92x) |
+| 400|10%|171.508|50.26 (0.29x)|173.922 (1.01x)|184.874 (1.08x)|226.171 (1.32x) |
+| 400|50%|266.344|52.857 (0.20x)|219.408 (0.82x)|196.213 (0.74x)|176.684 (0.66x) |
+| 400|90%|175.093|54.418 (0.31x)|169.185 (0.97x)|171.631 (0.98x)|169.754 (0.97x) |
+| 800|10%|427.632|115.879 (0.27x)|404.815 (0.95x)|361.855 (0.85x)|376.495 (0.88x) |
+| 800|50%|374.163|105.349 (0.28x)|353.113 (0.94x)|333.094 (0.89x)|403.063 (1.08x) |
+| 800|90%|334.237|101.599 (0.30x)|351.66 (1.05x)|335.226 (1.00x)|332.677 (1.00x) |
 
 **The `InvalidateFrom(edit)` column is not a real result.** The cross-check above and the diagnostic report show that arm returns the pre-edit layout; it is timing the cost of returning a stale answer. The honest comparison is NoCache versus `InvalidateFrom(0)` / `Invalidate()`, which are the only cached usages that produce a correct layout.
 
 Percentiles for the two arms that matter — the uncached baseline versus the fastest *correct* cached usage — at 800 chars / 50%:
 | arm|mean µs|p50 µs|p95 µs |
 |---|---|---|---|
-| NoCache|375.984|348.1|441 |
-| InvalidateFrom(0)|376.027|350.4|432.1 |
+| NoCache|334.456|299.7|372.5 |
+| InvalidateFrom(0)|335.078|300.2|384.6 |
 
 Speedup from the correct cached path: **1.00x**.
 
