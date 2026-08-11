@@ -234,6 +234,30 @@ public class HistoryTests
     }
 
     [Fact]
+    public void AMultiStepEditIsRememberedWhereItsStepsEndedUp()
+    {
+        // Two insertions in one transaction: the second happens before the first and pushes it
+        // along. The range that reaches history has to be where the text is now, not where the
+        // first step found it, or the next keystroke lands outside it and starts a new entry.
+        var editor = new Editor();
+
+        editor.Commit(editor.Begin(TransactionKind.Typing, TimeSpan.Zero)
+            .InsertText(5, "AB")
+            .InsertText(1, "CD"));
+
+        Assert.Equal("CDhellABo", editor.Text(0));
+
+        editor.Type(9, "!", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal("CDhellAB!o", editor.Text(0));
+        Assert.Equal(1, editor.History.UndoDepth);
+
+        editor.Undo();
+
+        Assert.Equal("hello", editor.Text(0));
+    }
+
+    [Fact]
     public void ASelectionJumpBetweenTwoEditsPreventsCoalescing()
     {
         // Both are typing, both are inside the window, and the ranges touch. Only the caret

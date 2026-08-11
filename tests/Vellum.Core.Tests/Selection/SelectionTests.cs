@@ -462,6 +462,30 @@ public class CellSelectionTests
     }
 
     [Fact]
+    public void DeletingOneCornerOfTheRectangleDegradesToACaretInsideTheDocument()
+    {
+        // The anchor's row is deleted; the head's cell survives but has moved. There is no
+        // rectangle left to describe, so the answer is a caret - and it has to be a caret in
+        // the document that now exists, not at the head's address in the one that does not.
+        var row = new TableRowNode([TableCellNode.FromText("a"), TableCellNode.FromText("b")]);
+        var doc = new DocumentNode([new TableNode([row, row, row])]);
+        var deleted = new ReplaceStep(1, 13, Slice.Empty).Apply(doc);
+
+        Assert.True(deleted.IsOk, deleted.Failure);
+
+        // 26 is the first cell of the third row, which the deletion moves down to 14.
+        var mapped = new CellSelection(2, 26)
+            .Map(deleted.Doc!, Mapping.Of(new StepMap(1, 12, 0)));
+
+        Assert.IsNotType<CellSelection>(mapped);
+
+        // The surviving head cell now starts at 14 and is five positions long. Landing anywhere
+        // else means the caret was placed from the old document's numbering; Near clamps, so the
+        // reader would find their caret thrown towards the end of the document.
+        Assert.InRange(mapped.Head, 14, 18);
+    }
+
+    [Fact]
     public void DeletingTheTableDegradesToACaret()
     {
         var doc = new DocumentNode([ParagraphNode.FromText("after")]);

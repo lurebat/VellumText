@@ -108,22 +108,35 @@ public readonly record struct HistoryPolicy(TimeSpan Window, bool Enabled = true
         return from <= previousTo && to >= previousFrom;
     }
 
-    /// <summary>The range of positions a transaction touched.</summary>
+    /// <summary>The range of positions a transaction touched, in the coordinates it ends in.</summary>
     /// <param name="tr">The transaction.</param>
+    /// <remarks>
+    /// A map's coordinates are those of the document as it stood when its own step ran, so in a
+    /// transaction of several steps the earlier ranges have been moved since by the later ones.
+    /// Comparing them as they are would mix coordinate spaces and misplace the range, which
+    /// shows up as an edit that should have continued a run starting a new undo entry instead.
+    /// </remarks>
     internal static (int From, int To) Extent(Transaction tr)
     {
         var from = int.MaxValue;
         var to = int.MinValue;
+        var maps = tr.Mapping.Maps;
 
-        foreach (var map in tr.Mapping.Maps)
+        for (var i = 0; i < maps.Length; i++)
         {
-            if (map.IsIdentity)
+            if (maps[i].IsIdentity)
             {
                 continue;
             }
 
-            from = Math.Min(from, map.Start);
-            to = Math.Max(to, map.Start + map.NewSize);
+            // Both ends are positions in the document as it stood after this map, so carrying
+            // them through the maps that follow lands them in the transaction's final space.
+            var start = tr.Mapping.MapRange(maps[i].Start, i + 1, maps.Length, Assoc.Before);
+            var end = tr.Mapping.MapRange(
+                maps[i].Start + maps[i].NewSize, i + 1, maps.Length, Assoc.After);
+
+            from = Math.Min(from, start.Pos);
+            to = Math.Max(to, end.Pos);
         }
 
         return from == int.MaxValue ? (0, 0) : (from, to);

@@ -300,7 +300,9 @@ public sealed record CellSelection(int AnchorCell, int HeadCell)
         }
 
         // The table, or one of the two cells, is gone. Degrading to a caret is the only honest
-        // answer: there is no smaller rectangle to fall back to that the reader asked for.
-        return Near(doc, head.Deleted ? head.Pos : HeadCell);
+        // answer: there is no smaller rectangle to fall back to that the reader asked for. The
+        // caret goes where the head ended up, which is a position in the document that now
+        // exists - the original head is a position in the document that no longer does.
+        return Near(doc, head.Pos);
     }
 }
