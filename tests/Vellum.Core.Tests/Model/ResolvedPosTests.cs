@@ -344,4 +344,20 @@ public class SharedDepthTests
         Assert.Equal(from.SharedDepth(to), to.SharedDepth(from));
         Assert.Equal(0, from.SharedDepth(to));
     }
+
+    [Fact]
+    public void TwoCopiesOfOneNodeAreStillTwoPlaces()
+    {
+        // Nodes are immutable values, so the same instance turns up in two places all the time:
+        // an edit shares every subtree it did not touch, and a caller may simply pass the same
+        // node twice. Identity alone therefore cannot answer "are these positions in the same
+        // node" - where each one sits has to agree too, or a selection spanning two paragraphs
+        // is mistaken for one inside a single paragraph.
+        var paragraph = ParagraphNode.FromText("hi");
+        var doc = new DocumentNode([paragraph, paragraph]);
+
+        // Position 2 is inside the first copy, 6 inside the second.
+        Assert.Equal(0, doc.Resolve(2).SharedDepth(doc.Resolve(6)));
+        Assert.Equal(1, doc.Resolve(2).SharedDepth(doc.Resolve(3)));
+    }
 }

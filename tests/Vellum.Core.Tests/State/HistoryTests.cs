@@ -234,8 +234,35 @@ public class HistoryTests
     }
 
     [Fact]
-    public void AMultiStepEditIsRememberedWhereItsStepsEndedUp()
+    public void AnEditExactlyOnTheWindowStillJoins()
     {
+        // The window is how long after an edit a following one may still join it, so an edit at
+        // exactly that distance is inside it. Getting this backwards splits a run at half a
+        // second on the nose, which is precisely where a steady typist keeps landing.
+        var editor = new Editor()
+            .Type(6, "!", TimeSpan.Zero)
+            .Type(7, "?", TimeSpan.FromMilliseconds(500));
+
+        Assert.Equal("hello!?", editor.Text(0));
+        Assert.Equal(1, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void AnEditStampedBeforeTheOneItFollowsDoesNotJoinIt()
+    {
+        // Clocks go backwards - a machine syncs time, or a caller stamps transactions itself.
+        // Subtracting then gives a negative gap, which is inside any window, so without an
+        // explicit check two edits arbitrarily far apart in time would be grouped.
+        var editor = new Editor()
+            .Type(6, "!", TimeSpan.FromMilliseconds(400))
+            .Type(7, "?", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal("hello!?", editor.Text(0));
+        Assert.Equal(2, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void AMultiStepEditIsRememberedWhereItsStepsEndedUp()    {
         // Two insertions in one transaction: the second happens before the first and pushes it
         // along. The range that reaches history has to be where the text is now, not where the
         // first step found it, or the next keystroke lands outside it and starts a new entry.

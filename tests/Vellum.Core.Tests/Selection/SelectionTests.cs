@@ -412,6 +412,55 @@ public class TableGridTests
         Assert.Equal(all.Length, all.Distinct().Count());
         Assert.Equal(5, all.Length);
     }
+
+    [Fact]
+    public void GrowingTheRectangleCanUncoverSomethingThatGrowsItAgain()
+    {
+        // Widening leftwards brings a column into the rectangle that was never looked at, and
+        // that column holds a cell reaching up above it. One sweep finds the first growth and
+        // stops; only re-running the sweep over the enlarged rectangle finds the second.
+        //
+        //      col 0   col 1   col 2   col 3
+        // r0     p    | q     |  r    |  s
+        // r1     t    | ^q    |  u    |  v
+        // r2     w    | x-------------|  y
+        var doc = new DocumentNode(
+        [
+            new TableNode(
+            [
+                new TableRowNode(
+                [
+                    TableCellNode.FromText("p"),
+                    new TableCellNode([ParagraphNode.FromText("q")], rowSpan: 2),
+                    TableCellNode.FromText("r"),
+                    TableCellNode.FromText("s"),
+                ]),
+                new TableRowNode(
+                [
+                    TableCellNode.FromText("t"),
+                    TableCellNode.FromText("u"),
+                    TableCellNode.FromText("v"),
+                ]),
+                new TableRowNode(
+                [
+                    TableCellNode.FromText("w"),
+                    new TableCellNode([ParagraphNode.FromText("x")], columnSpan: 2),
+                    TableCellNode.FromText("y"),
+                ]),
+            ]),
+        ]);
+
+        Assert.Empty(DocumentSchema.Validate(doc));
+
+        var grid = TableGrid.ForCell(doc, 2)!;
+        var rectangle = grid.Rectangle(grid.At(1, 2)!.Value.Pos, grid.At(2, 3)!.Value.Pos);
+
+        // Columns 1 to 3 of every row: q, r, s, u, v, x, y. Column 0 stays out.
+        Assert.Equal(7, rectangle.Length);
+        Assert.Contains(grid.At(0, 1)!.Value.Pos, rectangle);
+        Assert.Contains(grid.At(0, 3)!.Value.Pos, rectangle);
+        Assert.DoesNotContain(grid.At(0, 0)!.Value.Pos, rectangle);
+    }
 }
 
 /// <summary>Selecting a rectangle of cells.</summary>

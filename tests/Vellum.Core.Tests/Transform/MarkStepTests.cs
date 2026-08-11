@@ -77,6 +77,30 @@ public class MarkStepTests
     }
 
     [Fact]
+    public void AnEmptyRangeLeavesTheDocumentUntouched()
+    {
+        // Formatting a range of nothing is nothing, and the paragraph must come back as the very
+        // node it went in as. Rewriting it anyway is invisible in the result of the step itself
+        // but corrupts undo: the marks a restore step carries are addressed to a range, and
+        // handing it an empty one writes them somewhere they do not belong.
+        var doc = MixedSample.Doc;
+        var captured = new AddMarkStep(3, 5, MixedSample.Bold, MarkFields.Bold).Invert(doc);
+
+        var results = new[]
+        {
+            new AddMarkStep(3, 3, MixedSample.Bold, MarkFields.Bold).Apply(doc),
+            new RemoveMarkStep(3, 3, MarkFields.Bold).Apply(doc),
+            ((RestoreMarksStep)captured with { From = 3, To = 3 }).Apply(doc),
+        };
+
+        foreach (var result in results)
+        {
+            Assert.True(result.IsOk, result.Failure);
+            Assert.Same(doc, result.Doc);
+        }
+    }
+
+    [Fact]
     public void AFieldMaskLeavesTheFieldsItDoesNotName()
     {
         // The first two characters are already bold. Setting only the colour must not clear that.
@@ -490,6 +514,33 @@ public class SetBlockAttrStepTests
     {
         Assert.Null(new SetBlockAttrStep(7, BlockAttr.ListKind, (int)ListKind.Ordered)
             .Map(Mapping.Of(new StepMap(0, 18, 0))));
+    }
+
+    [Fact]
+    public void TheStepFollowsItsBlockWhenSomethingIsInsertedInFrontOfIt()
+    {
+        // The position names the block by sitting immediately before it, so an insertion at
+        // exactly that spot has to push it along. Leaving it where it was would silently
+        // re-aim the step at whatever block the insertion put there.
+        var mapped = Assert.IsType<SetBlockAttrStep>(
+            new SetBlockAttrStep(7, BlockAttr.ListKind, (int)ListKind.Ordered)
+                .Map(Mapping.Of(new StepMap(7, 0, 4))));
+
+        Assert.Equal(11, mapped.Pos);
+    }
+
+    [Fact]
+    public void AnOrderedListCanStartAtZero()
+    {
+        // Numbering from zero is unusual but legal, and ListNode already accepts it. Rejecting
+        // it here would make a start of zero reachable by construction but not by editing.
+        var doc = new DocumentNode(
+            [new ListNode([new ListItemNode([ParagraphNode.FromText("x")])], ListKind.Ordered)]);
+
+        var result = new SetBlockAttrStep(0, BlockAttr.ListStart, 0).Apply(doc);
+
+        Assert.True(result.IsOk, result.Failure);
+        Assert.Equal(0, ((ListNode)result.Doc!.Children[0]).Start);
     }
 
     [Fact]

@@ -180,8 +180,31 @@ public class TransactionTests
     }
 
     [Fact]
-    public void AStepThatLeavesTheDocumentAloneIsNotAStep()
+    public void EveryRecordedStepHasAMapAtItsOwnIndex()
     {
+        // A step that moves nothing still gets a map, so that a step's map is always found at
+        // the step's index. Dropping the identity ones slides every later step's map one place
+        // to the left, and nothing complains until a position comes out wrong.
+        var before = Start();
+        var tr = before.Transaction()
+            .InsertText(1, "X")
+            .Step(new AddMarkStep(1, 4, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold))
+            .InsertText(1, "Y")
+            .Step(new SetBlockAttrStep(0, BlockAttr.Align, (int)TextAlign.Center));
+
+        var steps = tr.Steps;
+
+        Assert.Equal(4, steps.Length);
+        Assert.Equal(steps.Length, tr.Mapping.Count);
+
+        for (var i = 0; i < steps.Length; i++)
+        {
+            Assert.Equal(steps[i].GetMap().IsIdentity, tr.Mapping.Maps[i].IsIdentity);
+        }
+    }
+
+    [Fact]
+    public void AStepThatLeavesTheDocumentAloneIsNotAStep()    {
         // It applied, but it changed nothing, so there is nothing to undo and nothing to map.
         var tr = Start().Transaction().Step(
             new AddMarkStep(1, 1, new MarkSet { Style = TextStyle.Bold }, MarkFields.None));
