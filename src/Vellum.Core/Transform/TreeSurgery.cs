@@ -16,6 +16,19 @@ namespace Vellum;
 /// stale position in the editor is rewritten using a size the step predicted in advance.
 /// </para>
 /// </remarks>
+/// <summary>
+/// Rewrites one paragraph that a range touches.
+/// </summary>
+/// <param name="paragraph">The paragraph to rewrite.</param>
+/// <param name="contentStart">Where its text starts, in document coordinates.</param>
+/// <param name="start">Where the range starts within its text.</param>
+/// <param name="end">Where the range ends within its text.</param>
+internal delegate ParagraphNode ParagraphRewrite(
+    ParagraphNode paragraph,
+    int contentStart,
+    int start,
+    int end);
+
 internal static class TreeSurgery
 {
     /// <summary>
@@ -134,5 +147,95 @@ internal static class TreeSurgery
         }
 
         return left.WithChildren(joined);
+    }
+
+    /// <summary>
+    /// Rewrites every paragraph the range touches, leaving the rest of the tree shared.
+    /// </summary>
+    /// <param name="doc">The document to rewrite.</param>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    /// <param name="rewrite">
+    /// Receives a paragraph, where its text starts in document coordinates, and the part of it
+    /// the range covers, and returns its replacement.
+    /// </param>
+    /// <remarks>
+    /// Formatting never changes the shape of the tree, so this walks it rather than cutting and
+    /// splicing. Untouched subtrees are returned by reference, which is what keeps a bold command
+    /// over one word from rebuilding a hundred-paragraph document.
+    /// </remarks>
+    internal static DocumentNode MapParagraphs(
+        DocumentNode doc,
+        int from,
+        int to,
+        ParagraphRewrite rewrite) =>
+        (DocumentNode)Walk(doc, 0, from, to, rewrite);
+
+    private static Node Walk(
+        Node node,
+        int contentStart,
+        int from,
+        int to,
+        ParagraphRewrite rewrite)
+    {
+        if (node is ParagraphNode paragraph)
+        {
+            var start = Math.Max(from - contentStart, 0);
+            var end = Math.Min(to - contentStart, paragraph.Content.Length);
+
+            return end > start ? rewrite(paragraph, contentStart, start, end) : node;
+        }
+
+        if (node.IsLeaf)
+        {
+            return node;
+        }
+
+        List<Node>? children = null;
+        var pos = contentStart;
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            var child = node.Children[i];
+            var childContentStart = pos + 1;
+            var childContentEnd = childContentStart + child.ContentSize;
+
+            // A child matters only if the range reaches inside it. Touching its boundary is not
+            // enough: marks live on characters, and the boundary belongs to this node.
+            if (!child.IsLeaf && from < childContentEnd && to > childContentStart)
+            {
+                var replacement = Walk(child, childContentStart, from, to, rewrite);
+
+                if (!ReferenceEquals(replacement, child))
+                {
+                    children ??= [.. node.Children];
+                    children[i] = replacement;
+                }
+            }
+
+            pos += child.NodeSize;
+        }
+
+        return children is null ? node : node.WithChildren(children);
+    }
+
+    /// <summary>
+    /// Replaces the node immediately after a position, rebuilding only its ancestors.
+    /// </summary>
+    /// <param name="at">A position directly before the node to replace.</param>
+    /// <param name="replacement">What to put there.</param>
+    internal static DocumentNode ReplaceNodeAfter(ResolvedPos at, Node replacement)
+    {
+        var rebuilt = replacement;
+
+        for (var depth = at.Depth; depth >= 0; depth--)
+        {
+            var parent = at.NodeAt(depth);
+            var children = new List<Node>(parent.Children);
+            children[at.IndexAt(depth)] = rebuilt;
+            rebuilt = parent.WithChildren(children);
+        }
+
+        return (DocumentNode)rebuilt;
     }
 }
