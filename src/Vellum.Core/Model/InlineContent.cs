@@ -139,13 +139,74 @@ public sealed class InlineContent : IEquatable<InlineContent>
                 nameof(embeds));
         }
 
+        RequireWellFormed(text);
+
         // Normalize before the empty-text shortcut, so spans supplied for text that does not
         // exist are still rejected rather than silently discarded.
         var normalized = Normalize(marks, text.Length);
 
+        RequireWholeCharacters(text, normalized);
+
         return text.Length == 0
             ? Empty
             : new InlineContent(text, normalized, embedArray, placeholders);
+    }
+
+    /// <summary>
+    /// Rejects text that is not well-formed UTF-16.
+    /// </summary>
+    /// <remarks>
+    /// An unpaired surrogate is not a character. Admitting one would make
+    /// <see cref="IsValidBoundary"/> a promise the type cannot keep, and every consumer that
+    /// trusts it - cutting, measuring, shaping - would be working from a false premise. The
+    /// model's contract is to fail rather than hold something invalid (architecture §7).
+    /// </remarks>
+    private static void RequireWellFormed(string text)
+    {
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]))
+            {
+                if (i + 1 >= text.Length || !char.IsLowSurrogate(text[i + 1]))
+                {
+                    throw new ArgumentException(
+                        $"The text is not well-formed UTF-16: the high surrogate at {i} is not "
+                        + "followed by a low surrogate.",
+                        nameof(text));
+                }
+
+                i++;
+            }
+            else if (char.IsLowSurrogate(text[i]))
+            {
+                throw new ArgumentException(
+                    $"The text is not well-formed UTF-16: the low surrogate at {i} is not "
+                    + "preceded by a high surrogate.",
+                    nameof(text));
+            }
+        }
+    }
+
+    /// <summary>Rejects formatting spans whose edges fall inside a surrogate pair.</summary>
+    /// <remarks>
+    /// Half a character cannot be bold. Such a span has no meaning to give a renderer, and
+    /// silently rounding it would move formatting the caller did not ask to move.
+    /// </remarks>
+    private static void RequireWholeCharacters(
+        string text, ImmutableArray<ValueSpan<MarkSet>> spans)
+    {
+        foreach (var span in spans)
+        {
+            foreach (var edge in (int[])[span.Start, span.End])
+            {
+                if (edge > 0 && edge < text.Length && char.IsLowSurrogate(text[edge]))
+                {
+                    throw new ArgumentException(
+                        $"A formatting span edge at {edge} falls inside a surrogate pair.",
+                        nameof(spans));
+                }
+            }
+        }
     }
 
     /// <summary>The formatting at <paramref name="offset"/>.</summary>

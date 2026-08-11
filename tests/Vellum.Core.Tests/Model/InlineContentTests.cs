@@ -247,6 +247,33 @@ public class InlineContentTests
             () => content.ApplyMarks(1, 1, Bold, MarkFields.Bold));
     }
 
+    [Fact]
+    public void An_unpaired_surrogate_is_not_text_and_is_refused()
+    {
+        // Without this the "never invalid UTF-16" guarantee starts out already broken, and
+        // IsValidBoundary becomes a promise the type cannot keep.
+        Assert.Throws<ArgumentException>(() => InlineContent.FromText("\uD83D"));
+        Assert.Throws<ArgumentException>(() => InlineContent.FromText("\uDE00"));
+        Assert.Throws<ArgumentException>(() => InlineContent.FromText("a\uD83Db"));
+        Assert.Throws<ArgumentException>(() => InlineContent.FromText("ab\uDE00"));
+    }
+
+    [Fact]
+    public void A_formatting_span_may_not_end_inside_a_surrogate_pair()
+    {
+        // Half a character cannot be bold.
+        Assert.Throws<ArgumentException>(() => InlineContent.Create(
+            "\U0001F600", [new ValueSpan<MarkSet>(0, 1, Bold)], []));
+
+        Assert.Throws<ArgumentException>(() => InlineContent.Create(
+            "a\U0001F600b", [new ValueSpan<MarkSet>(2, 2, Bold)], []));
+
+        // The pair taken whole is fine.
+        Assert.Equal(
+            Bold, InlineContent.Create(
+                "a\U0001F600b", [new ValueSpan<MarkSet>(1, 3, Bold)], []).MarkAt(1));
+    }
+
     // --- substring ------------------------------------------------------------------
 
     [Fact]
