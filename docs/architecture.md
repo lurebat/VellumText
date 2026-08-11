@@ -1,0 +1,564 @@
+# A Free Rich Text Editor for Avalonia — Architecture & Design
+
+**Status:** Draft for review
+**Date:** 2026-08-11
+**Target:** Avalonia 12.1.1 (current stable), .NET 8/9
+**Proposed license:** MIT
+**Name:** Vellum (packages `Vellum.Core`, `Vellum.Avalonia`, `Vellum.Interop.*`)
+
+> Deliberately not named `Avalonia.*` — this is an independent community project and must not read as first-party.
+
+---
+
+## 1. User-visible outcome
+
+A drop-in Avalonia control:
+
+```xml
+<vellum:RichTextEditor Document="{Binding Doc}" />
+```
+
+…that a developer can put in an app and get a WYSIWYG editor comparable to the commercial Avalonia Accelerate Rich Text Editor, under a permissive license.
+
+### 1.1 Acceptance criteria (v1.0)
+
+| # | Criterion |
+|---|---|
+| AC1 | Character formatting: bold, italic, underline, strikethrough, sub/superscript, font family, size, foreground, highlight. |
+| AC2 | Block formatting: paragraphs, H1–H6, alignment (left/center/right/justify), indent/outdent, bulleted & numbered lists (nested), blockquote, code block, horizontal rule. |
+| AC3 | Hyperlinks: insert, edit, remove, ctrl-click activate. |
+| AC4 | Inline images (PNG/JPEG), resizable, selectable as a unit. |
+| AC5 | Tables: insert, insert/delete row & column, merge/split cells, cell background, column resize, tab-to-next-cell, rectangular cell selection. |
+| AC6 | Editing: caret, mouse/keyboard/touch selection, word/line/paragraph navigation, drag-select, double/triple click, undo/redo with sensible grouping, cut/copy/paste, select-all. |
+| AC7 | Clipboard interop: paste from Word / Google Docs / browsers retains formatting; copy is pasteable into Word and Google Docs. |
+| AC8 | Export: HTML, Markdown, RTF, DOCX. Import: HTML, Markdown, DOCX. |
+| AC9 | IME: CJK composition (preedit) works on Windows, macOS, Linux. |
+| AC10 | Light/dark theme via Avalonia theme variants; Fluent + Simple theme resources shipped. |
+| AC11 | Correct caret/selection for bidi (Hebrew/Arabic) text and grapheme clusters (emoji ZWJ sequences, combining marks). |
+| AC12 | 10 MB / 50k-paragraph document scrolls and types without perceptible lag (virtualized). |
+| AC13 | MVVM-friendly: bindable `Document`, `Selection`, `IsReadOnly`, commands for every formatting action. |
+
+### 1.2 Explicit non-goals
+
+- **Not** a code editor. Syntax highlighting, folding, completion, multi-caret → that is `AvaloniaEdit`'s domain; do not duplicate it.
+- **Not** an HTML rendering engine. HTML is an interchange format, not the internal model.
+- **Not** byte-fidelity Word compatibility. Target "opens correctly and looks right", not "round-trips every Word feature".
+- **Not** collaborative editing in v1. The transaction model is designed so OT/CRDT *can* be layered later, but no such infrastructure ships now.
+- **Not** pagination/print layout in v1.
+- **No** compatibility shim for WPF `FlowDocument` XAML.
+
+---
+
+## 2. Facts, constraints, assumptions, open decisions
+
+### 2.1 Established facts (verified against Avalonia 12.1.1 source)
+
+Avalonia already provides the hardest infrastructure, MIT-licensed. This is the single most important fact in this document — it changes the project from "write a text engine" to "write an editor".
+
+| Capability | API | Source |
+|---|---|---|
+| Line breaking, shaping (HarfBuzz), bidi reordering, font fallback | `TextFormatter` / `TextLayout` | `src/Avalonia.Base/Media/TextFormatting/` |
+| Rich layout from arbitrary runs | `TextLayout(ITextSource, TextParagraphProperties, TextTrimming?, double maxWidth, double maxHeight, int maxLines, TextRunCache?)` | `TextLayout.cs` |
+| Cheap styled layout without a custom source | `TextLayout(string, Typeface, …, IReadOnlyList<ValueSpan<TextRunProperties>>? textStyleOverrides)` | `TextLayout.cs` |
+| Run production hook | `interface ITextSource { TextRun? GetTextRun(int textSourceIndex); }` | `ITextSource.cs` |
+| Styled text run | `TextCharacters(ReadOnlyMemory<char>, TextRunProperties)` | `TextCharacters.cs` |
+| Embedded/drawn content in the text flow | `abstract class DrawableTextRun : TextRun { Size Size; double Baseline; void Draw(DrawingContext, Point); }` | `DrawableTextRun.cs` |
+| Paragraph terminator | `TextEndOfParagraph : TextEndOfLine` | `TextEndOfParagraph.cs` |
+| **Grapheme-aware caret movement** | `TextLine.GetNextCaretCharacterHit` / `GetPreviousCaretCharacterHit` / `GetBackspaceCaretCharacterHit` | `TextLine.cs` |
+| **Bidi-aware selection geometry** | `TextLine.GetTextBounds(int, int)` → `IReadOnlyList<TextBounds>` (each with `FlowDirection`) | `TextLine.cs`, `TextBounds.cs` |
+| Point ↔ position | `TextLayout.HitTestPoint(in Point) → TextHitTestResult`, `HitTestTextPosition(int) → Rect`, `HitTestTextRange(int,int)`, `GetLineIndexFromCharacterIndex` | `TextLayout.cs` |
+| Incremental reshaping cache | `TextRunCache` with `Invalidate()` / `InvalidateFrom(int textSourceIndex)` | `TextRunCache.cs` |
+| IME integration | `abstract class TextInputMethodClient` — `TextViewVisual`, `SupportsPreedit`, `SupportsSurroundingText`, `SurroundingText`, `CursorRectangle`, `Selection`, `SetPreeditText(string?, int?)` | `src/Avalonia.Base/Input/TextInput/TextInputMethodClient.cs` |
+| Caret blink + selection painting reference implementation | `TextPresenter` (`DispatcherTimer` blink, `FillRectangle` selection, `PixelRect.FromRect(rect,1).ToRect(1)` snapping) | `src/Avalonia.Controls/Presenters/TextPresenter.cs` |
+| Inline display model (display only, no editing) | `Run`, `Span`, `Bold`, `Italic`, `Underline`, `LineBreak`, `InlineUIContainer` | `src/Avalonia.Controls/Documents/` |
+| Clipboard with arbitrary platform formats | `DataFormat.CreateBytesPlatformFormat(id)` / `CreateStringPlatformFormat(id)` / `CreateBytesApplicationFormat(id)` / `CreateInProcessFormat<T>(id)`; `IClipboard.SetDataAsync/TryGetDataAsync` with `IAsyncDataTransfer` | `src/Avalonia.Base/Input/DataFormat.cs`, `Input/Platform/IClipboard.cs` |
+
+### 2.2 Hard constraints
+
+- **C1 — No UIA `ITextProvider` in Avalonia.** `src/Avalonia.Controls/Automation/Provider/` contains only `IInvokeProvider`, `IValueProvider`, `IToggleProvider`, `ISelectionProvider`, `IRangeValueProvider`, `IScrollProvider`, `IExpandCollapseProvider`, `IRootProvider`, `IEmbeddedRootProvider`, `ISelectionItemProvider`. There is **no text-pattern provider**. Screen readers therefore cannot get ranges, run attributes, or caret-move events from any Avalonia control. This is a ceiling we cannot lift from outside the framework. See §9 R1.
+- **C2 — No table layout in `TextFormatting`.** `TextLayout` formats a single paragraph-ish flow. Tables must be composed by us.
+- **C3 — `DataFormats` is `[Obsolete(error: true)]` in Avalonia 12.** Design against `DataFormat`/`IAsyncDataTransfer` only. (11.3.x already ships the new API, so an 11.3 LTS build is feasible from the same source.)
+- **C4 — Clean-room.** Avalonia Accelerate is not source-available. We reimplement a *feature list* from public marketing copy. No decompilation, no reference to its binaries.
+
+### 2.3 Assumptions (to validate in Increment 0)
+
+- **A1** — `TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph edits. *Not documented; must be measured.*
+- **A2** — `DrawableTextRun` inside a custom `ITextSource` correctly participates in line breaking, baseline alignment, and `GetTextBounds`.
+- **A3** — X11/Wayland compositors in practice honour `text/html` and `text/rtf` targets. *API-level support is confirmed; real-world behaviour varies by compositor.*
+- **A4** — Per-paragraph `TextLayout` construction is cheap enough that a 50k-paragraph document can be virtualized with measure-on-demand plus estimated heights.
+
+### 2.4 Open decisions for the user
+
+- **OD1** — Target Avalonia 12 only, or multi-target 11.3 LTS + 12? (Recommendation: 12 only for v1; the clipboard API is identical enough that 11.3 can be added later with a build constant.)
+- **OD2** — Ship a default toolbar/ribbon control, or editor surface only + demo toolbar? (Recommendation: surface + fully-commanded API + an *optional* `RichTextToolBar` in the Controls package.)
+- **OD3** — Is DOCX in v1.0, or v1.1? It roughly doubles interop effort.
+
+> **Decided:** tables (AC5) are a firm v1.0 requirement — see §12.1. This is load-bearing on the model and view design; consequences are spelled out in §12.3.
+
+---
+
+## 3. Closest working pattern
+
+`TextBox` → `TextPresenter` → `TextLayout` is the pattern to extend, not replace:
+
+- `TextPresenter` owns exactly one `TextLayout`, one caret index, one selection range, a `DispatcherTimer` blink, and renders selection rects before text.
+- `TextBlock` demonstrates the two `ITextSource` shapes we need — `SimpleTextSource` (plain text + default properties, returning `TextEndOfParagraph` past the end) and `InlinesTextSource` (a `IReadOnlyList<TextRun>` walked by index, with an optional `IReadOnlyList<ValueSpan<TextRunProperties>>` modifier).
+
+**The design is: `TextPresenter`, generalized from one styled string to a tree of blocks.** Everything below follows from that.
+
+What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as the editable model. It is an `AvaloniaObject` tree built for display and styling inheritance: mutation is O(tree), it has no positions, no transactions, no invertible operations, and no clean undo story.
+
+---
+
+## 4. Architecture
+
+### 4.1 Boundaries
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Vellum.Avalonia                   (Avalonia dependency)        │
+│   RichTextEditor (TemplatedControl)                            │
+│   RichTextView (Control, ILogicalScrollable)  ← block host     │
+│   BlockView / ParagraphView / TableView / ImageView            │
+│   RichTextInputMethodClient : TextInputMethodClient            │
+│   Commands, key bindings, RichTextToolBar (optional)           │
+│   Themes/Fluent + Themes/Simple                                │
+└───────────────┬────────────────────────────────────────────────┘
+                │ depends on
+┌───────────────▼────────────────────────────────────────────────┐
+│ Vellum.Core                       (Avalonia.Base only)         │
+│   Model:  DocumentNode, BlockNode, InlineContent, marks        │
+│   State:  EditorState, Selection, Transaction, Step, Mapping   │
+│   Ops:    typing, formatting, list/indent, table ops           │
+│   History: undo stack over inverted steps                      │
+│   Schema: node/mark registry + validation                      │
+└───────────────┬────────────────────────────────────────────────┘
+                │ used by
+┌───────────────▼────────────────────────────────────────────────┐
+│ Vellum.Interop.Html                 (AngleSharp, MIT)          │
+│ Vellum.Interop.Markdown             (Markdig, BSD-2)           │
+│ Vellum.Interop.Rtf                  (no dependency, own code)  │
+│ Vellum.Interop.Docx                 (DocumentFormat.OpenXml,   │
+│                                      MIT, 3.5.1)               │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Why the core has no Avalonia UI dependency:** the model, transactions, undo, and all interop are testable headlessly, in a plain `dotnet test`, with no windowing system. That is the difference between a project that survives and one that doesn't. Interop packages are separate so an app that only needs Markdown does not drag in the Open XML SDK.
+
+### 4.2 Document model — hybrid tree + flat inline runs
+
+Two levels, deliberately different:
+
+**Block level: an immutable typed tree.** Needed because tables, list nesting, and blockquotes are genuinely structural.
+
+**Inline level: flat UTF-16 text + sorted attribute spans.** Needed because typing is the hot path; a run-object tree would allocate and re-splice on every keystroke, and shaping caches key off contiguous text.
+
+```csharp
+public abstract class Node
+{
+    public abstract int ContentSize { get; }  // ProseMirror-style: size in positions
+}
+
+public sealed class DocumentNode : Node          // children: ImmutableArray<BlockNode>
+public abstract class BlockNode : Node
+public sealed class ParagraphNode : BlockNode    // ParagraphKind (Body/H1..H6/Quote/Code), InlineContent
+public sealed class ListNode : BlockNode         // ordered/unordered, start, children: ListItemNode[]
+public sealed class ListItemNode : BlockNode     // children: BlockNode[]  (nesting for free)
+public sealed class TableNode : BlockNode        // ColumnWidths, children: TableRowNode[]
+public sealed class TableRowNode : BlockNode     // children: TableCellNode[]
+public sealed class TableCellNode : BlockNode    // RowSpan, ColSpan, Background, children: BlockNode[]
+public sealed class RuleNode : BlockNode         // horizontal rule (leaf)
+public sealed class BlockImageNode : BlockNode   // block-level image (leaf)
+
+public sealed class InlineContent
+{
+    public string Text { get; }                                   // '\uFFFC' placeholder per embed
+    public ImmutableArray<ValueSpan<MarkSet>> Marks { get; }      // sorted, non-overlapping, normalized
+    public ImmutableArray<InlineEmbed> Embeds { get; }            // aligned to placeholder offsets
+}
+
+[Flags] public enum TextStyle { None=0, Bold=1, Italic=2, Underline=4, Strikethrough=8, Sub=16, Super=32, Code=64 }
+
+public readonly record struct MarkSet(
+    TextStyle Style,
+    string? FontFamily,
+    double? FontSize,
+    Color? Foreground,
+    Color? Highlight,
+    LinkMark? Link);
+```
+
+`MarkSet` is a value type, so span normalization is a trivial equality merge and `TextRunProperties` can be memoized per distinct `MarkSet`. `\uFFFC` (OBJECT REPLACEMENT CHARACTER) as the embed placeholder means embeds occupy exactly one position and all offset arithmetic stays uniform.
+
+### 4.3 Positions
+
+A single flat integer position over the whole document (ProseMirror's scheme): each character is 1, each node boundary is 1, each leaf node is 1.
+
+This is the pivotal choice. It gives:
+- A total order over the document → selections are just two integers.
+- Position *mapping* through edits: a `Mapping` composed of per-step `StepMap`s rewrites stale positions (selections, link anchors, collaborative cursors) with no tree walking.
+- Trivially serializable operations.
+
+`ResolvedPos Resolve(int pos)` yields the ancestor chain, depth, parent, and index — cached, invalidated per transaction.
+
+### 4.4 Transactions and steps
+
+```csharp
+public abstract record Step
+{
+    public abstract StepResult Apply(Node doc);   // Ok(newDoc) | Failed(reason)
+    public abstract Step Invert(Node docBefore);
+    public abstract StepMap GetMap();
+    public abstract Step? Map(Mapping mapping);   // for rebasing
+}
+
+public sealed record ReplaceStep(int From, int To, Slice Content) : Step;
+public sealed record AddMarkStep(int From, int To, MarkSet Mark, MarkFields Fields) : Step;
+public sealed record RemoveMarkStep(int From, int To, MarkFields Fields) : Step;
+public sealed record SetBlockAttrStep(int Pos, BlockAttr Attr, object? Value) : Step;
+public sealed record TableStructureStep(...) : Step;
+
+public sealed class Transaction
+{
+    public EditorState Before { get; }
+    public ImmutableArray<Step> Steps { get; }
+    public Mapping Mapping { get; }
+    public Selection SelectionAfter { get; }
+    public MarkSet? StoredMarks { get; }          // "bold is armed but nothing typed yet"
+    public TransactionKind Kind { get; }          // Typing | Delete | Format | Structure | Paste | Ime
+}
+
+public sealed class EditorState
+{
+    public DocumentNode Doc { get; }
+    public Selection Selection { get; }
+    public MarkSet? StoredMarks { get; }
+    public EditorState Apply(Transaction tr);
+}
+```
+
+Every mutation is a `Transaction`. Nothing mutates the document directly — not typing, not paste, not table ops. Consequences, all of them load-bearing:
+
+- **Undo is nearly free.** `history` stores `Invert(before)` per step, reversed. No snapshots, no diffing.
+- **Undo grouping is a policy, not a mechanism.** Coalesce adjacent `Typing` transactions within 500 ms *and* contiguous positions *and* no intervening selection jump; never coalesce across `Structure` or `Paste`.
+- **The view updates incrementally.** `Transaction.Mapping` tells `RichTextView` exactly which block range changed → invalidate only those `BlockView`s and only that `TextRunCache`.
+- **Collaboration is later, not never.** `Step.Map` is the rebase primitive OT needs. We ship no collab code, but we do not design it out.
+
+### 4.5 Selection
+
+```csharp
+public abstract record Selection(int Anchor, int Head)
+{
+    public int From => Math.Min(Anchor, Head);
+    public int To   => Math.Max(Anchor, Head);
+    public abstract Selection Map(Node doc, Mapping mapping);
+}
+public sealed record TextSelection(int Anchor, int Head) : Selection;
+public sealed record NodeSelection(int Pos) : Selection;                    // an image selected as a unit
+public sealed record CellSelection(int AnchorCell, int HeadCell) : Selection; // rectangular table region
+```
+
+Three selection kinds is not over-engineering — it is the minimum that makes "click an image and press Delete" and "drag across table cells and set a background" expressible without special-casing them in every command.
+
+### 4.6 View layer
+
+```csharp
+public class RichTextEditor : TemplatedControl        // public API, template: ScrollViewer > RichTextView
+internal class RichTextView : Control, ILogicalScrollable
+{
+    private readonly List<BlockView> _blockViews;      // sparse; realized window only
+    private readonly BlockHeightIndex _heights;        // measured + estimated, prefix-sum for scroll
+}
+
+internal abstract class BlockView
+{
+    internal abstract Size Measure(double availableWidth);
+    internal abstract void Render(DrawingContext ctx, Point origin);
+    internal abstract bool HitTest(Point local, out int docPosition);
+    internal abstract Rect GetCaretRect(int docPosition);
+    internal abstract IEnumerable<Rect> GetSelectionRects(int from, int to);
+}
+
+internal sealed class ParagraphView : BlockView
+{
+    private TextLayout _layout;
+    private readonly TextRunCache _runCache;   // survives edits; InvalidateFrom(offset)
+    private InlineTextSource _source;
+}
+```
+
+**Virtualization:** `BlockHeightIndex` keeps a Fenwick/prefix-sum tree of block heights. Unmeasured blocks get an estimate (average measured height); measuring on realization corrects the estimate and adjusts scroll offset. This is the standard approach and it is why AC12 is achievable.
+
+**Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`. Follow `TextPresenter`'s pixel snapping (`PixelRect.FromRect(rect, 1).ToRect(1)`) so the caret is crisp at fractional DPI.
+
+### 4.7 The text source
+
+```csharp
+internal sealed class InlineTextSource : ITextSource
+{
+    private readonly InlineContent _content;
+    private readonly ITextStyleResolver _styles;   // MarkSet -> TextRunProperties, memoized
+    private readonly PreeditOverlay? _preedit;     // IME, view-only
+
+    public TextRun? GetTextRun(int textSourceIndex)
+    {
+        if (textSourceIndex >= EffectiveLength) return new TextEndOfParagraph();
+        if (TryGetEmbedAt(textSourceIndex, out var embed)) return new EmbedRun(embed);   // : DrawableTextRun
+        var span = SpanContaining(textSourceIndex);
+        return new TextCharacters(
+            _content.Text.AsMemory(textSourceIndex, span.End - textSourceIndex),
+            _styles.Resolve(span.Value));
+    }
+}
+
+internal sealed class EmbedRun : DrawableTextRun
+{
+    public override Size Size { get; }
+    public override double Baseline { get; }
+    public override int Length => 1;                              // matches the \uFFFC placeholder
+    public override void Draw(DrawingContext ctx, Point origin) { /* image / inline control */ }
+}
+```
+
+Because `Length` is 1 and the model reserves exactly one `\uFFFC`, positions from `TextLayout.HitTestPoint` map to model positions by a single additive block offset. No index translation table.
+
+### 4.8 IME
+
+```csharp
+internal sealed class RichTextInputMethodClient : TextInputMethodClient
+{
+    public override Visual TextViewVisual => _view;
+    public override bool SupportsPreedit => true;
+    public override bool SupportsSurroundingText => true;
+    public override string SurroundingText => CurrentParagraphPlainText();
+    public override Rect CursorRectangle => _view.GetCaretRectInVisual();
+    public override TextSelection Selection { get => …; set => …; }   // paragraph-local offsets
+
+    public override void SetPreeditText(string? text, int? cursorPos)
+    {
+        // View-layer overlay ONLY. Never a Transaction.
+    }
+}
+```
+
+**Preedit must not enter the document model or the undo stack.** It is composition state, not content. It lives in `PreeditOverlay`, is injected by `InlineTextSource` as extra runs (styled with an underline decoration), and is committed as one ordinary `Typing` transaction when the IME finalizes. Getting this wrong is the classic rich-text bug: undo replaying half-composed Japanese.
+
+Note `SurroundingText`/`Selection` are paragraph-local — the document is far too large to hand a screen-reader-sized string to the IME, and platform IMEs only want local context.
+
+### 4.9 Clipboard
+
+```csharp
+internal static class RichTextClipboardFormats
+{
+    private static DataFormat<byte[]> Platform(string win, string mac, string other)
+        => DataFormat.CreateBytesPlatformFormat(
+               OperatingSystem.IsWindows() ? win :
+               OperatingSystem.IsMacOS()   ? mac : other);
+
+    public static readonly DataFormat<byte[]> Rtf  = Platform("Rich Text Format", "public.rtf",  "text/rtf");
+    public static readonly DataFormat<byte[]> Html = Platform("HTML Format",      "public.html", "text/html");
+
+    // Lossless internal copy/paste — survives what HTML/RTF cannot express.
+    public static readonly DataFormat<byte[]> NativeSlice =
+        DataFormat.CreateBytesApplicationFormat("vellum-slice+json");
+}
+```
+
+**Copy** writes, in priority order: `NativeSlice`, `Html`, `Rtf`, `DataFormat.Text`.
+**Paste** reads in the same order and stops at the first it understands — so in-app paste is lossless, cross-app paste degrades gracefully.
+
+Windows `HTML Format` requires the CF_HTML preamble (`Version:0.9`, `StartHTML`/`EndHTML`/`StartFragment`/`EndFragment` **byte** offsets, UTF-8). Byte offsets, not character offsets — a classic source of silent corruption with non-ASCII content.
+
+---
+
+## 5. Alternatives considered
+
+Only materially distinct options; scored 1–5 (5 best).
+
+### 5.1 Document model
+
+| | Correctness | Op risk | Maintainability | Migration cost | Reversibility |
+|---|---|---|---|---|---|
+| **A1** WPF-style `FlowDocument`/`InlineCollection` tree | 2 | 2 | 2 | 5 | 2 |
+| **A2** Flat buffer + interval attributes (Quill Delta) | 3 | 4 | 4 | 3 | 3 |
+| **A3 ✅** Typed block tree + flat inline runs + steps | 5 | 4 | 5 | 2 | 4 |
+
+**A3 wins.** A1 has no positions and no invertible ops — undo becomes snapshotting, and every structural feature is a special case. A2 is genuinely attractive and is what Quill ships, but a purely linear model represents tables and nested lists only by convention; every table operation degenerates into fragile marker arithmetic, and AC5 is a v1 requirement. A3's cost is a real schema/position layer up front — that cost is paid once, in Increment 1, headlessly, with unit tests.
+
+### 5.2 Layout strategy
+
+| | Correctness | Op risk | Maintainability | Migration | Reversibility |
+|---|---|---|---|---|---|
+| **B1** One `TextLayout` for the whole document | 2 | 1 | 3 | 4 | 3 |
+| **B2 ✅** One `TextLayout` per paragraph in a virtualizing host | 5 | 4 | 4 | 3 | 4 |
+| **B3** A `TextBlock`/control per paragraph | 3 | 2 | 3 | 4 | 3 |
+
+**B2 wins.** B1 reshapes the entire document on every keystroke and cannot express tables at all. B3 puts thousands of styled `AvaloniaObject`s in the visual tree — measurable memory and layout cost, and caret/selection control is surrendered to controls that were not built for it. B2 also composes: a table cell is just another block host, recursively.
+
+### 5.3 Styling attribution
+
+| | Notes |
+|---|---|
+| **C1** `textStyleOverrides: IReadOnlyList<ValueSpan<TextRunProperties>>` | Zero custom code. Character formatting only — **no embeds**. |
+| **C2 ✅** Custom `ITextSource` emitting `TextCharacters` + `DrawableTextRun` | Required for AC4 (inline images). |
+
+**C2, with C1 as the Increment-0 spike.** C1 proves the rendering path in an afternoon and is a valid fallback if A2 (embed-in-source) fails validation.
+
+### 5.4 Document interop
+
+| Format | Choice | License | Rationale |
+|---|---|---|---|
+| DOCX | `DocumentFormat.OpenXml` 3.5.1 | **MIT** | Microsoft/.NET Foundation, active (rel. 2026-03-18), pure managed OOXML — no Office/COM, works on Linux/macOS. Low-level, so it sits behind our own adapter. |
+| HTML | `AngleSharp` 1.7.1 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
+| Markdown | `Markdig` 1.3.2 | **BSD-2** | AST + custom renderers + trivia round-trip. |
+| RTF | **Hand-rolled writer**, optional import | n/a | The OSS RTF ecosystem is stale (`RtfPipe` 2021, `RtfDomParser` 2022, `NRtfTree` is GPL-3.0). A *writer* for a controlled subset is tractable; a general *parser* is not worth it. |
+
+**Rejected:** `NPOI` — Apache-2.0 source but 2.8.0 binaries impose a maintenance-fee EULA on revenue-generating users; a legal hazard for a "free" library. `DocX`/Xceed — Xceed Community License, non-commercial. `OpenXML-Office` — AGPL-3.0/commercial. `ShapeCrawler` — PPTX only.
+
+### 5.5 Build on `RichTextKit` instead?
+
+`toptensoftware/RichTextKit` is **Apache-2.0** (GitHub shows `NOASSERTION`; `license.txt` is Apache-2.0), active (commits through 2026-07), ~425 stars, and includes an `Editor/TextDocument` subsystem with caret and selection support.
+
+**Rejected as a foundation, valuable as prior art.** It layers on SkiaSharp directly, which means bypassing Avalonia's renderer — losing the compositor, non-Skia backends, Avalonia's font manager, and theme/DPI integration, while duplicating shaping work Avalonia already does. Its editor subsystem is worth reading closely when implementing caret and selection.
+
+---
+
+## 6. End-to-end traces
+
+### 6.1 Typing `x` with bold armed
+
+1. `RichTextView.OnTextInput("x")`.
+2. Guard: `IsReadOnly` → swallow.
+3. Marks = `state.StoredMarks ?? MarksAt(selection.From)`.
+4. `tr = state.Tr.ReplaceSelectionWith(text: "x", marks)` → `[ReplaceStep(from,to,slice)]`, `Kind = Typing`, `SelectionAfter = TextSelection(from+1)`.
+5. `History.Push(tr)` — coalesce into previous entry iff previous is `Typing` ∧ Δt < 500 ms ∧ contiguous ∧ no selection jump.
+6. `state = state.Apply(tr)`; raise `DocumentChanged`.
+7. `RichTextView` reads `tr.Mapping` → affected block index *i*; `ParagraphView[i]._runCache.InvalidateFrom(localOffset)`; `InvalidateMeasure` on that view only.
+8. Measure rebuilds only paragraph *i*'s `TextLayout`; `BlockHeightIndex` updates if height changed; scroll offset adjusted if the change is above the viewport.
+9. Caret rect recomputed via `TextLayout.HitTestTextPosition`; blink timer reset (`_caretBlink = true`); `CursorRectangleChanged` raised for the IME.
+10. Render: selection rects → block content → caret.
+
+### 6.2 Paste from Word
+
+1. `TryGetDataAsync` → `IAsyncDataTransfer`.
+2. `NativeSlice` present? → deserialize `Slice`, apply, **done** (lossless).
+3. Else `Html` present? → strip CF_HTML preamble using its byte offsets → `AngleSharp` parse → allow-list importer walks the DOM into `Slice`. Unknown elements collapse to their inline content; `<script>`, event attributes, `<iframe>`, `<object>` dropped unconditionally; remote image URLs **not** fetched unless `AllowRemoteImages` is opted in.
+4. Else `Rtf`? → subset parser (if enabled) else fall through.
+5. Else `Text` → paragraphs split on `\r?\n`, current marks applied.
+6. One `Transaction` with `Kind = Paste` — a single undo step regardless of size.
+7. Schema validation: the slice is coerced to be valid in its insertion context (e.g. a table pasted inside a table cell is flattened to its text content rather than rejected).
+
+### 6.3 Merging table cells
+
+1. Selection must be `CellSelection`; otherwise command `CanExecute` is false.
+2. Compute the covering rectangle; reject with a status message if it is ragged (partially-overlapping existing spans).
+3. `TableStructureStep`: target cell gets `RowSpan`/`ColSpan`; absorbed cells' block content is appended to the target; absorbed cells removed.
+4. `Kind = Structure` → never coalesced with neighbours in history.
+5. `TableView` re-measures; column widths preserved; selection becomes a `TextSelection` at the end of the merged cell.
+
+---
+
+## 7. Validation, failure behavior, security
+
+| Concern | Rule |
+|---|---|
+| Schema validity | `Step.Apply` returns `StepResult.Failed` rather than producing an invalid document. The editor drops the transaction and logs; it never applies a partially-valid tree. |
+| Import robustness | Importers return `ImportResult(Document, IReadOnlyList<Diagnostic>)`. Never throw into the UI. Unsupported constructs downgrade to the nearest supported node; each downgrade is a diagnostic. |
+| HTML paste | Strict allow-list of elements/attributes/CSS properties. Script, event handlers, embedded objects, and `javascript:`/`data:` URLs removed. Remote images off by default. |
+| Image size | Configurable cap (default 16 MB decoded) — reject with a diagnostic rather than OOM. |
+| Huge paste | Cap (default 10 MB) with a confirm hook. |
+| Position mapping | All externally-held positions must be routed through `Mapping`; a debug-build assertion catches stale positions. |
+| Undo integrity | Property test: for any random transaction sequence, `undo*` returns to the exact initial document; `redo*` returns to the exact final document. |
+| IME | Preedit never reaches the model or history. |
+| Read-only | Enforced at the single `RichTextEditor.Dispatch(Transaction)` chokepoint, not per-command. |
+
+---
+
+## 8. Verification scenarios
+
+Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
+
+1. **Undo round-trip property test** — random op sequences (FsCheck), documents compared structurally.
+2. **Position mapping property test** — a position tracked through random edits equals the position recomputed from a re-derived document.
+3. **Grapheme integrity** — arrow keys and Backspace across "👨‍👩‍👧‍👦", "é" (combining), and Devanagari clusters never split a cluster. Uses `GetBackspaceCaretCharacterHit`.
+4. **Bidi caret & selection** — mixed Hebrew/English paragraph: visual caret order, and `GetTextBounds` producing multiple disjoint rects for a logically contiguous selection.
+5. **IME** — scripted preedit set/replace/commit/cancel; assert document unchanged during composition, one undo entry after commit.
+6. **Clipboard round-trip** — copy → paste in-app is byte-identical; HTML/RTF/DOCX exports validated (OOXML schema validation via the SDK; RTF parsed by a reference parser in tests).
+7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
+8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
+9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
+10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
+11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
+
+---
+
+## 9. Risks
+
+| # | Risk | Severity | Mitigation |
+|---|---|---|---|
+| **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | High | Ship `IValueProvider` + `AutomationProperties` in v1. Open an upstream Avalonia issue/PR proposing `ITextProvider`/`ITextRangeProvider`; this is plausibly the highest-value upstream contribution the project could make. Document the limitation honestly in the README. |
+| **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
+| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | Medium | Increment 0 spike measures it. Fallback: rebuild the paragraph's `TextLayout` wholesale — acceptable at paragraph granularity, which is precisely why B2 was chosen. |
+| **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
+| **R5** | Scope creep — the AC list is a commercial product's feature list. | High | Increment gating (§10). Increments 0–5 are a genuinely useful editor on their own; 6–8 are the long tail. |
+| **R6** | Trimming/NativeAOT regressions from Open XML SDK. | Low | DOCX lives in a separate package; core and the demo stay trimming-clean. |
+| **R7** | Avalonia 12 is recent; `DataFormat` and text APIs may still shift. | Low | Pin to 12.1.x; keep interop behind our own thin abstraction. |
+
+---
+
+## 10. Implementation sequence
+
+Each increment is independently useful and independently shippable. No compatibility scaffolding between them.
+
+| # | Increment | Proves / delivers | Rough size |
+|---|---|---|---|
+| **0** | **Spike (throwaway).** Read-only styled paragraph via `TextLayout` + `textStyleOverrides`; second spike with a custom `ITextSource` + one `DrawableTextRun` image; measure `TextRunCache.InvalidateFrom`. | Validates A1, A2, and the whole B2/C2 premise before any architecture is committed. | 1–2 days |
+| **1** | **Core model, headless.** Nodes, positions, `Step`/`Transaction`/`Mapping`, schema validation, history. Full unit + property tests. No UI. | The foundation everything else rests on, verified without a window. | 1–2 weeks |
+| **2** | **Editable single paragraph.** `RichTextView` with one `ParagraphView`: caret, mouse/keyboard selection, typing, Backspace/Delete, undo/redo, IME. | The hard interactive core. If this is right, the rest is largely additive. | 1–2 weeks |
+| **3** | **Multi-block + virtualization.** Block host, `BlockHeightIndex`, scrolling, cross-block selection, Enter/split/merge, headings, alignment, indent, lists, blockquote, rule. | AC2, AC12. **First genuinely usable editor.** | 1–2 weeks |
+| **4** | **Marks & embeds.** Full character formatting, stored marks, links, inline images via `EmbedRun`, `NodeSelection`, resize handles, optional `RichTextToolBar`, Fluent/Simple themes. | AC1, AC3, AC4, AC10, AC13. **Plausible v0.1 public release.** | 1–2 weeks |
+| **5** | **Clipboard & lightweight interop.** `DataFormat` wiring, `NativeSlice`, HTML import/export (AngleSharp) + sanitizer, Markdown (Markdig), drag-and-drop. | AC6, AC7 (partial), AC8 (partial). | 1–2 weeks |
+| **6** | **Tables.** `TableNode`/`TableView`, `CellSelection`, structure commands, column resize, cell backgrounds, tab navigation. | AC5. The big one. | 2–4 weeks |
+| **7** | **Office interop.** RTF writer (subset), DOCX export and import via Open XML SDK, interop test matrix. | AC7, AC8 complete. | 2–3 weeks |
+| **8** | **Polish.** `IValueProvider` a11y + upstream `ITextProvider` proposal, find/replace, spellcheck hook, context menu, touch/mobile handles, perf pass, docs, samples. | v1.0. | 2–3 weeks |
+
+**Realistic totals:** Increments 0–4 (a genuinely good basic rich text editor) ≈ **5–8 focused weeks**. Full v1.0 including tables and DOCX ≈ **4–6 months** of sustained part-time work.
+
+---
+
+## 11. Legal position
+
+- Avalonia is MIT; every API relied on here is public.
+- Avalonia Accelerate is not source-available. This design reimplements a publicly-advertised **feature list**. Feature sets are not protected; expression is. No decompilation, no binary inspection, no derivation from their code.
+- All chosen dependencies are MIT or BSD-2. `NPOI`, `DocX`/Xceed, `NRtfTree` (GPL-3.0), and `OpenXML-Office` (AGPL-3.0) are excluded on licensing grounds.
+- `RichTextKit` (Apache-2.0) may be *read* as prior art; if any code is adapted, attribution and Apache-2.0 notice requirements apply and must be tracked in `THIRD-PARTY-NOTICES`.
+
+---
+
+## 12. Decision log & open questions
+
+### 12.1 Decided
+
+| Decision | Outcome | Date |
+|---|---|---|
+| **Project name** | **Vellum.** Deliberately not `Avalonia.*`, so it never reads as first-party. Packages: `Vellum.Core`, `Vellum.Avalonia`, `Vellum.Interop.*`. | 2026-08-11 |
+| **Tables (AC5) in v1.0?** | **Yes — firm.** Tables are a hard requirement, not negotiable scope. This makes R2 the project's defining risk and Increment 6 the critical path. See §12.3. | 2026-08-11 |
+| **License** | MIT. | 2026-08-11 |
+
+### 12.2 Still open
+
+1. **OD1** — Avalonia 12 only for v1, or multi-target 11.3 LTS?
+2. **OD2** — Ship an opinionated toolbar, or editor surface + commands only?
+3. **OD3** — Is DOCX in v1.0, or deferred to v1.1?
+4. Should this be published under a personal GitHub, or pitched to the Avalonia community (e.g. as an `Avalonia.Labs` candidate) for contributors from day one?
+
+### 12.3 Consequences of committing to tables
+
+Tables being firm changes three things in this design, and they should be treated as binding on Increments 1–3, long before any table code is written:
+
+- **The model must be a tree (§5.1 A3), not a linear buffer.** Any temptation to simplify `Vellum.Core` to a flat Delta-style model in early increments is now foreclosed. `TableNode`/`TableRowNode`/`TableCellNode` must exist in the schema from Increment 1, even while unreachable from the UI, so positions and steps are exercised against nested structure from day one.
+- **`BlockView` must be genuinely recursive from Increment 3.** A table cell is a block host containing blocks. If the block host in Increment 3 assumes a flat top-level list of blocks, Increment 6 becomes a rewrite. Validate recursion early by nesting a blockquote inside a list item.
+- **`CellSelection` must be in the `Selection` hierarchy from Increment 1.** Retrofitting a third selection kind through every command is the expensive path.
+
+**Revised risk posture:** R2 (table layout is entirely ours, §9) is no longer deferrable and cannot be scoped out under schedule pressure. The realistic v1.0 estimate stands at **4–6 months** part-time, with Increment 6 as the single largest block of work. Constrain v1 to fixed/proportional column widths and no auto-fit-to-content — that constraint is what keeps tables at weeks rather than months.
+
