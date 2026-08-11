@@ -1,6 +1,6 @@
 # Increment 0 — validation spike findings
 
-Spike for [`docs/architecture.md`](../docs/architecture.md) §10 increment 0. This is throwaway
+Spike for [`docs/architecture.md`](architecture.md) §10 increment 0. This is throwaway
 code; it exists to answer three questions with measurement rather than reasoning, and it should be
 deleted once its conclusions are absorbed.
 
@@ -52,6 +52,12 @@ Where the two differ is only in timing noise, discussed in §2.
 
 ### Layout
 
+> **The `spike/` tree described here has been deleted**, as §10 intends and as §8 records. This
+> document and [`increment-0-evidence/`](increment-0-evidence/) are what survive. The layout and
+> commands below describe the code **as it was when these measurements were taken**, and are kept so
+> the results are reproducible from git history rather than implied to still be runnable. The spike
+> is recoverable at commit `766c3ef`.
+
 ```
 spike/
   Vellum.Spike.sln
@@ -62,7 +68,7 @@ spike/
   results/                     committed evidence: 8 markdown reports + 29 PNGs
 ```
 
-Reproduce:
+Reproduce (after `git checkout 766c3ef -- spike`):
 
 ```
 cd spike/Vellum.Spike.Probe
@@ -71,13 +77,16 @@ dotnet run -c Release -- c1       # C1 probes
 dotnet run -c Release -- bidi     # bidi/grapheme probes
 dotnet run -c Release -- a1diag   # A1 cache diagnostic   <- the decisive one
 dotnet run -c Release -- a1       # A1 stopwatch timings
+dotnet run -c Release -- a1width  # A1 width-only relayout
+dotnet run -c Release -- review   # re-tests of the three challenged claims
 dotnet run -c Release -- bench    # A1 BenchmarkDotNet
 
 cd ../Vellum.Spike.App
 dotnet run -c Debug               # the interactive window
 ```
 
-All five probes currently report **0 failed checks**. Note that "0 failures" means *the probe's
+All probes report **0 failed checks**, and as of the final commit the process exits non-zero if any
+check fails (it previously always exited 0 — see §8). Note that "0 failures" means *the probe's
 assertions hold*, not *the assumption is validated* — where behaviour turned out to be
 disappointing, the assertion was rewritten to assert the disappointing behaviour precisely, so
 that a future Avalonia upgrade that changes it will fail loudly. A1 is the clearest example.
@@ -107,7 +116,7 @@ identical to the net8.0 session:
 `TextCharacters` with varying `TextRunProperties`, plus custom `DrawableTextRun` subclasses at
 `\uFFFC` positions with `Length => 1`, formats, wraps, hit-tests and measures correctly.
 
-Raw report: [`results/a2-drawabletextrun.md`](results/a2-drawabletextrun.md).
+Raw report: [`increment-0-evidence/a2-drawabletextrun.md`](increment-0-evidence/a2-drawabletextrun.md).
 
 Setup: a 148-character paragraph with embeds at indices 18 and 142, `BoxRun` (a 40×24 colored box)
 and `ImageRun` (a real bitmap), both `Length => 1`.
@@ -128,7 +137,7 @@ Sweeping the wrap width from 180 to 2000px, the embed always moves as an unbreak
 
 Every embed appears exactly once across the formatted lines at every width — no duplication, no
 loss. **[live]** confirmed visually: the embed wraps to the next line rather than straddling a
-break ([`results/a2-wrapped.png`](results/a2-wrapped.png)).
+break ([`increment-0-evidence/a2-wrapped.png`](increment-0-evidence/a2-wrapped.png)).
 
 One boundary case worth recording: **an embed wider than the entire wrap width overflows.** A
 500px embed in a 300px wrap produced a 500px-wide line. It is not clipped, not scaled, and no text
@@ -267,9 +276,9 @@ traps above, none of which are structural.
 **Verdict: ❌ invalidated.** Not "no measurable benefit" — worse than that: **`InvalidateFrom(k)`
 for any k ≥ 1 returns the entire pre-edit layout.** It is fast because it is wrong.
 
-Raw reports: [`results/a1-diagnostic.md`](results/a1-diagnostic.md) (decisive),
-[`results/a1-textruncache-stopwatch.md`](results/a1-textruncache-stopwatch.md),
-[`results/a1-benchmarkdotnet.md`](results/a1-benchmarkdotnet.md).
+Raw reports: [`increment-0-evidence/a1-diagnostic.md`](increment-0-evidence/a1-diagnostic.md) (decisive),
+[`increment-0-evidence/a1-textruncache-stopwatch.md`](increment-0-evidence/a1-textruncache-stopwatch.md),
+[`increment-0-evidence/a1-benchmarkdotnet.md`](increment-0-evidence/a1-benchmarkdotnet.md).
 
 ### How this was nearly reported as a win
 
@@ -290,7 +299,7 @@ mismatch on **360 of 360** edits: cached line lengths summed to 101 where the fr
 to 102. The cached arm was laying out the text as it was *before* the edit.
 
 This is exactly what a naive benchmark of this API would conclude, which is why
-`results/a1-benchmarkdotnet.md` is committed rather than deleted.
+`increment-0-evidence/a1-benchmarkdotnet.md` is committed rather than deleted.
 
 ### The diagnostic
 
@@ -456,7 +465,7 @@ Timing, 800 chars, 8 widths cycled, 200 iterations/rep, 7 reps after a discarded
 **Median 3.50×** (range 2.93×–5.24×). Unlike the ±30% noise that swamped the edit measurement, the
 *smallest* observed ratio is still ~2.9×, so this survives the noise on this VM comfortably.
 
-Evidence: [`results/a1-width-only-relayout.md`](results/a1-width-only-relayout.md).
+Evidence: [`increment-0-evidence/a1-width-only-relayout.md`](increment-0-evidence/a1-width-only-relayout.md).
 
 ### What A1 means for the architecture
 
@@ -487,7 +496,7 @@ remains **invalidated**. The first version of this report then over-generalised 
 **Verdict: ✅ validated as a ceiling.** It does what §5.3 says, and its limit is structural rather
 than merely awkward.
 
-Raw report: [`results/c1-textstyleoverrides.md`](results/c1-textstyleoverrides.md).
+Raw report: [`increment-0-evidence/c1-textstyleoverrides.md`](increment-0-evidence/c1-textstyleoverrides.md).
 
 ### It works for character formatting
 
@@ -503,7 +512,7 @@ Raw report: [`results/c1-textstyleoverrides.md`](results/c1-textstyleoverrides.m
 | 7 | 13 | Normal/Normal | 16 | Black |
 
 Weight, style, size and brush all attribute correctly. **[live]** confirmed visually
-([`results/c1-styled.png`](results/c1-styled.png)).
+([`increment-0-evidence/c1-styled.png`](increment-0-evidence/c1-styled.png)).
 
 ### It cannot express embeds — three independent proofs
 
@@ -518,7 +527,7 @@ Weight, style, size and brush all attribute correctly. **[live]** confirmed visu
 
 3. **`\uFFFC` stays a glyph.** Placed in the string, it renders as an ordinary character via font
    fallback — a 19.2px tofu advance, not an embed box
-   ([`results/c1-objectreplacement.png`](results/c1-objectreplacement.png)).
+   ([`increment-0-evidence/c1-objectreplacement.png`](increment-0-evidence/c1-objectreplacement.png)).
 
 ### ⚠️ [revised] Proof 3 was too strong: a brush *can* paint arbitrary content
 
@@ -533,8 +542,8 @@ U+FFFC run rect with a DrawingBrush background: 15.48, 0, 57.61, 63.84
 rendered output contains brush-painted (non-greyscale) pixels: True
 ```
 
-([`results/review-c1-drawingbrush.png`](results/review-c1-drawingbrush.png),
-[`results/review-verification.md`](results/review-verification.md).)
+([`increment-0-evidence/review-c1-drawingbrush.png`](increment-0-evidence/review-c1-drawingbrush.png),
+[`increment-0-evidence/review-verification.md`](increment-0-evidence/review-verification.md).)
 
 So the honest ceiling is narrower than "cannot draw", but it is still a real ceiling, and it still
 points the same way:
@@ -570,7 +579,7 @@ display control could use it) provided embeds are never required.
 **Verdict: ✅ validated for arrow keys and selection; backspace behaves differently from §8
 scenario 3's description.**
 
-Raw report: [`results/bidi-graphemes.md`](results/bidi-graphemes.md).
+Raw report: [`increment-0-evidence/bidi-graphemes.md`](increment-0-evidence/bidi-graphemes.md).
 
 Test strings: `"Hello שלום world עולם 123"` (25 UTF-16 units) and
 `"Family 👨‍👩‍👧‍👦 then é done"` with a 4-person ZWJ family emoji and a combining acute (31 units).
@@ -616,7 +625,7 @@ tested strings, so **Indic conjunct behaviour is untested by this spike**.
 
 Increment 1 should assert *equality* against boundaries from Unicode `GraphemeBreakTest` data at a
 pinned Unicode version, not subset membership against `StringInfo`, and should include Devanagari.
-Evidence: [`results/review-verification.md`](results/review-verification.md).
+Evidence: [`increment-0-evidence/review-verification.md`](increment-0-evidence/review-verification.md).
 
 ### `GetTextBounds` splits correctly across the bidi boundary ✅
 
@@ -634,7 +643,7 @@ assume a single rectangle per line — which §8 scenario 4 already anticipates.
 **[live]** Extending a selection across the boundary showed 1 rect → 2 rects → 3 rects, with the
 RTL rect growing *leftward* (x = 81.8 → 70.8 → 65.4 → 51.5) as the selection extended logically
 forward. Visually correct bidi selection behaviour
-([`results/bidi-selection.png`](results/bidi-selection.png)).
+([`increment-0-evidence/bidi-selection.png`](increment-0-evidence/bidi-selection.png)).
 
 ### ⚠️ `GetBackspaceCaretCharacterHit` is deliberately sub-cluster
 
@@ -703,7 +712,7 @@ a policy:
 > but Increment 2 should **absorb a trailing ZWJ into the same keystroke** so one Backspace moves
 > 👨‍👩‍👧‍👦 → 👨‍👩‍👧 in one visible step. That is a small addition to the "no snapping layer needed"
 > claim above: no *cluster* snapping is needed, but ZWJ absorption is.
-> Evidence: [`results/review-verification.md`](results/review-verification.md).
+> Evidence: [`increment-0-evidence/review-verification.md`](increment-0-evidence/review-verification.md).
 
 
 ---
@@ -791,15 +800,15 @@ components. Suggested replacement:
 
 | file | contents |
 |---|---|
-| [`results/a2-drawabletextrun.md`](results/a2-drawabletextrun.md) | A2: wrapping sweep, alignment matrix, draw-origin derivation, `GetTextBounds`, hit-test sweeps, null-`Properties` crash |
-| [`results/a1-diagnostic.md`](results/a1-diagnostic.md) | **A1's decisive evidence**: offset sweep, stale-text proof, `GetTextRun` call counts |
-| [`results/a1-textruncache-stopwatch.md`](results/a1-textruncache-stopwatch.md) | A1 timings incl. the correct-usage 1.00× table and percentiles |
-| [`results/a1-benchmarkdotnet.md`](results/a1-benchmarkdotnet.md) | A1 via BenchmarkDotNet — retained because it reproduces the *illusion* |
-| [`results/c1-textstyleoverrides.md`](results/c1-textstyleoverrides.md) | C1: styled runs, constructor surface, `TextRunProperties` surface, U+FFFC glyph |
-| [`results/bidi-graphemes.md`](results/bidi-graphemes.md) | Caret walks vs `StringInfo`, backspace decomposition, `GetTextBounds` rects |
-| [`results/a1-width-only-relayout.md`](results/a1-width-only-relayout.md) | **[revised]** A1 part 2: width-only relayout correctness per width, `GetTextRun` counts, 7-rep timing |
-| [`results/review-verification.md`](results/review-verification.md) | **[revised]** Re-tests of three challenged claims: DrawingBrush loophole, `StringInfo` oracle, dangling ZWJ |
-| `results/*.png` | 29 rendered captures: wrapping, alignment matrix, baseline sweep, bitmap embed, C1 styled + tofu, bidi and cluster rendering, selection rects |
+| [`increment-0-evidence/a2-drawabletextrun.md`](increment-0-evidence/a2-drawabletextrun.md) | A2: wrapping sweep, alignment matrix, draw-origin derivation, `GetTextBounds`, hit-test sweeps, null-`Properties` crash |
+| [`increment-0-evidence/a1-diagnostic.md`](increment-0-evidence/a1-diagnostic.md) | **A1's decisive evidence**: offset sweep, stale-text proof, `GetTextRun` call counts |
+| [`increment-0-evidence/a1-textruncache-stopwatch.md`](increment-0-evidence/a1-textruncache-stopwatch.md) | A1 timings incl. the correct-usage 1.00× table and percentiles |
+| [`increment-0-evidence/a1-benchmarkdotnet.md`](increment-0-evidence/a1-benchmarkdotnet.md) | A1 via BenchmarkDotNet — retained because it reproduces the *illusion* |
+| [`increment-0-evidence/c1-textstyleoverrides.md`](increment-0-evidence/c1-textstyleoverrides.md) | C1: styled runs, constructor surface, `TextRunProperties` surface, U+FFFC glyph |
+| [`increment-0-evidence/bidi-graphemes.md`](increment-0-evidence/bidi-graphemes.md) | Caret walks vs `StringInfo`, backspace decomposition, `GetTextBounds` rects |
+| [`increment-0-evidence/a1-width-only-relayout.md`](increment-0-evidence/a1-width-only-relayout.md) | **[revised]** A1 part 2: width-only relayout correctness per width, `GetTextRun` counts, 7-rep timing |
+| [`increment-0-evidence/review-verification.md`](increment-0-evidence/review-verification.md) | **[revised]** Re-tests of three challenged claims: DrawingBrush loophole, `StringInfo` oracle, dangling ZWJ |
+| `increment-0-evidence/*.png` | 29 rendered captures: wrapping, alignment matrix, baseline sweep, bitmap embed, C1 styled + tofu, bidi and cluster rendering, selection rects |
 
 ---
 
@@ -829,7 +838,7 @@ fixed.
 - Several checks are **too broad to fail usefully**: the null-`Properties` check accepts *any*
   exception rather than the specific `ArgumentOutOfRangeException`; the `Top`/`TextTop` displacement
   is printed but never asserted; the bidi walk would pass if a caret API simply returned its input.
-- The documented `bench` command **does not regenerate** `results/a1-benchmarkdotnet.md`; that file
+- The documented `bench` command **does not regenerate** `increment-0-evidence/a1-benchmarkdotnet.md`; that file
   was transformed by hand from BenchmarkDotNet's artifacts.
 - The bidi evidence is **Windows-font-dependent** (`Typeface.Default` resolving emoji to Segoe UI
   Emoji); results on another platform are unverified.
@@ -837,6 +846,6 @@ fixed.
 None of these change the three verdicts, which rest on the direct measurements quoted above. They do
 mean Increment 1's test suite should not be modelled on this harness.
 
-**Disposal.** Per §10 this spike is throwaway. Delete `spike/` once Increment 1 begins; this
-document and `results/` are the only artefacts worth keeping, and are best relocated into `docs/`
-if the findings are to outlive the code.
+**Disposal.** Per §10 this spike was throwaway, and **it has been deleted**. This document and
+[`increment-0-evidence/`](increment-0-evidence/) are the retained artefacts. The code is recoverable
+from git history at commit `766c3ef` if a measurement ever needs re-running.
