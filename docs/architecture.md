@@ -89,7 +89,7 @@ Avalonia already provides the hardest infrastructure, MIT-licensed. This is the 
 
 ### 2.4 Open decisions for the user
 
-- **OD1** — Target Avalonia 12 only, or multi-target 11.3 LTS + 12? (Recommendation: 12 only for v1; the clipboard API is identical enough that 11.3 can be added later with a build constant.)
+- ~~**OD1** — Target Avalonia 12 only, or multi-target 11.3 LTS + 12?~~ **Decided 2026-08-11: Avalonia 12 only.** See §12.1.
 - **OD2** — Ship a default toolbar/ribbon control, or editor surface only + demo toolbar? (Recommendation: surface + fully-commanded API + an *optional* `RichTextToolBar` in the Controls package.)
 - **OD3** — Is DOCX in v1.0, or v1.1? It roughly doubles interop effort.
 
@@ -126,7 +126,7 @@ What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as
 └───────────────┬────────────────────────────────────────────────┘
                 │ depends on
 ┌───────────────▼────────────────────────────────────────────────┐
-│ Vellum.Core                       (Avalonia.Base only)         │
+│ Vellum.Core                       (zero dependencies)          │
 │   Model:  DocumentNode, BlockNode, InlineContent, marks        │
 │   State:  EditorState, Selection, Transaction, Step, Mapping   │
 │   Ops:    typing, formatting, list/indent, table ops           │
@@ -143,7 +143,14 @@ What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as
 └────────────────────────────────────────────────────────────────┘
 ```
 
-**Why the core has no Avalonia UI dependency:** the model, transactions, undo, and all interop are testable headlessly, in a plain `dotnet test`, with no windowing system. That is the difference between a project that survives and one that doesn't. Interop packages are separate so an app that only needs Markdown does not drag in the Open XML SDK.
+**Why the core has no dependencies at all:** the model, transactions, undo, and all interop are testable headlessly, in a plain `dotnet test`, with no windowing system — and, as decided on 2026-08-11, without even `Avalonia.Base`. That is the difference between a project that survives and one that doesn't. Interop packages are separate so an app that only needs Markdown does not drag in the Open XML SDK.
+
+The cost of a zero-dependency core is two small primitives Avalonia would otherwise have supplied, which `Vellum.Core` therefore owns:
+
+- **`Rgba` colour** — a `readonly record struct` of four bytes, replacing `Avalonia.Media.Color` in `MarkSet`.
+- **`ValueSpan<T>`** — `(int Start, int Length, T Value)`, replacing `Avalonia.Utilities.ValueSpan<T>` in `InlineContent.Marks`.
+
+`Vellum.Avalonia` owns the conversions in both directions. This is a deliberate trade: a few dozen lines of duplication in exchange for a core that is consumable from a server, a CLI, a source generator, or a test harness with no UI stack present.
 
 ### 4.2 Document model — hybrid tree + flat inline runs
 
@@ -173,7 +180,7 @@ public sealed class BlockImageNode : BlockNode   // block-level image (leaf)
 public sealed class InlineContent
 {
     public string Text { get; }                                   // '\uFFFC' placeholder per embed
-    public ImmutableArray<ValueSpan<MarkSet>> Marks { get; }      // sorted, non-overlapping, normalized
+    public ImmutableArray<ValueSpan<MarkSet>> Marks { get; }      // sorted, non-overlapping, normalized; Vellum's own ValueSpan
     public ImmutableArray<InlineEmbed> Embeds { get; }            // aligned to placeholder offsets
 }
 
@@ -183,8 +190,8 @@ public readonly record struct MarkSet(
     TextStyle Style,
     string? FontFamily,
     double? FontSize,
-    Color? Foreground,
-    Color? Highlight,
+    Rgba? Foreground,          // Vellum's own colour type — the core takes no Avalonia dependency
+    Rgba? Highlight,
     LinkMark? Link);
 ```
 
@@ -550,13 +557,15 @@ Each increment is independently useful and independently shippable. No compatibi
 | **Project name** | **Vellum.** Deliberately not `Avalonia.*`, so it never reads as first-party. Packages: `Vellum.Core`, `Vellum.Avalonia`, `Vellum.Interop.*`. | 2026-08-11 |
 | **Tables (AC5) in v1.0?** | **Yes — firm.** Tables are a hard requirement, not negotiable scope. This makes R2 the project's defining risk and Increment 6 the critical path. See §12.3. | 2026-08-11 |
 | **License** | MIT. | 2026-08-11 |
+| **OD1 — Avalonia version** | **Avalonia 12 only** for v1. No 11.3 LTS multi-targeting. It can be added later behind a build constant if demand appears; carrying it from day one taxes every increment. | 2026-08-11 |
+| **Target framework** | **`net10.0`**, single-target. Avalonia 12.1.1 ships `net10.0` assemblies, so nothing is given up on the UI side. Consumers must be on .NET 10 — accepted deliberately for a new library rather than carrying a `net8.0` floor. | 2026-08-11 |
+| **`Vellum.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `Vellum.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
 
 ### 12.2 Still open
 
-1. **OD1** — Avalonia 12 only for v1, or multi-target 11.3 LTS?
-2. **OD2** — Ship an opinionated toolbar, or editor surface + commands only?
-3. **OD3** — Is DOCX in v1.0, or deferred to v1.1?
-4. Should this be published under a personal GitHub, or pitched to the Avalonia community (e.g. as an `Avalonia.Labs` candidate) for contributors from day one?
+1. **OD2** — Ship an opinionated toolbar, or editor surface + commands only?
+2. **OD3** — Is DOCX in v1.0, or deferred to v1.1?
+3. Should this be published under a personal GitHub, or pitched to the Avalonia community (e.g. as an `Avalonia.Labs` candidate) for contributors from day one?
 
 ### 12.3 Consequences of committing to tables
 
