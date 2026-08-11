@@ -84,12 +84,26 @@ public class NodeSizeTests
     }
 
     [Fact]
-    public void Size_is_computed_once_and_stays_put()
+    public void Size_is_the_sum_of_what_is_inside_it_at_every_level()
     {
+        // The stored size is the one number everything else is arithmetic on, so it is checked
+        // against an independent walk rather than against itself.
+        static int Recompute(Node node) => node switch
+        {
+            ParagraphNode paragraph => paragraph.Content.Length + 2,
+            _ when node.IsLeaf => 1,
+            _ => node.Children.Sum(Recompute) + 2,
+        };
+
         var doc = DocumentNode.FromParagraphs("one", "two", "three");
 
-        Assert.Equal(doc.ContentSize, doc.ContentSize);
         Assert.Equal(5 + 5 + 7, doc.ContentSize);
+        Assert.Equal(doc.Children.Sum(child => child.NodeSize), doc.ContentSize);
+
+        foreach (var node in Sample.Nested.Children)
+        {
+            Assert.Equal(Recompute(node), node.NodeSize);
+        }
     }
 }
 

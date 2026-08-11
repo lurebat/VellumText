@@ -257,7 +257,22 @@ public class MarkStepInversionTests
         // Guards against a vacuous round trip. Setting every field to plain bold changes the
         // document exactly when some character in range was not already exactly plain bold, so
         // the ranges that prove nothing are identified rather than quietly counted as passes.
-        var shouldChange = inverse.Spans.Any(span => !span.Value.Equals(MixedSample.Bold));
+        // Read from the document rather than from the captured spans, so that a capture which
+        // recorded nothing cannot also decide that nothing was expected to change.
+        var shouldChange = false;
+
+        for (var pos = from; pos < to; pos++)
+        {
+            var at = MixedSample.Doc.Resolve(pos);
+
+            if (at.Paragraph is { } paragraph
+                && at.ParentOffset < paragraph.Content.Length
+                && !paragraph.Content.MarkAt(at.ParentOffset).Equals(MixedSample.Bold))
+            {
+                shouldChange = true;
+            }
+        }
+
         Assert.Equal(shouldChange, !MixedSample.Doc.Equals(applied.Doc));
 
         var undone = inverse.Apply(applied.Doc!);
@@ -309,6 +324,18 @@ public class MarkStepInversionTests
         Assert.Equal(
             inverse.Spans.Select(span => span.Start).OrderBy(start => start).ToList(),
             inverse.Spans.Select(span => span.Start).ToList());
+
+        // Without these the assertions above are all satisfied by capturing nothing at all.
+        // "alpha" is bold from document position 1; "bravo" is italic red from 11. Paragraph
+        // local offsets would put both runs at 0 and 1 instead, and the second capture would
+        // land on top of the first.
+        Assert.NotEmpty(inverse.Spans);
+        Assert.Contains(
+            inverse.Spans,
+            span => span.Start == 1 && span.Value.Equals(MixedSample.Bold));
+        Assert.Contains(
+            inverse.Spans,
+            span => span.Start == 11 && span.Value.Equals(MixedSample.ItalicRed));
     }
 
     [Fact]

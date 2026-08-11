@@ -163,6 +163,7 @@ public class StepMapRoundTripTests
     {
         var map = new StepMap(start, oldSize, newSize);
         var back = map.Invert();
+        var checkedPositions = 0;
 
         for (var pos = 0; pos <= 20; pos++)
         {
@@ -178,8 +179,14 @@ public class StepMapRoundTripTests
                 }
 
                 Assert.Equal(pos, back.Map(forward.Pos, assoc));
+                checkedPositions++;
             }
         }
+
+        // No edit here deletes the whole of a 20 position range, so a run that skipped
+        // everything would mean the deleted flag had gone wrong rather than that the round
+        // trip held.
+        Assert.True(checkedPositions >= 20, $"only {checkedPositions} positions round tripped");
     }
 
     [Theory]

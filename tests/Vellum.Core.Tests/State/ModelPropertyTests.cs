@@ -249,6 +249,16 @@ public class ModelPropertyTests
                 var resolved = state.Doc.Resolve(tracked[i]);
 
                 Assert.Equal(tracked[i], resolved.Pos);
+
+                // Echoing the number back proves only that nothing threw. What matters is that
+                // the context it came back with actually contains the position: a command reads
+                // Parent and ParentOffset and would otherwise be told about the wrong node.
+                Assert.InRange(tracked[i], 0, state.Doc.ContentSize);
+                Assert.InRange(
+                    tracked[i],
+                    resolved.Start(resolved.Depth),
+                    resolved.End(resolved.Depth));
+                Assert.Equal(tracked[i] - resolved.Start(resolved.Depth), resolved.ParentOffset);
             }
         }
     }
