@@ -269,3 +269,91 @@ public sealed class TableCellNode : BlockNode
     public override string ToString() =>
         RowSpan == 1 && ColumnSpan == 1 ? "table-cell" : $"table-cell({RowSpan}x{ColumnSpan})";
 }
+
+/// <summary>Where one cell sits in the grid its table implies.</summary>
+/// <param name="Top">The first row it occupies.</param>
+/// <param name="Left">The first column it occupies.</param>
+/// <param name="Bottom">One past the last row it occupies.</param>
+/// <param name="Right">One past the last column it occupies.</param>
+internal readonly record struct CellPlacement(int Top, int Left, int Bottom, int Right);
+
+/// <summary>
+/// Works out which grid slots each cell of a table occupies.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Rows are not columns. A cell that spans rows occupies slots in the rows below it, so those
+/// rows carry fewer cells than the table is wide, and counting cells - or even summing column
+/// spans - misreads such a table as ragged. Only tracking occupancy gets it right.
+/// </para>
+/// <para>
+/// This is shared rather than duplicated because both the schema and the selection grid need
+/// exactly this answer, and two copies of an algorithm this fiddly would drift apart.
+/// </para>
+/// </remarks>
+internal static class TableGeometry
+{
+    /// <summary>
+    /// Places every cell of a table, in row-major order, matching the order the rows and
+    /// their cells appear in.
+    /// </summary>
+    /// <param name="table">The table.</param>
+    /// <param name="width">How many columns the placements span.</param>
+    /// <remarks>
+    /// Total by construction: a cell whose span will not fit beside what is already there is
+    /// pushed right until it does, widening the table rather than overwriting a neighbour.
+    /// A malformed table therefore comes back as a wider grid with holes in it, which the
+    /// schema can report on, instead of as silently lost cells.
+    /// </remarks>
+    internal static ImmutableArray<CellPlacement> Place(TableNode table, out int width)
+    {
+        var placements = ImmutableArray.CreateBuilder<CellPlacement>();
+        var occupied = new HashSet<(int Row, int Column)>();
+
+        width = 0;
+
+        for (var row = 0; row < table.Rows.Length; row++)
+        {
+            var column = 0;
+
+            foreach (var cell in table.Rows[row].Cells)
+            {
+                while (!IsFree(occupied, row, column, cell.ColumnSpan))
+                {
+                    column++;
+                }
+
+                var placement = new CellPlacement(
+                    row, column, row + cell.RowSpan, column + cell.ColumnSpan);
+
+                for (var r = placement.Top; r < placement.Bottom; r++)
+                {
+                    for (var c = placement.Left; c < placement.Right; c++)
+                    {
+                        occupied.Add((r, c));
+                    }
+                }
+
+                placements.Add(placement);
+                width = Math.Max(width, placement.Right);
+                column = placement.Right;
+            }
+        }
+
+        return placements.ToImmutable();
+    }
+
+    private static bool IsFree(
+        HashSet<(int Row, int Column)> occupied, int row, int column, int span)
+    {
+        for (var c = column; c < column + span; c++)
+        {
+            if (occupied.Contains((row, c)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

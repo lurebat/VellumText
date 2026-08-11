@@ -94,44 +94,29 @@ public sealed class TableGrid
 
         var cells = ImmutableDictionary.CreateBuilder<int, TableSlot>();
         var placed = new List<TableSlot>();
-        var width = 0;
 
-        // A first pass places every cell, because the width is not known until it is done: a
-        // trailing merged cell can widen the table beyond any single row's cell count.
-        var occupied = new HashSet<(int Row, int Column)>();
+        // The geometry is worked out once, in one place, so the grid a selection sees and the
+        // grid the schema validates can never disagree about where a cell sits.
+        var placements = TableGeometry.Place(table, out var width);
         var rowPos = tablePos + 1;
+        var next = 0;
 
         for (var row = 0; row < table.Rows.Length; row++)
         {
             var cellPos = rowPos + 1;
-            var column = 0;
 
             foreach (var cell in table.Rows[row].Cells)
             {
-                while (occupied.Contains((row, column)))
-                {
-                    column++;
-                }
-
+                var placement = placements[next++];
                 var slot = new TableSlot(
                     cellPos,
-                    row,
-                    column,
-                    row + cell.RowSpan,
-                    column + cell.ColumnSpan);
-
-                for (var r = slot.Top; r < slot.Bottom; r++)
-                {
-                    for (var c = slot.Left; c < slot.Right; c++)
-                    {
-                        occupied.Add((r, c));
-                    }
-                }
+                    placement.Top,
+                    placement.Left,
+                    placement.Bottom,
+                    placement.Right);
 
                 placed.Add(slot);
                 cells.Add(cellPos, slot);
-                width = Math.Max(width, slot.Right);
-                column = slot.Right;
                 cellPos += cell.NodeSize;
             }
 

@@ -401,7 +401,7 @@ public class DocumentSchemaTests
         var violations = DocumentSchema.Validate(table);
 
         Assert.Single(violations);
-        Assert.Contains("spans 1 column", violations[0].Message, StringComparison.Ordinal);
+        Assert.Contains("No cell covers column 1", violations[0].Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -415,6 +415,77 @@ public class DocumentSchemaTests
         ]);
 
         Assert.True(DocumentSchema.IsValid(table));
+    }
+
+    [Fact]
+    public void A_cell_spanning_rows_fills_the_row_below_it()
+    {
+        // The second row carries one cell because the first row's cell is still occupying
+        // column 0. Summing column spans per row would call this ragged; it is not.
+        var table = new TableNode(
+        [
+            new TableRowNode(
+                [new TableCellNode([ParagraphNode.FromText("tall")], rowSpan: 2),
+                 TableCellNode.FromText("b")]),
+            new TableRowNode([TableCellNode.FromText("c")]),
+        ]);
+
+        Assert.True(DocumentSchema.IsValid(table));
+    }
+
+    [Fact]
+    public void A_row_that_overflows_past_a_spanning_cell_is_invalid()
+    {
+        // Only one column is free in the second row, so the extra cell widens the table to
+        // three and leaves the first row a column short.
+        var table = new TableNode(
+        [
+            new TableRowNode(
+                [new TableCellNode([ParagraphNode.FromText("tall")], rowSpan: 2),
+                 TableCellNode.FromText("b")]),
+            new TableRowNode([TableCellNode.FromText("c"), TableCellNode.FromText("d")]),
+        ]);
+
+        Assert.False(DocumentSchema.IsValid(table));
+    }
+
+    [Fact]
+    public void A_row_span_may_not_hang_off_the_bottom_of_the_table()
+    {
+        var table = new TableNode(
+        [
+            new TableRowNode(
+                [new TableCellNode([ParagraphNode.FromText("tall")], rowSpan: 2),
+                 TableCellNode.FromText("b")]),
+        ]);
+
+        var violations = DocumentSchema.Validate(table);
+
+        Assert.Contains(
+            violations, v => v.Message.Contains("only 1 row", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_cell_is_never_placed_on_top_of_one_that_is_already_there()
+    {
+        // Columns 0 and 2 are held by cells spanning down from the first row, so the wide
+        // cell in the second row has no room and must not be allowed to overwrite them.
+        var table = new TableNode(
+        [
+            new TableRowNode(
+            [
+                new TableCellNode([ParagraphNode.FromText("l")], rowSpan: 2),
+                TableCellNode.FromText("m"),
+                new TableCellNode([ParagraphNode.FromText("r")], rowSpan: 2),
+            ]),
+            new TableRowNode([new TableCellNode([ParagraphNode.FromText("wide")], columnSpan: 2)]),
+        ]);
+
+        var grid = TableGrid.Build(0, table);
+        var right = grid.At(0, 2)!.Value.Pos;
+
+        Assert.Equal(right, grid.At(1, 2)!.Value.Pos);
+        Assert.False(DocumentSchema.IsValid(table));
     }
 
     [Fact]

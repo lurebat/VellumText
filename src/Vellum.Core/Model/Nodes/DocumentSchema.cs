@@ -96,41 +96,52 @@ public static class DocumentSchema
             return;
         }
 
-        // Column count is measured in spans, not cells, so a merged cell is not mistaken
-        // for a short row. Rows that disagree mean the grid has a hole or an overhang, and
-        // no table renderer can lay that out sensibly.
-        var expected = ColumnCountOf(table.Rows[0]);
+        // Occupancy, not cell counts: a cell spanning rows fills slots in the rows below it,
+        // so those rows legitimately carry fewer cells. What must hold is that the placements
+        // tile the grid exactly - no hole a renderer would have to invent a cell for, and no
+        // span hanging off the bottom.
+        var placements = TableGeometry.Place(table, out var width);
+        var height = table.Rows.Length;
+        var covered = new bool[height, Math.Max(width, 1)];
 
-        for (var i = 1; i < table.Rows.Length; i++)
+        foreach (var placement in placements)
         {
-            var actual = ColumnCountOf(table.Rows[i]);
-
-            if (actual != expected)
+            if (placement.Bottom > height)
             {
                 violations.Add(new SchemaViolation(
-                    $"{path}/{i}:table-row",
-                    $"Row spans {actual} column(s) but the first row spans {expected}."));
+                    $"{path}/{placement.Top}:table-row",
+                    $"A cell spans rows {placement.Top} to {placement.Bottom - 1} but the "
+                    + $"table has only {height} row(s)."));
+            }
+
+            for (var r = placement.Top; r < Math.Min(placement.Bottom, height); r++)
+            {
+                for (var c = placement.Left; c < placement.Right; c++)
+                {
+                    covered[r, c] = true;
+                }
             }
         }
 
-        if (!table.ColumnWidths.IsEmpty && table.ColumnWidths.Length != expected)
+        for (var r = 0; r < height; r++)
+        {
+            for (var c = 0; c < width; c++)
+            {
+                if (!covered[r, c])
+                {
+                    violations.Add(new SchemaViolation(
+                        $"{path}/{r}:table-row",
+                        $"No cell covers column {c}, but the table is {width} column(s) wide."));
+                }
+            }
+        }
+
+        if (!table.ColumnWidths.IsEmpty && table.ColumnWidths.Length != width)
         {
             violations.Add(new SchemaViolation(
                 path,
-                $"{table.ColumnWidths.Length} column width(s) supplied for {expected} column(s)."));
+                $"{table.ColumnWidths.Length} column width(s) supplied for {width} column(s)."));
         }
-    }
-
-    private static int ColumnCountOf(TableRowNode row)
-    {
-        var count = 0;
-
-        foreach (var cell in row.Cells)
-        {
-            count += cell.ColumnSpan;
-        }
-
-        return count;
     }
 
     private static void RequireNonEmpty(
