@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AvaloniaVersion>12.1.1</AvaloniaVersion>
+    <!-- Spike code. Not product code, not held to product warning levels. -->
+    <NoWarn>$(NoWarn);CS8618;CA1416</NoWarn>
+  </PropertyGroup>
+</Project>
