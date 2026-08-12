@@ -218,8 +218,10 @@ public class RichTextViewBlocksTests
     }
 
     [AvaloniaFact]
-    public void ADocumentWithABlockThatHasNoViewSaysSoRatherThanDrawingNothing()
+    public void ATableIsDrawnAsTheParagraphsInsideItRatherThanRefused()
     {
+        // This used to throw, and the HTML importer emits a table from any pasted web page, so
+        // the throw was reachable by an ordinary copy out of a browser.
         var view = new RichTextView
         {
             State = EditorState.Create(new DocumentNode([
@@ -227,9 +229,44 @@ public class RichTextViewBlocksTests
             ])),
         };
 
+        view.Measure(new Size(400, 200));
+
+        Assert.Equal("cell", ((ParagraphNode)view.Slots[0].Node).Content.Text);
+    }
+
+    /// <summary>
+    /// A block outside the schema still refuses loudly. Drawing nothing would lose a user's text
+    /// silently, and the only way to reach this now is to grow the schema without teaching the
+    /// view about the new block — which is precisely when a loud failure is wanted.
+    /// </summary>
+    [AvaloniaFact]
+    public void ABlockTheViewHasNeverHeardOfSaysSoRatherThanDrawingNothing()
+    {
+        var view = new RichTextView
+        {
+            State = EditorState.Create(new DocumentNode([new UnknownBlock()])),
+        };
+
         var thrown = Assert.Throws<NotSupportedException>(() => view.Measure(new Size(400, 200)));
 
-        Assert.Contains("table", thrown.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unknown", thrown.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class UnknownBlock : BlockNode
+    {
+        public override int ContentSize => 0;
+
+        public override bool IsLeaf => true;
+
+        public override IReadOnlyList<Node> Children => [];
+
+        public override string TypeName => "unknown";
+
+        public override Node WithChildren(IReadOnlyList<Node> children) => this;
+
+        public override int GetHashCode() => 0;
+
+        protected override bool EqualsCore(Node other) => ReferenceEquals(this, other);
     }
 
     [AvaloniaFact]

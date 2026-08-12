@@ -97,6 +97,10 @@ public static class DocumentBlocks
                     marker = null;
                     break;
 
+                case TableNode table:
+                    WalkTable(table, pos + 1, depth, slots);
+                    break;
+
                 default:
                     // A leaf block has no inside, so its content start is the position it
                     // occupies rather than one past its opening boundary. Getting this wrong
@@ -129,6 +133,46 @@ public static class DocumentBlocks
 
             pos += item.NodeSize;
             ordinal++;
+        }
+    }
+
+    /// <summary>Walks a table, emitting the blocks inside its cells.</summary>
+    /// <remarks>
+    /// <para>
+    /// A grid is not a flat run of blocks, so this is a stand-in rather than the finished
+    /// article: cells come out stacked in reading order, one under the next, indented a level,
+    /// with no rules drawn between them. Real table layout needs a block view that hosts child
+    /// views and lays them out side by side, which is a separate piece of work.
+    /// </para>
+    /// <para>
+    /// It descends rather than stopping at the table because stopping was measurably worse than
+    /// degraded: the view has no table view to build, so a document holding a table -- which the
+    /// HTML importer produces from any pasted web page -- threw on the way to the screen.
+    /// Descending keeps every position mapped to a real paragraph, so the caret, selection and
+    /// editing all keep working inside a pasted table, and the document keeps the true
+    /// <see cref="TableNode"/> for export and round-tripping. Only the drawing is degraded.
+    /// </para>
+    /// </remarks>
+    private static void WalkTable(
+        TableNode table,
+        int start,
+        int depth,
+        ImmutableArray<BlockSlot>.Builder slots)
+    {
+        var pos = start;
+
+        foreach (var row in table.Rows)
+        {
+            var cellPos = pos + 1;
+
+            foreach (var cell in row.Cells)
+            {
+                Walk(cell.Blocks, cellPos + 1, depth + 1, null, slots);
+
+                cellPos += cell.NodeSize;
+            }
+
+            pos += row.NodeSize;
         }
     }
 }
