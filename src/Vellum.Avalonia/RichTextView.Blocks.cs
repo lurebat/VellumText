@@ -253,6 +253,17 @@ public partial class RichTextView
         _slots = slots;
         _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
+        // Every block, not just the rebuilt middle. A marker is not part of a paragraph, so an
+        // item's number can change while its paragraph node stays the very same object — which
+        // is exactly what the prefix scan matched on and skipped.
+        for (var i = 0; i < _views.Count; i++)
+        {
+            if (_views[i] is ParagraphView paragraph)
+            {
+                paragraph.SetLead(slots[i].Depth, slots[i].Marker);
+            }
+        }
+
         // A composition belongs to the block the caret was in. If the caret has left, the
         // composition has to go with it: leaving it behind would draw composed text in a
         // paragraph the input method is no longer talking about, and it would never be

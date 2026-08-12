@@ -35,6 +35,9 @@ public sealed class ParagraphView : BlockView
     private ParagraphNode _paragraph;
     private Preedit? _preedit;
     private TextLayout? _layout;
+    private TextLayout? _markerLayout;
+    private ListMarker? _marker;
+    private int _depth;
     private double _layoutWidth = double.NaN;
 
     /// <summary>Creates a view of a paragraph.</summary>
@@ -83,7 +86,45 @@ public sealed class ParagraphView : BlockView
     /// offset of the layout: the layout wraps to a narrower width and every coordinate crossing
     /// this type's boundary is shifted by it.
     /// </remarks>
-    public double Indent => (_paragraph.IndentLevel * _indentStep) + _style.LeftInset;
+    public double Indent => ((_paragraph.IndentLevel + _depth) * _indentStep) + _style.LeftInset;
+
+    /// <summary>How deep in a list the paragraph sits; zero when it is not in one.</summary>
+    public int Depth => _depth;
+
+    /// <summary>The bullet or number drawn in front of the paragraph, or null for none.</summary>
+    public ListMarker? Marker => _marker;
+
+    /// <summary>
+    /// Tells the view where in a list its paragraph sits and what to draw in front of it.
+    /// </summary>
+    /// <remarks>
+    /// Not part of the paragraph, which is why it is set rather than read. Nothing in a
+    /// paragraph node says what list encloses it or which number it takes, and both can change
+    /// without the paragraph changing at all: deleting the first item of a list renumbers every
+    /// item after it while leaving their paragraphs untouched, references and all.
+    /// </remarks>
+    /// <param name="depth">How many list levels enclose the paragraph.</param>
+    /// <param name="marker">The bullet or number to draw, or null for none.</param>
+    /// <returns>True if anything changed and the caller must redraw.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="depth"/> is negative.</exception>
+    public bool SetLead(int depth, ListMarker? marker)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(depth);
+
+        if (depth == _depth && marker.Equals(_marker))
+        {
+            return false;
+        }
+
+        _depth = depth;
+        _marker = marker;
+        _markerLayout = null;
+
+        // The indent is part of the width the text wraps to, so the layout is stale.
+        _layout = null;
+
+        return true;
+    }
 
     /// <summary>Where the text sits inside the block, past the indent and the space above.</summary>
     private Point Origin => new(Indent, _style.SpaceBefore);
@@ -135,6 +176,9 @@ public sealed class ParagraphView : BlockView
             _style = _kinds.Resolve(paragraph.Kind);
             _styles = KindStyles.Wrap(_base, _style);
             _runCache = new TextRunCache();
+
+            // The marker is drawn in the paragraph's own font, which the kind just changed.
+            _markerLayout = null;
         }
 
         if (textChanged)
@@ -281,6 +325,44 @@ public sealed class ParagraphView : BlockView
         }
 
         Layout.Draw(context, origin + Origin);
+
+        if (MarkerLayout is { } marker)
+        {
+            // Right-aligned into the gutter the depth opened up, and on the paragraph's own
+            // first baseline so a bullet lines up with the text it belongs to rather than with
+            // the top of the block.
+            var baseline = Layout.TextLines[0].Baseline - marker.TextLines[0].Baseline;
+
+            marker.Draw(
+                context,
+                origin + new Point(Indent - marker.Width - MarkerGap, Origin.Y + baseline));
+        }
+    }
+
+    /// <summary>The gap between a list marker and the text it introduces, in device pixels.</summary>
+    public const double MarkerGap = 6;
+
+    /// <summary>What is drawn in front of the paragraph, or null when nothing is.</summary>
+    public string? MarkerText => _marker is { } marker
+        ? marker.Kind == ListKind.Ordered ? $"{marker.Ordinal}." : "\u2022"
+        : null;
+
+    /// <summary>The laid-out bullet or number, or null when there is none to draw.</summary>
+    private TextLayout? MarkerLayout
+    {
+        get
+        {
+            if (MarkerText is not { } text)
+            {
+                return null;
+            }
+
+            return _markerLayout ??= new TextLayout(
+                text,
+                _styles.Default.Typeface,
+                _styles.Default.FontRenderingEmSize,
+                _styles.Default.ForegroundBrush);
+        }
     }
 
     /// <inheritdoc/>
