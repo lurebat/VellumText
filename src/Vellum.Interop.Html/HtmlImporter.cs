@@ -396,13 +396,23 @@ public static class HtmlImporter
                 mark);
         }
 
+        /// <summary>The largest width or height, in pixels, an image is allowed to declare.</summary>
+        /// <remarks>
+        /// As with font size, "finite and positive" is not a bound — <c>width="1e300"</c> satisfies
+        /// it. An image that claims to be astronomically wide would be laid out at that width. The
+        /// ceiling is the usual maximum texture dimension; beyond it the declaration is ignored and
+        /// the image falls back to its intrinsic size.
+        /// </remarks>
+        private const double MaxImageDimension = 32768.0;
+
         private static double? Dimension(IElement element, string name)
         {
             var attribute = element.GetAttribute(name);
 
             if (double.TryParse(attribute, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
                 && double.IsFinite(value)
-                && value > 0)
+                && value > 0
+                && value <= MaxImageDimension)
             {
                 return value;
             }
@@ -411,7 +421,8 @@ public static class HtmlImporter
 
             if (style is not null
                 && CssStyles.TryLength(style.GetPropertyValue(name), out var length)
-                && length > 0)
+                && length > 0
+                && length <= MaxImageDimension)
             {
                 return length;
             }

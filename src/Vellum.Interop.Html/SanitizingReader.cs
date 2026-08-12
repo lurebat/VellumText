@@ -243,15 +243,6 @@ internal sealed class SanitizingReader
             return;
         }
 
-        if (original.Length > _options.MaxDataImageBytes)
-        {
-            ReportOnce(
-                DiagnosticSeverity.Dropped,
-                $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
-                "data:");
-            return;
-        }
-
         if (!IsAllowedDataImage(original))
         {
             ReportOnce(
@@ -261,7 +252,92 @@ internal sealed class SanitizingReader
             return;
         }
 
+        switch (MeasureDataImage(original, _options.MaxDataImageBytes))
+        {
+            case DataImageVerdict.TooLarge:
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
+                    "data:");
+                return;
+
+            case DataImageVerdict.Undecodable:
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    "Removed an inline image whose data is not valid base64.",
+                    "data:");
+                return;
+        }
+
         e.SanitizedUrl = original;
+    }
+
+    /// <summary>What inspecting the payload of a <c>data:</c> image concluded.</summary>
+    private enum DataImageVerdict
+    {
+        /// <summary>The payload decodes and is within the size limit.</summary>
+        Usable,
+
+        /// <summary>The payload decodes to more bytes than are allowed.</summary>
+        TooLarge,
+
+        /// <summary>The payload does not decode at all.</summary>
+        Undecodable,
+    }
+
+    /// <summary>Checks that a <c>data:</c> image decodes, and how large it really is.</summary>
+    /// <param name="url">The whole data URL.</param>
+    /// <param name="maxBytes">The largest decoded size to allow.</param>
+    /// <returns>What the payload turned out to be.</returns>
+    /// <remarks>
+    /// The limit is named in bytes and has to be measured in bytes. Base64 spends four characters
+    /// on every three bytes, so judging the URL's length instead silently applies a limit a quarter
+    /// tighter than the one that was asked for.
+    /// <para>
+    /// Decoding is also the only way to find out whether the payload is an image at all rather than
+    /// a broken paste. A run of characters that cannot decode would otherwise reach the document as
+    /// an embed and fail later, at draw time, far away from anything that could explain it.
+    /// </para>
+    /// </remarks>
+    private static DataImageVerdict MeasureDataImage(string url, int maxBytes)
+    {
+        var comma = url.IndexOf(',', StringComparison.Ordinal);
+
+        if (comma < 0)
+        {
+            return DataImageVerdict.Undecodable;
+        }
+
+        var header = url.AsSpan(0, comma);
+        var payload = url.AsSpan(comma + 1);
+
+        if (!header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
+        {
+            // A payload that is not base64 is percent-encoded text. It carries at most one byte per
+            // character, so its length is a sound upper bound and no decode is needed.
+            return payload.Length > maxBytes ? DataImageVerdict.TooLarge : DataImageVerdict.Usable;
+        }
+
+        // Four characters become three bytes, so the decoded size is at least this, less padding.
+        // Checking it first means an enormous payload is rejected without allocating room for it.
+        if ((long)(payload.Length / 4) * 3 - 2 > maxBytes)
+        {
+            return DataImageVerdict.TooLarge;
+        }
+
+        var buffer = new byte[(payload.Length / 4 * 3) + 3];
+
+        if (!Convert.TryFromBase64Chars(payload, buffer, out var written))
+        {
+            return DataImageVerdict.Undecodable;
+        }
+
+        if (written == 0)
+        {
+            return DataImageVerdict.Undecodable;
+        }
+
+        return written > maxBytes ? DataImageVerdict.TooLarge : DataImageVerdict.Usable;
     }
 
     private static bool IsAllowedDataImage(string url) => DataImageTypes.Contains(MediaTypeOf(url));

@@ -17,6 +17,18 @@ internal static class CssStyles
     /// <summary>The largest indent level a margin can be translated into.</summary>
     private const int MaxIndentLevel = 8;
 
+    /// <summary>The largest font size, in pixels, that a stylesheet is allowed to ask for.</summary>
+    /// <remarks>
+    /// A length is only checked for being finite and positive, and <c>font-size: 99999999999in</c>
+    /// is both. Nothing downstream bounds it either: the model accepts any positive finite size,
+    /// and text layout would then be asked to shape a glyph nine trillion pixels tall. Since the
+    /// content being read here arrives from a clipboard and is not trusted, the ceiling is set well
+    /// above any real document — 4096 pixels is roughly twice the largest size Word can produce —
+    /// and a declaration above it is ignored, leaving the size inherited rather than substituting
+    /// an invented one.
+    /// </remarks>
+    private const double MaxFontSize = 4096.0;
+
     /// <summary>
     /// The width of one indent level in pixels. Word emits half-inch steps, which at the CSS
     /// reference resolution of 96 dpi is 48 pixels; browsers use 40 for a list. Splitting the
@@ -76,7 +88,7 @@ internal static class CssStyles
             mark = mark with { FontFamily = family };
         }
 
-        if (TryLength(style.GetPropertyValue("font-size"), out var size) && size > 0)
+        if (TryLength(style.GetPropertyValue("font-size"), out var size) && size > 0 && size <= MaxFontSize)
         {
             mark = mark with { FontSize = size };
         }

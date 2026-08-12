@@ -75,7 +75,8 @@ internal sealed class BlockSink
     /// <param name="mark">Its formatting.</param>
     internal void AddEmbed(InlineEmbed embed, MarkSet mark)
     {
-        Append(InlineContent.Placeholder.ToString(), mark);
+        FlushPendingSpace(mark);
+        AppendRaw(InlineContent.Placeholder.ToString(), mark);
         _embeds.Add(embed);
     }
 
@@ -105,19 +106,41 @@ internal sealed class BlockSink
 
     private void Append(string text, MarkSet mark)
     {
-        if (_pendingSpace)
-        {
-            _pendingSpace = false;
+        FlushPendingSpace(mark);
 
-            // A space only separates things. There is nothing to the left of the first one, and
-            // nothing to the left of the first one on a line either.
-            if (_text.Length > 0 && _text[^1] != '\n')
+        // U+FFFC belongs to the model: it marks where an embed sits, and the model rejects content
+        // whose placeholder count does not match its embed count. Source text is entitled to
+        // contain the character anyway — Word writes it for objects it cannot otherwise express,
+        // and anything that has already round-tripped through a rich text model will carry it — so
+        // it has to be taken out here. Letting one through discards the whole import.
+        if (text.Contains(InlineContent.Placeholder, StringComparison.Ordinal))
+        {
+            text = text.Replace(InlineContent.Placeholder.ToString(), string.Empty, StringComparison.Ordinal);
+
+            if (text.Length == 0)
             {
-                AppendRaw(" ", mark);
+                return;
             }
         }
 
         AppendRaw(text, mark);
+    }
+
+    private void FlushPendingSpace(MarkSet mark)
+    {
+        if (!_pendingSpace)
+        {
+            return;
+        }
+
+        _pendingSpace = false;
+
+        // A space only separates things. There is nothing to the left of the first one, and
+        // nothing to the left of the first one on a line either.
+        if (_text.Length > 0 && _text[^1] != '\n')
+        {
+            AppendRaw(" ", mark);
+        }
     }
 
     private void AppendRaw(string text, MarkSet mark)
