@@ -94,6 +94,47 @@ public class HtmlImportTests
         }
     }
 
+    [Theory]
+    [InlineData("#808080", 128, 128, 128)]
+    [InlineData("#123456", 18, 52, 86)]
+    [InlineData("#ff8800", 255, 136, 0)]
+    [InlineData("#c0c0c0", 192, 192, 192)]
+    [InlineData("gray", 128, 128, 128)]
+    [InlineData("rgb(18,52,86)", 18, 52, 86)]
+    [InlineData("rgb(50%,50%,50%)", 128, 128, 128)]
+    public void A_colour_that_is_not_fully_on_or_fully_off_keeps_its_value(string css, byte r, byte g, byte b)
+    {
+        // Every colour test here used to be a saturated one, and saturated colours are the only
+        // ones the bug this pins could not corrupt: it drove every non-zero channel to 255, so a
+        // grey document imported as a white one and pure red came out right by luck.
+        var p = OnlyPara(Import($"<span style='color:{css}'>x</span>"));
+
+        Assert.Equal(new Rgba(r, g, b, 255), p.Content.MarkAt(0).Foreground);
+    }
+
+    [Fact]
+    public void A_translucent_colour_keeps_both_its_channels_and_its_alpha()
+    {
+        var p = OnlyPara(Import("<span style='color:rgba(18,52,86,0.5)'>x</span>"));
+        var colour = p.Content.MarkAt(0).Foreground!.Value;
+
+        Assert.Equal(18, colour.R);
+        Assert.Equal(52, colour.G);
+        Assert.Equal(86, colour.B);
+        Assert.InRange(colour.A, (byte)126, (byte)129);
+    }
+    [Theory]
+    [InlineData("rgb(50%,50%,50%)", 128, 128, 128)]
+    [InlineData("rgb(100%,0%,20%)", 255, 0, 51)]
+    [InlineData("rgb(18,52,86)", 18, 52, 86)]
+    public void A_percentage_channel_is_scaled_and_rounded(string css, byte r, byte g, byte b)
+    {
+        // Asserted against the parser rather than through an import, because AngleSharp resolves a
+        // percentage to a number before the importer ever sees the declaration -- so a test that
+        // goes through HTML cannot reach this branch at all.
+        Assert.True(CssStyles.TryColor(css, out var colour));
+        Assert.Equal(new Rgba(r, g, b, 255), colour);
+    }
     [Fact]
     public void A_font_size_in_an_absolute_unit_survives_and_a_relative_one_does_not()
     {

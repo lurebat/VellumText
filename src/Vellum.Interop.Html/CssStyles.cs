@@ -392,10 +392,16 @@ internal static class CssStyles
         {
             case "rgb":
             case "rgba":
+                // Channel(), and not the doubles directly. FromRgba is overloaded on (byte, byte,
+                // byte, double) and (double, double, double, double), and the double overload takes
+                // channels normalized to 0..1. Passing 0..255 doubles binds that overload silently
+                // and clamps every non-zero channel to 255, so a grey imports as white and only a
+                // fully saturated colour survives -- which is exactly the shape of colour every
+                // test here used to use.
                 color = CssColorValue.FromRgba(
-                    Math.Clamp(args[0].EndsWith('%') ? a * 2.55 : a, 0, 255),
-                    Math.Clamp(args[1].EndsWith('%') ? b * 2.55 : b, 0, 255),
-                    Math.Clamp(args[2].EndsWith('%') ? c * 2.55 : c, 0, 255),
+                    Channel(args[0], a),
+                    Channel(args[1], b),
+                    Channel(args[2], c),
                     alpha);
                 return true;
 
@@ -409,6 +415,17 @@ internal static class CssStyles
         }
     }
 
+    /// <summary>Reads one rgb() channel, as a percentage or as a 0-255 number, into a byte.</summary>
+    /// <remarks>
+    /// Scaled as the specification writes it, <c>value / 100 * 255</c>, rather than by the 2.55 it
+    /// simplifies to: 2.55 has no exact binary representation, so 50% comes out as 127.49999999
+    /// and rounds down to 127 where every browser gives 128.
+    /// </remarks>
+    private static byte Channel(string declared, double value) =>
+        (byte)Math.Clamp(
+            Math.Round(declared.EndsWith('%') ? value / 100.0 * 255.0 : value, MidpointRounding.AwayFromZero),
+            0,
+            255);
     private static bool TryNumber(string text, out double value)
     {
         var trimmed = text.EndsWith('%') ? text[..^1] : text;
