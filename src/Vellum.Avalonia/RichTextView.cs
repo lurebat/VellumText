@@ -98,8 +98,14 @@ public partial class RichTextView : Control
                 return;
             }
 
-            SetAndRaise(StateProperty, ref _state, value);
+            // The view reconciles before the change is announced, not after. A consumer handling
+            // StateProperty asks the view questions -- which block the caret is in, what the caret
+            // block's style is -- and those are answered from state that OnStateChanged rebuilds.
+            // Raising first hands every listener the previous document's answers.
+            var previous = _state;
+            _state = value;
             OnStateChanged();
+            RaisePropertyChanged(StateProperty, previous, value);
         }
     }
 
