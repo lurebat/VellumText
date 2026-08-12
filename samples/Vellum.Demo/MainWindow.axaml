@@ -22,6 +22,19 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Margin" Value="0,10,0,4" />
     </Style>
+    <Style Selector="ToggleButton.tool">
+      <Setter Property="Padding" Value="9,4" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="Border.swatch">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Margin" Value="0,0,3,0" />
+      <Setter Property="CornerRadius" Value="2" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="#40808080" />
+    </Style>
   </Window.Styles>
 
   <Grid ColumnDefinitions="*,Auto,360" RowDefinitions="Auto,*,Auto">
@@ -29,30 +42,84 @@
     <!-- Toolbar -->
     <Border Grid.Row="0" Grid.ColumnSpan="3" BorderThickness="0,0,0,1"
             BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" Padding="8,6">
-      <WrapPanel>
-        <Button x:Name="UndoButton" Classes="tool" Content="Undo"
-                IsEnabled="{Binding #View.CanUndo}" />
-        <Button x:Name="RedoButton" Classes="tool" Content="Redo"
-                IsEnabled="{Binding #View.CanRedo}" />
+      <StackPanel>
+        <WrapPanel>
+          <Button x:Name="UndoButton" Classes="tool" Content="Undo"
+                  IsEnabled="{Binding #View.CanUndo}" />
+          <Button x:Name="RedoButton" Classes="tool" Content="Redo"
+                  IsEnabled="{Binding #View.CanRedo}" />
 
-        <TextBlock Classes="group" Text="BLOCK" />
-        <Button x:Name="BodyButton" Classes="tool" Content="Body" />
-        <Button x:Name="H1Button" Classes="tool" Content="H1" />
-        <Button x:Name="H2Button" Classes="tool" Content="H2" />
-        <Button x:Name="H3Button" Classes="tool" Content="H3" />
-        <Button x:Name="QuoteButton" Classes="tool" Content="Quote" />
-        <Button x:Name="CodeButton" Classes="tool" Content="Code" />
+          <TextBlock Classes="group" Text="BLOCK" />
+          <Button x:Name="BodyButton" Classes="tool" Content="Body" />
+          <Button x:Name="H1Button" Classes="tool" Content="H1" />
+          <Button x:Name="H2Button" Classes="tool" Content="H2" />
+          <Button x:Name="H3Button" Classes="tool" Content="H3" />
+          <Button x:Name="QuoteButton" Classes="tool" Content="Quote" />
+          <Button x:Name="CodeButton" Classes="tool" Content="Code" />
 
-        <TextBlock Classes="group" Text="ALIGN" />
-        <Button x:Name="AlignLeftButton" Classes="tool" Content="Left" />
-        <Button x:Name="AlignCenterButton" Classes="tool" Content="Centre" />
-        <Button x:Name="AlignRightButton" Classes="tool" Content="Right" />
-        <Button x:Name="AlignJustifyButton" Classes="tool" Content="Justify" />
+          <TextBlock Classes="group" Text="ALIGN" />
+          <Button x:Name="AlignLeftButton" Classes="tool" Content="Left" />
+          <Button x:Name="AlignCenterButton" Classes="tool" Content="Centre" />
+          <Button x:Name="AlignRightButton" Classes="tool" Content="Right" />
+          <Button x:Name="AlignJustifyButton" Classes="tool" Content="Justify" />
 
-        <TextBlock Classes="group" Text="INDENT" />
-        <Button x:Name="OutdentButton" Classes="tool" Content="&#x2190;" />
-        <Button x:Name="IndentButton" Classes="tool" Content="&#x2192;" />
-      </WrapPanel>
+          <TextBlock Classes="group" Text="INDENT" />
+          <Button x:Name="OutdentButton" Classes="tool" Content="&#x2190;" />
+          <Button x:Name="IndentButton" Classes="tool" Content="&#x2192;" />
+        </WrapPanel>
+
+        <WrapPanel Margin="0,6,0,0">
+          <TextBlock Classes="group" Text="TEXT" Margin="0,0,6,0" />
+          <ToggleButton x:Name="BoldButton" Classes="tool" FontWeight="Bold" Content="B"
+                        ToolTip.Tip="Bold (Ctrl+B)" />
+          <ToggleButton x:Name="ItalicButton" Classes="tool" FontStyle="Italic" Content="I"
+                        ToolTip.Tip="Italic (Ctrl+I)" />
+          <ToggleButton x:Name="UnderlineButton" Classes="tool" Content="U"
+                        ToolTip.Tip="Underline (Ctrl+U)">
+            <ToggleButton.Styles>
+              <Style Selector="ToggleButton#UnderlineButton /template/ ContentPresenter">
+                <Setter Property="TextBlock.TextDecorations" Value="Underline" />
+              </Style>
+            </ToggleButton.Styles>
+          </ToggleButton>
+          <ToggleButton x:Name="StrikeButton" Classes="tool" Content="S"
+                        ToolTip.Tip="Strikethrough (Ctrl+Shift+X)">
+            <ToggleButton.Styles>
+              <Style Selector="ToggleButton#StrikeButton /template/ ContentPresenter">
+                <Setter Property="TextBlock.TextDecorations" Value="Strikethrough" />
+              </Style>
+            </ToggleButton.Styles>
+          </ToggleButton>
+          <ToggleButton x:Name="SuperButton" Classes="tool" Content="x&#x00B2;"
+                        ToolTip.Tip="Superscript (Ctrl+.)" />
+          <ToggleButton x:Name="SubButton" Classes="tool" Content="x&#x2082;"
+                        ToolTip.Tip="Subscript (Ctrl+,)" />
+
+          <TextBlock Classes="group" Text="FONT" />
+          <ComboBox x:Name="FontBox" Width="150" Margin="0,0,4,0"
+                    PlaceholderText="Family" />
+          <ComboBox x:Name="SizeBox" Width="78" Margin="0,0,4,0"
+                    PlaceholderText="Size" />
+
+          <TextBlock Classes="group" Text="COLOUR" />
+          <Button x:Name="ColourButton" Classes="tool" ToolTip.Tip="Text colour">
+            <StackPanel Orientation="Horizontal">
+              <Border Classes="swatch" Background="{Binding #ColourButton.Tag}" />
+              <TextBlock Text="A" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="HighlightButton" Classes="tool" ToolTip.Tip="Highlight">
+            <StackPanel Orientation="Horizontal">
+              <Border Classes="swatch" Background="{Binding #HighlightButton.Tag}" />
+              <TextBlock Text="&#x25A0;" />
+            </StackPanel>
+          </Button>
+          <Button x:Name="LinkButton" Classes="tool" Content="Link"
+                  ToolTip.Tip="Turn the selection into a link to example.com" />
+          <Button x:Name="ClearButton" Classes="tool" Content="Clear"
+                  ToolTip.Tip="Strip character formatting (Ctrl+Space)" />
+        </WrapPanel>
+      </StackPanel>
     </Border>
 
     <!-- The editor -->

@@ -1,8 +1,12 @@
+using System.Globalization;
 using System.Text;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Vellum.Avalonia;
 using Vellum.Interop.Html;
 using Vellum.Interop.Rtf;
@@ -64,8 +68,11 @@ public partial class MainWindow : Window
             if (e.Property == RichTextView.StateProperty)
             {
                 UpdateStatus();
+                SyncFormattingToolbar();
             }
         };
+
+        SetUpFormattingToolbar();
 
         LoadSample();
     }
@@ -240,4 +247,162 @@ public partial class MainWindow : Window
         Show(HtmlImporter.Import(html), "sample");
         SourceBox.Text = html;
     }
+    /// <summary>Font sizes offered in the toolbar. The first entry means "inherit".</summary>
+    private static readonly string[] Sizes =
+        ["(default)", "9", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "48", "72"];
+
+    /// <summary>Font families offered in the toolbar. The first entry means "inherit".</summary>
+    private static readonly string[] Families =
+    [
+        "(default)", "Segoe UI", "Arial", "Calibri", "Times New Roman", "Georgia",
+        "Cascadia Mono", "Consolas", "Comic Sans MS",
+    ];
+
+    /// <summary>The colours the two colour buttons offer.</summary>
+    private static readonly (string Name, Rgba? Value)[] Palette =
+    [
+        ("None", null),
+        ("Black", new Rgba(0, 0, 0, 255)),
+        ("Grey", new Rgba(120, 120, 120, 255)),
+        ("Red", new Rgba(200, 32, 32, 255)),
+        ("Orange", new Rgba(224, 128, 16, 255)),
+        ("Yellow", new Rgba(240, 208, 32, 255)),
+        ("Green", new Rgba(24, 144, 64, 255)),
+        ("Teal", new Rgba(16, 144, 152, 255)),
+        ("Blue", new Rgba(32, 96, 216, 255)),
+        ("Navy", new Rgba(24, 40, 112, 255)),
+        ("Purple", new Rgba(128, 48, 176, 255)),
+        ("White", new Rgba(255, 255, 255, 255)),
+    ];
+
+    /// <summary>
+    /// Set while the toolbar is being brought in line with the document, so that a combo box
+    /// changing its own selection does not read as the user asking for a font.
+    /// </summary>
+    private bool _syncing;
+
+    /// <summary>Wires the character formatting controls and their live state.</summary>
+    private void SetUpFormattingToolbar()
+    {
+        FontBox.ItemsSource = Families;
+        SizeBox.ItemsSource = Sizes;
+
+        Toggle(BoldButton, TextStyle.Bold);
+        Toggle(ItalicButton, TextStyle.Italic);
+        Toggle(UnderlineButton, TextStyle.Underline);
+        Toggle(StrikeButton, TextStyle.Strikethrough);
+        Toggle(SuperButton, TextStyle.Super);
+        Toggle(SubButton, TextStyle.Sub);
+
+        FontBox.SelectionChanged += (_, _) =>
+        {
+            if (!_syncing)
+            {
+                Run(() => View.SetFontFamily(
+                    FontBox.SelectedIndex <= 0 ? null : (string)FontBox.SelectedItem!));
+            }
+        };
+
+        SizeBox.SelectionChanged += (_, _) =>
+        {
+            if (!_syncing)
+            {
+                Run(() => View.SetFontSize(
+                    SizeBox.SelectedIndex <= 0
+                        ? null
+                        : double.Parse((string)SizeBox.SelectedItem!, CultureInfo.InvariantCulture)));
+            }
+        };
+
+        ColourButton.Flyout = PaletteFlyout(c => View.SetForeground(c));
+        HighlightButton.Flyout = PaletteFlyout(c => View.SetHighlight(c));
+
+        LinkButton.Click += (_, _) => Run(() => View.SelectionMarks.Link is null
+            ? View.SetLink(new LinkMark("https://example.com"))
+            : View.SetLink(null));
+
+        ClearButton.Click += (_, _) => Run(() => View.ClearFormatting());
+
+        SyncFormattingToolbar();
+    }
+
+    private void Toggle(ToggleButton button, TextStyle style) =>
+        button.Click += (_, _) => Run(() => View.SetStyle(style, button.IsChecked == true));
+
+    /// <summary>A grid of colours that applies the one that is clicked.</summary>
+    private Flyout PaletteFlyout(Func<Rgba?, bool> apply)
+    {
+        var panel = new WrapPanel { Width = 176 };
+        var flyout = new Flyout { Content = panel };
+
+        foreach (var (name, value) in Palette)
+        {
+            var swatch = new Button
+            {
+                Width = 40,
+                Height = 28,
+                Margin = new Thickness(1),
+                Padding = new Thickness(0),
+                Background = value is { } rgba
+                    ? new SolidColorBrush(Color.FromArgb(rgba.A, rgba.R, rgba.G, rgba.B))
+                    : Brushes.Transparent,
+                Content = value is null ? "\u2298" : string.Empty,
+            };
+
+            ToolTip.SetTip(swatch, name);
+
+            swatch.Click += (_, _) =>
+            {
+                flyout.Hide();
+                Run(() => apply(value));
+            };
+
+            panel.Children.Add(swatch);
+        }
+
+        return flyout;
+    }
+
+    /// <summary>Shows what the selection is actually formatted as.</summary>
+    /// <remarks>
+    /// Driven from the document rather than from what was last clicked, so that moving the
+    /// caret into bold text lights the bold button and undo puts the toolbar back too.
+    /// </remarks>
+    private void SyncFormattingToolbar()
+    {
+        var marks = View.SelectionMarks;
+
+        _syncing = true;
+
+        try
+        {
+            BoldButton.IsChecked = marks.Has(TextStyle.Bold);
+            ItalicButton.IsChecked = marks.Has(TextStyle.Italic);
+            UnderlineButton.IsChecked = marks.Has(TextStyle.Underline);
+            StrikeButton.IsChecked = marks.Has(TextStyle.Strikethrough);
+            SuperButton.IsChecked = marks.Has(TextStyle.Super);
+            SubButton.IsChecked = marks.Has(TextStyle.Sub);
+
+            FontBox.SelectedIndex = marks.FontFamily is { } family
+                ? Math.Max(Array.IndexOf(Families, family), 0)
+                : 0;
+
+            SizeBox.SelectedIndex = marks.FontSize is { } size
+                ? Math.Max(
+                    Array.IndexOf(Sizes, size.ToString("0.##", CultureInfo.InvariantCulture)), 0)
+                : 0;
+
+            ColourButton.Tag = Swatch(marks.Foreground);
+            HighlightButton.Tag = Swatch(marks.Highlight);
+            LinkButton.Content = marks.Link is null ? "Link" : "Unlink";
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private static IBrush Swatch(Rgba? colour) => colour is { } c
+        ? new SolidColorBrush(Color.FromArgb(c.A, c.R, c.G, c.B))
+        : Brushes.Transparent;
 }
