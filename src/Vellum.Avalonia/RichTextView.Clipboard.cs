@@ -55,8 +55,9 @@ public partial class RichTextView
         }
 
         var builder = new StringBuilder();
+        var any = false;
 
-        Append(builder, Slice.Cut(_state.Doc, selection.From, selection.To).Content);
+        Append(builder, Slice.Cut(_state.Doc, selection.From, selection.To).Content, ref any);
 
         return builder.ToString();
     }
@@ -86,7 +87,32 @@ public partial class RichTextView
     /// <returns><see langword="true"/> if anything was cut.</returns>
     public async Task<bool> CutAsync()
     {
-        if (!await CopyAsync().ConfigureAwait(true))
+        // The range is settled before the await, and the delete refuses if the selection moved
+        // while the clipboard was busy. Awaiting first and deleting "the selection" afterwards
+        // cuts whatever the user happened to select in the meantime.
+        var before = _state.Selection;
+
+        if (before.IsEmpty || !await CopyAsync().ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        return DeleteCutRange(before);
+    }
+
+    /// <summary>
+    /// Removes the range a cut was started on, refusing if the selection moved meanwhile.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="CutAsync"/> because it is the only part of a cut that can be
+    /// tested: the headless clipboard completes synchronously, so no test can drive the await
+    /// this exists to defend.
+    /// </remarks>
+    internal bool DeleteCutRange(Selection before)
+    {
+        var after = _state.Selection;
+
+        if (after.From != before.From || after.To != before.To)
         {
             return false;
         }
@@ -134,30 +160,37 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(text);
 
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
         // Normalized first, so that a Windows clipboard's CRLF does not paste two breaks and a
         // classic-Mac CR does not paste none.
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Split('\n');
 
-        var changed = false;
+        var selection = _state.Selection;
+        var at = selection.From;
 
-        for (var i = 0; i < lines.Length; i++)
-        {
-            if (i > 0)
-            {
-                changed |= Split();
-            }
+        // One transaction, so that one undo takes the paste back. Splitting and inserting line by
+        // line reads more simply and is wrong: it leaves the user pressing Ctrl+Z once per line.
+        // Open on both ends is what makes the first and last pasted paragraphs merge into the
+        // paragraph the caret was sitting in, rather than pushing it apart.
+        var content = lines.Select(line => (Node)new ParagraphNode(InlineContent.FromText(line))).ToArray();
+        var slice = new Slice(content, 1, 1);
+        var caret = at + slice.Size;
 
-            if (lines[i].Length > 0)
-            {
-                changed |= InsertText(lines[i]);
-            }
-        }
+        var transaction = _state.Transaction().As(TransactionKind.Paste);
 
-        return changed;
+        transaction
+            .Replace(selection.From, selection.To, slice)
+            .SetSelection(TextSelection.Cursor(caret))
+            .SetStoredMarks(null);
+
+        return Apply(transaction);
     }
-
     /// <summary>Removes the selection, leaving a caret where it was.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     public bool DeleteSelection()
@@ -179,23 +212,29 @@ public partial class RichTextView
         return Apply(transaction);
     }
 
-    private static void Append(StringBuilder builder, IEnumerable<Node> nodes)
+    /// <summary>Appends the text of every paragraph reachable from <paramref name="nodes"/>.</summary>
+    /// <remarks>
+    /// The separator is counted rather than inferred from whether anything has been written yet.
+    /// A document whose first paragraph is empty would otherwise lose its leading blank line.
+    /// </remarks>
+    private static void Append(StringBuilder builder, IEnumerable<Node> nodes, ref bool any)
     {
         foreach (var node in nodes)
         {
             switch (node)
             {
                 case ParagraphNode paragraph:
-                    if (builder.Length > 0)
+                    if (any)
                     {
                         builder.Append('\n');
                     }
 
                     builder.Append(paragraph.Content.Text);
+                    any = true;
                     break;
 
                 default:
-                    Append(builder, node.Children);
+                    Append(builder, node.Children, ref any);
                     break;
             }
         }

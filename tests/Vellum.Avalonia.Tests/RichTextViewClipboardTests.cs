@@ -187,6 +187,98 @@ public class RichTextViewClipboardTests
         Assert.True(items["Cut"].IsEnabled);
         Assert.True(items["Copy"].IsEnabled);
     }
+    [AvaloniaFact]
+    public void OneMultiLinePasteIsOneUndo()
+    {
+        // Splitting and inserting line by line reads more simply and leaves the user pressing
+        // Ctrl+Z once per pasted line.
+        var view = Realized(DocumentNode.FromParagraphs("start"));
+
+        view.MoveTo(6, extend: false);
+        Assert.True(view.PasteText("one\ntwo\nthree"));
+
+        Assert.True(view.Undo());
+        Assert.Equal("start", Text(view));
+    }
+
+    [AvaloniaFact]
+    public void ALeadingBlankLineSurvivesCopying()
+    {
+        var view = Realized(DocumentNode.FromParagraphs(string.Empty, "second"));
+
+        view.SelectAll();
+        Assert.Equal("\nsecond", view.SelectedText());
+    }
+    [AvaloniaFact]
+    public void AMultiLinePasteMergesIntoTheParagraphTheCaretWasIn()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("AZ"));
+
+        view.MoveTo(2, extend: false);
+
+        Assert.True(view.PasteText("one\ntwo"));
+        Assert.Equal(new[] { "Aone", "twoZ" }, view.State.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
+    }
+
+    [AvaloniaFact]
+    public void ThePasteCaretLandsAfterWhatWasPasted()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("AZ"));
+
+        view.MoveTo(2, extend: false);
+        Assert.True(view.PasteText("one\ntwo"));
+
+        Assert.True(view.State.Selection.IsEmpty);
+
+        // Immediately after "two", so typing continues where the paste ended.
+        view.InsertText("!");
+        Assert.Equal(new[] { "Aone", "two!Z" }, view.State.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
+    }
+
+    [AvaloniaFact]
+    public void CuttingRefusesIfTheSelectionMovedWhileTheClipboardWasBusy()
+    {
+        // CutAsync awaits the clipboard. Deleting "the selection" after that await removes
+        // whatever the user selected in the meantime, which is not what they asked to cut.
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+        view.MoveTo(6, extend: true);
+
+        var started = view.State.Selection;
+
+        view.MoveTo(7, extend: false);
+        view.MoveTo(12, extend: true);
+
+        Assert.False(view.DeleteCutRange(started));
+        Assert.Equal("hello world", Text(view));
+    }
+
+    [AvaloniaFact]
+    public void CuttingProceedsIfTheSelectionHeldStill()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+        view.MoveTo(7, extend: true);
+
+        Assert.True(view.DeleteCutRange(view.State.Selection));
+        Assert.Equal("world", Text(view));
+    }
+    [AvaloniaFact]
+    public void TwoPastesAreTwoUndos()
+    {
+        // A paste is not typing, and the history policy never coalesces across one. Marking the
+        // transaction as typing would let two pastes merge into a single undo step.
+        var view = Realized(DocumentNode.FromParagraphs(string.Empty));
+
+        Assert.True(view.PasteText("one"));
+        Assert.True(view.PasteText("two"));
+        Assert.Equal("onetwo", Text(view));
+
+        Assert.True(view.Undo());
+        Assert.Equal("one", Text(view));
+    }
     private static string Text(RichTextView view) =>
         string.Join('\n', view.State.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
 
