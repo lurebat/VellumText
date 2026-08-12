@@ -51,10 +51,13 @@ public readonly record struct BlockSlot(BlockNode Node, int Start, int Depth, Li
 /// this selection touch — a search over an array rather than a walk of a tree.
 /// </para>
 /// <para>
-/// Tables are the exception this design will have to face in Increment 6, and they are exactly
-/// why this returns a list rather than being folded into the view: a table is a block whose
-/// cells contain blocks side by side, which no flat run can express. It will need a block view
-/// that hosts its own child views, and this walk will stop at it rather than descending.
+/// Tables are the exception this design will eventually have to face properly, and they are
+/// exactly why this returns a list rather than being folded into the view: a table is a block
+/// whose cells contain blocks side by side, which no flat run can express. Until there is a
+/// block view that hosts its own child views, this walk descends into cells and emits their
+/// blocks one under the other, indented like list items. A pasted table therefore reads and
+/// edits as a stack of paragraphs rather than a grid — but it renders, it is navigable, and
+/// the real <see cref="TableNode"/> survives in the document for export.
 /// </para>
 /// </remarks>
 public static class DocumentBlocks
