@@ -1,0 +1,73 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{md,yml,yaml}]
+end_of_line = lf
+indent_size = 2
+
+[*.{csproj,props,targets,json}]
+indent_size = 2
+
+[*.cs]
+# Namespaces
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Usings
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:warning
+
+# var
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+
+# Modern C#
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_primary_constructors = false:none
+csharp_prefer_braces = true:warning
+csharp_style_prefer_range_operator = true:suggestion
+csharp_style_prefer_index_operator = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+
+# Readonly
+dotnet_style_readonly_field = true:warning
+
+# Naming: everything public is PascalCase, private fields are _camelCase.
+dotnet_naming_rule.public_members_pascal.symbols = public_symbols
+dotnet_naming_rule.public_members_pascal.style = pascal_case
+dotnet_naming_rule.public_members_pascal.severity = warning
+dotnet_naming_symbols.public_symbols.applicable_kinds = property,method,event,namespace,class,struct,interface,enum,delegate
+dotnet_naming_symbols.public_symbols.applicable_accessibilities = public,internal,protected
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_rule.private_fields_underscore.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+# Every public member is documented. The build already generates the XML file,
+# so a missing comment is a real gap rather than a style preference.
+dotnet_diagnostic.CS1591.severity = error
+
+[tests/**/*.cs]
+# A test asserting on a magic number is clearer than one asserting on a constant
+# defined in the code it is testing, which can be wrong in both places at once.
+dotnet_diagnostic.CA1707.severity = none

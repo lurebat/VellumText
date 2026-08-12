@@ -1,0 +1,29 @@
+# Line endings are not normalised by this repository.
+#
+# The working copies here are CRLF and there is no core.autocrlf in play, so a
+# whole-file rewrite by a tool that emits Environment.NewLine can silently flip
+# every line in a file and bury a one-line change in a thousand-line diff. Being
+# explicit costs nothing and makes that class of accident impossible.
+
+* text=auto
+
+*.cs        text eol=crlf
+*.csproj    text eol=crlf
+*.sln       text eol=crlf
+*.props     text eol=crlf
+*.targets   text eol=crlf
+*.json      text eol=crlf
+*.editorconfig text eol=crlf
+
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.sh        text eol=lf
+
+# Fixtures are compared byte for byte. Anything touching them would break them.
+*.html      -text
+*.rtf       -text
+*.docx      binary
+*.png       binary
+*.jpg       binary
+*.ico       binary

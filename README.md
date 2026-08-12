@@ -2,7 +2,7 @@
 
 A free, MIT-licensed **rich text editor control for [Avalonia UI](https://avaloniaui.net)**.
 
-> **Status: design phase.** No code yet — see [`docs/architecture.md`](docs/architecture.md) for the full architecture and implementation plan.
+> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See [`docs/architecture.md`](docs/architecture.md) for the full architecture and implementation plan.
 
 Avalonia's own [Rich Text Editor](https://avaloniaui.net/rich-text-editor) is a commercial Accelerate component. The open-source alternatives are either a *code* editor ([AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit)) or unmaintained. Vellum aims to be a genuinely good, permissively-licensed WYSIWYG editor built on Avalonia's own text stack.
 
@@ -16,14 +16,35 @@ Vellum is therefore not a text engine. It is a **document model, a transaction s
 
 ## Planned packages
 
-| Package | Depends on |
-|---|---|
-| `Vellum.Core` | `Avalonia.Base` only — model, positions, transactions, undo. Headlessly testable. |
-| `Vellum.Avalonia` | The `RichTextEditor` control, block views, caret/selection, IME, themes. |
-| `Vellum.Interop.Html` | AngleSharp (MIT) |
-| `Vellum.Interop.Markdown` | Markdig (BSD-2) |
-| `Vellum.Interop.Rtf` | none |
-| `Vellum.Interop.Docx` | DocumentFormat.OpenXml (MIT) |
+| Package | Depends on | State |
+|---|---|---|
+| `Vellum.Core` | **nothing at all** — model, positions, transactions, undo. Headlessly testable. | working |
+| `Vellum.Avalonia` | `Avalonia` — the `RichTextEditor` control, block views, caret/selection, IME, themes. | working |
+| `Vellum.Interop.Html` | AngleSharp (MIT) | in progress |
+| `Vellum.Interop.Rtf` | none | in progress |
+| `Vellum.Interop.Markdown` | Markdig (BSD-2) | planned |
+| `Vellum.Interop.Docx` | DocumentFormat.OpenXml (MIT) | planned |
+
+`Vellum.Core` takes no dependency on `Avalonia.Base` either. It owns the two
+primitives it would otherwise have borrowed (`Rgba` and `ValueSpan<T>`), and a
+build target fails the build if a dependency is ever added.
+
+## Requirements
+
+- **.NET 10**
+- **Avalonia 12.1.1**
+
+Both are single-target on purpose: no multi-targeting, no version shims.
+
+## Building it
+
+```
+dotnet build
+dotnet test
+```
+
+The Avalonia tests run headlessly, so nothing needs a display server.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the rest.
 
 ## Scope
 
@@ -34,6 +55,12 @@ Vellum is therefore not a text engine. It is a **document model, a transaction s
 ## Known limitation
 
 Avalonia exposes no UIA `ITextProvider` / `ITextRangeProvider`, so no Avalonia control — including this one — can give screen readers text ranges, run attributes, or caret-move events. Vellum will ship `IValueProvider` and pursue an upstream contribution. See risk R1 in the architecture doc.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Security issues go through
+[private reporting](SECURITY.md), not public issues — Vellum imports untrusted
+documents, so it has a real threat model.
 
 ## License
 
