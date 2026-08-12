@@ -96,7 +96,7 @@ public partial class RichTextView
 
         base.OnTextInput(e);
 
-        if (e.Handled || _block is null || string.IsNullOrEmpty(e.Text))
+        if (e.Handled || Block is null || string.IsNullOrEmpty(e.Text))
         {
             return;
         }
@@ -114,7 +114,7 @@ public partial class RichTextView
 
     private bool DeleteAround(bool forward)
     {
-        if (_block is null)
+        if (Block is null)
         {
             return false;
         }
@@ -134,14 +134,14 @@ public partial class RichTextView
         }
         else
         {
-            var local = Math.Clamp(selection.Head - BlockStart, 0, _block.ContentSize);
+            var local = Math.Clamp(selection.Head - BlockStart, 0, Block.ContentSize);
 
             // Backspace is not the reverse of Delete. It peels one combining mark off a cluster
             // where the arrow keys and Delete step over the whole thing — Increment 0 measured
             // the difference and it was kept deliberately.
             var other = forward
-                ? _block.NextCaretPosition(local)
-                : _block.BackspacePosition(local);
+                ? Block.NextCaretPosition(local)
+                : Block.BackspacePosition(local);
 
             from = BlockStart + Math.Min(local, other);
             to = BlockStart + Math.Max(local, other);

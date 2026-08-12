@@ -12,11 +12,10 @@ namespace Vellum.Avalonia;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Increment 2 realises exactly one paragraph. The block list, the height index and the
-/// virtualization that <c>ILogicalScrollable</c> exists for arrive with the increment
-/// that has more than one block to scroll. What is settled here is the division of labour:
-/// blocks own layout and answer for geometry, and this control owns the caret, the selection
-/// highlight and everything that has to be true across blocks.
+/// The division of labour: blocks own layout and answer for geometry in their own coordinates,
+/// and this control owns the block list, the caret, the selection highlight and everything
+/// that has to be true across blocks. The block list and the reconciliation that keeps it
+/// cheap live in the Blocks part of this class.
 /// </para>
 /// <para>
 /// The caret and the highlight are drawn here rather than by the block precisely because a
@@ -61,7 +60,6 @@ public partial class RichTextView : Control
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
     private ITextStyleResolver? _styles;
     private IEmbedRenderer _embeds = new PlaceholderEmbedRenderer();
-    private ParagraphView? _block;
     private bool _caretVisible;
     private double _width = DefaultWidth;
 
@@ -146,7 +144,7 @@ public partial class RichTextView : Control
         {
             _styles = value;
             _derivedStyles = value is null;
-            _block = null;
+            DropLayout();
             InvalidateMeasure();
         }
     }
@@ -160,24 +158,10 @@ public partial class RichTextView : Control
             ArgumentNullException.ThrowIfNull(value);
 
             _embeds = value;
-            _block = null;
+            DropLayout();
             InvalidateMeasure();
         }
     }
-
-    /// <summary>
-    /// The document position at which the realised block's content starts.
-    /// </summary>
-    /// <remarks>
-    /// The one place where a block-local position becomes a document position. Increment 2 has
-    /// a single block so the answer is constant, but it is derived rather than written as 1 so
-    /// that the block list arriving later changes this method and nothing else.
-    /// </remarks>
-    public int BlockStart => _state.Doc.Resolve(1).Start(1);
-
-    /// <summary>The view of the realised block, laying it out if needed.</summary>
-    /// <remarks>Null until the control has been measured.</remarks>
-    public ParagraphView? Block => _block;
 
     /// <summary>Whether the caret is currently painted, for tests and for the blink timer.</summary>
     public bool IsCaretVisible => _caretVisible;
@@ -192,42 +176,11 @@ public partial class RichTextView : Control
             ? DefaultWidth
             : availableSize.Width;
 
-        var size = Realize().Measure(_width);
+        var size = Realize();
 
         // Room for the caret at the end of the longest line, which otherwise sits exactly on
         // the edge and is clipped to a half-pixel sliver.
         return size.WithWidth(size.Width + CaretWidth);
-    }
-
-    /// <summary>
-    /// Brings the realised block up to date with the document, laying it out at the last width
-    /// the control was measured at.
-    /// </summary>
-    /// <remarks>
-    /// Called from both the measure pass and the state setter, because the two can happen in
-    /// either order. A state change that only invalidated measure would leave every geometry
-    /// query — the caret rectangle, hit testing, caret movement, the content size the selection
-    /// is clamped against — answering for the document as it was before the edit, until the
-    /// layout pass caught up. Typing then moving the caret in the same turn is enough to see it.
-    /// </remarks>
-    private ParagraphView Realize()
-    {
-        var paragraph = _state.Doc.Blocks[0] as ParagraphNode
-            ?? throw new NotSupportedException(
-                "Increment 2 realises a single paragraph; the block list arrives with Increment 3.");
-
-        if (_block is null)
-        {
-            _block = new ParagraphView(paragraph, TextStyles, _embeds);
-        }
-        else
-        {
-            _block.Update(paragraph);
-        }
-
-        _block.Measure(_width);
-
-        return _block;
     }
 
     /// <inheritdoc/>
@@ -240,22 +193,15 @@ public partial class RichTextView : Control
             context.FillRectangle(background, new Rect(Bounds.Size));
         }
 
-        if (_block is null)
+        RenderSelection(context);
+
+        for (var i = 0; i < _views.Count; i++)
         {
-            return;
+            _views[i].Render(context, BlockOrigin(i));
         }
 
-        var origin = new Point(0, 0);
-
-        RenderSelection(context);
-        _block.Render(context, origin);
         RenderCaret(context);
     }
-
-    /// <summary>The document position nearest a point in this control's coordinates.</summary>
-    /// <param name="point">The point.</param>
-    public int PositionAt(Point point) =>
-        _block is null ? BlockStart : BlockStart + _block.HitTest(point);
 
     /// <summary>Restarts the blink so the caret is solid immediately after it moves.</summary>
     /// <remarks>
@@ -309,7 +255,7 @@ public partial class RichTextView : Control
         if (_derivedStyles && TextProperties.Contains(change.Property))
         {
             _styles = null;
-            _block = null;
+            DropLayout();
             InvalidateMeasure();
         }
         else if (change.Property == SelectionBrushProperty || change.Property == CaretBrushProperty)
@@ -349,7 +295,7 @@ public partial class RichTextView : Control
 
     private void OnStateChanged()
     {
-        if (_block is not null)
+        if (_views.Count > 0)
         {
             // Realised eagerly rather than waiting for the layout pass: see Realize.
             Realize();
@@ -362,36 +308,63 @@ public partial class RichTextView : Control
 
     private void RenderSelection(DrawingContext context)
     {
-        if (_state.Selection.IsEmpty || SelectionBrush is null || _block is null)
+        if (_state.Selection.IsEmpty || SelectionBrush is null)
         {
             return;
         }
 
-        var from = _state.Selection.From - BlockStart;
-        var to = _state.Selection.To - BlockStart;
+        var from = _state.Selection.From;
+        var to = _state.Selection.To;
 
-        // A selection is a document range and the block holds only part of the document, so it
-        // is clipped before being asked about. With one block this is a formality; with a
-        // block list it is the whole of how a multi-block selection is drawn.
-        from = Math.Clamp(from, 0, _block.ContentSize);
-        to = Math.Clamp(to, 0, _block.ContentSize);
-
-        foreach (var rect in _block.GetSelectionRects(from, to))
+        for (var i = 0; i < _views.Count; i++)
         {
-            context.FillRectangle(SelectionBrush, rect);
+            var slot = _slots[i];
+            var origin = BlockOrigin(i);
+
+            if (slot.Node.IsLeaf)
+            {
+                // A leaf has no inside, so there is no part of it to select: either the
+                // selection reaches across it and it is covered whole, or it is not touched.
+                // The host answers this because only the host can see that the selection
+                // reaches past the block on both sides.
+                if (from <= slot.Start && to >= slot.Start + slot.Node.NodeSize)
+                {
+                    context.FillRectangle(SelectionBrush, new Rect(origin, _views[i].Size));
+                }
+
+                continue;
+            }
+
+            // Blocks the selection does not reach into at all. The comparisons are strict at
+            // both ends so that a selection merely touching a boundary is skipped here rather
+            // than asked for a zero-length range; GetSelectionRects answers that with nothing,
+            // so this is a short-circuit, not the thing that keeps an empty sliver off screen.
+            if (to <= slot.Start || from >= slot.End)
+            {
+                continue;
+            }
+
+            var view = _views[i];
+
+            foreach (var rect in view.GetSelectionRects(
+                Math.Max(0, from - slot.Start),
+                Math.Min(view.ContentSize, to - slot.Start)))
+            {
+                context.FillRectangle(SelectionBrush, rect.Translate(origin));
+            }
         }
     }
 
     private void RenderCaret(DrawingContext context)
     {
-        if (!_caretVisible || CaretBrush is null || _block is null)
+        if (!_caretVisible || CaretBrush is null || _views.Count == 0)
         {
             return;
         }
 
         // A non-empty selection hides the caret, except while composing: then the caret belongs
         // to the input method and sits inside text the selection knows nothing about.
-        if (_block.Preedit is null && !_state.Selection.IsEmpty)
+        if (Block?.Preedit is null && !_state.Selection.IsEmpty)
         {
             return;
         }

@@ -28,7 +28,7 @@ public partial class RichTextView
     private readonly RichTextInputMethodClient _inputMethod;
 
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    public Preedit? Preedit => _block?.Preedit;
+    public Preedit? Preedit => Block?.Preedit;
 
     /// <summary>Whether an input method is composing into this view.</summary>
     public bool IsComposing => Preedit is not null;
@@ -44,12 +44,12 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool SetPreedit(string? text, int? cursorPosition = null)
     {
-        if (_block is null)
+        if (Block is not { } block)
         {
             return false;
         }
 
-        var anchor = Math.Clamp(_state.Selection.From - BlockStart, 0, _block.ContentSize);
+        var anchor = Math.Clamp(_state.Selection.From - BlockStart, 0, block.ContentSize);
 
         // The cursor is clamped rather than validated: it comes from a platform input method,
         // and a client that throws at one is a client that crashes the application on a stray
@@ -61,7 +61,7 @@ public partial class RichTextView
                 anchor,
                 cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
 
-        if (!_block.SetPreedit(preedit))
+        if (!block.SetPreedit(preedit))
         {
             return false;
         }
@@ -81,19 +81,19 @@ public partial class RichTextView
     }
 
     /// <summary>The plain text of the paragraph the caret is in, without any composition.</summary>
-    internal string ParagraphText => _block?.Paragraph.Content.Text ?? string.Empty;
+    internal string ParagraphText => Block?.Paragraph.Content.Text ?? string.Empty;
 
     /// <summary>The selection in paragraph-local offsets, as the input method wants it.</summary>
     internal ImeSelection InputMethodSelection
     {
         get
         {
-            if (_block is null)
+            if (Block is not { } block)
             {
                 return new ImeSelection(0, 0);
             }
 
-            var size = _block.ContentSize;
+            var size = block.ContentSize;
 
             return new ImeSelection(
                 Math.Clamp(_state.Selection.Anchor - BlockStart, 0, size),
@@ -102,7 +102,7 @@ public partial class RichTextView
 
         set
         {
-            if (_block is null)
+            if (Block is null)
             {
                 return;
             }
@@ -122,17 +122,18 @@ public partial class RichTextView
     /// </remarks>
     public Rect CaretRect()
     {
-        if (_block is null)
+        if (Block is not { } block)
         {
             return default;
         }
 
-        if (_block.Preedit is not null)
-        {
-            return _block.GetPreeditCaretRect();
-        }
+        var local = block.Preedit is not null
+            ? block.GetPreeditCaretRect()
+            : block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, block.ContentSize));
 
-        return _block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, _block.ContentSize));
+        // Translated by the block's own origin: a caret in the fourth paragraph is drawn where
+        // that paragraph is, and the block has no idea where that is.
+        return local.Translate(BlockOrigin(_caretBlock));
     }
 
     /// <summary>Tells the input method that what it is composing against has moved.</summary>

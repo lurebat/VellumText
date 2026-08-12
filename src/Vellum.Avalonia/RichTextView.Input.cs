@@ -37,18 +37,29 @@ public partial class RichTextView
 
     /// <summary>Places the caret, or extends the selection to reach it.</summary>
     /// <remarks>
-    /// The clamp is to the <em>block</em>, which while there is one block coincides exactly with
-    /// the document-wide clamp <c>TextSelection.Create</c> already applies — measured: removing
-    /// it changes no observable behaviour today. It is kept because the block boundary is what
-    /// this method means, and the two stop coinciding as soon as there is a second block.
+    /// <para>
+    /// The position is snapped to the nearest position text actually lives at before a selection
+    /// is built from it. Handing a raw position to <see cref="TextSelection.Create"/> instead
+    /// looks equivalent and is not: given a head that is not in text it repairs by calling
+    /// <c>Selection.Near</c>, which returns a <em>cursor</em> and so silently discards the
+    /// anchor. Measured — extending to the position just past the last paragraph collapsed the
+    /// selection to a caret instead of extending it.
+    /// </para>
+    /// <para>
+    /// Which way to snap matters at a block boundary, where a text position lies on either side.
+    /// An extending move prefers the direction it is travelling, so dragging down past the end
+    /// of a paragraph reaches into the next one rather than stopping short.
+    /// </para>
     /// </remarks>
     /// <param name="position">The document position to move to.</param>
     /// <param name="extend">Whether to keep the current anchor.</param>
     public void MoveTo(int position, bool extend)
     {
-        var clamped = Math.Clamp(position, BlockStart, BlockStart + ContentSize);
-        var anchor = extend ? _state.Selection.Anchor : clamped;
-        var selection = TextSelection.Create(_state.Doc, anchor, clamped);
+        var head = NearestTextPosition(
+            position, forward: !extend || position >= _state.Selection.Anchor);
+
+        var anchor = extend ? _state.Selection.Anchor : head;
+        var selection = TextSelection.Create(_state.Doc, anchor, head);
 
         if (selection == _state.Selection)
         {
@@ -60,6 +71,44 @@ public partial class RichTextView
 
         State = EditorState.Create(_state.Doc, selection);
         ResetCaretBlink();
+    }
+
+    /// <summary>
+    /// The position nearest a given one at which text lives.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <c>Selection.Near</c>, which stops at the first <em>selectable</em>
+    /// position and so answers a rule with a node selection rather than searching past it for
+    /// somewhere a text caret can go. Node selections are how a rule will be selected once
+    /// there is a gesture that produces one; a caret movement is not that gesture.
+    /// </remarks>
+    /// <param name="position">Where the caret was asked to go.</param>
+    /// <param name="forward">Which way to prefer when both directions are equally close.</param>
+    private int NearestTextPosition(int position, bool forward)
+    {
+        var size = _state.Doc.ContentSize;
+        var start = Math.Clamp(position, 0, size);
+
+        for (var distance = 0; distance <= size; distance++)
+        {
+            var first = forward ? start + distance : start - distance;
+
+            if (first >= 0 && first <= size && _state.Doc.Resolve(first).IsInText)
+            {
+                return first;
+            }
+
+            var second = forward ? start - distance : start + distance;
+
+            if (distance > 0 && second >= 0 && second <= size && _state.Doc.Resolve(second).IsInText)
+            {
+                return second;
+            }
+        }
+
+        // A document with no text at all — nothing but rules. Nothing here can help; the
+        // selection machinery will make what it can of the raw position.
+        return start;
     }
 
     /// <inheritdoc/>
@@ -126,7 +175,7 @@ public partial class RichTextView
 
         base.OnKeyDown(e);
 
-        if (e.Handled || _block is null)
+        if (e.Handled || Block is null)
         {
             return;
         }
@@ -154,13 +203,13 @@ public partial class RichTextView
 
             case Key.Home:
                 _goalX = null;
-                MoveTo(word ? BlockStart : BlockStart + _block.LineStart(CaretLine), extend);
+                MoveTo(word ? 0 : BlockStart + Block!.LineStart(CaretLine), extend);
                 break;
 
             case Key.End:
                 _goalX = null;
                 MoveTo(
-                    word ? BlockStart + ContentSize : BlockStart + _block.LineEnd(CaretLine),
+                    word ? _state.Doc.ContentSize : BlockStart + Block!.LineEnd(CaretLine),
                     extend);
                 break;
 
@@ -200,7 +249,11 @@ public partial class RichTextView
             case Key.A when word:
                 _goalX = null;
                 State = EditorState.Create(
-                    _state.Doc, TextSelection.Create(_state.Doc, BlockStart, BlockStart + ContentSize));
+                    _state.Doc,
+                    TextSelection.Create(
+                        _state.Doc,
+                        NearestTextPosition(0, forward: true),
+                        NearestTextPosition(_state.Doc.ContentSize, forward: false)));
                 ResetCaretBlink();
                 break;
 
@@ -212,7 +265,7 @@ public partial class RichTextView
     }
 
     /// <summary>The number of positions in the realised block.</summary>
-    private int ContentSize => _block?.ContentSize ?? 0;
+    private int ContentSize => Block?.ContentSize ?? 0;
 
     /// <summary>The caret's position expressed relative to the block.</summary>
     private int CaretLocal =>
@@ -229,7 +282,7 @@ public partial class RichTextView
     /// can see — pressing Up at a wrap boundary would leave for the top of the document, and
     /// Home would jump to the start of the previous line.
     /// </remarks>
-    private int CaretLine => _block!.LineIndexAt(CaretLocal, forward: true);
+    private int CaretLine => Block!.LineIndexAt(CaretLocal, forward: true);
 
     private void Horizontal(bool forward, bool word, bool extend)
     {
@@ -248,7 +301,7 @@ public partial class RichTextView
 
         var moved = word
             ? WordBoundary(local, forward)
-            : forward ? _block!.NextCaretPosition(local) : _block!.PreviousCaretPosition(local);
+            : forward ? Block!.NextCaretPosition(local) : Block!.PreviousCaretPosition(local);
 
         MoveTo(BlockStart + moved, extend);
     }
@@ -259,11 +312,11 @@ public partial class RichTextView
         var line = CaretLine;
 
         // Read the goal before moving, and keep whatever a previous vertical move established.
-        _goalX ??= _block!.GetCaretRect(local).X;
+        _goalX ??= Block!.GetCaretRect(local).X;
 
         var target = down ? line + 1 : line - 1;
 
-        if (target < 0 || target >= _block!.LineCount)
+        if (target < 0 || target >= Block!.LineCount)
         {
             // Off the end of the paragraph: go to the document edge, the way every editor does,
             // rather than refusing to move. The goal column is deliberately kept, so Up then
@@ -272,7 +325,7 @@ public partial class RichTextView
             return;
         }
 
-        MoveTo(BlockStart + _block.PositionAtLineX(target, _goalX.Value), extend);
+        MoveTo(BlockStart + Block.PositionAtLineX(target, _goalX.Value), extend);
     }
 
     /// <summary>
@@ -291,7 +344,7 @@ public partial class RichTextView
     /// </remarks>
     private int WordBoundary(int local, bool forward)
     {
-        var text = _block!.Paragraph.Content.Text;
+        var text = Block!.Paragraph.Content.Text;
 
         if (forward)
         {
@@ -299,12 +352,12 @@ public partial class RichTextView
 
             while (i < text.Length && !IsWordChar(text, i))
             {
-                i = _block.NextCaretPosition(i);
+                i = Block.NextCaretPosition(i);
             }
 
             while (i < text.Length && IsWordChar(text, i))
             {
-                i = _block.NextCaretPosition(i);
+                i = Block.NextCaretPosition(i);
             }
 
             return i;
@@ -312,14 +365,14 @@ public partial class RichTextView
 
         var j = local;
 
-        while (j > 0 && !IsWordChar(text, _block.PreviousCaretPosition(j)))
+        while (j > 0 && !IsWordChar(text, Block.PreviousCaretPosition(j)))
         {
-            j = _block.PreviousCaretPosition(j);
+            j = Block.PreviousCaretPosition(j);
         }
 
-        while (j > 0 && IsWordChar(text, _block.PreviousCaretPosition(j)))
+        while (j > 0 && IsWordChar(text, Block.PreviousCaretPosition(j)))
         {
-            j = _block.PreviousCaretPosition(j);
+            j = Block.PreviousCaretPosition(j);
         }
 
         return j;
