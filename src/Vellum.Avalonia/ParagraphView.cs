@@ -254,6 +254,87 @@ public sealed class ParagraphView : BlockView
     public int BackspacePosition(int localPosition) =>
         Move(localPosition, forward: false, static (line, hit) => line.GetBackspaceCaretCharacterHit(hit));
 
+    /// <summary>The number of visual lines the paragraph wrapped onto.</summary>
+    public int LineCount => Layout.TextLines.Count;
+
+    /// <summary>The index of the visual line a position sits on.</summary>
+    /// <remarks>
+    /// A wrap boundary belongs to two lines, so the caller says which way it is travelling for
+    /// the same reason <see cref="Move"/> does.
+    /// </remarks>
+    /// <param name="localPosition">The position to locate.</param>
+    /// <param name="forward">Whether the caret is moving forward.</param>
+    public int LineIndexAt(int localPosition, bool forward)
+    {
+        CheckPosition(localPosition);
+
+        var lines = Layout.TextLines;
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var end = lines[i].FirstTextSourceIndex + lines[i].Length;
+
+            var owns = forward
+                ? localPosition < end
+                : localPosition <= end && localPosition > lines[i].FirstTextSourceIndex;
+
+            if (owns)
+            {
+                return i;
+            }
+        }
+
+        return forward ? lines.Count - 1 : 0;
+    }
+
+    /// <summary>The first position on a visual line.</summary>
+    /// <param name="lineIndex">The line.</param>
+    public int LineStart(int lineIndex) =>
+        Math.Clamp(Line(lineIndex).FirstTextSourceIndex, 0, ContentSize);
+
+    /// <summary>The last position on a visual line.</summary>
+    /// <remarks>
+    /// Clamped to <see cref="BlockView.ContentSize"/>, because the last line's text source
+    /// length counts the paragraph terminator, which is not a position the caret can occupy.
+    /// Trailing whitespace that wrapped is excluded for the same reason a caret at End should
+    /// not sit past the visible edge of the line.
+    /// </remarks>
+    /// <param name="lineIndex">The line.</param>
+    public int LineEnd(int lineIndex)
+    {
+        var line = Line(lineIndex);
+        var end = line.FirstTextSourceIndex + line.Length - line.NewLineLength - line.TrailingWhitespaceLength;
+
+        return Math.Clamp(end, LineStart(lineIndex), ContentSize);
+    }
+
+    /// <summary>The position on a visual line nearest a horizontal offset.</summary>
+    /// <remarks>
+    /// This is what carries a caret's goal column across a vertical move. The offset is in this
+    /// block's coordinates, so it includes <see cref="Indent"/>.
+    /// </remarks>
+    /// <param name="lineIndex">The line to land on.</param>
+    /// <param name="x">The horizontal offset to land nearest.</param>
+    public int PositionAtLineX(int lineIndex, double x)
+    {
+        var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Indent);
+
+        return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, ContentSize);
+    }
+
+    private TextLine Line(int lineIndex)
+    {
+        var lines = Layout.TextLines;
+
+        if (lineIndex < 0 || lineIndex >= lines.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lineIndex), lineIndex, $"The paragraph has {lines.Count} lines.");
+        }
+
+        return lines[lineIndex];
+    }
+
     private int Move(int localPosition, bool forward, Func<TextLine, CharacterHit, CharacterHit> step)
     {
         CheckPosition(localPosition);
@@ -274,26 +355,8 @@ public sealed class ParagraphView : BlockView
     /// there, which is the only one that can answer. Getting this wrong does not throw — it
     /// silently pins the caret at the start of every wrapped line.
     /// </remarks>
-    private TextLine LineAt(int localPosition, bool forward)
-    {
-        var lines = Layout.TextLines;
-
-        foreach (var line in lines)
-        {
-            var end = line.FirstTextSourceIndex + line.Length;
-
-            var owns = forward
-                ? localPosition < end
-                : localPosition <= end && localPosition > line.FirstTextSourceIndex;
-
-            if (owns)
-            {
-                return line;
-            }
-        }
-
-        return forward ? lines[^1] : lines[0];
-    }
+    private TextLine LineAt(int localPosition, bool forward) =>
+        Layout.TextLines[LineIndexAt(localPosition, forward)];
 
     /// <summary>
     /// The paragraph-level properties handed to the formatter.

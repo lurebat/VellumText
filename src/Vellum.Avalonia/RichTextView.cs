@@ -25,12 +25,25 @@ namespace Vellum.Avalonia;
 /// which is knowledge it has no business having.
 /// </para>
 /// </remarks>
-public class RichTextView : Control
+public partial class RichTextView : Control
 {
     /// <summary>Defines the <see cref="State"/> property.</summary>
     public static readonly DirectProperty<RichTextView, EditorState> StateProperty =
         AvaloniaProperty.RegisterDirect<RichTextView, EditorState>(
             nameof(State), o => o.State, (o, v) => o.State = v);
+
+    /// <summary>Defines the <see cref="Background"/> property.</summary>
+    /// <remarks>
+    /// Transparent rather than null, and this matters: Avalonia hit-tests a plain
+    /// <see cref="Control"/> against what it actually drew, so a view that painted only glyphs
+    /// would not receive a click in the leading above a line, in the gap below one, or to the
+    /// right of the last character. Measured: a click 2px from the top of the control reported
+    /// the parent <c>ContentPresenter</c> as its source and never reached the view. Filling the
+    /// bounds with a transparent brush is what makes the whole control clickable, and it costs
+    /// nothing visually.
+    /// </remarks>
+    public static readonly StyledProperty<IBrush?> BackgroundProperty =
+        AvaloniaProperty.Register<RichTextView, IBrush?>(nameof(Background), Brushes.Transparent);
 
     /// <summary>Defines the <see cref="SelectionBrush"/> property.</summary>
     public static readonly StyledProperty<IBrush?> SelectionBrushProperty =
@@ -80,6 +93,14 @@ public class RichTextView : Control
             SetAndRaise(StateProperty, ref _state, value);
             OnStateChanged();
         }
+    }
+
+    /// <summary>The fill behind the whole control.</summary>
+    /// <remarks>See <see cref="BackgroundProperty"/> — this is load-bearing for hit testing.</remarks>
+    public IBrush? Background
+    {
+        get => GetValue(BackgroundProperty);
+        set => SetValue(BackgroundProperty, value);
     }
 
     /// <summary>The fill behind selected text.</summary>
@@ -186,6 +207,11 @@ public class RichTextView : Control
     public override void Render(DrawingContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        if (Background is { } background)
+        {
+            context.FillRectangle(background, new Rect(Bounds.Size));
+        }
 
         if (_block is null)
         {
