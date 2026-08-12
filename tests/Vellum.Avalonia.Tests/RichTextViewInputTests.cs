@@ -514,4 +514,98 @@ public class RichTextViewInputTests
         view.MoveTo(view.BlockStart + from, extend: false);
         view.MoveTo(view.BlockStart + to, extend: true);
     }
+
+    /// <summary>
+    /// The demo's layout, which is the one every other test here skips: the view nested in a
+    /// padded <see cref="ScrollViewer"/> rather than filling the window. Every pointer
+    /// coordinate then passes through an extra translation, and getting that wrong would put
+    /// clicks in the wrong paragraph while a bare-view test stayed green.
+    /// </summary>
+    private static (Window Window, RichTextView View) Nested(params string[] paragraphs)
+    {
+        var view = new RichTextView
+        {
+            State = EditorState.Create(DocumentNode.FromParagraphs(paragraphs)),
+            MinHeight = 300,
+        };
+
+        var window = new Window
+        {
+            Content = new ScrollViewer { Content = view, Padding = new Thickness(24, 18, 24, 18) },
+            Width = 500,
+            Height = 400,
+        };
+
+        window.Show();
+        window.Measure(new Size(500, 400));
+        window.Arrange(new Rect(0, 0, 500, 400));
+
+        return (window, view);
+    }
+
+    /// <summary>A point inside the given block, in window coordinates.</summary>
+    private static Point In(Window window, RichTextView view, int block, double x)
+    {
+        var y = 0.0;
+
+        for (var i = 0; i < block; i++)
+        {
+            y += view.Blocks[i].Size.Height;
+        }
+
+        y += view.Blocks[block].Size.Height / 2;
+
+        return view.TranslatePoint(new Point(x, y), window)!.Value;
+    }
+
+    [AvaloniaFact]
+    public void ADragInsideAScrollViewerSelectsTheParagraphItIsOver()
+    {
+        var (window, view) = Nested("alpha bravo", "charlie delta", "echo foxtrot");
+        var slot = view.Slots[1];
+
+        window.MouseDown(In(window, view, 1, 5), MouseButton.Left);
+        window.MouseMove(In(window, view, 1, 45));
+        window.MouseUp(In(window, view, 1, 45), MouseButton.Left);
+
+        Assert.False(view.State.Selection.IsEmpty);
+        Assert.InRange(view.State.Selection.From, slot.Start, slot.End);
+        Assert.InRange(view.State.Selection.To, slot.Start, slot.End);
+    }
+
+    /// <summary>
+    /// The report was that a heading applied to every paragraph rather than the selected one.
+    /// This drives the whole gesture the way a user does — drag, then command — because the
+    /// command's own tests set the selection directly and so cannot catch a pointer that never
+    /// moved the selection off the default at all.
+    /// </summary>
+    [AvaloniaFact]
+    public void AHeadingAppliesOnlyToTheParagraphAPointerDragCovered()
+    {
+        var (window, view) = Nested("alpha bravo", "charlie delta", "echo foxtrot");
+
+        window.MouseDown(In(window, view, 1, 5), MouseButton.Left);
+        window.MouseMove(In(window, view, 1, 45));
+        window.MouseUp(In(window, view, 1, 45), MouseButton.Left);
+
+        Assert.True(view.SetParagraphKind(ParagraphKind.Heading1));
+
+        Assert.Equal(ParagraphKind.Body, ((ParagraphNode)view.Slots[0].Node).Kind);
+        Assert.Equal(ParagraphKind.Heading1, ((ParagraphNode)view.Slots[1].Node).Kind);
+        Assert.Equal(ParagraphKind.Body, ((ParagraphNode)view.Slots[2].Node).Kind);
+    }
+
+    /// <summary>
+    /// A fresh document's caret sits in the first paragraph, not across the whole document. If it
+    /// ever spanned everything, a block command issued before the user selected anything would
+    /// reformat the entire document — which is exactly what a broken pointer would look like.
+    /// </summary>
+    [AvaloniaFact]
+    public void AFreshDocumentStartsWithACaretRatherThanEverythingSelected()
+    {
+        var (_, view) = Nested("alpha bravo", "charlie delta", "echo foxtrot");
+
+        Assert.True(view.State.Selection.IsEmpty);
+        Assert.InRange(view.State.Selection.Head, view.Slots[0].Start, view.Slots[0].End);
+    }
 }
