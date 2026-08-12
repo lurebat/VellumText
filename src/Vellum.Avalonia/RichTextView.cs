@@ -63,6 +63,7 @@ public partial class RichTextView : Control
     private IEmbedRenderer _embeds = new PlaceholderEmbedRenderer();
     private ParagraphView? _block;
     private bool _caretVisible;
+    private double _width = DefaultWidth;
 
     /// <summary>Creates the view.</summary>
     public RichTextView()
@@ -176,6 +177,33 @@ public partial class RichTextView : Control
     /// <inheritdoc/>
     protected override Size MeasureOverride(Size availableSize)
     {
+        // An unconstrained width has no wrap point, so the text would lay out on one endless
+        // line and the control would ask for it. A finite fallback keeps that from happening
+        // when the control is measured outside a width-constraining parent.
+        _width = double.IsInfinity(availableSize.Width) || availableSize.Width <= 0
+            ? DefaultWidth
+            : availableSize.Width;
+
+        var size = Realize().Measure(_width);
+
+        // Room for the caret at the end of the longest line, which otherwise sits exactly on
+        // the edge and is clipped to a half-pixel sliver.
+        return size.WithWidth(size.Width + CaretWidth);
+    }
+
+    /// <summary>
+    /// Brings the realised block up to date with the document, laying it out at the last width
+    /// the control was measured at.
+    /// </summary>
+    /// <remarks>
+    /// Called from both the measure pass and the state setter, because the two can happen in
+    /// either order. A state change that only invalidated measure would leave every geometry
+    /// query — the caret rectangle, hit testing, caret movement, the content size the selection
+    /// is clamped against — answering for the document as it was before the edit, until the
+    /// layout pass caught up. Typing then moving the caret in the same turn is enough to see it.
+    /// </remarks>
+    private ParagraphView Realize()
+    {
         var paragraph = _state.Doc.Blocks[0] as ParagraphNode
             ?? throw new NotSupportedException(
                 "Increment 2 realises a single paragraph; the block list arrives with Increment 3.");
@@ -189,18 +217,9 @@ public partial class RichTextView : Control
             _block.Update(paragraph);
         }
 
-        // An unconstrained width has no wrap point, so the text would lay out on one endless
-        // line and the control would ask for it. A finite fallback keeps that from happening
-        // when the control is measured outside a width-constraining parent.
-        var width = double.IsInfinity(availableSize.Width) || availableSize.Width <= 0
-            ? DefaultWidth
-            : availableSize.Width;
+        _block.Measure(_width);
 
-        var size = _block.Measure(width);
-
-        // Room for the caret at the end of the longest line, which otherwise sits exactly on
-        // the edge and is clipped to a half-pixel sliver.
-        return size.WithWidth(size.Width + CaretWidth);
+        return _block;
     }
 
     /// <inheritdoc/>
@@ -322,6 +341,12 @@ public partial class RichTextView : Control
 
     private void OnStateChanged()
     {
+        if (_block is not null)
+        {
+            // Realised eagerly rather than waiting for the layout pass: see Realize.
+            Realize();
+        }
+
         InvalidateMeasure();
         ResetCaretBlink();
     }

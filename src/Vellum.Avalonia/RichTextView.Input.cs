@@ -164,6 +164,22 @@ public partial class RichTextView
                     extend);
                 break;
 
+            case Key.Back:
+                if (!Backspace())
+                {
+                    return;
+                }
+
+                break;
+
+            case Key.Delete:
+                if (!Delete())
+                {
+                    return;
+                }
+
+                break;
+
             case Key.A when word:
                 _goalX = null;
                 State = EditorState.Create(
