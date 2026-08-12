@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 
@@ -68,6 +69,12 @@ public partial class RichTextView : Control
     public RichTextView()
     {
         Focusable = true;
+
+        // Without this the pointer stays an arrow over text, which is the single clearest signal
+        // a control gives that it is editable at all.
+        Cursor = new Cursor(StandardCursorType.Ibeam);
+
+        ContextFlyout = BuildContextFlyout();
 
         _inputMethod = new RichTextInputMethodClient(this);
 

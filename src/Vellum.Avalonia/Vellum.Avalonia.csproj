@@ -13,4 +13,10 @@
     <ProjectReference Include="..\Vellum.Core\Vellum.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The context menu's enabled state is real logic, and a headless test platform cannot open a
+         popup to observe it through the UI. -->
+    <InternalsVisibleTo Include="Vellum.Avalonia.Tests" />
+  </ItemGroup>
+
 </Project>

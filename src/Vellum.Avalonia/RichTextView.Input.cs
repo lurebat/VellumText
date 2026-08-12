@@ -286,14 +286,22 @@ public partial class RichTextView
                 break;
 
             case Key.A when word:
-                _goalX = null;
-                State = EditorState.Create(
-                    _state.Doc,
-                    TextSelection.Create(
-                        _state.Doc,
-                        NearestTextPosition(0, forward: true),
-                        NearestTextPosition(_state.Doc.ContentSize, forward: false)));
-                ResetCaretBlink();
+                SelectAll();
+                break;
+
+            // The clipboard is asynchronous, so these are started and not awaited. The key is
+            // marked handled regardless: letting Ctrl+V fall through to text input would type a
+            // literal "v" into the document while the paste was still in flight.
+            case Key.C when word:
+                _ = CopyAsync();
+                break;
+
+            case Key.X when word:
+                _ = CutAsync();
+                break;
+
+            case Key.V when word:
+                _ = PasteAsync();
                 break;
 
             default:
