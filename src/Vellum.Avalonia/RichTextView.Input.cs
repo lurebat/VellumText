@@ -296,7 +296,9 @@ public partial class RichTextView
                 _ = CopyAsync();
                 break;
 
-            case Key.X when word:
+            // Cut deliberately refuses Shift: Ctrl+Shift+X is strikethrough, and a Cut that
+            // ignored the modifier would swallow the chord and destroy the selection instead.
+            case Key.X when word && !extend:
                 _ = CutAsync();
                 break;
 
@@ -305,7 +307,7 @@ public partial class RichTextView
                 break;
 
             default:
-                if (!BlockShortcut(e.Key, word, extend))
+                if (!MarkShortcut(e.Key, word, extend) && !BlockShortcut(e.Key, word, extend))
                 {
                     return;
                 }
