@@ -456,7 +456,7 @@ public class ParagraphViewTests
     public void ANegativeIndentStepIsRejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ParagraphView(ParagraphNode.FromText("x"), Styles(), null, -1));
+            () => new ParagraphView(ParagraphNode.FromText("x"), Styles(), null, null, -1));
     }
 
     [AvaloniaFact]

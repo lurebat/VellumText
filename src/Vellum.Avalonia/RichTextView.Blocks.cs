@@ -150,6 +150,22 @@ public partial class RichTextView
     }
 
     /// <summary>
+    /// Brings the slot list up to date with the document without laying anything out.
+    /// </summary>
+    /// <remarks>
+    /// Cheaper than <see cref="Realize"/> and enough for anything that only needs to know which
+    /// blocks the document has and where they start. Measuring needs a width, which is not known
+    /// until the layout pass; asking a question about block structure does not.
+    /// </remarks>
+    private void EnsureSlots()
+    {
+        if (_slots.IsEmpty)
+        {
+            Reconcile(DocumentBlocks.Flatten(_state.Doc));
+        }
+    }
+
+    /// <summary>
     /// Brings the block list up to date with the document and lays it out at the last width the
     /// control was measured at.
     /// </summary>
@@ -250,7 +266,7 @@ public partial class RichTextView
 
     private BlockView Create(BlockNode node) => node switch
     {
-        ParagraphNode paragraph => new ParagraphView(paragraph, TextStyles, _embeds),
+        ParagraphNode paragraph => new ParagraphView(paragraph, TextStyles, _embeds, _paragraphStyles),
         RuleNode => new RuleView(TextStyles.Resolve(MarkSet.Empty).ForegroundBrush ?? global::Avalonia.Media.Brushes.Black),
         _ => throw new NotSupportedException(
             $"No view for a '{node.TypeName}' block; tables arrive with Increment 6."),

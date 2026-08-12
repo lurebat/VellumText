@@ -297,7 +297,12 @@ public partial class RichTextView
                 break;
 
             default:
-                return;
+                if (!BlockShortcut(e.Key, word, extend))
+                {
+                    return;
+                }
+
+                break;
         }
 
         e.Handled = true;

@@ -59,6 +59,7 @@ public partial class RichTextView : Control
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
     private ITextStyleResolver? _styles;
+    private IParagraphStyleResolver _paragraphStyles = new ParagraphStyleResolver();
     private IEmbedRenderer _embeds = new PlaceholderEmbedRenderer();
     private bool _caretVisible;
     private double _width = DefaultWidth;
@@ -158,6 +159,25 @@ public partial class RichTextView : Control
             ArgumentNullException.ThrowIfNull(value);
 
             _embeds = value;
+            DropLayout();
+            InvalidateMeasure();
+        }
+    }
+
+    /// <summary>Decides how each paragraph kind is presented.</summary>
+    /// <remarks>
+    /// Block-level presentation — heading sizes, the bar down a quote, the fill behind code —
+    /// as opposed to the character-level presentation <see cref="TextStyles"/> resolves. A host
+    /// replaces this to restyle headings without touching the document.
+    /// </remarks>
+    public IParagraphStyleResolver ParagraphStyles
+    {
+        get => _paragraphStyles;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            _paragraphStyles = value;
             DropLayout();
             InvalidateMeasure();
         }

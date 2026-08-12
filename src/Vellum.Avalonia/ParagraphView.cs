@@ -25,9 +25,12 @@ namespace Vellum.Avalonia;
 /// </remarks>
 public sealed class ParagraphView : BlockView
 {
-    private readonly ITextStyleResolver _styles;
+    private readonly ITextStyleResolver _base;
+    private readonly IParagraphStyleResolver _kinds;
     private readonly IEmbedRenderer _embeds;
     private readonly double _indentStep;
+    private ITextStyleResolver _styles;
+    private ParagraphStyle _style;
     private TextRunCache _runCache = new();
     private ParagraphNode _paragraph;
     private Preedit? _preedit;
@@ -38,11 +41,13 @@ public sealed class ParagraphView : BlockView
     /// <param name="paragraph">The paragraph to present.</param>
     /// <param name="styles">Resolves mark sets to run properties.</param>
     /// <param name="embeds">Measures and draws embeds, or null for the placeholder renderer.</param>
+    /// <param name="kinds">Decides how the paragraph's kind is presented, or null for the default.</param>
     /// <param name="indentStep">Device pixels per level of <see cref="ParagraphNode.IndentLevel"/>.</param>
     public ParagraphView(
         ParagraphNode paragraph,
         ITextStyleResolver styles,
         IEmbedRenderer? embeds = null,
+        IParagraphStyleResolver? kinds = null,
         double indentStep = DefaultIndentStep)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
@@ -55,9 +60,12 @@ public sealed class ParagraphView : BlockView
         }
 
         _paragraph = paragraph;
-        _styles = styles;
+        _base = styles;
+        _kinds = kinds ?? new ParagraphStyleResolver();
         _embeds = embeds ?? new PlaceholderEmbedRenderer();
         _indentStep = indentStep;
+        _style = _kinds.Resolve(paragraph.Kind);
+        _styles = KindStyles.Wrap(styles, _style);
     }
 
     /// <summary>The default width of one indent level, in device pixels.</summary>
@@ -75,14 +83,18 @@ public sealed class ParagraphView : BlockView
     /// offset of the layout: the layout wraps to a narrower width and every coordinate crossing
     /// this type's boundary is shifted by it.
     /// </remarks>
-    public double Indent => _paragraph.IndentLevel * _indentStep;
+    public double Indent => (_paragraph.IndentLevel * _indentStep) + _style.LeftInset;
+
+    /// <summary>Where the text sits inside the block, past the indent and the space above.</summary>
+    private Point Origin => new(Indent, _style.SpaceBefore);
 
     /// <inheritdoc/>
     public override int ContentSize => _paragraph.ContentSize;
 
     /// <inheritdoc/>
     public override Size Size =>
-        _layout is null ? default : new Size(Indent + _layout.Width, _layout.Height);
+        _layout is null ? default : new Size(
+            Indent + _layout.Width, _style.SpaceBefore + _layout.Height + _style.SpaceAfter);
 
     /// <summary>
     /// The current layout, laying it out at the last measured width if it is stale.
@@ -111,9 +123,19 @@ public sealed class ParagraphView : BlockView
         }
 
         var textChanged = !paragraph.Content.Equals(_paragraph.Content);
+        var kindChanged = paragraph.Kind != _paragraph.Kind;
 
         _paragraph = paragraph;
         _layout = null;
+
+        if (kindChanged)
+        {
+            // A kind change is a font change — a different size, weight or family for every run
+            // in the paragraph — so the shaped runs are worthless and the cache goes with them.
+            _style = _kinds.Resolve(paragraph.Kind);
+            _styles = KindStyles.Wrap(_base, _style);
+            _runCache = new TextRunCache();
+        }
 
         if (textChanged)
         {
@@ -245,13 +267,26 @@ public sealed class ParagraphView : BlockView
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        Layout.Draw(context, origin.WithX(origin.X + Indent));
+        if (_style.Background is { } background)
+        {
+            context.FillRectangle(background, new Rect(origin, Size));
+        }
+
+        if (_style.Bar is { } bar)
+        {
+            // Down the whole block including its spacing, so a run of quoted paragraphs reads as
+            // one quotation rather than a column of dashes.
+            context.FillRectangle(
+                bar, new Rect(origin.X, origin.Y, _style.BarWidth, Size.Height));
+        }
+
+        Layout.Draw(context, origin + Origin);
     }
 
     /// <inheritdoc/>
     public override int HitTest(Point local)
     {
-        var hit = Layout.HitTestPoint(local.WithX(local.X - Indent));
+        var hit = Layout.HitTestPoint(local - Origin);
 
         // TextPosition already carries the trailing adjustment: the trailing half of a
         // character reports the position after it, and it does so in whole clusters, so a
@@ -288,7 +323,7 @@ public sealed class ParagraphView : BlockView
     {
         var rect = Layout.HitTestTextPosition(layoutPosition);
 
-        return new Rect(Indent + rect.X, rect.Y, 0, rect.Height);
+        return new Rect(Origin.X + rect.X, Origin.Y + rect.Y, 0, rect.Height);
     }
 
     /// <inheritdoc/>
@@ -325,7 +360,7 @@ public sealed class ParagraphView : BlockView
             {
                 // One TextBounds per direction run, so a selection crossing a bidi boundary
                 // arrives here as several disjoint rectangles. Increment 0 measured this.
-                rects.Add(bounds.Rectangle.WithX(bounds.Rectangle.X + Indent));
+                rects.Add(bounds.Rectangle.Translate(Origin));
             }
         }
 
@@ -424,7 +459,7 @@ public sealed class ParagraphView : BlockView
     /// <param name="x">The horizontal offset to land nearest.</param>
     public int PositionAtLineX(int lineIndex, double x)
     {
-        var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Indent);
+        var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Origin.X);
 
         return FromLayout(Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
     }
@@ -512,6 +547,74 @@ public sealed class ParagraphView : BlockView
                 nameof(localPosition),
                 localPosition,
                 $"Position must be within [0, {ContentSize}] for this paragraph.");
+        }
+    }
+    /// <summary>
+    /// An <see cref="ITextStyleResolver"/> with a paragraph kind's presentation folded in.
+    /// </summary>
+    /// <remarks>
+    /// A decorator rather than a parameter on the resolver interface, because the kind is fixed
+    /// for the whole paragraph: the text source asks per run, and the run has no idea what block
+    /// it is in. Wrapping means the source stays ignorant and hosts keep the simpler interface.
+    /// </remarks>
+    private sealed class KindStyles : ITextStyleResolver
+    {
+        private readonly Dictionary<MarkSet, TextRunProperties> _cache = [];
+        private readonly ITextStyleResolver _inner;
+        private readonly ParagraphStyle _style;
+
+        private KindStyles(ITextStyleResolver inner, ParagraphStyle style)
+        {
+            _inner = inner;
+            _style = style;
+            Default = Apply(MarkSet.Empty, inner.Default);
+        }
+
+        public TextRunProperties Default { get; }
+
+        /// <summary>The resolver to use for a kind, which is the original one where it changes nothing.</summary>
+        public static ITextStyleResolver Wrap(ITextStyleResolver inner, ParagraphStyle style) =>
+            style.FontScale == 1 && style.Weight is null && style.Family is null
+                ? inner
+                : new KindStyles(inner, style);
+
+        public TextRunProperties Resolve(MarkSet marks)
+        {
+            if (_cache.TryGetValue(marks, out var cached))
+            {
+                return cached;
+            }
+
+            var built = Apply(marks, _inner.Resolve(marks));
+
+            _cache[marks] = built;
+
+            return built;
+        }
+
+        private TextRunProperties Apply(MarkSet marks, TextRunProperties properties)
+        {
+            var typeface = properties.Typeface;
+
+            // The marks win where they are explicit. A word deliberately set to a family or to
+            // bold keeps that inside a heading or a code block; the kind only supplies what was
+            // not asked for.
+            var family = marks.FontFamily is null && _style.Family is { } kindFamily
+                ? kindFamily
+                : typeface.FontFamily;
+
+            var weight = !marks.Has(TextStyle.Bold) && _style.Weight is { } kindWeight
+                ? kindWeight
+                : typeface.Weight;
+
+            return new GenericTextRunProperties(
+                new Typeface(family, typeface.Style, weight, typeface.Stretch),
+                fontRenderingEmSize: properties.FontRenderingEmSize * _style.FontScale,
+                textDecorations: properties.TextDecorations,
+                foregroundBrush: properties.ForegroundBrush,
+                backgroundBrush: properties.BackgroundBrush,
+                baselineAlignment: properties.BaselineAlignment,
+                cultureInfo: properties.CultureInfo);
         }
     }
 }

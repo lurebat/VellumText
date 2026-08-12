@@ -1,0 +1,165 @@
+using Avalonia.Input;
+
+namespace Vellum.Avalonia;
+
+/// <summary>
+/// Commands that change what a block <em>is</em> rather than what it says: its kind, its
+/// alignment and its indent level.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Every one of these applies to every block the selection touches, not just the one the caret
+/// is in, because that is what a user selecting three paragraphs and pressing the heading button
+/// means. A block the change cannot legally apply to is skipped rather than failing the whole
+/// transaction, so selecting a mixed range and centring it centres what can be centred.
+/// </para>
+/// <para>
+/// The steps are collected into one transaction, so one press is one undo.
+/// </para>
+/// </remarks>
+public partial class RichTextView
+{
+    /// <summary>The most a block may be indented.</summary>
+    /// <remarks>
+    /// A limit rather than none, because indent multiplies into the wrap width and a document
+    /// that indented without bound would leave paragraphs a single character wide. Eight levels
+    /// is past anything a reader can follow.
+    /// </remarks>
+    public const int MaxIndentLevel = 8;
+
+    /// <summary>Sets the kind of every paragraph the selection touches.</summary>
+    /// <param name="kind">The kind to set.</param>
+    /// <returns>Whether anything changed.</returns>
+    public bool SetParagraphKind(ParagraphKind kind) =>
+        SetBlockAttr(BlockAttr.ParagraphKind, (int)kind);
+
+    /// <summary>Sets the alignment of every paragraph the selection touches.</summary>
+    /// <param name="align">The alignment to set.</param>
+    /// <returns>Whether anything changed.</returns>
+    public bool SetAlign(TextAlign align) => SetBlockAttr(BlockAttr.Align, (int)align);
+
+    /// <summary>Sets the indent level of every paragraph the selection touches.</summary>
+    /// <param name="level">The level to set, clamped to <c>[0, <see cref="MaxIndentLevel"/>]</c>.</param>
+    /// <returns>Whether anything changed.</returns>
+    public bool SetIndentLevel(int level) =>
+        SetBlockAttr(BlockAttr.IndentLevel, Math.Clamp(level, 0, MaxIndentLevel));
+
+    /// <summary>Indents every paragraph the selection touches by one level.</summary>
+    /// <returns>Whether anything changed.</returns>
+    public bool Indent() => ShiftIndent(1);
+
+    /// <summary>Outdents every paragraph the selection touches by one level.</summary>
+    /// <returns>Whether anything changed.</returns>
+    public bool Outdent() => ShiftIndent(-1);
+
+    /// <summary>The block indices the selection touches, in document order.</summary>
+    /// <remarks>
+    /// A collapsed caret touches the one block it is in. A range touches every block it overlaps
+    /// but not one it merely ends at the start of, which is the same rule the selection
+    /// highlight uses — a selection that stops where a paragraph begins has not reached it.
+    /// </remarks>
+    private IEnumerable<int> SelectedBlocks()
+    {
+        // The slot list can be empty even though the document is not: replacing a resolver drops
+        // the layout, and a host that then issues a command before the next measure pass would
+        // otherwise get a silent no-op.
+        EnsureSlots();
+
+        var from = _state.Selection.From;
+        var to = _state.Selection.To;
+
+        for (var i = 0; i < _slots.Length; i++)
+        {
+            var slot = _slots[i];
+
+            if (from == to ? i == _caretBlock : to > slot.Start && from < slot.End)
+            {
+                yield return i;
+            }
+        }
+    }
+
+    private bool ShiftIndent(int by)
+    {
+        var transaction = _state.Transaction().As(TransactionKind.Format);
+        var any = false;
+
+        foreach (var index in SelectedBlocks())
+        {
+            if (_slots[index].Node is not ParagraphNode paragraph)
+            {
+                continue;
+            }
+
+            var level = Math.Clamp(paragraph.IndentLevel + by, 0, MaxIndentLevel);
+
+            if (level != paragraph.IndentLevel)
+            {
+                transaction.Step(new SetBlockAttrStep(
+                    _slots[index].Start - 1, BlockAttr.IndentLevel, level));
+                any = true;
+            }
+        }
+
+        return any && Apply(transaction);
+    }
+
+    private bool SetBlockAttr(BlockAttr attr, int value)
+    {
+        var transaction = _state.Transaction().As(TransactionKind.Format);
+        var any = false;
+
+        foreach (var index in SelectedBlocks())
+        {
+            if (_slots[index].Node is not ParagraphNode paragraph || Current(paragraph, attr) == value)
+            {
+                // Already what it is being set to. Stepping anyway would apply cleanly and
+                // record an undo entry that undoes nothing, which is worse than doing nothing.
+                continue;
+            }
+
+            // A block's own position is one before its content starts. The step addresses the
+            // block, not the text inside it.
+            transaction.Step(new SetBlockAttrStep(_slots[index].Start - 1, attr, value));
+            any = true;
+        }
+
+        return any && Apply(transaction);
+    }
+
+    private static int Current(ParagraphNode paragraph, BlockAttr attr) => attr switch
+    {
+        BlockAttr.ParagraphKind => (int)paragraph.Kind,
+        BlockAttr.Align => (int)paragraph.Align,
+        BlockAttr.IndentLevel => paragraph.IndentLevel,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(attr), attr, "Not an attribute a paragraph carries."),
+    };
+
+    /// <summary>Handles the keyboard shortcuts for block attributes.</summary>
+    /// <remarks>
+    /// Returns rather than throwing on an unknown chord so the key handler can fall through to
+    /// everything else. Tab is deliberately indent rather than a literal tab: a rich text
+    /// control that swallowed Tab to insert whitespace would trap keyboard focus.
+    /// </remarks>
+    private bool BlockShortcut(Key key, bool control, bool shift) => (key, control, shift) switch
+    {
+        (Key.Tab, false, false) => Indent(),
+        (Key.Tab, false, true) => Outdent(),
+
+        (Key.D0, true, false) => SetParagraphKind(ParagraphKind.Body),
+        (Key.D1, true, false) => SetParagraphKind(ParagraphKind.Heading1),
+        (Key.D2, true, false) => SetParagraphKind(ParagraphKind.Heading2),
+        (Key.D3, true, false) => SetParagraphKind(ParagraphKind.Heading3),
+        (Key.D4, true, false) => SetParagraphKind(ParagraphKind.Heading4),
+        (Key.D5, true, false) => SetParagraphKind(ParagraphKind.Heading5),
+        (Key.D6, true, false) => SetParagraphKind(ParagraphKind.Heading6),
+
+        (Key.L, true, false) => SetAlign(TextAlign.Left),
+        (Key.E, true, false) => SetAlign(TextAlign.Center),
+        (Key.R, true, false) => SetAlign(TextAlign.Right),
+        (Key.J, true, false) => SetAlign(TextAlign.Justify),
+
+        _ => false,
+    };
+}
