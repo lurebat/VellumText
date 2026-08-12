@@ -97,6 +97,25 @@ public class RtfImportTests
         Assert.True(AnyRunHas(Import(Wordish), m => m.Foreground == new Rgba(255, 0, 0, 255)));
     }
 
+    /// <summary>
+    /// The red in <see cref="Wordish"/> is saturated, and a saturated colour is the one
+    /// family that survives a channel being clamped to 255. Pasted greys once imported as
+    /// white with every other colour test passing, so the interesting cases are here.
+    /// </summary>
+    [Theory]
+    [InlineData(128, 128, 128)]
+    [InlineData(255, 136, 0)]
+    [InlineData(18, 52, 86)]
+    [InlineData(220, 20, 60)]
+    public void A_colour_that_is_not_saturated_arrives_intact(byte r, byte g, byte b)
+    {
+        var rtf =
+            @"{\rtf1\ansi{\fonttbl{\f0 Calibri;}}{\colortbl ;\red" + r + @"\green" + g + @"\blue" + b + @";}" +
+            @"\pard\cf1 shade\par}";
+
+        Assert.True(AnyRunHas(Import(rtf), m => m.Foreground == new Rgba(r, g, b, 255)));
+    }
+
     [Fact]
     public void The_font_a_run_asked_for_survives()
     {
