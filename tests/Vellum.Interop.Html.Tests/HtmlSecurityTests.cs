@@ -177,6 +177,19 @@ public class HtmlSecurityTests
         Assert.Empty(Images(result));
     }
 
+    [Fact]
+    public void The_inline_image_exception_does_not_extend_to_other_elements_that_carry_a_source()
+    {
+        // The allow-list for attributes is not per-element, so "src" is spellable on anything that
+        // survives sanitizing. The exception for data: URLs exists so a pasted picture keeps
+        // working; anywhere else a data: URL is a payload being carried past the scheme filter,
+        // and the caller is entitled to be told it was taken away.
+        var result = Import($"<span src='{Png}'>x</span>");
+
+        Assert.True(result.AnythingDropped);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped);
+    }
+
     [Theory]
     [InlineData("data:image/svg+xml;base64,PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+PC9zdmc+")]
     [InlineData("data:image/svg+xml,<svg onload='alert(1)'></svg>")]
