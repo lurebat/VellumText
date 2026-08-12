@@ -180,6 +180,23 @@ public partial class RichTextView
 
                 break;
 
+            case Key.Z when word && extend:
+            case Key.Y when word:
+                if (!Redo())
+                {
+                    return;
+                }
+
+                break;
+
+            case Key.Z when word:
+                if (!Undo())
+                {
+                    return;
+                }
+
+                break;
+
             case Key.A when word:
                 _goalX = null;
                 State = EditorState.Create(

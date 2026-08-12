@@ -37,8 +37,14 @@ public partial class RichTextView
             return false;
         }
 
+        // Recorded before the state is installed, and unconditionally: every edit that goes
+        // through the control is undoable by construction rather than because each call site
+        // remembered. History itself refuses to record a replay, so this cannot make Ctrl+Z
+        // undo itself.
+        _history = _history.Record(transaction);
+
+        // Installing the state resets the caret blink; see OnStateChanged.
         State = _state.Apply(transaction);
-        ResetCaretBlink();
 
         return true;
     }
