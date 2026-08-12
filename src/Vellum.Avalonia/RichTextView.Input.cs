@@ -244,6 +244,14 @@ public partial class RichTextView
                     extend);
                 break;
 
+            case Key.Enter:
+                if (!Split())
+                {
+                    return;
+                }
+
+                break;
+
             case Key.Back:
                 if (!Backspace())
                 {

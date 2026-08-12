@@ -89,6 +89,48 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool Delete() => DeleteAround(forward: true);
 
+    /// <summary>Splits the block at the selection, replacing it if it is not empty.</summary>
+    /// <remarks>
+    /// The half that follows the caret keeps the block's presentation — its kind, alignment and
+    /// indent — because pressing Enter in the middle of a quote should give two quotes rather
+    /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the case
+    /// where users usually want a body paragraph instead, and that is a deliberate omission
+    /// here: it is a policy about heading kinds, and kinds arrive in the next piece of work.
+    /// </remarks>
+    /// <returns>Whether anything changed.</returns>
+    public bool Split()
+    {
+        if (Block is null)
+        {
+            return false;
+        }
+
+        var selection = _state.Selection;
+        var transaction = _state.Transaction().As(TransactionKind.Structure);
+
+        if (!selection.IsEmpty)
+        {
+            transaction.Delete(selection.From, selection.To);
+        }
+
+        var at = selection.From;
+        var tail = Block.Paragraph.WithContent(InlineContent.Empty);
+
+        _goalX = null;
+
+        transaction
+            .Replace(at, at, new Slice([ParagraphNode.Empty, tail], 1, 1))
+
+            // Two positions are inserted, not one: the first block closes and the second opens.
+            // Aiming at the second of them is exact rather than relying on repair — a cursor
+            // built on the boundary between them is silently moved here by Selection.Near, so
+            // getting this wrong is invisible until something depends on the anchor.
+            .SetSelection(TextSelection.Cursor(at + 2))
+            .SetStoredMarks(null);
+
+        return Apply(transaction);
+    }
+
     /// <inheritdoc/>
     protected override void OnTextInput(TextInputEventArgs e)
     {
@@ -102,8 +144,9 @@ public partial class RichTextView
         }
 
         // Control characters arrive here as text on some backends — Enter as "\r", Escape as
-        // "\u001b", Backspace as "\b". None of them are characters the document should hold, and
-        // Enter in particular is a paragraph split, which is structure and not this increment.
+        // "\u001b", Backspace as "\b". None of them are characters the document should hold;
+        // Enter is a paragraph split and is handled as a key, so it must not also arrive as
+        // text or one press would split twice.
         if (e.Text.Any(char.IsControl))
         {
             return;
@@ -143,6 +186,11 @@ public partial class RichTextView
                 ? Block.NextCaretPosition(local)
                 : Block.BackspacePosition(local);
 
+            if (other == local)
+            {
+                return DeleteAcrossBoundary(forward, transaction);
+            }
+
             from = BlockStart + Math.Min(local, other);
             to = BlockStart + Math.Max(local, other);
         }
@@ -155,6 +203,50 @@ public partial class RichTextView
         transaction
             .Delete(from, to)
             .SetSelection(TextSelection.Cursor(from))
+            .SetStoredMarks(null);
+
+        return Apply(transaction);
+    }
+
+    /// <summary>
+    /// Backspace at the very start of a block, or Delete at its very end.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// There is nothing left in the block to delete, so what goes is what separates it from its
+    /// neighbour. Against another paragraph that is the pair of positions where one closes and
+    /// the next opens, and removing them joins the two. Against a block a caret cannot enter — a
+    /// rule — the block itself goes, which is what every editor does and what makes a rule
+    /// removable at all before there is a gesture that selects one.
+    /// </para>
+    /// <para>
+    /// A join the schema will not allow is left to fail on its own: the step reports it, the
+    /// transaction changed nothing, and the key reads as ignored rather than corrupting the tree.
+    /// </para>
+    /// </remarks>
+    private bool DeleteAcrossBoundary(bool forward, Transaction transaction)
+    {
+        var neighbour = _caretBlock + (forward ? 1 : -1);
+
+        if (neighbour < 0 || neighbour >= _slots.Length)
+        {
+            return false;
+        }
+
+        var slot = _slots[_caretBlock];
+        var other = _slots[neighbour];
+
+        var (from, to) = other.Node.IsLeaf
+            ? (other.Start, other.Start + other.Node.NodeSize)
+            : forward ? (slot.End, other.Start) : (other.End, slot.Start);
+
+        // Everything removed lies before the caret when deleting backwards, so the caret moves
+        // back by exactly that much; deleting forwards removes what is after it, so it stays.
+        var caret = forward ? _state.Selection.Head : slot.Start - (to - from);
+
+        transaction
+            .Delete(from, to)
+            .SetSelection(TextSelection.Cursor(caret))
             .SetStoredMarks(null);
 
         return Apply(transaction);
