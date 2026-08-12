@@ -110,6 +110,29 @@ public partial class RichTextView
     /// <param name="y">The offset from the top of the content.</param>
     public int BlockIndexAt(double y) => _views.Count == 0 ? 0 : _heights.IndexAt(y);
 
+    /// <summary>
+    /// The nearest paragraph block on one side of another block, or -1 if there is none.
+    /// </summary>
+    /// <remarks>
+    /// Blocks a caret cannot enter are stepped over rather than stopped at. A rule between two
+    /// paragraphs is one block on screen and no positions to a caret, so Down from the paragraph
+    /// above it must reach the paragraph below rather than refusing to move.
+    /// </remarks>
+    /// <param name="index">The block to search from, exclusive.</param>
+    /// <param name="forward">Which way to search.</param>
+    private int AdjacentParagraph(int index, bool forward)
+    {
+        for (var i = index + (forward ? 1 : -1); i >= 0 && i < _views.Count; i += forward ? 1 : -1)
+        {
+            if (_views[i] is ParagraphView)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     /// <summary>The document position nearest a point in this control's coordinates.</summary>
     /// <param name="point">The point.</param>
     public int PositionAt(Point point)

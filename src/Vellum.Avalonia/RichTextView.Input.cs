@@ -111,6 +111,37 @@ public partial class RichTextView
         return start;
     }
 
+    /// <summary>
+    /// The first position at which text lives, searching strictly in one direction.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="NearestTextPosition"/>, which searches both ways and so is wrong
+    /// for a caret <em>step</em>: pressing Right at the end of a paragraph aims at the boundary
+    /// past it, and the position one before that boundary is nearer than the one after, so a
+    /// nearest search walks the caret backwards into the block it just left.
+    /// </remarks>
+    /// <param name="position">Where to start looking, inclusive.</param>
+    /// <param name="forward">Which way to look.</param>
+    /// <returns>The position found, or the caret's current one when there is none that way.</returns>
+    private int TextPositionToward(int position, bool forward)
+    {
+        var size = _state.Doc.ContentSize;
+        var step = forward ? 1 : -1;
+
+        for (var i = Math.Clamp(position, 0, size); i >= 0 && i <= size; i += step)
+        {
+            if (_state.Doc.Resolve(i).IsInText)
+            {
+                return i;
+            }
+        }
+
+        // Nothing that way at all — a document of nothing but rules. Refusing to move is the
+        // honest answer; no reachable input reaches this, since a caret can only be in a block
+        // that has text and MoveTo re-snaps whatever comes back.
+        return _state.Selection.Head;
+    }
+
     /// <inheritdoc/>
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -303,7 +334,18 @@ public partial class RichTextView
             ? WordBoundary(local, forward)
             : forward ? Block!.NextCaretPosition(local) : Block!.PreviousCaretPosition(local);
 
-        MoveTo(BlockStart + moved, extend);
+        if (moved != local)
+        {
+            MoveTo(BlockStart + moved, extend);
+            return;
+        }
+
+        // Nowhere left to go inside this block, so leave it. Aiming one position outside the
+        // block and searching from there is what makes rules and nesting depth irrelevant here:
+        // whatever lies between, the caret lands on the next place text actually is.
+        var slot = _slots[_caretBlock];
+
+        MoveTo(TextPositionToward(forward ? slot.End + 1 : slot.Start - 1, forward), extend);
     }
 
     private void Vertical(bool down, bool extend)
@@ -316,16 +358,29 @@ public partial class RichTextView
 
         var target = down ? line + 1 : line - 1;
 
-        if (target < 0 || target >= Block!.LineCount)
+        if (target >= 0 && target < Block!.LineCount)
         {
-            // Off the end of the paragraph: go to the document edge, the way every editor does,
-            // rather than refusing to move. The goal column is deliberately kept, so Up then
-            // Down returns to the column the caret started in.
-            MoveTo(down ? BlockStart + ContentSize : BlockStart, extend);
+            MoveTo(BlockStart + Block.PositionAtLineX(target, _goalX.Value), extend);
             return;
         }
 
-        MoveTo(BlockStart + Block.PositionAtLineX(target, _goalX.Value), extend);
+        // Off the end of this block: continue into the next paragraph at the same column, which
+        // is the whole reason the goal column is kept across the move.
+        var next = AdjacentParagraph(_caretBlock, down);
+
+        if (next < 0)
+        {
+            // The first or last paragraph in the document. Go to the document edge, the way
+            // every editor does, rather than refusing to move.
+            MoveTo(down ? _state.Doc.ContentSize : 0, extend);
+            return;
+        }
+
+        var view = (ParagraphView)_views[next];
+
+        MoveTo(
+            _slots[next].Start + view.PositionAtLineX(down ? 0 : view.LineCount - 1, _goalX.Value),
+            extend);
     }
 
     /// <summary>
