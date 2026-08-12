@@ -145,6 +145,73 @@ public class RichTextEditorTests
         });
     }
 
+    [AvaloniaFact]
+    public void AHistorySetBeforeTemplatingIsNotDiscarded()
+    {
+        // An application configuring the control from a constructor or a view model binding has
+        // no way to know when templating happens. Dropping the value here silently restored the
+        // default grouping policy, which only shows up as undo behaving oddly much later.
+        var editor = new RichTextEditor();
+        var history = History.With(HistoryPolicy.Never);
+
+        editor.History = history;
+
+        Assert.Same(history, editor.History);
+
+        var window = new Window { Width = 400, Height = 200, Content = editor };
+
+        window.Show();
+        window.Measure(new Size(400, 200));
+        window.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.Same(history, editor.View!.History);
+        Assert.Same(history, editor.History);
+    }
+
+    [AvaloniaFact]
+    public void AHistorySetBeforeTemplatingDoesNotOutliveTheOneSetAfter()
+    {
+        var editor = new RichTextEditor();
+
+        editor.History = History.With(HistoryPolicy.Never);
+
+        var window = new Window { Width = 400, Height = 200, Content = editor };
+
+        window.Show();
+        window.Measure(new Size(400, 200));
+        window.Arrange(new Rect(0, 0, 400, 200));
+
+        var later = History.Empty;
+
+        editor.History = later;
+
+        Assert.Same(later, editor.View!.History);
+    }
+
+    [AvaloniaFact]
+    public void TheShellForwardsTheUndoFlags()
+    {
+        var editor = Shown("hello");
+        var raised = new List<string?>();
+
+        editor.PropertyChanged += (_, e) => raised.Add(e.Property.Name);
+
+        editor.View!.Focus();
+        editor.View.MoveTo(editor.View.BlockStart + 5, extend: false);
+        editor.View.InsertText("!");
+
+        Assert.Contains(nameof(RichTextEditor.CanUndo), raised);
+        Assert.True(editor.CanUndo);
+
+        raised.Clear();
+
+        Assert.True(editor.Undo());
+
+        Assert.Contains(nameof(RichTextEditor.CanUndo), raised);
+        Assert.Contains(nameof(RichTextEditor.CanRedo), raised);
+        Assert.False(editor.CanUndo);
+        Assert.True(editor.CanRedo);
+    }
     private static string Text(EditorState state) =>
         ((ParagraphNode)state.Doc.Blocks[0]).Content.Text;
 

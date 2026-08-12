@@ -266,6 +266,118 @@ public class RichTextViewHistoryTests
         Assert.Throws<ArgumentNullException>(() => view.History = null!);
     }
 
+    [AvaloniaFact]
+    public void RecordingAnEditAnnouncesThatThereIsSomethingToUndo()
+    {
+        // A toolbar binds its enabled state to CanUndo. Without a notification the button is
+        // wrong from the first edit until something unrelated happens to redraw it.
+        var view = Ungrouped("hello");
+        var raised = new List<string?>();
+
+        view.PropertyChanged += (_, e) => raised.Add(e.Property.Name);
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        Assert.Contains(nameof(RichTextView.CanUndo), raised);
+    }
+
+    [AvaloniaFact]
+    public void UndoingAnnouncesBothFlags()
+    {
+        var view = Ungrouped("hello");
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        var raised = new List<string?>();
+
+        view.PropertyChanged += (_, e) => raised.Add(e.Property.Name);
+
+        Assert.True(view.Undo());
+
+        // Undoing the only edit empties the undo stack and fills the redo stack, so both change.
+        Assert.Contains(nameof(RichTextView.CanUndo), raised);
+        Assert.Contains(nameof(RichTextView.CanRedo), raised);
+    }
+
+    [AvaloniaFact]
+    public void TheAnnouncedValueIsTheOneTheFlagThenReports()
+    {
+        var view = Ungrouped("hello");
+        var seen = new List<bool>();
+
+        view.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == RichTextView.CanUndoProperty)
+            {
+                seen.Add((bool)e.NewValue!);
+            }
+        };
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        Assert.Equal([true], seen);
+        Assert.True(view.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public void AListenerWokenByTheFlagSeesTheEditedDocument()
+    {
+        // The flag is announced after the state is installed, so the two never disagree.
+        var view = Ungrouped("hello");
+        string? textWhenTold = null;
+
+        view.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == RichTextView.CanUndoProperty)
+            {
+                textWhenTold = Content(view);
+            }
+        };
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        Assert.Equal("hello!", textWhenTold);
+    }
+
+    [AvaloniaFact]
+    public void ASecondEditDoesNotReannounceAFlagThatDidNotChange()
+    {
+        var view = Ungrouped("hello");
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        var raised = new List<string?>();
+
+        view.PropertyChanged += (_, e) => raised.Add(e.Property.Name);
+
+        view.InsertText("?");
+
+        // CanUndo was already true; saying so again would churn every bound button.
+        Assert.DoesNotContain(nameof(RichTextView.CanUndo), raised);
+    }
+
+    [AvaloniaFact]
+    public void ReplacingTheHistoryAnnouncesTheFlagsItChanged()
+    {
+        var view = Ungrouped("hello");
+
+        Caret(view, 5);
+        view.InsertText("!");
+
+        var raised = new List<string?>();
+
+        view.PropertyChanged += (_, e) => raised.Add(e.Property.Name);
+
+        view.History = History.Empty;
+
+        Assert.Contains(nameof(RichTextView.CanUndo), raised);
+        Assert.False(view.CanUndo);
+    }
     private static string Content(RichTextView view) =>
         ((ParagraphNode)view.State.Doc.Blocks[0]).Content.Text;
 

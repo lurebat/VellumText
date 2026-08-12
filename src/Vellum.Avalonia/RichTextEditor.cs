@@ -39,6 +39,14 @@ public class RichTextEditor : TemplatedControl
             EditorState.Create(DocumentNode.Empty),
             defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
 
+    /// <summary>Defines the <see cref="CanUndo"/> property.</summary>
+    public static readonly DirectProperty<RichTextEditor, bool> CanUndoProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, bool>(nameof(CanUndo), o => o.CanUndo);
+
+    /// <summary>Defines the <see cref="CanRedo"/> property.</summary>
+    public static readonly DirectProperty<RichTextEditor, bool> CanRedoProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, bool>(nameof(CanRedo), o => o.CanRedo);
+
     static RichTextEditor()
     {
         TemplateProperty.OverrideDefaultValue<RichTextEditor>(
@@ -62,6 +70,7 @@ public class RichTextEditor : TemplatedControl
     }
 
     private RichTextView? _view;
+    private History? _pendingHistory;
 
     /// <summary>The document and selection being edited.</summary>
     public EditorState State
@@ -70,17 +79,25 @@ public class RichTextEditor : TemplatedControl
         set => SetValue(StateProperty, value);
     }
 
-    /// <summary>The undo history, or null before the template has been applied.</summary>
+    /// <summary>The undo history, or null before one has been set or a template applied.</summary>
     /// <remarks>
+    /// <para>
     /// Nullable because there is genuinely no history until there is a view to hold one. Setting
     /// null is a different thing entirely and is refused, exactly as
     /// <see cref="RichTextView.History"/> refuses it — silently ignoring it would turn a
     /// programming error into a control that quietly stops being undoable.
+    /// </para>
+    /// <para>
+    /// A history set before the template has been applied is held and pushed into the view when
+    /// it arrives. An application that configures the control in a constructor or from a view
+    /// model binding has no way to know when templating happens, so dropping the value there
+    /// would silently restore the default grouping policy.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><c>value</c> is null.</exception>
     public History? History
     {
-        get => _view?.History;
+        get => _view?.History ?? _pendingHistory;
         set
         {
             ArgumentNullException.ThrowIfNull(value);
@@ -88,6 +105,10 @@ public class RichTextEditor : TemplatedControl
             if (_view is not null)
             {
                 _view.History = value;
+            }
+            else
+            {
+                _pendingHistory = value;
             }
         }
     }
@@ -123,6 +144,13 @@ public class RichTextEditor : TemplatedControl
         // Pushed into the view first, because the view's own default would otherwise overwrite
         // whatever the application set before the template was applied.
         _view.State = State;
+
+        if (_pendingHistory is not null)
+        {
+            _view.History = _pendingHistory;
+            _pendingHistory = null;
+        }
+
         _view.PropertyChanged += OnViewPropertyChanged;
     }
 
@@ -146,9 +174,22 @@ public class RichTextEditor : TemplatedControl
     /// </remarks>
     private void OnViewPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (e.Property == RichTextView.StateProperty && _view is not null)
+        if (_view is null)
+        {
+            return;
+        }
+
+        if (e.Property == RichTextView.StateProperty)
         {
             State = _view.State;
+        }
+        else if (e.Property == RichTextView.CanUndoProperty)
+        {
+            RaisePropertyChanged(CanUndoProperty, (bool)e.OldValue!, (bool)e.NewValue!);
+        }
+        else if (e.Property == RichTextView.CanRedoProperty)
+        {
+            RaisePropertyChanged(CanRedoProperty, (bool)e.OldValue!, (bool)e.NewValue!);
         }
     }
 }

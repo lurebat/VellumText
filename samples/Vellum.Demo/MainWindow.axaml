@@ -30,8 +30,10 @@
     <Border Grid.Row="0" Grid.ColumnSpan="3" BorderThickness="0,0,0,1"
             BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" Padding="8,6">
       <WrapPanel>
-        <Button x:Name="UndoButton" Classes="tool" Content="Undo" />
-        <Button x:Name="RedoButton" Classes="tool" Content="Redo" />
+        <Button x:Name="UndoButton" Classes="tool" Content="Undo"
+                IsEnabled="{Binding #View.CanUndo}" />
+        <Button x:Name="RedoButton" Classes="tool" Content="Redo"
+                IsEnabled="{Binding #View.CanRedo}" />
 
         <TextBlock Classes="group" Text="BLOCK" />
         <Button x:Name="BodyButton" Classes="tool" Content="Body" />
@@ -83,7 +85,7 @@
                  AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
                  FontFamily="Cascadia Mono,Consolas,monospace" FontSize="11"
                  VerticalContentAlignment="Top"
-                 Watermark="Paste or type HTML or RTF source here, then use a button above." />
+                 PlaceholderText="Paste or type HTML or RTF source here, then use a button above." />
 
         <TextBlock Grid.Row="4" Classes="h" Text="What the importer had to give up" />
 

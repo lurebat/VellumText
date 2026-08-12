@@ -37,6 +37,8 @@ public partial class RichTextView
             return false;
         }
 
+        var before = HistoryFlags;
+
         // Recorded before the state is installed, and unconditionally: every edit that goes
         // through the control is undoable by construction rather than because each call site
         // remembered. History itself refuses to record a replay, so this cannot make Ctrl+Z
@@ -45,6 +47,9 @@ public partial class RichTextView
 
         // Installing the state resets the caret blink; see OnStateChanged.
         State = _state.Apply(transaction);
+
+        // Announced last, so that a listener woken by either signal sees both settled.
+        RaiseHistoryFlags(before);
 
         return true;
     }
