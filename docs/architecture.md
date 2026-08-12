@@ -31,7 +31,7 @@ A drop-in Avalonia control:
 | AC5 | Tables: insert, insert/delete row & column, merge/split cells, cell background, column resize, tab-to-next-cell, rectangular cell selection. |
 | AC6 | Editing: caret, mouse/keyboard/touch selection, word/line/paragraph navigation, drag-select, double/triple click, undo/redo with sensible grouping, cut/copy/paste, select-all. |
 | AC7 | Clipboard interop: paste from Word / Google Docs / browsers retains formatting; copy is pasteable into Word and Google Docs. |
-| AC8 | Export: HTML, Markdown, RTF, DOCX. Import: HTML, Markdown, DOCX. |
+| AC8 | Export: HTML, Markdown, RTF, DOCX. Import: **RTF**, HTML, Markdown, DOCX. RTF import is not optional — the driving use case is a clipboard manager, and RTF is what Windows applications actually put on the clipboard. |
 | AC9 | IME: CJK composition (preedit) works on Windows, macOS, Linux. |
 | AC10 | Light/dark theme via Avalonia theme variants; Fluent + Simple theme resources shipped. |
 | AC11 | Correct caret/selection for bidi (Hebrew/Arabic) text and grapheme clusters (emoji ZWJ sequences, combining marks). |
@@ -271,7 +271,7 @@ Three selection kinds is not over-engineering — it is the minimum that makes "
 
 ```csharp
 public class RichTextEditor : TemplatedControl        // public API, template: ScrollViewer > RichTextView
-internal class RichTextView : Control, ILogicalScrollable
+public class RichTextView : Control, ILogicalScrollable
 {
     private readonly List<BlockView> _blockViews;      // sparse; realized window only
     private readonly BlockHeightIndex _heights;        // measured + estimated, prefix-sum for scroll
@@ -289,14 +289,31 @@ internal abstract class BlockView
 internal sealed class ParagraphView : BlockView
 {
     private TextLayout _layout;
-    private readonly TextRunCache _runCache;   // survives edits; InvalidateFrom(offset)
+    private readonly TextRunCache _runCache;   // width-only relayout; see A1 in §9 R3
     private InlineTextSource _source;
 }
 ```
 
+> **Correction (measured, Increments 2–3).** Two details above were wrong as originally
+> written, and are corrected in the code:
+>
+> - **`RichTextView` is public, not internal.** A host embedding the editor surface directly —
+>   without the `RichTextEditor` template — is a real use, and the demo does exactly that. The
+>   commands are on the view, so making it internal would put the entire formatting API out of
+>   reach of anyone not using the templated control.
+> - **`TextRunCache.InvalidateFrom(offset)` is not used for edits.** Increment 0 measured it
+>   returning stale runs for any `offset > 0`. Paragraph layouts are rebuilt wholesale on edit.
+>   The cache is kept only for width-only relayout, where it is correct and ≈3.5× faster.
+
 **Virtualization:** `BlockHeightIndex` keeps a Fenwick/prefix-sum tree of block heights. Unmeasured blocks get an estimate (average measured height); measuring on realization corrects the estimate and adjusts scroll offset. This is the standard approach and it is why AC12 is achievable.
 
-**Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`. Follow `TextPresenter`'s pixel snapping (`PixelRect.FromRect(rect, 1).ToRect(1)`) so the caret is crisp at fractional DPI.
+**Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`.
+
+> **Correction (measured, Increment 2).** The pixel-snapping recipe originally given here,
+> `PixelRect.FromRect(rect, 1).ToRect(1)`, is wrong: `FromRect` rounds outward, so a caret one
+> device pixel wide becomes two at fractional DPI, and the width grows with the scale factor.
+> Snap the caret's leading edge to a device pixel and keep the width, rather than snapping the
+> rectangle.
 
 ### 4.7 The text source
 
@@ -446,7 +463,7 @@ Only materially distinct options; scored 1–5 (5 best).
 4. `tr = state.Tr.ReplaceSelectionWith(text: "x", marks)` → `[ReplaceStep(from,to,slice)]`, `Kind = Typing`, `SelectionAfter = TextSelection(from+1)`.
 5. `History.Push(tr)` — coalesce into previous entry iff previous is `Typing` ∧ Δt < 500 ms ∧ contiguous ∧ no selection jump.
 6. `state = state.Apply(tr)`; raise `DocumentChanged`.
-7. `RichTextView` reads `tr.Mapping` → affected block index *i*; `ParagraphView[i]._runCache.InvalidateFrom(localOffset)`; `InvalidateMeasure` on that view only.
+7. `RichTextView` reads `tr.Mapping` → affected block index *i*; `ParagraphView[i]` drops its `TextLayout` and rebuilds it (**not** `InvalidateFrom` — see the A1 correction in §4.6); `InvalidateMeasure` on that view only.
 8. Measure rebuilds only paragraph *i*'s `TextLayout`; `BlockHeightIndex` updates if height changed; scroll offset adjusted if the change is above the viewport.
 9. Caret rect recomputed via `TextLayout.HitTestTextPosition`; blink timer reset (`_caretBlink = true`); `CursorRectangleChanged` raised for the IME.
 10. Render: selection rects → block content → caret.
@@ -537,6 +554,76 @@ Each increment is independently useful and independently shippable. No compatibi
 
 **Realistic totals:** Increments 0–4 (a genuinely good basic rich text editor) ≈ **5–8 focused weeks**. Full v1.0 including tables and DOCX ≈ **4–6 months** of sustained part-time work.
 
+### 10.1 Where the increments actually went
+
+The sequence above survived contact with the code, but not in order. Recorded because the
+remaining plan (§10.3) only makes sense against what is genuinely done.
+
+| # | Planned | Actual |
+|---|---|---|
+| 0 | Spike | ✅ Complete and retired. A2 validated, A1 partly invalidated, C1 confirmed as a ceiling. |
+| 1 | Core model | ✅ Complete. Both §8 property tests pass. Tables, lists, links, embeds and every mark in the schema. |
+| 2 | Editable single paragraph | ✅ Complete. Caret, selection, typing, undo, IME. |
+| 3 | Multi-block + virtualization | **Mostly.** Block host, split/merge, headings, alignment, indent and the height index are in. `ILogicalScrollable` and list *commands* are not. |
+| 5 | Clipboard & interop | **Pulled forward, and widened.** HTML *and* RTF import both shipped, on AngleSharp and RtfPipe, because the driving use case is a clipboard manager. Export is not started. |
+| 4 | Marks & embeds | **Partly, and late.** The model carried every mark from Increment 1, but the control could not reach any of them until the parity pass below. |
+
+Pulling Increment 5 in front of 4 was the right call for the use case and the wrong call for
+coherence: for several increments Vellum could *import* bold, coloured, hyperlinked text and
+then offer the user no way to produce or change any of it.
+
+### 10.2 Parity gap against the commercial control
+
+Avalonia sells a closed-source `RichTextEditor` in Accelerate. Its **feature list** is public
+(§11: feature sets are not protected; expression is) and is the obvious yardstick for "is this
+worth using". Comparing it against what Vellum actually had:
+
+| Capability | Their control | Vellum's model | Vellum's control |
+|---|---|---|---|
+| Character formatting (17+ controls) | ✅ | ✅ every mark | ❌ → ✅ **closed** |
+| Headings, alignment, indent | ✅ | ✅ | ✅ |
+| Lists | ✅ | ✅ | ⚠️ renders; no commands |
+| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ flattened to stacked paragraphs |
+| Inline & block images | ✅ | ✅ | ✅ renders; no resize handles |
+| Hyperlinks | ✅ | ✅ | ✅ **closed** |
+| Toolbar (`EditorToolbar`) | ✅ | — | ❌ |
+| Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ❌ |
+| Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ |
+| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ❌ **import only, no export at all** |
+| Light & dark theme | ✅ | — | ❌ no default theme |
+| `IsReadOnly`, `UndoLimit`, `AcceptsReturn`/`Tab` | ✅ | — | ❌ |
+
+**The finding that matters:** the document model was never the gap. It is competitive already —
+it has tables with row and column spans, nested lists, links, embeds and every mark, all
+property-tested. The gap was that `RichTextView` exposed no way to *reach* any of it. A host
+could make a paragraph a heading but could not make one word bold.
+
+Two structural things are worth copying from their design rather than inventing:
+
+- **One serializer interface, one package per format.** They have `IDocumentSerializer` with
+  Rtf/Docx/Xaml in separate packages. Vellum's importers are already separate assemblies
+  (`Vellum.Interop.Html`, `Vellum.Interop.Rtf`); exporters should join them behind a single
+  interface rather than growing as loose static classes.
+- **A read-only viewer is a distinct control, not a flag.** For a clipboard manager showing a
+  history of pasted items, a viewer with no caret, no input and no history is the common case
+  and is much cheaper than an editor with `IsReadOnly = true`.
+
+### 10.3 Revised remaining sequence
+
+| # | Work | Why it is where it is | State |
+|---|---|---|---|
+| **P1** | **Character formatting commands.** `SetMarks` and everything on top of it; stored marks for a collapsed caret; Ctrl+B/I/U and friends. | The single widest gap, and the cheapest to close — every step it needs already existed. Nothing else in this list is worth doing while the control cannot make a word bold. | ✅ **done** |
+| **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | next |
+| **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | pending |
+| **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | pending |
+| **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | pending |
+| **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |
+
+**Sequencing principle, stated because it was violated once already:** close the gap between
+what the model can represent and what the control can do, before widening what the model can
+represent. Vellum spent several increments able to import formatting it could not produce.
+
 ---
 
 ## 11. Legal position
@@ -560,12 +647,14 @@ Each increment is independently useful and independently shippable. No compatibi
 | **OD1 — Avalonia version** | **Avalonia 12 only** for v1. No 11.3 LTS multi-targeting. It can be added later behind a build constant if demand appears; carrying it from day one taxes every increment. | 2026-08-11 |
 | **Target framework** | **`net10.0`**, single-target. Avalonia 12.1.1 ships `net10.0` assemblies, so nothing is given up on the UI side. Consumers must be on .NET 10 — accepted deliberately for a new library rather than carrying a `net8.0` floor. | 2026-08-11 |
 | **`Vellum.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `Vellum.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
+| **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `Vellum.Interop.Rtf` on RtfPipe. | user decision |
+| **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
+| **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
 
 ### 12.2 Still open
 
-1. **OD2** — Ship an opinionated toolbar, or editor surface + commands only?
-2. **OD3** — Is DOCX in v1.0, or deferred to v1.1?
-3. Should this be published under a personal GitHub, or pitched to the Avalonia community (e.g. as an `Avalonia.Labs` candidate) for contributors from day one?
+1. **OD3** — Is DOCX in v1.0, or deferred to v1.1?
+2. Should this be published under a personal GitHub, or pitched to the Avalonia community (e.g. as an `Avalonia.Labs` candidate) for contributors from day one?
 
 ### 12.3 Consequences of committing to tables
 
