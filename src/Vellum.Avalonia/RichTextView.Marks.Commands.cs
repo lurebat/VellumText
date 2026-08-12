@@ -154,6 +154,11 @@ public partial class RichTextView
         // No "is it already set" check on purpose. A half-bold selection reports not bold, so
         // any such check would refuse to unbold it. The transaction drops a step that left the
         // document identical, which handles the genuinely redundant case without guessing.
+        //
+        // Clearing the stored marks is belt-and-braces and is deliberately untested: every
+        // public way of ending up with a non-empty selection already clears them, so there is
+        // no path that can observe the difference today. It stays because a future one would
+        // otherwise leave marks armed for a caret waiting behind an edit to a range.
         transaction
             .Step(new AddMarkStep(selection.From, selection.To, value, fields))
             .SetSelection(selection)
@@ -229,8 +234,17 @@ public partial class RichTextView
     /// <summary>
     /// The formatting shared by every character in a range, or null if it contains none.
     /// </summary>
+    /// <remarks>
+    /// The slot list is rebuilt first if it is missing. Dropping a layout — a new resolver, a
+    /// font change on the control — empties it until the next measure pass, and reading it
+    /// empty would report no characters at all. The caller would then fall back to the
+    /// formatting at the selection's start, so a half-bold selection beginning in bold would
+    /// answer "bold" and Ctrl+B would take the bold off instead of putting it on.
+    /// </remarks>
     private MarkSet? MarksAcross(int from, int to)
     {
+        EnsureSlots();
+
         MarkSet? common = null;
 
         foreach (var slot in _slots)

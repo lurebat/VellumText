@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Vellum;
@@ -399,5 +400,53 @@ public class RichTextViewMarkTests
         return string.Concat(Enumerable
             .Range(0, content.Text.Length)
             .Select(i => of(content.MarkAt(i))));
+    }
+    /// <summary>
+    /// Setting a font or a resolver throws away every block layout, and the slot list with it.
+    /// A formatting query that read the empty slot list would report the formatting at the
+    /// start of the selection instead of what the whole selection shares -- so a half-bold
+    /// selection whose first word is bold would report bold, and Ctrl+B would unbold it
+    /// instead of bolding it.
+    /// </summary>
+    [AvaloniaFact]
+    public void AQueryStillTellsTheTruthAfterTheLayoutHasBeenThrownAway()
+    {
+        var view = Shown("hello world");
+
+        Select(view, 0, 5);
+        view.ToggleStyle(TextStyle.Bold);
+
+        Select(view, 0, 11);
+
+        // What DropLayout is reached by: a font change on the control.
+        TextElement.SetFontSize(view, 22);
+
+        Assert.False(view.IsActive(TextStyle.Bold));
+
+        view.ToggleStyle(TextStyle.Bold);
+
+        Assert.Equal("BBBBBBBBBBB", Map(view, TextStyle.Bold));
+    }
+    /// <summary>
+    /// The field mask has to name only the style being changed. A mask covering every style
+    /// would make bolding italic text quietly un-italicise it.
+    /// </summary>
+    [AvaloniaFact]
+    public void MakingItalicTextBoldLeavesItItalic()
+    {
+        var view = Shown("hello world");
+
+        Select(view, 0, 5);
+        view.ToggleStyle(TextStyle.Italic);
+        view.ToggleStyle(TextStyle.Bold);
+
+        Assert.True(view.IsActive(TextStyle.Italic));
+        Assert.True(view.IsActive(TextStyle.Bold));
+
+        view.ToggleStyle(TextStyle.Underline);
+
+        Assert.True(view.IsActive(TextStyle.Italic));
+        Assert.True(view.IsActive(TextStyle.Bold));
+        Assert.True(view.IsActive(TextStyle.Underline));
     }
 }
