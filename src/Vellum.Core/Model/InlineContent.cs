@@ -457,8 +457,15 @@ public sealed class InlineContent : IEquatable<InlineContent>
             cursor = segmentEnd;
         }
 
-        return new InlineContent(
-            Text, Normalize(marks, Length), Embeds, _placeholderOffsets);
+        var normalized = Normalize(marks, Length);
+
+        // Formatting text that already has that formatting has to give back the very same
+        // object. A transaction drops a step whose document came back reference-identical, and
+        // that is the only thing standing between "make this bold" on already-bold text and an
+        // undo entry that undoes nothing the user can see.
+        return normalized.SequenceEqual(Marks)
+            ? this
+            : new InlineContent(Text, normalized, Embeds, _placeholderOffsets);
     }
 
     /// <summary>

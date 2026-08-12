@@ -117,9 +117,14 @@ public sealed class ParagraphNode : BlockNode
     public override string TypeName => "paragraph";
 
     /// <summary>Returns this paragraph with different inline content.</summary>
+    /// <remarks>
+    /// Content that is already what it is being set to gives back this very paragraph, so that
+    /// a rewrite which changed nothing can be recognised by reference rather than by comparing
+    /// whole documents.
+    /// </remarks>
     /// <param name="content">The replacement content.</param>
     public ParagraphNode WithContent(InlineContent content) =>
-        new(content, Kind, Align, IndentLevel);
+        ReferenceEquals(content, Content) ? this : new(content, Kind, Align, IndentLevel);
 
     /// <summary>Returns this paragraph as a different kind.</summary>
     /// <param name="kind">The replacement kind.</param>
