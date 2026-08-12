@@ -108,6 +108,14 @@ public class RichTextEditorTests
     }
 
     [AvaloniaFact]
+    public void TheHistoryCannotBeSetToNullThroughTheShellEither()
+    {
+        var editor = Shown("hello");
+
+        Assert.Throws<ArgumentNullException>(() => editor.History = null);
+    }
+
+    [AvaloniaFact]
     public void TheShellIsNotATabStopOfItsOwn()
     {
         // Two focusable elements in a row would put a tab stop in front of the editor that

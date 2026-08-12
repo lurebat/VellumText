@@ -71,12 +71,21 @@ public class RichTextEditor : TemplatedControl
     }
 
     /// <summary>The undo history, or null before the template has been applied.</summary>
+    /// <remarks>
+    /// Nullable because there is genuinely no history until there is a view to hold one. Setting
+    /// null is a different thing entirely and is refused, exactly as
+    /// <see cref="RichTextView.History"/> refuses it — silently ignoring it would turn a
+    /// programming error into a control that quietly stops being undoable.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><c>value</c> is null.</exception>
     public History? History
     {
         get => _view?.History;
         set
         {
-            if (_view is not null && value is not null)
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (_view is not null)
             {
                 _view.History = value;
             }

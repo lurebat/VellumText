@@ -419,6 +419,67 @@ public class RichTextViewImeTests
         Assert.Equal(FontWeight.Bold, composed.Properties!.Typeface.Weight);
     }
 
+    [AvaloniaFact]
+    public void ComposingIntoAnEmptyParagraphWorks()
+    {
+        // The common way a composition actually starts: an empty document and a user typing
+        // Japanese. There is no text to inherit formatting from and no position to anchor
+        // against but zero.
+        var view = Focused(string.Empty);
+
+        Assert.True(view.SetPreedit("にほ"));
+        Assert.Equal(0, view.Preedit!.Offset);
+        Assert.Equal("にほ", LaidOut(view));
+        Assert.True(view.CaretRect().X > 0);
+    }
+
+    [AvaloniaFact]
+    public void AComposionCanWrapTheParagraphOntoMoreLines()
+    {
+        var view = Focused(string.Join(' ', Enumerable.Repeat("wrapping", 12)));
+        var size = view.Block!.ContentSize;
+
+        Caret(view, size);
+
+        var before = view.Block!.LineCount;
+
+        view.SetPreedit(new string('W', 40));
+
+        Assert.True(view.Block!.LineCount > before);
+
+        // Every line still reports document positions, so the lines the composition spills onto
+        // all answer with the end of the real text rather than with a position that does not
+        // exist.
+        for (var i = 0; i < view.Block!.LineCount; i++)
+        {
+            Assert.InRange(view.Block!.LineStart(i), 0, size);
+            Assert.InRange(view.Block!.LineEnd(i), 0, size);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ClickingInsideComposedTextPutsTheCaretAtTheAnchor()
+    {
+        // Composed text has no position in the document, so a click that lands in the middle of
+        // it has to collapse back onto the anchor. Anything else hands the model a position that
+        // does not exist, and — because layout positions run ahead of document ones — would land
+        // *before* the anchor.
+        var view = Focused("hello world");
+
+        Caret(view, 5);
+        view.SetPreedit("XXXXXXXX");
+
+        var caret = view.CaretRect();
+        var mid = view.Block!.HitTest(new Point(caret.X - 4, caret.Y + 2));
+
+        Assert.Equal(5, mid);
+
+        // And a click beyond the composition maps back to real text after the anchor.
+        var after = view.Block!.HitTest(new Point(caret.X + 200, caret.Y + 2));
+
+        Assert.InRange(after, 5, 11);
+    }
+
     private static string LaidOut(RichTextView view) =>
         string.Concat(Runs(view).Select(r => r.Text.ToString()));
 
