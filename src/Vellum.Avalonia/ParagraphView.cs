@@ -1,0 +1,347 @@
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
+
+namespace Vellum.Avalonia;
+
+/// <summary>
+/// The view of one <see cref="ParagraphNode"/>, per architecture 4.6.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>How the run cache is driven.</b> Architecture 4.6 originally sketched
+/// <c>_runCache.InvalidateFrom(localOffset)</c> on an edit. Increment 0 measured that and it is
+/// wrong: invalidation is entry-granular and a paragraph is a single entry keyed 0, so
+/// <c>InvalidateFrom(k)</c> for any k greater than zero returns the <em>pre-edit</em> layout
+/// without ever asking the source for a run. The measurement is in
+/// <c>docs/increment-0-findings.md</c> §2 and architecture §2.3 records the reversal.
+/// </para>
+/// <para>
+/// So the cache is driven by <em>lifetime, not offset</em>. Content change means the whole
+/// cache goes; a width-only change keeps it, which is where the cache actually earns its place
+/// — Increment 0 measured that case at roughly 3.5× and it is the case that fires on every
+/// window resize, once per paragraph.
+/// </para>
+/// </remarks>
+public sealed class ParagraphView : BlockView
+{
+    private readonly ITextStyleResolver _styles;
+    private readonly IEmbedRenderer _embeds;
+    private readonly double _indentStep;
+    private TextRunCache _runCache = new();
+    private ParagraphNode _paragraph;
+    private TextLayout? _layout;
+    private double _layoutWidth = double.NaN;
+
+    /// <summary>Creates a view of a paragraph.</summary>
+    /// <param name="paragraph">The paragraph to present.</param>
+    /// <param name="styles">Resolves mark sets to run properties.</param>
+    /// <param name="embeds">Measures and draws embeds, or null for the placeholder renderer.</param>
+    /// <param name="indentStep">Device pixels per level of <see cref="ParagraphNode.IndentLevel"/>.</param>
+    public ParagraphView(
+        ParagraphNode paragraph,
+        ITextStyleResolver styles,
+        IEmbedRenderer? embeds = null,
+        double indentStep = DefaultIndentStep)
+    {
+        ArgumentNullException.ThrowIfNull(paragraph);
+        ArgumentNullException.ThrowIfNull(styles);
+
+        if (indentStep < 0 || double.IsNaN(indentStep))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(indentStep), indentStep, "An indent step cannot be negative.");
+        }
+
+        _paragraph = paragraph;
+        _styles = styles;
+        _embeds = embeds ?? new PlaceholderEmbedRenderer();
+        _indentStep = indentStep;
+    }
+
+    /// <summary>The default width of one indent level, in device pixels.</summary>
+    public const double DefaultIndentStep = 24;
+
+    /// <summary>The paragraph currently presented.</summary>
+    public ParagraphNode Paragraph => _paragraph;
+
+    /// <summary>
+    /// How far the paragraph's whole text block is inset from the left, from its indent level.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <c>TextParagraphProperties.Indent</c>, which indents only the first
+    /// line of a paragraph. An indent level insets the entire block, so it is applied as an
+    /// offset of the layout: the layout wraps to a narrower width and every coordinate crossing
+    /// this type's boundary is shifted by it.
+    /// </remarks>
+    public double Indent => _paragraph.IndentLevel * _indentStep;
+
+    /// <inheritdoc/>
+    public override int ContentSize => _paragraph.ContentSize;
+
+    /// <inheritdoc/>
+    public override Size Size =>
+        _layout is null ? default : new Size(Indent + _layout.Width, _layout.Height);
+
+    /// <summary>
+    /// The current layout, laying it out at the last measured width if it is stale.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The view has never been measured.</exception>
+    public TextLayout Layout => _layout ?? throw new InvalidOperationException(
+        "The paragraph has not been measured yet; call Measure before asking for geometry.");
+
+    /// <summary>
+    /// Points the view at a new paragraph, discarding the layout if the content differs.
+    /// </summary>
+    /// <remarks>
+    /// Attributes that only affect how existing text is arranged — alignment, indent — still
+    /// force a relayout, but they keep the run cache, because the shaped runs themselves are
+    /// unaffected. That is the same reasoning as a width change.
+    /// </remarks>
+    /// <param name="paragraph">The new paragraph.</param>
+    /// <returns>True if anything changed and the caller must redraw.</returns>
+    public bool Update(ParagraphNode paragraph)
+    {
+        ArgumentNullException.ThrowIfNull(paragraph);
+
+        if (ReferenceEquals(paragraph, _paragraph) || paragraph.Equals(_paragraph))
+        {
+            return false;
+        }
+
+        var textChanged = !paragraph.Content.Equals(_paragraph.Content);
+
+        _paragraph = paragraph;
+        _layout = null;
+
+        if (textChanged)
+        {
+            // Entry-granular invalidation cannot express a partial edit, so the cache is
+            // replaced outright. See the class remarks.
+            _runCache = new TextRunCache();
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public override Size Measure(double availableWidth)
+    {
+        if (availableWidth <= 0 || double.IsNaN(availableWidth))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(availableWidth),
+                availableWidth,
+                "A paragraph must be given a positive width to wrap to.");
+        }
+
+        if (_layout is not null && _layoutWidth.Equals(availableWidth))
+        {
+            return Size;
+        }
+
+        // The indent eats into the width the text may wrap to, so an indented paragraph wraps
+        // where it visually runs out of room rather than where an unindented one would. A
+        // width smaller than the indent still has to leave somewhere to put the text.
+        var textWidth = Math.Max(1, availableWidth - Indent);
+
+        _layout = new TextLayout(
+            new InlineTextSource(_paragraph.Content, _styles, _embeds),
+            ParagraphProperties(),
+            maxWidth: textWidth,
+            textRunCache: _runCache);
+
+        _layoutWidth = availableWidth;
+
+        return Size;
+    }
+
+    /// <inheritdoc/>
+    public override void Render(DrawingContext context, Point origin)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        Layout.Draw(context, origin.WithX(origin.X + Indent));
+    }
+
+    /// <inheritdoc/>
+    public override int HitTest(Point local)
+    {
+        var hit = Layout.HitTestPoint(local.WithX(local.X - Indent));
+
+        // TextPosition already carries the trailing adjustment: the trailing half of a
+        // character reports the position after it, and it does so in whole clusters, so a
+        // surrogate pair or a combining sequence is never split by a click.
+        return Math.Clamp(hit.TextPosition, 0, ContentSize);
+    }
+
+    /// <inheritdoc/>
+    public override Rect GetCaretRect(int localPosition)
+    {
+        CheckPosition(localPosition);
+
+        var rect = Layout.HitTestTextPosition(localPosition);
+
+        return new Rect(Indent + rect.X, rect.Y, 0, rect.Height);
+    }
+
+    /// <inheritdoc/>
+    public override IReadOnlyList<Rect> GetSelectionRects(int from, int to)
+    {
+        CheckPosition(from);
+        CheckPosition(to);
+
+        var start = Math.Min(from, to);
+        var length = Math.Abs(to - from);
+
+        if (length == 0)
+        {
+            return [];
+        }
+
+        var rects = new List<Rect>();
+
+        foreach (var line in Layout.TextLines)
+        {
+            // A line's range is clipped against the selection rather than tested for
+            // containment, because a selection routinely covers part of a line at each end.
+            // Avalonia clamps an overrunning length itself — there is a test pinning that — so
+            // the upper clip is defensive; the lower one is not.
+            var lineStart = Math.Max(start, line.FirstTextSourceIndex);
+            var lineEnd = Math.Min(start + length, line.FirstTextSourceIndex + line.Length);
+
+            if (lineEnd <= lineStart)
+            {
+                continue;
+            }
+
+            foreach (var bounds in line.GetTextBounds(lineStart, lineEnd - lineStart))
+            {
+                // One TextBounds per direction run, so a selection crossing a bidi boundary
+                // arrives here as several disjoint rectangles. Increment 0 measured this.
+                rects.Add(bounds.Rectangle.WithX(bounds.Rectangle.X + Indent));
+            }
+        }
+
+        return rects;
+    }
+
+    /// <summary>
+    /// The next caret position after <paramref name="localPosition"/>, never landing inside a
+    /// grapheme cluster.
+    /// </summary>
+    /// <param name="localPosition">The position to move from.</param>
+    public int NextCaretPosition(int localPosition) =>
+        Move(localPosition, forward: true, static (line, hit) => line.GetNextCaretCharacterHit(hit));
+
+    /// <summary>
+    /// The previous caret position before <paramref name="localPosition"/>, never landing
+    /// inside a grapheme cluster.
+    /// </summary>
+    /// <param name="localPosition">The position to move from.</param>
+    public int PreviousCaretPosition(int localPosition) =>
+        Move(localPosition, forward: false, static (line, hit) => line.GetPreviousCaretCharacterHit(hit));
+
+    /// <summary>
+    /// Where a Backspace from <paramref name="localPosition"/> should delete back to.
+    /// </summary>
+    /// <remarks>
+    /// Not the same as <see cref="PreviousCaretPosition"/>: Backspace peels one combining mark
+    /// off a cluster where the arrow key steps over the whole cluster. Increment 0 measured the
+    /// difference and the user chose to keep the component-peel behaviour.
+    /// </remarks>
+    /// <param name="localPosition">The caret position to delete back from.</param>
+    public int BackspacePosition(int localPosition) =>
+        Move(localPosition, forward: false, static (line, hit) => line.GetBackspaceCaretCharacterHit(hit));
+
+    private int Move(int localPosition, bool forward, Func<TextLine, CharacterHit, CharacterHit> step)
+    {
+        CheckPosition(localPosition);
+
+        var line = LineAt(localPosition, forward);
+        var hit = step(line, new CharacterHit(localPosition));
+
+        return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, ContentSize);
+    }
+
+    /// <summary>
+    /// The line to ask about a move from <paramref name="localPosition"/>.
+    /// </summary>
+    /// <remarks>
+    /// A wrap boundary is one position belonging to two lines, and <see cref="TextLine"/>'s
+    /// caret methods refuse to leave the line they are called on. So the line is chosen by the
+    /// direction of travel: moving left from a wrap boundary asks the line that <em>ends</em>
+    /// there, which is the only one that can answer. Getting this wrong does not throw — it
+    /// silently pins the caret at the start of every wrapped line.
+    /// </remarks>
+    private TextLine LineAt(int localPosition, bool forward)
+    {
+        var lines = Layout.TextLines;
+
+        foreach (var line in lines)
+        {
+            var end = line.FirstTextSourceIndex + line.Length;
+
+            var owns = forward
+                ? localPosition < end
+                : localPosition <= end && localPosition > line.FirstTextSourceIndex;
+
+            if (owns)
+            {
+                return line;
+            }
+        }
+
+        return forward ? lines[^1] : lines[0];
+    }
+
+    /// <summary>
+    /// The paragraph-level properties handed to the formatter.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The base direction is fixed left-to-right, which is a deliberate deferral rather than an
+    /// oversight. Bidirectional text <em>within</em> a line is handled by the formatter and was
+    /// measured in Increment 0; what is missing is a paragraph whose base direction is
+    /// right-to-left, so that alignment resolves to the right edge and neutrals at the ends of
+    /// the line settle the other way. That is a document-model question — the model has no
+    /// direction attribute on a paragraph and inferring one from content is a decision with
+    /// visible consequences — so it waits for the model to carry the answer.
+    /// </para>
+    /// <para>
+    /// <c>indent</c> is zero here on purpose: Avalonia's paragraph indent applies to the first
+    /// line only, whereas an indent level insets the whole block. See <see cref="Indent"/>.
+    /// </para>
+    /// </remarks>
+    private TextParagraphProperties ParagraphProperties() =>
+        new GenericTextParagraphProperties(
+            FlowDirection.LeftToRight,
+            Alignment(_paragraph.Align),
+            firstLineInParagraph: true,
+            alwaysCollapsible: false,
+            _styles.Default,
+            TextWrapping.Wrap,
+            lineHeight: 0,
+            indent: 0,
+            letterSpacing: 0);
+
+    private static TextAlignment Alignment(TextAlign align) => align switch
+    {
+        TextAlign.Left => TextAlignment.Left,
+        TextAlign.Center => TextAlignment.Center,
+        TextAlign.Right => TextAlignment.Right,
+        TextAlign.Justify => TextAlignment.Justify,
+        _ => TextAlignment.Start,
+    };
+
+    private void CheckPosition(int localPosition)
+    {
+        if (localPosition < 0 || localPosition > ContentSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(localPosition),
+                localPosition,
+                $"Position must be within [0, {ContentSize}] for this paragraph.");
+        }
+    }
+}
