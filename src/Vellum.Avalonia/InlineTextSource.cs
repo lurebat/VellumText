@@ -24,26 +24,46 @@ public sealed class InlineTextSource : ITextSource
     private readonly InlineContent _content;
     private readonly ITextStyleResolver _styles;
     private readonly IEmbedRenderer _embeds;
+    private readonly Preedit? _preedit;
 
     /// <summary>Creates a source over one paragraph's content.</summary>
     /// <param name="content">The paragraph's inline content.</param>
     /// <param name="styles">Resolves mark sets to run properties.</param>
     /// <param name="embeds">Measures and draws embeds, or null for the placeholder renderer.</param>
+    /// <param name="preedit">Text an input method is composing, or null for none.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="preedit"/> is anchored past the end of the content.
+    /// </exception>
     public InlineTextSource(
         InlineContent content,
         ITextStyleResolver styles,
-        IEmbedRenderer? embeds = null)
+        IEmbedRenderer? embeds = null,
+        Preedit? preedit = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(styles);
 
+        if (preedit is not null && preedit.Offset > content.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(preedit),
+                preedit.Offset,
+                $"A preedit must be anchored within [0, {content.Length}] of its paragraph.");
+        }
+
         _content = content;
         _styles = styles;
         _embeds = embeds ?? new PlaceholderEmbedRenderer();
+        _preedit = preedit;
     }
 
     /// <summary>The number of UTF-16 code units the formatter will be asked about.</summary>
-    public int Length => _content.Length;
+    /// <remarks>
+    /// This counts the composition, so it is the length of what is <em>drawn</em> rather than
+    /// the length of the document. <see cref="ParagraphView"/> owns the translation between
+    /// the two.
+    /// </remarks>
+    public int Length => _content.Length + (_preedit?.Length ?? 0);
 
     /// <inheritdoc/>
     public TextRun? GetTextRun(int textSourceIndex)
@@ -55,11 +75,24 @@ public sealed class InlineTextSource : ITextSource
             return null;
         }
 
-        if (textSourceIndex >= _content.Length)
+        if (textSourceIndex >= Length)
         {
             // Every paragraph ends with a break. Without it the formatter treats the end of
             // the text as the end of the whole source and a trailing empty line never forms.
             return new TextEndOfParagraph();
+        }
+
+        if (_preedit is { } preedit)
+        {
+            if (textSourceIndex >= preedit.Offset && textSourceIndex < preedit.Offset + preedit.Length)
+            {
+                return PreeditRun(preedit, textSourceIndex);
+            }
+
+            if (textSourceIndex >= preedit.Offset)
+            {
+                textSourceIndex -= preedit.Length;
+            }
         }
 
         var marks = _content.MarkAt(textSourceIndex);
@@ -76,8 +109,26 @@ public sealed class InlineTextSource : ITextSource
     }
 
     /// <summary>
+    /// The composed text from <paramref name="index"/> to the end of the composition, styled
+    /// like the text it is being composed into and underlined.
+    /// </summary>
+    /// <remarks>
+    /// Underlining goes through <see cref="MarkSet"/> rather than through a decoration built
+    /// here, so a composition picks up whatever the resolver does with an underline — including
+    /// a host that has replaced the resolver entirely.
+    /// </remarks>
+    private TextRun PreeditRun(Preedit preedit, int index)
+    {
+        var marks = _content.MarkForInsertionAt(Math.Min(preedit.Offset, _content.Length));
+
+        return new TextCharacters(
+            preedit.Text.AsMemory(index - preedit.Offset),
+            _styles.Resolve(marks with { Style = marks.Style | TextStyle.Underline }));
+    }
+
+    /// <summary>
     /// Where the run starting at <paramref name="start"/> ends: the next mark boundary, the
-    /// next embed, or the end of the text.
+    /// next embed, the start of a composition, or the end of the text.
     /// </summary>
     private int RunEnd(int start)
     {
@@ -108,6 +159,13 @@ public sealed class InlineTextSource : ITextSource
         if (placeholder >= 0)
         {
             end = Math.Min(end, placeholder);
+        }
+
+        // A run may not span the composition either, or the text after the caret would be
+        // shaped as though the composed text were not between them.
+        if (_preedit is { } preedit && preedit.Offset > start)
+        {
+            end = Math.Min(end, preedit.Offset);
         }
 
         return end;

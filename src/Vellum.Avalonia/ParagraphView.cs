@@ -30,6 +30,7 @@ public sealed class ParagraphView : BlockView
     private readonly double _indentStep;
     private TextRunCache _runCache = new();
     private ParagraphNode _paragraph;
+    private Preedit? _preedit;
     private TextLayout? _layout;
     private double _layoutWidth = double.NaN;
 
@@ -119,9 +120,92 @@ public sealed class ParagraphView : BlockView
             // Entry-granular invalidation cannot express a partial edit, so the cache is
             // replaced outright. See the class remarks.
             _runCache = new TextRunCache();
+
+            // A composition is anchored at an offset into text that no longer exists, so it
+            // cannot survive the edit that replaced that text. The view commits or abandons a
+            // composition before editing; this is the backstop that keeps the anchor from
+            // pointing past the end of the paragraph if it ever does not.
+            _preedit = null;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Text an input method is composing here, or null for none.
+    /// </summary>
+    /// <remarks>
+    /// The composition is spliced into the layout and is therefore visible to every geometry
+    /// query, but it is not part of the paragraph: <see cref="BlockView.ContentSize"/> does not
+    /// count it and no position this type hands out or accepts includes it. See
+    /// <see cref="ToLayout"/>.
+    /// </remarks>
+    public Preedit? Preedit => _preedit;
+
+    /// <summary>Sets or clears the composition being drawn in this paragraph.</summary>
+    /// <param name="preedit">The composition, or null to clear it.</param>
+    /// <returns>True if anything changed and the caller must redraw.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The composition is anchored outside the paragraph.
+    /// </exception>
+    public bool SetPreedit(Preedit? preedit)
+    {
+        if (preedit is not null && preedit.Offset > ContentSize)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(preedit),
+                preedit.Offset,
+                $"A preedit must be anchored within [0, {ContentSize}] of its paragraph.");
+        }
+
+        if (preedit == _preedit)
+        {
+            return false;
+        }
+
+        _preedit = preedit;
+        _layout = null;
+
+        // Composing changes the text being shaped, so the same reasoning as an edit applies:
+        // the cache cannot express a partial change and is replaced outright.
+        _runCache = new TextRunCache();
+
+        return true;
+    }
+
+    /// <summary>The length of what is laid out, which counts any composition.</summary>
+    private int LayoutSize => ContentSize + (_preedit?.Length ?? 0);
+
+    /// <summary>
+    /// A paragraph-local position in the layout's coordinates.
+    /// </summary>
+    /// <remarks>
+    /// The composition occupies positions the document does not have, so everything after its
+    /// anchor is displaced by its length. The anchor itself maps to the <em>start</em> of the
+    /// composition, which is what puts a caret at the anchor before the composed text rather
+    /// than after it.
+    /// </remarks>
+    private int ToLayout(int localPosition) =>
+        _preedit is { } preedit && localPosition > preedit.Offset
+            ? localPosition + preedit.Length
+            : localPosition;
+
+    /// <summary>A layout position back in the paragraph's coordinates.</summary>
+    /// <remarks>
+    /// A position <em>inside</em> the composition has no document counterpart, so it collapses
+    /// to the anchor. That is what stops a click on composing text from moving the model's
+    /// caret into text the model does not have.
+    /// </remarks>
+    private int FromLayout(int layoutPosition)
+    {
+        if (_preedit is not { } preedit)
+        {
+            return layoutPosition;
+        }
+
+        return layoutPosition <= preedit.Offset
+            ? layoutPosition
+            : Math.Max(preedit.Offset, layoutPosition - preedit.Length);
     }
 
     /// <inheritdoc/>
@@ -146,7 +230,7 @@ public sealed class ParagraphView : BlockView
         var textWidth = Math.Max(1, availableWidth - Indent);
 
         _layout = new TextLayout(
-            new InlineTextSource(_paragraph.Content, _styles, _embeds),
+            new InlineTextSource(_paragraph.Content, _styles, _embeds, _preedit),
             ParagraphProperties(),
             maxWidth: textWidth,
             textRunCache: _runCache);
@@ -172,7 +256,7 @@ public sealed class ParagraphView : BlockView
         // TextPosition already carries the trailing adjustment: the trailing half of a
         // character reports the position after it, and it does so in whole clusters, so a
         // surrogate pair or a combining sequence is never split by a click.
-        return Math.Clamp(hit.TextPosition, 0, ContentSize);
+        return FromLayout(Math.Clamp(hit.TextPosition, 0, LayoutSize));
     }
 
     /// <inheritdoc/>
@@ -180,7 +264,29 @@ public sealed class ParagraphView : BlockView
     {
         CheckPosition(localPosition);
 
-        var rect = Layout.HitTestTextPosition(localPosition);
+        return CaretRectInLayout(ToLayout(localPosition));
+    }
+
+    /// <summary>The caret rectangle for a composition's own cursor.</summary>
+    /// <remarks>
+    /// Separate from <see cref="GetCaretRect"/> because a composition cursor sits at a layout
+    /// position the document has no counterpart for, which is exactly what that method refuses
+    /// to accept.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">Nothing is being composed here.</exception>
+    public Rect GetPreeditCaretRect()
+    {
+        if (_preedit is not { } preedit)
+        {
+            throw new InvalidOperationException("Nothing is being composed in this paragraph.");
+        }
+
+        return CaretRectInLayout(Math.Clamp(preedit.CaretPosition, 0, LayoutSize));
+    }
+
+    private Rect CaretRectInLayout(int layoutPosition)
+    {
+        var rect = Layout.HitTestTextPosition(layoutPosition);
 
         return new Rect(Indent + rect.X, rect.Y, 0, rect.Height);
     }
@@ -191,8 +297,8 @@ public sealed class ParagraphView : BlockView
         CheckPosition(from);
         CheckPosition(to);
 
-        var start = Math.Min(from, to);
-        var length = Math.Abs(to - from);
+        var start = ToLayout(Math.Min(from, to));
+        var length = ToLayout(Math.Max(from, to)) - start;
 
         if (length == 0)
         {
@@ -268,6 +374,7 @@ public sealed class ParagraphView : BlockView
     {
         CheckPosition(localPosition);
 
+        var layoutPosition = ToLayout(localPosition);
         var lines = Layout.TextLines;
 
         for (var i = 0; i < lines.Count; i++)
@@ -275,8 +382,8 @@ public sealed class ParagraphView : BlockView
             var end = lines[i].FirstTextSourceIndex + lines[i].Length;
 
             var owns = forward
-                ? localPosition < end
-                : localPosition <= end && localPosition > lines[i].FirstTextSourceIndex;
+                ? layoutPosition < end
+                : layoutPosition <= end && layoutPosition > lines[i].FirstTextSourceIndex;
 
             if (owns)
             {
@@ -290,7 +397,7 @@ public sealed class ParagraphView : BlockView
     /// <summary>The first position on a visual line.</summary>
     /// <param name="lineIndex">The line.</param>
     public int LineStart(int lineIndex) =>
-        Math.Clamp(Line(lineIndex).FirstTextSourceIndex, 0, ContentSize);
+        FromLayout(Math.Clamp(Line(lineIndex).FirstTextSourceIndex, 0, LayoutSize));
 
     /// <summary>The last position on a visual line.</summary>
     /// <remarks>
@@ -305,7 +412,7 @@ public sealed class ParagraphView : BlockView
         var line = Line(lineIndex);
         var end = line.FirstTextSourceIndex + line.Length - line.NewLineLength - line.TrailingWhitespaceLength;
 
-        return Math.Clamp(end, LineStart(lineIndex), ContentSize);
+        return Math.Max(LineStart(lineIndex), FromLayout(Math.Clamp(end, 0, LayoutSize)));
     }
 
     /// <summary>The position on a visual line nearest a horizontal offset.</summary>
@@ -319,7 +426,7 @@ public sealed class ParagraphView : BlockView
     {
         var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Indent);
 
-        return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, ContentSize);
+        return FromLayout(Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
     }
 
     private TextLine Line(int lineIndex)
@@ -340,9 +447,9 @@ public sealed class ParagraphView : BlockView
         CheckPosition(localPosition);
 
         var line = LineAt(localPosition, forward);
-        var hit = step(line, new CharacterHit(localPosition));
+        var hit = step(line, new CharacterHit(ToLayout(localPosition)));
 
-        return Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, ContentSize);
+        return FromLayout(Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
     }
 
     /// <summary>

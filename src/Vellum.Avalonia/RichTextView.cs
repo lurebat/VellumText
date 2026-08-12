@@ -70,6 +70,14 @@ public partial class RichTextView : Control
     {
         Focusable = true;
 
+        _inputMethod = new RichTextInputMethodClient(this);
+
+        // How a control offers itself to the platform input method: the request bubbles from
+        // the focused element, and answering it is what makes composition arrive here at all.
+        AddHandler(
+            global::Avalonia.Input.InputElement.TextInputMethodClientRequestedEvent,
+            (_, e) => e.Client = _inputMethod);
+
         _blink = new DispatcherTimer { Interval = BlinkInterval };
         _blink.Tick += (_, _) =>
         {
@@ -349,6 +357,7 @@ public partial class RichTextView : Control
 
         InvalidateMeasure();
         ResetCaretBlink();
+        NotifyInputMethod();
     }
 
     private void RenderSelection(DrawingContext context)
@@ -375,16 +384,21 @@ public partial class RichTextView : Control
 
     private void RenderCaret(DrawingContext context)
     {
-        if (!_caretVisible || CaretBrush is null || _block is null || !_state.Selection.IsEmpty)
+        if (!_caretVisible || CaretBrush is null || _block is null)
         {
             return;
         }
 
-        var local = Math.Clamp(_state.Selection.Head - BlockStart, 0, _block.ContentSize);
-        var caret = _block.GetCaretRect(local);
+        // A non-empty selection hides the caret, except while composing: then the caret belongs
+        // to the input method and sits inside text the selection knows nothing about.
+        if (_block.Preedit is null && !_state.Selection.IsEmpty)
+        {
+            return;
+        }
+
         var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
 
-        context.FillRectangle(CaretBrush, SnapCaret(caret, scale));
+        context.FillRectangle(CaretBrush, SnapCaret(CaretRect(), scale));
     }
 
     /// <summary>
