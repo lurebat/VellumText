@@ -1,0 +1,500 @@
+using System.Collections.Immutable;
+using Avalonia;
+using Avalonia.Media;
+
+namespace Vellum.Avalonia;
+
+/// <summary>
+/// A table, drawn as a grid.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The first block view that hosts other block views. Everything else in the document is a
+/// vertical run, which is why the presenter can flatten a document into an array and answer
+/// every geometry question with a search. A table is the one structure that cannot be
+/// flattened — its cells sit side by side — so it owns its children and answers for them.
+/// </para>
+/// <para>
+/// The position arithmetic here mirrors <see cref="DocumentBlocks"/> exactly, because it has
+/// to: the document offsets the presenter hands out are computed by that walk, and a table that
+/// disagreed by one would put the caret in the wrong cell. Local position 0 is the first
+/// position inside the table; each row occupies <c>NodeSize</c> positions starting one past the
+/// row's opening boundary, and so on down to the blocks in a cell. The mapping is built once in
+/// the constructor as a flat list of child views with their local starts, so hit-testing and
+/// caret geometry are a search over that list rather than a second walk that could drift.
+/// </para>
+/// <para>
+/// Column widths follow the table when it states them and are divided evenly when it does not.
+/// Even division is not what a browser does — a browser sizes columns to their content — but it
+/// is predictable, it never collapses a column to nothing, and content-based sizing needs a
+/// min/max width pass over every cell that the block views do not currently expose. Explicit
+/// widths, which is what the HTML and RTF importers produce whenever the source stated any, are
+/// honoured.
+/// </para>
+/// </remarks>
+public sealed class TableBlockView : BlockView
+{
+    private const double CellPadding = 6;
+    private const double BorderThickness = 1;
+
+    private readonly TableNode _table;
+    private readonly ImmutableArray<Cell> _cells;
+    private readonly int _columns;
+    private readonly IPen _border;
+
+    private double[] _columnEdges = [];
+    private double[] _rowEdges = [];
+    private Size _size;
+
+    /// <summary>Creates a view of a table.</summary>
+    /// <param name="table">The table.</param>
+    /// <param name="create">Makes a view for a block inside a cell.</param>
+    /// <param name="border">The brush the grid lines are drawn in.</param>
+    /// <param name="header">The brush a header cell is filled with, or null to leave it plain.</param>
+    /// <exception cref="ArgumentNullException">An argument other than <paramref name="header"/> is null.</exception>
+    public TableBlockView(
+        TableNode table,
+        Func<BlockNode, BlockView> create,
+        IBrush border,
+        IBrush? header = null)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(create);
+        ArgumentNullException.ThrowIfNull(border);
+
+        _table = table;
+        _border = new Pen(border, BorderThickness);
+
+        var placements = TableGeometry.Place(table, out _columns);
+        var cells = ImmutableArray.CreateBuilder<Cell>(placements.Length);
+
+        // Walked in exactly the order TableGeometry placed them, which is the order the rows and
+        // their cells appear in, so placement i belongs to the i'th cell reached here.
+        var index = 0;
+        var rowStart = 0;
+
+        foreach (var row in table.Rows)
+        {
+            // One past the row's opening boundary.
+            var cellStart = rowStart + 1;
+
+            foreach (var cell in row.Cells)
+            {
+                var blocks = ImmutableArray.CreateBuilder<Child>(cell.Blocks.Length);
+
+                // And one past the cell's own opening boundary.
+                var blockStart = cellStart + 1;
+
+                foreach (var block in cell.Blocks)
+                {
+                    // A leaf occupies its position rather than sitting inside a pair of
+                    // boundaries, so its content starts where the block itself is.
+                    blocks.Add(new Child(
+                        create(block),
+                        block.IsLeaf ? blockStart : blockStart + 1));
+
+                    blockStart += block.NodeSize;
+                }
+
+                cells.Add(new Cell(cell, placements[index], cellStart + 1, blocks.ToImmutable(), header));
+
+                cellStart += cell.NodeSize;
+                index++;
+            }
+
+            rowStart += row.NodeSize;
+        }
+
+        _cells = cells.ToImmutable();
+    }
+
+    /// <inheritdoc/>
+    public override int ContentSize => _table.ContentSize;
+
+    /// <inheritdoc/>
+    public override Size Size => _size;
+
+    /// <summary>How many columns the table turned out to be.</summary>
+    /// <remarks>
+    /// Not <c>Rows[0].Cells.Length</c>: a row-spanning cell means a row can carry fewer cells
+    /// than the table is wide.
+    /// </remarks>
+    public int Columns => _columns;
+
+    /// <inheritdoc/>
+    public override Size Measure(double availableWidth)
+    {
+        var width = double.IsFinite(availableWidth) && availableWidth > 0
+            ? availableWidth
+            : 0;
+
+        _columnEdges = ColumnEdges(width);
+
+        var heights = new double[_table.Rows.Length];
+
+        foreach (var cell in _cells)
+        {
+            var inner = CellWidth(cell.Placement) - (2 * CellPadding);
+            var content = 0.0;
+
+            foreach (var child in cell.Blocks)
+            {
+                // Top is an offset within the cell's content box; the padding is added once, by
+                // ChildOrigin, so that measuring and drawing cannot disagree about it.
+                child.Top = content;
+                content += child.View.Measure(Math.Max(0, inner)).Height;
+            }
+
+            var height = content + (2 * CellPadding);
+
+            cell.Height = height;
+
+            // A cell spanning rows is not the height of the row it starts in; it only has to fit
+            // across all of them. Charging its whole height to the first row would make that row
+            // as tall as the span, which is the classic way to get a table with one enormous row.
+            if (cell.Placement.Bottom - cell.Placement.Top == 1)
+            {
+                heights[cell.Placement.Top] = Math.Max(heights[cell.Placement.Top], height);
+            }
+        }
+
+        // Now the spanning cells, against the row heights the single-row cells settled. Only a
+        // cell that still does not fit pushes, and it pushes the last row it covers.
+        foreach (var cell in _cells)
+        {
+            var span = cell.Placement.Bottom - cell.Placement.Top;
+
+            if (span == 1)
+            {
+                continue;
+            }
+
+            var covered = 0.0;
+
+            for (var r = cell.Placement.Top; r < cell.Placement.Bottom && r < heights.Length; r++)
+            {
+                covered += heights[r];
+            }
+
+            var last = Math.Min(cell.Placement.Bottom, heights.Length) - 1;
+
+            if (last >= 0 && covered < cell.Height)
+            {
+                heights[last] += cell.Height - covered;
+            }
+        }
+
+        _rowEdges = Edges(heights);
+        _size = new Size(width, _rowEdges[^1]);
+
+        return _size;
+    }
+
+    /// <inheritdoc/>
+    public override void Render(DrawingContext context, Point origin)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        foreach (var cell in _cells)
+        {
+            var bounds = CellBounds(cell.Placement).Translate(new Vector(origin.X, origin.Y));
+
+            if (cell.Fill is { } fill)
+            {
+                context.FillRectangle(fill, bounds);
+            }
+
+            context.DrawRectangle(null, _border, bounds);
+
+            var y = bounds.Y + CellPadding;
+
+            foreach (var child in cell.Blocks)
+            {
+                var at = ChildOrigin(cell, child);
+
+                child.View.Render(context, new Point(origin.X + at.X, origin.Y + at.Y));
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public override int HitTest(Point local)
+    {
+        var cell = NearestCell(local);
+
+        if (cell is null)
+        {
+            return 0;
+        }
+
+        var bounds = CellBounds(cell.Placement);
+        var inner = new Point(local.X - bounds.X - CellPadding, local.Y - bounds.Y - CellPadding);
+        var child = NearestChild(cell, inner.Y);
+
+        // An empty cell is not schema-valid, but the schema reports rather than throws and
+        // nothing stops a caller building one, so there may be nothing to hand the point to.
+        return child is null
+            ? cell.Start
+            : child.Start + child.View.HitTest(new Point(inner.X, inner.Y - child.Top));
+    }
+
+    /// <inheritdoc/>
+    public override Rect GetCaretRect(int localPosition)
+    {
+        if (Find(localPosition) is not { } found)
+        {
+            // A boundary position — between two rows, say — has no glyph to sit beside. The top
+            // left of the table is wrong but drawable, which beats throwing on a position the
+            // caret can legitimately hold.
+            return new Rect(0, 0, 0, _size.Height);
+        }
+
+        var (cell, child) = found;
+        var origin = ChildOrigin(cell, child);
+
+        return child.View
+            .GetCaretRect(Math.Clamp(localPosition - child.Start, 0, child.View.ContentSize))
+            .Translate(new Vector(origin.X, origin.Y));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// No guard against an empty or inverted range: each cell clamps the range to its own
+    /// content and skips anything that comes out empty, so those cases already produce no
+    /// rectangles. A guard here would be an early return that no test could distinguish.
+    /// </remarks>
+    public override IReadOnlyList<Rect> GetSelectionRects(int from, int to)
+    {
+        var rects = new List<Rect>();
+
+        foreach (var cell in _cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                var start = Math.Max(from - child.Start, 0);
+                var end = Math.Min(to - child.Start, child.View.ContentSize);
+
+                if (end <= start)
+                {
+                    continue;
+                }
+
+                var origin = ChildOrigin(cell, child);
+
+                foreach (var rect in child.View.GetSelectionRects(start, end))
+                {
+                    rects.Add(rect.Translate(new Vector(origin.X, origin.Y)));
+                }
+            }
+        }
+
+        return rects;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Recursive rather than a lookup, so a table inside a cell answers for its own cells and
+    /// the editing layer never has to know how deep it went.
+    /// </remarks>
+    public override TextAt? ParagraphAt(int localPosition)
+    {
+        if (Find(localPosition) is not ({ } cell, { } child))
+        {
+            return null;
+        }
+
+        if (child.View.ParagraphAt(localPosition - child.Start) is not { } inner)
+        {
+            return null;
+        }
+
+        var origin = ChildOrigin(cell, child);
+
+        return inner with
+        {
+            Start = child.Start + inner.Start,
+            Origin = new Point(origin.X + inner.Origin.X, origin.Y + inner.Origin.Y),
+        };
+    }
+
+    private (Cell Cell, Child Child)? Find(int localPosition)
+    {
+        foreach (var cell in _cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                if (localPosition >= child.Start
+                    && localPosition <= child.Start + child.View.ContentSize)
+                {
+                    return (cell, child);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Point ChildOrigin(Cell cell, Child child)
+    {
+        var bounds = CellBounds(cell.Placement);
+
+        return new Point(bounds.X + CellPadding, bounds.Y + CellPadding + child.Top);
+    }
+
+    private Cell? NearestCell(Point local)
+    {
+        Cell? nearest = null;
+        var best = double.PositiveInfinity;
+
+        foreach (var cell in _cells)
+        {
+            var bounds = CellBounds(cell.Placement);
+
+            if (bounds.Contains(local))
+            {
+                return cell;
+            }
+
+            // Squared distance to the cell's box, which is zero along any axis the point already
+            // lies within. A click in the gap between cells, or outside the table entirely,
+            // therefore lands in the cell it is nearest rather than nowhere.
+            var dx = Math.Max(0, Math.Max(bounds.X - local.X, local.X - bounds.Right));
+            var dy = Math.Max(0, Math.Max(bounds.Y - local.Y, local.Y - bounds.Bottom));
+            var distance = (dx * dx) + (dy * dy);
+
+            if (distance < best)
+            {
+                best = distance;
+                nearest = cell;
+            }
+        }
+
+        return nearest;
+    }
+
+    private static Child? NearestChild(Cell cell, double y)
+    {
+        Child? last = null;
+
+        foreach (var child in cell.Blocks)
+        {
+            if (y < child.Top + child.View.Size.Height)
+            {
+                return child;
+            }
+
+            last = child;
+        }
+
+        return last;
+    }
+
+    private double CellWidth(CellPlacement placement) =>
+        _columnEdges[Math.Min(placement.Right, _columns)] - _columnEdges[placement.Left];
+
+    private Rect CellBounds(CellPlacement placement)
+    {
+        var left = _columnEdges[placement.Left];
+        var top = _rowEdges[placement.Top];
+
+        return new Rect(
+            left,
+            top,
+            CellWidth(placement),
+            _rowEdges[Math.Min(placement.Bottom, _table.Rows.Length)] - top);
+    }
+
+    private double[] ColumnEdges(double available)
+    {
+        var widths = new double[_columns];
+
+        if (_table.ColumnWidths.Length == 0)
+        {
+            var each = _columns == 0 ? 0 : available / _columns;
+
+            Array.Fill(widths, each);
+        }
+        else
+        {
+            // Stated widths are a proportion, not a promise: a table that states more than the
+            // available width is scaled down to fit rather than drawn off the edge, and columns
+            // the table said nothing about fall back to an even share of what is stated.
+            var fallback = _table.ColumnWidths.Length == 0
+                ? 0
+                : _table.ColumnWidths.Average();
+
+            for (var i = 0; i < _columns; i++)
+            {
+                widths[i] = i < _table.ColumnWidths.Length ? _table.ColumnWidths[i] : fallback;
+            }
+
+            var total = widths.Sum();
+
+            if (total > 0 && available > 0)
+            {
+                var scale = available / total;
+
+                for (var i = 0; i < widths.Length; i++)
+                {
+                    widths[i] *= scale;
+                }
+            }
+        }
+
+        return Edges(widths);
+    }
+
+    private static double[] Edges(double[] sizes)
+    {
+        var edges = new double[sizes.Length + 1];
+
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            edges[i + 1] = edges[i] + sizes[i];
+        }
+
+        return edges;
+    }
+
+    /// <summary>One cell, its place in the grid, and the views of the blocks inside it.</summary>
+    private sealed class Cell(
+        TableCellNode node,
+        CellPlacement placement,
+        int start,
+        ImmutableArray<Child> blocks,
+        IBrush? header)
+    {
+        public CellPlacement Placement { get; } = placement;
+
+        /// <summary>The cell's own background, or null to draw nothing behind it.</summary>
+        /// <remarks>
+        /// Built once: a brush per cell per frame is a lot of garbage for a fill. A background the
+        /// document states wins over the header tint, because the document was explicit and the
+        /// tint is only the control saying what a header row usually looks like.
+        /// </remarks>
+        public IBrush? Fill { get; } = node.Background is { } colour
+            ? new SolidColorBrush(colour.ToAvalonia())
+            : node.IsHeader ? header : null;
+
+        /// <summary>The cell's own first inner position, for a cell with nothing in it.</summary>
+        public int Start { get; } = start;
+
+        /// <summary>The blocks inside the cell, with where each is drawn.</summary>
+        public ImmutableArray<Child> Blocks { get; } = blocks;
+
+        /// <summary>What the cell measured to, before its row was settled.</summary>
+        public double Height { get; set; }
+    }
+
+    /// <summary>One block inside a cell, with where it starts in both senses.</summary>
+    private sealed class Child(BlockView view, int start)
+    {
+        public BlockView View { get; } = view;
+
+        /// <summary>The local position of the block's first inner position.</summary>
+        public int Start { get; } = start;
+
+        /// <summary>How far down the cell's content the block is drawn.</summary>
+        public double Top { get; set; }
+    }
+}

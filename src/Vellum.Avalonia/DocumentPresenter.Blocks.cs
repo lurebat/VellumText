@@ -456,11 +456,12 @@ public abstract partial class DocumentPresenter
         ParagraphNode paragraph => new ParagraphView(paragraph, TextStyles, _embeds, _paragraphStyles),
         RuleNode => new RuleView(TextStyles.Resolve(MarkSet.Empty).ForegroundBrush ?? global::Avalonia.Media.Brushes.Black),
         BlockImageNode image => new BlockImageView(image, _embeds, TextStyles.Resolve(MarkSet.Empty)),
+        TableNode table => new TableBlockView(table, Create, TableBorderBrush, TableHeaderBrush),
 
-        // Every block the document schema allows now has a view, and a table is flattened to the
-        // paragraphs inside it before it reaches here. This stays as an assertion rather than a
-        // silent blank, because reaching it means the schema grew a block the view was never
-        // taught to draw, and drawing nothing would hide that until someone noticed missing text.
+        // Every block the document schema allows now has a view. This stays as an assertion
+        // rather than a silent blank, because reaching it means the schema grew a block the view
+        // was never taught to draw, and drawing nothing would hide that until someone noticed
+        // missing text.
         _ => throw new NotSupportedException(
             $"No view for a '{node.TypeName}' block."),
     };

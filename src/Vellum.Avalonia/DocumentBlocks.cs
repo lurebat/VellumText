@@ -51,13 +51,12 @@ public readonly record struct BlockSlot(BlockNode Node, int Start, int Depth, Li
 /// this selection touch — a search over an array rather than a walk of a tree.
 /// </para>
 /// <para>
-/// Tables are the exception this design will eventually have to face properly, and they are
-/// exactly why this returns a list rather than being folded into the view: a table is a block
-/// whose cells contain blocks side by side, which no flat run can express. Until there is a
-/// block view that hosts its own child views, this walk descends into cells and emits their
-/// blocks one under the other, indented like list items. A pasted table therefore reads and
-/// edits as a stack of paragraphs rather than a grid — but it renders, it is navigable, and
-/// the real <see cref="TableNode"/> survives in the document for export.
+/// A table is the one block that is not a flat run: its cells hold blocks side by side. It is
+/// emitted as a single slot and its own view lays its cells out, so this walk stops at the
+/// table rather than descending into it. That keeps the flat array intact — the slot spans
+/// every position inside the table, so a caret anywhere in a cell still resolves to exactly one
+/// block — while the structure that cannot be flattened stays behind the one view that can
+/// express it.
 /// </para>
 /// </remarks>
 public static class DocumentBlocks
@@ -75,6 +74,59 @@ public static class DocumentBlocks
         Walk(doc.Blocks, 0, 0, null, slots);
 
         return slots.ToImmutable();
+    }
+
+    /// <summary>
+    /// Every block a caret can be inside, in document order, however deeply nested.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not the same question as <see cref="Flatten"/>, which asks what gets drawn. A table is
+    /// drawn as one block but holds many paragraphs a caret can be in, and the two answers
+    /// diverge exactly there. Backspace at the start of a block needs the block before it in
+    /// <em>this</em> order — the paragraph above it inside the same cell, say — because that is
+    /// the join the user is asking for.
+    /// </para>
+    /// <para>
+    /// Whether the join is legal is not decided here. It is decided by the step, which refuses
+    /// to splice two cells or two list items into one, so every way of asking for that
+    /// corruption is refused in one place rather than in each caller.
+    /// </para>
+    /// </remarks>
+    /// <param name="doc">The document.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="doc"/> is null.</exception>
+    public static ImmutableArray<BlockSlot> Leaves(DocumentNode doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        var slots = ImmutableArray.CreateBuilder<BlockSlot>(doc.Blocks.Length);
+
+        Descend(doc.Blocks, 0, slots);
+
+        return slots.ToImmutable();
+    }
+
+    private static void Descend(
+        IReadOnlyList<Node> nodes, int start, ImmutableArray<BlockSlot>.Builder slots)
+    {
+        var pos = start;
+
+        foreach (var node in nodes)
+        {
+            // A block with block children is structure, not content: it is descended through.
+            // Anything else is somewhere a caret can be, including a paragraph, whose children
+            // are empty because its content is inline rather than block.
+            if (node.Children.Count > 0 && node.Children[0] is BlockNode)
+            {
+                Descend(node.Children, pos + 1, slots);
+            }
+            else if (node is BlockNode block)
+            {
+                slots.Add(new BlockSlot(block, block.IsLeaf ? pos : pos + 1, 0, null));
+            }
+
+            pos += node.NodeSize;
+        }
     }
 
     private static void Walk(
@@ -100,14 +152,12 @@ public static class DocumentBlocks
                     marker = null;
                     break;
 
-                case TableNode table:
-                    WalkTable(table, pos + 1, depth, slots);
-                    break;
-
+                case TableNode:
                 default:
                     // A leaf block has no inside, so its content start is the position it
                     // occupies rather than one past its opening boundary. Getting this wrong
-                    // would put every later block one position out.
+                    // would put every later block one position out. A table comes through here
+                    // whole — its own view lays its cells out.
                     slots.Add(new BlockSlot(block, block.IsLeaf ? pos : pos + 1, depth, marker));
                     marker = null;
                     break;
@@ -136,46 +186,6 @@ public static class DocumentBlocks
 
             pos += item.NodeSize;
             ordinal++;
-        }
-    }
-
-    /// <summary>Walks a table, emitting the blocks inside its cells.</summary>
-    /// <remarks>
-    /// <para>
-    /// A grid is not a flat run of blocks, so this is a stand-in rather than the finished
-    /// article: cells come out stacked in reading order, one under the next, indented a level,
-    /// with no rules drawn between them. Real table layout needs a block view that hosts child
-    /// views and lays them out side by side, which is a separate piece of work.
-    /// </para>
-    /// <para>
-    /// It descends rather than stopping at the table because stopping was measurably worse than
-    /// degraded: the view has no table view to build, so a document holding a table -- which the
-    /// HTML importer produces from any pasted web page -- threw on the way to the screen.
-    /// Descending keeps every position mapped to a real paragraph, so the caret, selection and
-    /// editing all keep working inside a pasted table, and the document keeps the true
-    /// <see cref="TableNode"/> for export and round-tripping. Only the drawing is degraded.
-    /// </para>
-    /// </remarks>
-    private static void WalkTable(
-        TableNode table,
-        int start,
-        int depth,
-        ImmutableArray<BlockSlot>.Builder slots)
-    {
-        var pos = start;
-
-        foreach (var row in table.Rows)
-        {
-            var cellPos = pos + 1;
-
-            foreach (var cell in row.Cells)
-            {
-                Walk(cell.Blocks, cellPos + 1, depth + 1, null, slots);
-
-                cellPos += cell.NodeSize;
-            }
-
-            pos += row.NodeSize;
         }
     }
 }

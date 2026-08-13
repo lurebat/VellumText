@@ -51,6 +51,40 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     private protected const double DefaultWidth = 400;
     private protected const double CaretWidth = 1;
 
+    /// <summary>The grid lines drawn around table cells.</summary>
+    /// <remarks>
+    /// A styled property rather than something the paragraph style resolver answers, because it
+    /// is not a property of any paragraph: a table's rules belong to the table. Changing it drops
+    /// every layout, since the brush is baked into the table views when they are built.
+    /// </remarks>
+    public static readonly StyledProperty<IBrush> TableBorderBrushProperty =
+        AvaloniaProperty.Register<DocumentPresenter, IBrush>(
+            nameof(TableBorderBrush), new SolidColorBrush(Color.FromRgb(0xC8, 0xCC, 0xD4)));
+
+    /// <summary>The grid lines drawn around table cells.</summary>
+    public IBrush TableBorderBrush
+    {
+        get => GetValue(TableBorderBrushProperty);
+        set => SetValue(TableBorderBrushProperty, value);
+    }
+
+    /// <summary>The fill drawn behind a header cell, or null to leave header cells plain.</summary>
+    /// <remarks>
+    /// The control saying what a header row usually looks like. A cell that states its own
+    /// background wins, because that came from the document. Changing it drops every layout, for
+    /// the same reason <see cref="TableBorderBrushProperty"/> does.
+    /// </remarks>
+    public static readonly StyledProperty<IBrush?> TableHeaderBrushProperty =
+        AvaloniaProperty.Register<DocumentPresenter, IBrush?>(
+            nameof(TableHeaderBrush), new SolidColorBrush(Color.FromArgb(0x14, 0x80, 0x88, 0x99)));
+
+    /// <summary>The fill drawn behind a header cell, or null to leave header cells plain.</summary>
+    public IBrush? TableHeaderBrush
+    {
+        get => GetValue(TableHeaderBrushProperty);
+        set => SetValue(TableHeaderBrushProperty, value);
+    }
+
     /// <summary>The pointer shown over text, shared because a Cursor owns a platform handle.</summary>
     internal static readonly global::Avalonia.Input.Cursor TextCursor =
         new(global::Avalonia.Input.StandardCursorType.Ibeam);
@@ -216,6 +250,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         if (_derivedStyles && TextProperties.Contains(change.Property))
         {
             _styles = null;
+            DropLayout();
+            InvalidateMeasure();
+        }
+        else if (change.Property == TableBorderBrushProperty || change.Property == TableHeaderBrushProperty)
+        {
             DropLayout();
             InvalidateMeasure();
         }
