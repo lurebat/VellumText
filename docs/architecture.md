@@ -334,6 +334,29 @@ internal sealed class ParagraphView : BlockView
 > Snap the caret's leading edge to a device pixel and keep the width, rather than snapping the
 > rectangle.
 
+> **As built (P4).** `RichTextToolbar` is a `TemplatedControl` bound to an editor, with a default
+> theme in `Themes/RichTextToolbar.axaml` and a light/dark palette in `Themes/Vellum.axaml`. The
+> same control serves twice: `RichTextEditor`'s template puts a second instance in an overlay
+> panel above the scroll viewer, and a `vellum-selection` class swaps in a compact nine-button
+> template. A `Style` setter outranks a `ControlTheme` setter, which is the mechanism that lets one
+> control have two arrangements.
+>
+> Three things about the floating bar are not obvious and were each found by a failing test or a
+> live accessibility read:
+>
+> - **It is positioned by `RenderTransform`, never by `Margin`.** Avalonia's `DesiredSize` includes
+>   the margin, so a bar positioned by margin inflates its own desired size, which moves it, which
+>   inflates it again — `InvalidOperationException: Infinite layout loop detected`, every frame.
+>   A render transform does not participate in layout, so the position cannot feed back into the
+>   measurement it was derived from. This surfaces in xUnit as a *cleanup* failure, not a body
+>   failure, so the test appears to pass.
+> - **It is hidden, not made transparent.** `Opacity = 0` does not affect `IsEffectivelyVisible`,
+>   which is what `AutomationPeer.IsOffscreen` reports — a transparent bar announces nine buttons
+>   that are not on screen. Because a hidden control is never measured, the code that shows it
+>   measures it by hand before reading `DesiredSize`.
+> - **Every toolbar button is `Focusable="False"`.** Otherwise clicking Bold moves the keyboard out
+>   of the document, and the selection the command was meant to act on is gone by the time it runs.
+
 ### 4.7 The text source
 
 ```csharp
@@ -662,7 +685,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P1** | **Character formatting commands.** `SetMarks` and everything on top of it; stored marks for a collapsed caret; Ctrl+B/I/U and friends. | The single widest gap, and the cheapest to close — every step it needs already existed. Nothing else in this list is worth doing while the control cannot make a word bold. | ✅ **done** |
 | **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages, and the richer clipboard flavours on top of them. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | ✅ **done** |
 | **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | ✅ **done** |
-| **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | next |
+| **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | pending |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
 | **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |
