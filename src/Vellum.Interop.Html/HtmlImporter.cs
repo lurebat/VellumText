@@ -272,10 +272,29 @@ public static class HtmlImporter
             // the one this element is about to start.
             sink.Flush(block);
 
+            var before = sink.Blocks.Count;
+
             WalkChildren(element, inner, innerBlock, sink, depth);
 
-            sink.Flush(innerBlock);
+            // An empty <p> is how every editor on the platform spells a blank line, so it has to
+            // survive. An empty <div> is layout — pages are full of wrappers, spacers and
+            // clearfixes — so it must not. Requiring that the element produced nothing at all is
+            // what keeps <div><p>a</p></div> from also emitting a blank after the paragraph.
+            var blank = IsParagraphElement(element.LocalName)
+                && sink.Blocks.Count == before
+                && !sink.HasPending;
+
+            sink.Flush(innerBlock, blank);
         }
+
+        /// <summary>Whether an element exists to hold a paragraph of text.</summary>
+        /// <param name="name">The lowercased tag name.</param>
+        /// <returns>True for a paragraph or a heading.</returns>
+        private static bool IsParagraphElement(string name) => name switch
+        {
+            "p" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" => true,
+            _ => false,
+        };
 
         private MarkSet ApplyElementMark(IElement element, MarkSet mark) => element.LocalName switch
         {

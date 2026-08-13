@@ -17,6 +17,7 @@ internal sealed class BlockSink
     private readonly List<ValueSpan<MarkSet>> _marks = [];
     private readonly List<InlineEmbed> _embeds = [];
     private bool _pendingSpace;
+    private MarkSet _pendingSpaceMark;
 
     /// <summary>The blocks produced so far.</summary>
     internal IReadOnlyList<BlockNode> Blocks => _blocks;
@@ -56,7 +57,7 @@ internal sealed class BlockSink
                     start = -1;
                 }
 
-                _pendingSpace = true;
+                DeferSpace(mark);
             }
             else if (start < 0)
             {
@@ -70,12 +71,40 @@ internal sealed class BlockSink
         }
     }
 
+    /// <summary>
+    /// Records that a space is owed, carrying the formatting in force where it occurred.
+    /// </summary>
+    /// <param name="mark">The formatting of the whitespace itself.</param>
+    /// <remarks>
+    /// <para>
+    /// The mark has to be captured here rather than taken from whatever text arrives next. In
+    /// <c>x &lt;b&gt;bold&lt;/b&gt;</c> the space is outside the element, so charging it to the
+    /// following run makes the bold span one character too wide — and formatting then creeps a
+    /// character to the left every time a document is imported.
+    /// </para>
+    /// <para>
+    /// The first of two adjacent whitespace runs wins, because that is the one that survives the
+    /// collapse. In <c>&lt;b&gt;bold &lt;/b&gt; text</c> the surviving space is inside the
+    /// element and is therefore bold, which is what HTML itself says.
+    /// </para>
+    /// </remarks>
+    private void DeferSpace(MarkSet mark)
+    {
+        if (_pendingSpace)
+        {
+            return;
+        }
+
+        _pendingSpace = true;
+        _pendingSpaceMark = mark;
+    }
+
     /// <summary>Adds an embedded object, which occupies exactly one position.</summary>
     /// <param name="embed">The embed.</param>
     /// <param name="mark">Its formatting.</param>
     internal void AddEmbed(InlineEmbed embed, MarkSet mark)
     {
-        FlushPendingSpace(mark);
+        FlushPendingSpace();
         AppendRaw(InlineContent.Placeholder.ToString(), mark);
         _embeds.Add(embed);
     }
@@ -106,7 +135,7 @@ internal sealed class BlockSink
 
     private void Append(string text, MarkSet mark)
     {
-        FlushPendingSpace(mark);
+        FlushPendingSpace();
 
         // U+FFFC belongs to the model: it marks where an embed sits, and the model rejects content
         // whose placeholder count does not match its embed count. Source text is entitled to
@@ -126,7 +155,7 @@ internal sealed class BlockSink
         AppendRaw(text, mark);
     }
 
-    private void FlushPendingSpace(MarkSet mark)
+    private void FlushPendingSpace()
     {
         if (!_pendingSpace)
         {
@@ -139,7 +168,7 @@ internal sealed class BlockSink
         // nothing to the left of the first one on a line either.
         if (_text.Length > 0 && _text[^1] != '\n')
         {
-            AppendRaw(" ", mark);
+            AppendRaw(" ", _pendingSpaceMark);
         }
     }
 

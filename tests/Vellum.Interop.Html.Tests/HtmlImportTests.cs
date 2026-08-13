@@ -483,6 +483,78 @@ public class HtmlImportTests
         Assert.Equal(text, OnlyPara(Import($"<p>{text}</p>")).Content.Text);
     }
 
+    // ---- where a collapsed space belongs ------------------------------------------------------
+
+    [Fact]
+    public void A_space_before_an_element_does_not_join_the_element()
+    {
+        // The space is outside <b>, so charging it to the bold run would make the run one
+        // character too wide — and the formatting would then creep a character to the left on
+        // every import, growing a little more each time a document was copied and pasted.
+        var p = OnlyPara(Import("<p>x <b>bold</b></p>"));
+
+        Assert.Equal("x bold", p.Content.Text);
+        Assert.Equal(TextStyle.None, StyleAt(p, 1));
+        Assert.Equal(TextStyle.Bold, StyleAt(p, 2));
+    }
+
+    [Fact]
+    public void A_space_inside_an_element_keeps_the_element_formatting()
+    {
+        var p = OnlyPara(Import("<p><b>bold </b>x</p>"));
+
+        Assert.Equal("bold x", p.Content.Text);
+        Assert.Equal(TextStyle.Bold, StyleAt(p, 4));
+        Assert.Equal(TextStyle.None, StyleAt(p, 5));
+    }
+
+    [Fact]
+    public void A_space_before_a_link_is_not_part_of_the_link()
+    {
+        var p = OnlyPara(Import("<p>see <a href=\"https://example.com/\">here</a></p>"));
+
+        Assert.Equal("see here", p.Content.Text);
+        Assert.Null(p.Content.MarkAt(3).Link);
+        Assert.NotNull(p.Content.MarkAt(4).Link);
+    }
+
+    // ---- blank lines --------------------------------------------------------------------------
+
+    [Fact]
+    public void An_empty_paragraph_is_a_blank_line_and_is_kept()
+    {
+        Assert.Equal(["a", string.Empty, "b"], PlainText(Import("<p>a</p><p></p><p>b</p>")).Split('\n'));
+    }
+
+    [Fact]
+    public void A_paragraph_of_nothing_but_whitespace_is_also_a_blank_line()
+    {
+        Assert.Equal(["a", string.Empty, "b"], PlainText(Import("<p>a</p><p>   </p><p>b</p>")).Split('\n'));
+    }
+
+    [Fact]
+    public void An_empty_div_is_layout_and_is_not_a_blank_line()
+    {
+        // Real pages are full of empty wrappers, spacers and clearfixes. Treating those the way
+        // an empty <p> is treated would pad every paste with blank lines.
+        Assert.Equal(["a", "b"], PlainText(Import("<p>a</p><div></div><p>b</p>")).Split('\n'));
+    }
+
+    [Fact]
+    public void A_wrapper_around_a_paragraph_does_not_add_a_blank_line_after_it()
+    {
+        Assert.Equal(["a"], PlainText(Import("<div><p>a</p></div>")).Split('\n'));
+    }
+
+    [Fact]
+    public void A_heading_holding_a_block_does_not_add_a_blank_line_after_it()
+    {
+        // The parser closes a <p> before block-level content but leaves a heading open, so a
+        // heading really can end up wrapping the paragraph it produced. It is not empty just
+        // because nothing was left pending at its end tag.
+        Assert.Equal(["x"], PlainText(Import("<h1><div>x</div></h1>")).Split('\n'));
+    }
+
     private static string PlainText(ImportResult result) =>
         string.Join("\n", result.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
 }
