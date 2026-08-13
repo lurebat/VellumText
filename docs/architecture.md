@@ -529,6 +529,35 @@ internal sealed class ParagraphView : BlockView
 > `MinimumImageSide` rather than growing again — and both sides are floored there because `ImageEmbed`
 > refuses a non-positive dimension.
 
+> **As built (P7, touch selection handles).** A touch tap puts a round handle under each end of the
+> selection — or a single one under the caret — and dragging a handle moves that end while the other
+> is pinned. `RichTextView.Touch.cs` owns it; the gesture is picked out in `OnPointerPressed` by
+> `e.Pointer.Type == PointerType.Touch`, ahead of the image and caret paths, and any non-touch press,
+> key or focus loss takes the handles away again. Three things are load-bearing:
+>
+> - **The offset from the grabbed point to the caret it belongs to is captured on press and added to
+>   every move.** A handle deliberately hangs a whole line below the text it points at, so that a
+>   finger does not cover what it is aiming at — which means hit-testing the raw touch point puts the
+>   end of the selection on the *next* line. Without the offset the selection jumps down the moment it
+>   is touched.
+> - **The ends come from the caret rectangle at `Selection.From` / `Selection.To`, not from
+>   `GetSelectionRects`.** Across a bidi boundary the logical start of a selection is drawn on the
+>   *right*, and only the caret rectangle knows that; the selection rectangles are in visual order and
+>   would put both handles on the wrong ends.
+> - **The fixed end is re-pinned as the anchor on press.** Dragging the start past the end has to flip
+>   the selection, not collapse it, and `MoveTo(…, extend: true)` extends from `Selection.Anchor` —
+>   which after a leftward drag-select is already the end the finger is holding.
+>
+> A handle is grabbed from `TouchHandleTargetRadius` (22) away rather than from the 7pt circle it is
+> drawn as, and the *nearest* of the two wins, because a fingertip is far larger than the target and
+> the two handles of a short selection overlap. A touch away from any handle falls through to the
+> normal caret placement.
+>
+> Avalonia's headless harness has **no touch input** — `HeadlessWindowExtensions` offers mouse,
+> keyboard and drag-drop only. The tests construct `Pointer`, `PointerPressedEventArgs` and the rest
+> directly (all have public constructors) and `RaiseEvent` them, which exercises the real routing
+> rather than calling the handlers.
+
 ### 4.7 The text source
 
 ```csharp
@@ -860,7 +889,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
-| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize ✅ done; touch handles, perf pass pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize ✅ done; touch handles ✅ done; perf pass pending |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
