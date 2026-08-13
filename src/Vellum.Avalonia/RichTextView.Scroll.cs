@@ -191,7 +191,7 @@ public partial class RichTextView : ILogicalScrollable
     /// <returns>Whether the view moved.</returns>
     private bool ScrollCaretIntoView()
     {
-        if (!IsVirtualizing || _views.Count == 0 || _viewport.Height <= 0)
+        if (!IsVirtualizing || _views.Count == 0)
         {
             return false;
         }
@@ -204,11 +204,15 @@ public partial class RichTextView : ILogicalScrollable
             ? new Rect(0, BlockOrigin(_caretBlock).Y, 0, _views[_caretBlock].Size.Height)
             : CaretRect();
 
+        // Measured against the constraint, not against the arranged viewport: a document can
+        // arrive with its caret already at the end — a restored one does — and the first measure
+        // runs before any arrange, so the arranged viewport is still nothing. The constraint is
+        // known by then, and is the same height.
         var delta = 0d;
 
-        if (caret.Bottom > _viewport.Height)
+        if (caret.Bottom > ViewportHeight)
         {
-            delta = caret.Bottom - _viewport.Height;
+            delta = caret.Bottom - ViewportHeight;
         }
 
         // Checked after the downward correction and allowed to override it: a caret taller than

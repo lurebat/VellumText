@@ -412,7 +412,10 @@ public partial class RichTextView
             return;
         }
 
-        var view = (ParagraphView)_views[next];
+        // Measured on the way in, because vertical movement skips whatever is not a paragraph and
+        // so can land arbitrarily far from the realized window — past a full-page image, say. An
+        // unmeasured paragraph cannot say where its lines are.
+        var view = (ParagraphView)EnsureMeasured(next);
 
         MoveTo(
             _slots[next].Start + view.PositionAtLineX(down ? 0 : view.LineCount - 1, _goalX.Value),

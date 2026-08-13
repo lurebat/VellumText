@@ -2,6 +2,7 @@ using global::Avalonia;
 using global::Avalonia.Controls;
 using global::Avalonia.Controls.Presenters;
 using global::Avalonia.Controls.Primitives;
+using global::Avalonia.Input;
 using global::Avalonia.Layout;
 using global::Avalonia.VisualTree;
 using Avalonia.Headless.XUnit;
@@ -257,6 +258,112 @@ public class RichTextViewScrollTests
     }
 
     [AvaloniaFact]
+    public void Wildly_uneven_blocks_still_leave_the_view_consistent_and_settled()
+    {
+        // The mean estimate is at its worst when most blocks are tiny and a few are enormous, so
+        // this is where Settle's bounded loop is most likely to give up early. What has to hold is
+        // not that a scroll lands on the block the old estimates pointed at — correcting an
+        // estimate is what makes that number mean something else, and every virtualizing control
+        // has that property. What has to hold is that the view is never left describing itself
+        // wrongly, and never left drifting.
+        var blocks = Enumerable.Range(0, 500)
+            .Select(i => ParagraphNode.FromText(i % 17 == 0 ? new string('y', 3000) : "short"))
+            .Cast<BlockNode>();
+
+        var view = Laid(new DocumentNode([.. blocks]));
+
+        for (var step = 1; step < 60; step++)
+        {
+            Scroll(view, step / 60.0 * (view.Extent.Height - Height));
+
+            var top = view.BlockIndexAt(0);
+
+            Assert.True(
+                view.BlockOrigin(top).Y <= 0.5,
+                $"Block {top} is named as the top one but is drawn at {view.BlockOrigin(top).Y}.");
+
+            var settled = view.Offset.Y;
+
+            Pump(view);
+
+            Assert.Equal(settled, view.Offset.Y, 1);
+        }
+    }
+
+    [AvaloniaFact]
+    public void Arrowing_past_a_tall_image_reaches_the_paragraph_beyond_it()
+    {
+        // Vertical movement skips whatever is not a paragraph, so the block it lands on can be
+        // arbitrarily far from the one it left — further than the realized window reaches, if
+        // what sits between them is tall enough. It has never been laid out, and asking an
+        // unmeasured paragraph where its lines are is an exception.
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("above the image"),
+            new BlockImageNode(new ImageEmbed("http://example.invalid/a.png", 40, 4000)),
+            ParagraphNode.FromText("below the image"),
+            .. Enumerable.Range(0, 100).Select(i => ParagraphNode.FromText($"tail {i}")),
+        ]);
+
+        var view = Laid(doc);
+
+        view.Focus();
+        view.State = EditorState.Create(doc, TextSelection.Cursor(1));
+        Pump(view);
+
+        Press(view, Key.Down);
+
+        Assert.Equal(2, view.CaretBlockIndex);
+    }
+
+    [AvaloniaFact]
+    public void A_document_that_opens_mid_way_scrolls_no_further_than_it_has_to()
+    {
+        // Bringing a caret into view means the smallest scroll that does it, so the caret lands
+        // against the edge it came in from and the text around it stays where the reader expects.
+        // Jumping it to the top of the viewport instead is a different, and wrong, answer.
+        var doc = Paragraphs(400);
+        var view = new RichTextView
+        {
+            State = EditorState.Create(doc, TextSelection.Cursor(doc.ContentSize / 2)),
+        };
+
+        var root = new Window { Width = Width, Height = Height, Content = view };
+
+        root.Show();
+        Pump(view);
+
+        var caret = view.CaretRect();
+
+        Assert.InRange(caret.Bottom, Height - 40, Height + 1);
+    }
+
+    [AvaloniaFact]
+    public void A_document_that_opens_with_its_caret_at_the_end_shows_the_end()
+    {
+        // The state can already carry a selection before the control has ever been laid out — a
+        // restored document is exactly that. The first measure runs before any arrange, so the
+        // viewport is not known yet, and a request to show the caret made then must survive
+        // until there is a viewport to show it in rather than being spent on nothing.
+        var doc = Paragraphs(400);
+        var view = new RichTextView
+        {
+            State = EditorState.Create(doc, TextSelection.Cursor(doc.ContentSize - 1)),
+        };
+
+        var root = new Window { Width = Width, Height = Height, Content = view };
+
+        root.Show();
+        Pump(view);
+
+        Assert.True(view.Offset.Y > 0, "The document opened at the top with the caret far below.");
+
+        var caret = view.CaretRect();
+
+        Assert.InRange(caret.Bottom, 0, Height);
+    }
+
+    [AvaloniaFact]
     public void A_settled_view_stays_put_when_it_is_laid_out_again()
     {
         // A layout pass that changes nothing must scroll nothing. The caret landing a hair's
@@ -446,6 +553,14 @@ public class RichTextViewScrollTests
             target.Arrange(new Rect(0, 0, width, height));
         }
     }
+
+    private static void Press(RichTextView view, Key key) =>
+        view.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            Source = view,
+        });
 
     private static void Scroll(RichTextView view, double y)
     {
