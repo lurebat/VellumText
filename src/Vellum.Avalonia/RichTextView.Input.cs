@@ -176,14 +176,27 @@ public partial class RichTextView
 
         base.OnPointerMoved(e);
 
+        var point = e.GetPosition(this);
+
         if (!_dragging)
         {
+            // An I-beam everywhere says every part of the control is text, which is wrong for
+            // the space below the last block and to the right of a short line. Only recomputed
+            // when it changes: assigning Cursor raises a property change and re-reads the
+            // pointer on every move otherwise.
+            var wanted = IsOverContent(point) ? TextCursor : ArrowCursor;
+
+            if (!ReferenceEquals(Cursor, wanted))
+            {
+                Cursor = wanted;
+            }
+
             return;
         }
 
         // extend: true unconditionally. Once a drag has started the anchor is where it went
         // down, whether or not Shift is still held.
-        MoveTo(PositionAt(e.GetPosition(this)), extend: true);
+        MoveTo(PositionAt(point), extend: true);
         e.Handled = true;
     }
 

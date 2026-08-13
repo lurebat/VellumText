@@ -150,6 +150,32 @@ public partial class RichTextView
     }
 
     /// <summary>
+    /// Whether a point in this control's coordinates lies over a block's content.
+    /// </summary>
+    /// <remarks>
+    /// What the pointer shape is decided from. The control is nearly always taller than the
+    /// document it holds, and an I-beam over the empty space below the last paragraph claims
+    /// there is text there to select. Clicking that space still places a caret — this only
+    /// governs what the pointer looks like, not where a click may land.
+    /// </remarks>
+    /// <param name="point">The point.</param>
+    public bool IsOverContent(Point point)
+    {
+        if (_views.Count == 0 || point.X < 0 || point.Y < 0)
+        {
+            return false;
+        }
+
+        var index = BlockIndexAt(point.Y);
+        var origin = BlockOrigin(index);
+        var size = _views[index].Size;
+
+        return point.Y >= origin.Y
+            && point.Y < origin.Y + size.Height
+            && point.X < origin.X + size.Width;
+    }
+
+    /// <summary>
     /// Brings the slot list up to date with the document without laying anything out.
     /// </summary>
     /// <remarks>

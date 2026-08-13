@@ -423,6 +423,7 @@ public sealed class ParagraphView : BlockView
         }
 
         var rects = new List<Rect>();
+        var lineTop = 0.0;
 
         foreach (var line in Layout.TextLines)
         {
@@ -433,17 +434,22 @@ public sealed class ParagraphView : BlockView
             var lineStart = Math.Max(start, line.FirstTextSourceIndex);
             var lineEnd = Math.Min(start + length, line.FirstTextSourceIndex + line.Length);
 
-            if (lineEnd <= lineStart)
+            if (lineEnd > lineStart)
             {
-                continue;
+                foreach (var bounds in line.GetTextBounds(lineStart, lineEnd - lineStart))
+                {
+                    // One TextBounds per direction run, so a selection crossing a bidi boundary
+                    // arrives here as several disjoint rectangles. Increment 0 measured this.
+                    //
+                    // The rectangle is measured from the top of its own line, not from the top
+                    // of the layout, so the line's offset has to be added or every line of a
+                    // wrapped selection lands on the first one. Measured before this was here:
+                    // a ten-line selection produced ten rectangles all at y=0.
+                    rects.Add(bounds.Rectangle.Translate(Origin + new Vector(0, lineTop)));
+                }
             }
 
-            foreach (var bounds in line.GetTextBounds(lineStart, lineEnd - lineStart))
-            {
-                // One TextBounds per direction run, so a selection crossing a bidi boundary
-                // arrives here as several disjoint rectangles. Increment 0 measured this.
-                rects.Add(bounds.Rectangle.Translate(Origin));
-            }
+            lineTop += line.Height;
         }
 
         return rects;

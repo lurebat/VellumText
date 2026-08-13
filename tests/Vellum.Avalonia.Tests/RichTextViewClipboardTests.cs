@@ -13,16 +13,30 @@ namespace Vellum.Tests.Avalonia;
 public class RichTextViewClipboardTests
 {
     [AvaloniaFact]
-    public void ThePointerIsAnIBeam()
+    public void ThePointerIsAnIBeamOverTextAndAnArrowOffIt()
     {
-        // The complaint that prompted this was "the cursor doesn't react at all". It is the only
-        // thing distinguishing an editor from a label before you click it.
-        var view = new RichTextView();
+        // Two complaints, in order. First "the cursor doesn't react at all", then -- once it was
+        // an I-beam everywhere -- "it is always on text mode even when you don't hover on text".
+        // The control is far taller than the one paragraph in it, so the space below the
+        // paragraph is the case that was wrong.
+        var window = new Window { Width = 400, Height = 300 };
+        var view = new RichTextView { State = EditorState.Create(DocumentNode.FromParagraphs("hello")) };
 
-        Assert.NotNull(view.Cursor);
+        window.Content = view;
+        window.Show();
+        window.Measure(new global::Avalonia.Size(400, 300));
+        window.Arrange(new global::Avalonia.Rect(0, 0, 400, 300));
+
+        var height = view.Blocks[0].Size.Height;
+
+        window.MouseMove(new global::Avalonia.Point(2, height / 2));
+
         // Cursor has no value equality, so compare what it reports itself to be.
         Assert.Equal(new Cursor(StandardCursorType.Ibeam).ToString(), view.Cursor!.ToString());
-        Assert.NotEqual(new Cursor(StandardCursorType.Arrow).ToString(), view.Cursor.ToString());
+
+        window.MouseMove(new global::Avalonia.Point(2, height + 100));
+
+        Assert.Equal(new Cursor(StandardCursorType.Arrow).ToString(), view.Cursor!.ToString());
     }
 
     [AvaloniaFact]

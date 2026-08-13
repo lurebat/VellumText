@@ -20,6 +20,35 @@ public class ParagraphViewTests
 {
     private static TextStyleResolver Styles() => new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
+    [AvaloniaFact]
+    public void EachWrappedLineOfASelectionIsHighlightedOnItsOwnLine()
+    {
+        // Reported as "selecting text when there is text wrap is broken". Avalonia measures a
+        // TextBounds rectangle from the top of its own line, not from the top of the layout, so
+        // translating by the paragraph origin alone stacked every line's highlight on the first
+        // one: a ten-line selection painted one bar across line one and nothing below it.
+        var text = string.Join(" ", Enumerable.Repeat("wrapping", 40));
+        var view = View(ParagraphNode.FromText(text));
+
+        view.Measure(300);
+
+        Assert.True(view.Layout.TextLines.Count > 5, "the paragraph has to actually wrap");
+
+        // Cross-checked against the caret, which reads its own geometry from the layout by a
+        // different route and was never wrong. The two have to agree line for line.
+        foreach (var line in view.Layout.TextLines)
+        {
+            var end = Math.Min(line.FirstTextSourceIndex + line.Length, text.Length);
+            var rects = view.GetSelectionRects(line.FirstTextSourceIndex, end);
+
+            Assert.NotEmpty(rects);
+            Assert.All(
+                rects,
+                r => Assert.Equal(view.GetCaretRect(line.FirstTextSourceIndex).Y, r.Y, 3));
+        }
+    }
+
+
     private static ParagraphView View(ParagraphNode paragraph) => new(paragraph, Styles());
 
     private static ParagraphView Measured(string text, double width = 400)

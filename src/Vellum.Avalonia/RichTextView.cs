@@ -51,11 +51,23 @@ public partial class RichTextView : Control
             nameof(SelectionBrush), new SolidColorBrush(Color.FromArgb(80, 0, 120, 215)));
 
     /// <summary>Defines the <see cref="CaretBrush"/> property.</summary>
+    /// <remarks>
+    /// Null means "whatever the text is painted in", which is the default because a fixed colour
+    /// is wrong under half the themes there are. Measured: with a hard-coded black default the
+    /// caret was invisible in the dark-themed demo, which reads as the control ignoring the
+    /// keyboard entirely. Set it to paint the caret in something other than the text colour.
+    /// </remarks>
     public static readonly StyledProperty<IBrush?> CaretBrushProperty =
-        AvaloniaProperty.Register<RichTextView, IBrush?>(nameof(CaretBrush), Brushes.Black);
+        AvaloniaProperty.Register<RichTextView, IBrush?>(nameof(CaretBrush));
 
     /// <summary>The interval at which the caret changes state.</summary>
     public static readonly TimeSpan BlinkInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The pointer shown over text, shared because a Cursor owns a platform handle.</summary>
+    private static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
+
+    /// <summary>The pointer shown anywhere in the control that is not text.</summary>
+    private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
 
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
@@ -70,9 +82,9 @@ public partial class RichTextView : Control
     {
         Focusable = true;
 
-        // Without this the pointer stays an arrow over text, which is the single clearest signal
-        // a control gives that it is editable at all.
-        Cursor = new Cursor(StandardCursorType.Ibeam);
+        // Set per pointer move from IsOverContent, not once here: an I-beam pinned to the whole
+        // control claims the empty space below the document is text.
+        Cursor = ArrowCursor;
 
         ContextFlyout = BuildContextFlyout();
 
@@ -390,7 +402,7 @@ public partial class RichTextView : Control
 
     private void RenderCaret(DrawingContext context)
     {
-        if (!_caretVisible || CaretBrush is null || _views.Count == 0)
+        if (!_caretVisible || _views.Count == 0)
         {
             return;
         }
@@ -402,9 +414,16 @@ public partial class RichTextView : Control
             return;
         }
 
+        // Falls back to the colour the text itself is painted in, so the caret follows the
+        // theme rather than a colour chosen when the control was written. See CaretBrushProperty.
+        if ((CaretBrush ?? TextStyles.Resolve(MarkSet.Empty).ForegroundBrush) is not { } brush)
+        {
+            return;
+        }
+
         var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
 
-        context.FillRectangle(CaretBrush, SnapCaret(CaretRect(), scale));
+        context.FillRectangle(brush, SnapCaret(CaretRect(), scale));
     }
 
     /// <summary>

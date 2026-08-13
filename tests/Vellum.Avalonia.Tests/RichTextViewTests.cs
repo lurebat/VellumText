@@ -175,6 +175,43 @@ public class RichTextViewTests
     }
 
     [AvaloniaFact]
+    public void TheCaretFollowsTheTextColourWhenNoneIsSetForIt()
+    {
+        // Reported as "no indicator of where your caret is when typing or moving". The caret
+        // defaulted to black, the demo is dark-themed, and a black caret on a near-black
+        // background reads as the control ignoring the keyboard. An empty paragraph is used so
+        // that the only thing drawn in the whole bitmap is the caret.
+        var view = Focused(string.Empty);
+
+        TextElement.SetForeground(view, Brushes.Red);
+
+        Assert.Null(view.CaretBrush);
+
+        var drawn = CaretColours(view);
+
+        Assert.NotEmpty(drawn);
+        Assert.All(drawn, p => Assert.True(
+            Red(p) > 200 && Green(p) < 60 && Blue(p) < 60,
+            $"the caret drew {p:X8} rather than the red the text is in"));
+    }
+
+    [AvaloniaFact]
+    public void AnExplicitCaretColourStillWins()
+    {
+        var view = Focused(string.Empty);
+
+        TextElement.SetForeground(view, Brushes.Red);
+        view.CaretBrush = Brushes.Lime;
+
+        var drawn = CaretColours(view);
+
+        Assert.NotEmpty(drawn);
+        Assert.All(drawn, p => Assert.True(
+            Green(p) > 200 && Red(p) < 60,
+            $"the caret drew {p:X8} rather than the colour it was given"));
+    }
+
+    [AvaloniaFact]
     public void TheCaretIsDrawnForAnEmptySelection()
     {
         var view = Focused("hello");
@@ -402,6 +439,25 @@ public class RichTextViewTests
 
     private static int CaretPixels(RichTextView view) => InkedPixels(view);
 
+    /// <summary>
+    /// The distinct opaque colours the view draws, for a document with nothing in it but a caret.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does not blank the text, because blanking works by making the foreground
+    /// transparent and the caret's whole contract is that it follows that foreground. An empty
+    /// paragraph has no glyphs, so the caret is the only thing left to draw.
+    /// </remarks>
+    private static List<uint> CaretColours(RichTextView view) =>
+        [.. Draw(view, includeText: true).Where(p => Alpha(p) > 200).Distinct()];
+
+    private static uint Alpha(uint p) => (p >> 24) & 0xFF;
+
+    private static uint Red(uint p) => (p >> 16) & 0xFF;
+
+    private static uint Green(uint p) => (p >> 8) & 0xFF;
+
+    private static uint Blue(uint p) => p & 0xFF;
+
     private static int CaretColumn(RichTextView view)
     {
         var columns = InkedColumns(view);
@@ -457,11 +513,17 @@ public class RichTextViewTests
     {
         var foreground = TextElement.GetForeground(view);
         var selection = view.SelectionBrush;
+        var caret = view.CaretBrush;
 
         if (!includeText)
         {
             TextElement.SetForeground(view, Brushes.Transparent);
             view.SelectionBrush = null;
+
+            // The caret follows the text colour unless it is told otherwise, so blanking the
+            // text would blank the caret with it and every assertion below would measure an
+            // empty bitmap. Pinning it is what makes the caret the only thing left drawing.
+            view.CaretBrush = Brushes.Black;
         }
 
         try
@@ -496,6 +558,7 @@ public class RichTextViewTests
         {
             TextElement.SetForeground(view, foreground);
             view.SelectionBrush = selection;
+            view.CaretBrush = caret;
         }
     }
 }
