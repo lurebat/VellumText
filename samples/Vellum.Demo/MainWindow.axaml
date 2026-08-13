@@ -143,6 +143,46 @@
                            FontFamily="Segoe UI Variable Text,Segoe UI,Inter,system-ui"
                            Foreground="{DynamicResource Ink}" />
 
+    <!-- The find bar floats over the top-right of the page rather than pushing it down, so that
+         opening it does not reflow the document the user is reading. Collapsed until Ctrl+F. -->
+    <Border Grid.Row="1" Grid.Column="1"
+            x:Name="FindBar"
+            IsVisible="False"
+            HorizontalAlignment="Right" VerticalAlignment="Top"
+            Margin="0,40,44,0"
+            Background="{DynamicResource Chrome}"
+            BorderBrush="{DynamicResource Hairline}" BorderThickness="1"
+            CornerRadius="8" Padding="8,6"
+            BoxShadow="0 6 20 0 #33000000">
+      <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+        <TextBox x:Name="FindBox" Width="168" Height="28"
+                 CornerRadius="6" FontSize="12"
+                 VerticalContentAlignment="Center"
+                 PlaceholderText="Find" />
+
+        <TextBlock x:Name="FindCount" Width="52" FontSize="11"
+                   VerticalAlignment="Center"
+                   Foreground="{DynamicResource Muted}" />
+
+        <Button x:Name="FindPrevButton" Classes="tool" Content="&#x2191;" ToolTip.Tip="Previous (Shift+F3)" />
+        <Button x:Name="FindNextButton" Classes="tool" Content="&#x2193;" ToolTip.Tip="Next (F3)" />
+
+        <CheckBox x:Name="MatchCaseBox" Content="Aa" FontSize="11"
+                  ToolTip.Tip="Match case" VerticalAlignment="Center" />
+        <CheckBox x:Name="WholeWordBox" Content="W" FontSize="11"
+                  ToolTip.Tip="Whole word" VerticalAlignment="Center" />
+
+        <TextBox x:Name="ReplaceBox" Width="140" Height="28"
+                 CornerRadius="6" FontSize="12"
+                 VerticalContentAlignment="Center"
+                 PlaceholderText="Replace with" />
+
+        <Button x:Name="ReplaceButton" Classes="tool" Content="Replace" />
+        <Button x:Name="ReplaceAllButton" Classes="tool" Content="All" />
+        <Button x:Name="FindCloseButton" Classes="tool" Content="&#x2715;" ToolTip.Tip="Close (Esc)" />
+      </StackPanel>
+    </Border>
+
     <GridSplitter Grid.Row="1" Grid.Column="2" Width="1"
                   Background="Transparent" ResizeDirection="Columns" />
 

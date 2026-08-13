@@ -77,10 +77,128 @@ public partial class MainWindow : Window
             {
                 UpdateStatus();
             }
+            else if (e.Property == RichTextEditor.MatchCountProperty
+                || e.Property == RichTextEditor.CurrentMatchNumberProperty)
+            {
+                UpdateFindCount();
+            }
         };
+
+        WireFind();
 
         LoadSample();
     }
+
+    /// <summary>The find bar, which is demo chrome rather than part of the control.</summary>
+    /// <remarks>
+    /// Deliberately here and not in <c>Vellum.Avalonia</c>. The control exposes the operations and
+    /// an observable count; what a find bar looks like, where it sits and which keys open it are
+    /// the host application's business, and a library that decided them would be wrong somewhere.
+    /// </remarks>
+    private void WireFind()
+    {
+        FindBox.TextChanged += (_, _) => Research();
+        MatchCaseBox.IsCheckedChanged += (_, _) => Research();
+        WholeWordBox.IsCheckedChanged += (_, _) => Research();
+
+        FindNextButton.Click += (_, _) => Editor.FindNext();
+        FindPrevButton.Click += (_, _) => Editor.FindPrevious();
+        FindCloseButton.Click += (_, _) => CloseFind();
+
+        ReplaceButton.Click += (_, _) => Editor.ReplaceCurrent(ReplaceBox.Text ?? string.Empty);
+        ReplaceAllButton.Click += (_, _) =>
+            Status($"Replaced {Editor.ReplaceAll(ReplaceBox.Text ?? string.Empty)}.");
+
+        // On the find box rather than the window, so Enter steps through matches only while the
+        // user is typing a query — Enter in the document has to keep splitting paragraphs.
+        FindBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter)
+            {
+                return;
+            }
+
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                Editor.FindPrevious();
+            }
+            else
+            {
+                Editor.FindNext();
+            }
+
+            e.Handled = true;
+        };
+
+        // Tunnelling, so Ctrl+F and Escape are seen before the editor treats them as text input.
+        AddHandler(KeyDownEvent, OnFindKey, RoutingStrategies.Tunnel);
+    }
+
+    private void OnFindKey(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            OpenFind();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape && FindBar.IsVisible)
+        {
+            CloseFind();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F3 && FindBar.IsVisible)
+        {
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                Editor.FindPrevious();
+            }
+            else
+            {
+                Editor.FindNext();
+            }
+
+            e.Handled = true;
+        }
+    }
+
+    /// <remarks>
+    /// Seeds the box from the selection, so Ctrl+F on a selected word searches for it, and selects
+    /// the box's text so that typing replaces the seed rather than appending to it.
+    /// </remarks>
+    private void OpenFind()
+    {
+        if (Editor.View?.SelectedText() is { Length: > 0 } selected && !selected.Contains('\n'))
+        {
+            FindBox.Text = selected;
+        }
+
+        FindBar.IsVisible = true;
+        FindBox.Focus();
+        FindBox.SelectAll();
+
+        Research();
+    }
+
+    private void CloseFind()
+    {
+        FindBar.IsVisible = false;
+        Editor.ClearFind();
+        Editor.View?.Focus();
+    }
+
+    private void Research() =>
+        Editor.Find(
+            FindBox.Text ?? string.Empty,
+            new SearchOptions
+            {
+                MatchCase = MatchCaseBox.IsChecked == true,
+                WholeWord = WholeWordBox.IsChecked == true,
+            });
+
+    private void UpdateFindCount() =>
+        FindCount.Text = Editor.MatchCount == 0
+            ? (FindBox.Text is { Length: > 0 } ? "none" : string.Empty)
+            : $"{Editor.CurrentMatchNumber} of {Editor.MatchCount}";
 
     /// <summary>Reads the clipboard the way a paste has to: richest format first.</summary>
     /// <remarks>

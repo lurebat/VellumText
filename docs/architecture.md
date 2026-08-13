@@ -469,6 +469,32 @@ internal sealed class ParagraphView : BlockView
 > text. An embed contributes its `PlainTextFallback`; blocks are separated by one newline and
 > nothing else, because a list marker is drawn by the view and is not in the model.
 
+> **As built (P7, find and replace).** `DocumentSearch` in `Vellum.Core` walks the tree and returns
+> `ImmutableArray<SearchMatch>`; `RichTextView` owns the open search, paints the matches, and
+> `RichTextEditor` exposes `Find`/`FindNext`/`FindPrevious`/`ReplaceCurrent`/`ReplaceAll` plus
+> observable `MatchCount` and `CurrentMatchNumber`. Four decisions are load-bearing and each was
+> forced by something measured rather than chosen on taste:
+>
+> - **Search reads `paragraph.Content.Text`, not `DocumentText.Of`.** The raw text has exactly one
+>   code unit per document position, so an offset into it *is* a position. The plain-text projection
+>   expands an embed into its alt text and puts every later position out by the difference.
+> - **Comparison is ordinal.** Under ICU a culture-sensitive `IndexOf` can return a match that is not
+>   its own length: `"co\u00ADoperate".IndexOf("cooperate", CurrentCulture)` is `0` — a soft hyphen
+>   has no collation weight — while ordinal is `-1`. Matches are handed straight to a replacement, so
+>   a match whose length is not the query's length corrupts the document. (The familiar German ß/ss
+>   example does *not* discriminate here; this one was measured.)
+> - **The current match is given up on any document change.** Re-finding it by value works for an edit
+>   *after* it and silently fails for one *before* it, which is worse than not working because it looks
+>   right in testing. Mapping through the transaction is the alternative and is not worth the coupling;
+>   `ReplaceCurrent` and `ReplaceAll` step explicitly instead.
+> - **The current highlight is painted over the selection, the others under it.** Stepping to a match
+>   selects it, so the two always coincide. Painting the current one underneath leaves the selection
+>   tint mixed in and the result reads as neither — found by looking at the pixels, not by reasoning
+>   about them.
+>
+> Re-search is guarded on document identity, so moving the caret — the commonest state change, and the
+> one stepping between matches goes through — costs a reference comparison.
+
 ### 4.7 The text source
 
 ```csharp
@@ -800,7 +826,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
-| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; rest pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize, touch handles, perf pass pending |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
