@@ -144,10 +144,7 @@ public partial class RichTextView
     /// </remarks>
     internal bool BlockShortcut(Key key, bool control, bool shift) => (key, control, shift) switch
     {
-        // In a list, Tab changes the nesting rather than the indent: a bullet that moved right
-        // without becoming a sub-bullet would look nested and behave as though it were not.
-        (Key.Tab, false, false) => NestListItem() || Indent(),
-        (Key.Tab, false, true) => LiftListItem() || Outdent(),
+        (Key.Tab, false, var lift) => Tab(lift),
 
         (Key.D0, true, false) => SetParagraphKind(ParagraphKind.Body),
         (Key.D1, true, false) => SetParagraphKind(ParagraphKind.Heading1),
@@ -167,4 +164,34 @@ public partial class RichTextView
 
         _ => false,
     };
+
+    /// <summary>Handles Tab and Shift+Tab, which mean different things inside a list.</summary>
+    /// <returns>Whether the key was consumed, which is not the same as whether anything changed.</returns>
+    /// <remarks>
+    /// <para>
+    /// In a list, Tab changes the nesting rather than the indent: a bullet that moved right
+    /// without becoming a sub-bullet would look nested and behave as though it were not.
+    /// </para>
+    /// <para>
+    /// The first item of a list has nothing to nest under, so nesting there is impossible. It is
+    /// still consumed, because both alternatives are worse: indenting produces exactly the
+    /// misleading bullet the previous paragraph rules out, and reporting the key unhandled sends
+    /// Tab on to focus navigation, so pressing it in a list would move focus out of the editor.
+    /// </para>
+    /// <para>
+    /// Shift+Tab needs no such guard. Lifting always has somewhere to go — out of a nested list
+    /// into the one around it, or out of a top-level list into ordinary paragraphs — so
+    /// <see cref="LiftListItem"/> only fails when there is no list at all.
+    /// </para>
+    /// </remarks>
+    private bool Tab(bool lift)
+    {
+        if (ListKindAt is null)
+        {
+            return lift ? Outdent() : Indent();
+        }
+
+        _ = lift ? LiftListItem() : NestListItem();
+        return true;
+    }
 }

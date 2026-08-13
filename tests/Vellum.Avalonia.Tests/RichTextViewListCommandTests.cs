@@ -501,6 +501,94 @@ public class RichTextViewListCommandTests
         Assert.Equal(doc, view.State.Doc);
     }
 
+    /// <summary>
+    /// Tab on the first item of a list is consumed and changes nothing, rather than indenting
+    /// the bullet or letting focus escape.
+    /// </summary>
+    /// <remarks>
+    /// Nesting is impossible there because there is no item above to nest under. Falling through
+    /// to a plain indent is worse than refusing: it slides the bullet right, so it reads as
+    /// nested while behaving as a top-level item, and each further Tab slides it further.
+    /// Reporting it unhandled is worse still, because Tab then moves focus out of the editor.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Tab_on_the_first_item_of_a_list_does_not_indent_the_bullet_instead()
+    {
+        var view = At(Bulleted("one", "two"), In(0, 1));
+        var before = view.State.Doc;
+
+        Assert.True(view.BlockShortcut(Key.Tab, control: false, shift: false));
+        Assert.Equal(before, view.State.Doc);
+    }
+
+    /// <summary>Shift+Tab on a top-level item takes it out of the list, rather than outdenting.</summary>
+    /// <remarks>Lifting always has somewhere to go, so unlike Tab this needs no special case; the
+    /// test is here to pin that the outdent arm is genuinely unreachable inside a list.</remarks>
+    [AvaloniaFact]
+    public void Shift_tab_on_a_top_level_list_item_takes_it_out_of_the_list()
+    {
+        var view = At(Bulleted("one", "two"), In(1, 1));
+
+        Assert.True(view.BlockShortcut(Key.Tab, control: false, shift: true));
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+            p "two"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void A_list_of_the_other_kind_above_is_left_alone_rather_than_absorbed()
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("one")], ListKind.Ordered),
+            ParagraphNode.FromText("two"),
+        ]);
+
+        var view = At(doc, In(1, 1));
+
+        Assert.True(view.ToggleList(ListKind.Unordered));
+
+        Shaped(
+            """
+            ordered-list from 1
+              list-item
+                p "one"
+            unordered-list
+              list-item
+                p "two"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void A_list_of_the_other_kind_below_is_left_alone_rather_than_absorbed()
+    {
+        var doc = new DocumentNode([
+            ParagraphNode.FromText("one"),
+            new ListNode([ListItemNode.FromText("two")], ListKind.Ordered),
+        ]);
+
+        var view = At(doc, In(0, 1));
+
+        Assert.True(view.ToggleList(ListKind.Unordered));
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+            ordered-list from 1
+              list-item
+                p "two"
+            """,
+            view);
+    }
+
     // ---- helpers -----------------------------------------------------------------------------
 
     private static DocumentNode Paragraphs(params string[] text) =>
