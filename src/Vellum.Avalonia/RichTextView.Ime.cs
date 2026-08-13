@@ -133,7 +133,7 @@ public partial class RichTextView
 
         // Translated by the block's own origin: a caret in the fourth paragraph is drawn where
         // that paragraph is, and the block has no idea where that is.
-        return local.Translate(BlockOrigin(_caretBlock));
+        return local.Translate(BlockOffset);
     }
 
     /// <summary>Tells the input method that what it is composing against has moved.</summary>

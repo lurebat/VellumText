@@ -127,21 +127,57 @@ public partial class RichTextView : DocumentPresenter
     public int CaretBlockIndex => _caretBlock;
 
     /// <summary>
-    /// The view of the block the caret is in, or null before the control has been measured.
+    /// The paragraph the caret is in, where it starts and where it is drawn, or null.
     /// </summary>
     /// <remarks>
-    /// A paragraph, or null when the caret is somewhere no text lives — which today means a
-    /// document of nothing but rules, since <see cref="Selection.Near"/> puts a text caret
-    /// wherever one can go.
+    /// Recomputed rather than cached because the caret moves far more often than the layout
+    /// changes and a stale copy would edit the wrong paragraph. It is a search through one
+    /// block, not the document.
     /// </remarks>
-    public ParagraphView? Block =>
-        _views.Count == 0 ? null : _views[_caretBlock] as ParagraphView;
+    private TextAt? CaretText =>
+        _views.Count == 0
+            ? null
+            : _views[_caretBlock].ParagraphAt(
+                Math.Clamp(
+                    _state.Selection.Head - _slots[_caretBlock].Start,
+                    0,
+                    _views[_caretBlock].ContentSize));
 
     /// <summary>
-    /// The document position at which the caret's block starts.
+    /// The view of the paragraph the caret is in, or null before the control has been measured.
     /// </summary>
-    /// <remarks>The one place a block-local position becomes a document position.</remarks>
-    public int BlockStart => _slots.IsEmpty ? 0 : _slots[_caretBlock].Start;
+    /// <remarks>
+    /// Null when the caret is somewhere no text lives — a rule, an image — since
+    /// <see cref="Selection.Near"/> puts a text caret wherever one can go.
+    /// </remarks>
+    /// <remarks>
+    /// Not the same thing as the block at <see cref="CaretBlockIndex"/>: a table is one block
+    /// holding many paragraphs, and every editing command wants the paragraph.
+    /// </remarks>
+    public ParagraphView? Block => CaretText?.View;
+
+    /// <summary>
+    /// The document position at which the caret's paragraph starts.
+    /// </summary>
+    /// <remarks>
+    /// The one place a paragraph-local position becomes a document position. Paired with
+    /// <see cref="Block"/> — the two are always read together and must come from the same
+    /// paragraph, which is why both go through <see cref="CaretText"/>.
+    /// </remarks>
+    public int BlockStart =>
+        _slots.IsEmpty ? 0 : _slots[_caretBlock].Start + (CaretText?.Start ?? 0);
+
+    /// <summary>Where the caret's paragraph is drawn, in this control's coordinates.</summary>
+    private Point BlockOffset
+    {
+        get
+        {
+            var origin = BlockOrigin(_caretBlock);
+            var inner = CaretText?.Origin ?? default;
+
+            return new Point(origin.X + inner.X, origin.Y + inner.Y);
+        }
+    }
 
     /// <summary>Whether the caret is currently painted, for tests and for the blink timer.</summary>
     public bool IsCaretVisible => _caretVisible;

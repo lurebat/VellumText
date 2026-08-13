@@ -242,16 +242,30 @@ public partial class RichTextView
     /// </remarks>
     private bool DeleteAcrossBoundary(bool forward, Transaction transaction)
     {
-        var neighbour = _caretBlock + (forward ? 1 : -1);
+        // Adjacency in the document, not in the drawn run: two paragraphs inside one table cell
+        // are neighbours the user can join, and the drawn run sees only the table around them.
+        var leaves = DocumentBlocks.Leaves(_state.Doc);
+        var head = _state.Selection.Head;
+        var index = -1;
 
-        if (neighbour < 0 || neighbour >= _slots.Length)
+        for (var i = 0; i < leaves.Length; i++)
+        {
+            if (head >= leaves[i].Start && head <= leaves[i].End)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        var neighbour = index + (forward ? 1 : -1);
+
+        if (index < 0 || neighbour < 0 || neighbour >= leaves.Length)
         {
             return false;
         }
 
-        var slot = _slots[_caretBlock];
-        var other = _slots[neighbour];
-
+        var slot = leaves[index];
+        var other = leaves[neighbour];
 
         var (from, to) = other.Node.IsLeaf
             ? (other.Start, other.Start + other.Node.NodeSize)
@@ -259,7 +273,7 @@ public partial class RichTextView
 
         // Everything removed lies before the caret when deleting backwards, so the caret moves
         // back by exactly that much; deleting forwards removes what is after it, so it stays.
-        var caret = forward ? _state.Selection.Head : slot.Start - (to - from);
+        var caret = forward ? head : slot.Start - (to - from);
 
         transaction
             .Delete(from, to)

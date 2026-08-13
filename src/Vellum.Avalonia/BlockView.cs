@@ -61,4 +61,34 @@ public abstract class BlockView
     /// <param name="from">The local start position.</param>
     /// <param name="to">The local end position.</param>
     public abstract IReadOnlyList<Rect> GetSelectionRects(int from, int to);
+
+    /// <summary>
+    /// The paragraph at a local position, or null if there is no editable text there.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The seam between the editing layer and block nesting. Almost every editing command is
+    /// written against one paragraph — insert here, walk a cluster, split, find the word around
+    /// the caret — and it needs the paragraph the caret is actually in, which for a table is
+    /// several levels down inside a block the flat run treats as one. Asking the block rather
+    /// than assuming it <em>is</em> the paragraph is what lets a table be one slot without every
+    /// command having to learn about cells.
+    /// </para>
+    /// <para>
+    /// The default is null, which is the right answer for a rule and for an image: the caret can
+    /// sit on them but there is no text to edit.
+    /// </para>
+    /// </remarks>
+    /// <param name="localPosition">A local position in <c>[0, <see cref="ContentSize"/>]</c>.</param>
+    public virtual TextAt? ParagraphAt(int localPosition) => null;
 }
+
+/// <summary>Where a paragraph found inside a block lives.</summary>
+/// <param name="View">The paragraph's view.</param>
+/// <param name="Start">
+/// The paragraph's first inner position, relative to the containing block's content.
+/// </param>
+/// <param name="Origin">
+/// The paragraph's top-left corner, relative to the containing block's top-left corner.
+/// </param>
+public readonly record struct TextAt(ParagraphView View, int Start, Point Origin);

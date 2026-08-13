@@ -430,11 +430,14 @@ public sealed class ParagraphView : BlockView
     }
 
     /// <inheritdoc/>
+    /// <remarks>A paragraph is the paragraph, wherever inside it the position falls.</remarks>
+    public override TextAt? ParagraphAt(int localPosition) => new(this, 0, default);
+
+    /// <inheritdoc/>
     public override IReadOnlyList<Rect> GetSelectionRects(int from, int to)
     {
         CheckPosition(from);
         CheckPosition(to);
-
         var start = ToLayout(Math.Min(from, to));
         var length = ToLayout(Math.Max(from, to)) - start;
 
