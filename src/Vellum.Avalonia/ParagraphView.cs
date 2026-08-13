@@ -634,20 +634,51 @@ public sealed class ParagraphView : BlockView
     /// than being carried as pixels, so a heading and a body paragraph get the leading each
     /// wants from one number in the style. Zero leaves the spacing to the font.
     /// </para>
+    /// <para>
+    /// A forced line height is <em>absolute</em> in Avalonia, not a minimum: a line holding a
+    /// drawable run taller than it keeps the forced height, and the drawable spills out of the
+    /// paragraph and over whatever is drawn below. Measured on 12.1.1 — a 40pt image on a 19.2pt
+    /// line reported <c>Height</c> 19.2 and <c>Baseline</c> 40, which cannot describe a real box.
+    /// So a paragraph whose tallest embed does not fit gives the leading up and lets the font
+    /// decide, which grows only the lines that need it rather than every line in the paragraph.
+    /// </para>
     /// </remarks>
-    private TextParagraphProperties ParagraphProperties() =>
-        new GenericTextParagraphProperties(
+    private TextParagraphProperties ParagraphProperties()
+    {
+        var scaled = _style.LineHeightScale > 0
+            ? _style.LineHeightScale * _styles.Default.FontRenderingEmSize
+            : 0;
+
+        return new GenericTextParagraphProperties(
             FlowDirection.LeftToRight,
             Alignment(_paragraph.Align),
             firstLineInParagraph: true,
             alwaysCollapsible: false,
             _styles.Default,
             TextWrapping.Wrap,
-            lineHeight: _style.LineHeightScale > 0
-                ? _style.LineHeightScale * _styles.Default.FontRenderingEmSize
-                : 0,
+            lineHeight: scaled >= TallestEmbed() ? scaled : 0,
             indent: 0,
             letterSpacing: 0);
+    }
+
+    /// <summary>The height of the tallest embed in the paragraph, or zero if it has none.</summary>
+    /// <remarks>
+    /// Measured through the same path <see cref="EmbedRun"/> takes, including its fallback for an
+    /// embed that does not say how big it is, so the answer cannot disagree with the run that is
+    /// actually laid out. The common case — a paragraph with no embeds — allocates nothing.
+    /// </remarks>
+    private double TallestEmbed()
+    {
+        var tallest = 0.0;
+
+        foreach (var embed in _paragraph.Content.Embeds)
+        {
+            tallest = Math.Max(
+                tallest, new EmbedRun(embed, _styles.Default, _embeds).Size.Height);
+        }
+
+        return tallest;
+    }
 
     private static TextAlignment Alignment(TextAlign align) => align switch
     {
