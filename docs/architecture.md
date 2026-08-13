@@ -388,6 +388,42 @@ internal sealed class ParagraphView : BlockView
 >   handling and clipboard write, which is larger than the control itself, so it is recorded as a
 >   known gap rather than quietly omitted.
 
+> **As built (P6).** A table is drawn as a real grid by **`TableBlockView`** — the only `BlockView`
+> that hosts other block views. It is named for the collision: Avalonia 12 ships its own
+> `Avalonia.Controls.TableView`, and a consumer with both usings should never have to disambiguate.
+>
+> The design turns on one distinction that is easy to miss and expensive to get wrong:
+>
+> - **`DocumentBlocks` now answers two different questions.** `Flatten` answers *what gets drawn* —
+>   a table is **one** slot whose range spans everything inside it, so virtualization, hit testing
+>   and reconciliation treat it as a unit. `Leaves` answers *what a caret can be inside* — a table's
+>   paragraphs are separate and adjacent to each other, however deeply nested. They diverge exactly
+>   at tables. Conflating them broke backspace between two paragraphs in one cell, which is how the
+>   distinction was found.
+> - **`BlockView.ParagraphAt(int)`** is the seam that lets both be true at once. `RichTextView`'s
+>   `Block`, `BlockStart` and `BlockOffset` all resolve through it, so no editing command has to
+>   learn what a cell is; `TableBlockView` recurses, so a nested table works for free.
+>
+> Layout details worth carrying forward:
+>
+> - **Row heights settle in two passes.** Single-row cells fix their row first; only then do
+>   spanning cells push, and they push the **last** row they cover, by the shortfall. Charging a
+>   spanning cell's full height to its first row is the classic way to get one enormous row.
+> - **Stated column widths are a proportion, not a measurement.** A pasted table's widths were
+>   written for someone else's window, so they are scaled to the space available; unstated columns
+>   get the mean of the stated ones; none stated is an even split. That is not what a browser does
+>   — browsers size to content — but it is predictable and never collapses a column. Content-based
+>   sizing needs a min/max width pass the block views do not expose.
+> - **A cell that states its own background beats the header tint.** The document was explicit; the
+>   tint (`TableHeaderBrush`) is only the control saying what a header row usually looks like.
+> - **The schema reports, it does not enforce.** `new TableCellNode([])` is constructible and
+>   reaches the view, so "the schema guarantees it" is never a safe assumption about view input.
+>   Assuming it cost a real `IndexOutOfRangeException`.
+>
+> Two known gaps: there is no rectangular **cell selection** UI (`CellSelection` exists in the model
+> and the view does not raise it), and `Reconcile` has no in-place update path for a table, so any
+> edit inside one rebuilds the whole table view. Correct, but unmeasured.
+
 ### 4.7 The text source
 
 ```csharp
@@ -718,7 +754,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | ✅ **done** |
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
-| **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
+| **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
 | **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
