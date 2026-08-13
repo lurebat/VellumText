@@ -439,6 +439,36 @@ internal sealed class ParagraphView : BlockView
 > for a Right press, so vertical movement is no dearer than horizontal and the residual is
 > pre-existing per-keypress cost rather than anything tables introduced.
 
+> **As built (P7, accessibility).** A `DocumentPresenter` now creates a
+> **`DocumentPresenterAutomationPeer`**, so both the editor and the viewer appear to a screen
+> reader as `AutomationControlType.Document` carrying the document's plain text, with
+> `IValueProvider.IsReadOnly` telling the two apart. Verified against a running demo: the
+> accessibility tree previously showed the editor and the viewer as untitled controls with no
+> content; it now reads out the whole document, tables included.
+>
+> **The hard limit is worth stating rather than working around: Avalonia 12 has no UIA text
+> pattern.** `Avalonia.Automation.Provider` offers value, invoke, scroll, selection,
+> expand/collapse, range and toggle, and nothing for text — `TextBox` is in the same position and
+> answers it the same way, with `IValueProvider` alone. So **caret position, selection extent and
+> per-run formatting cannot be announced.** A reader can read the document and be told when it
+> changes; it cannot follow the caret through it. Closing that means implementing `ITextProvider`
+> upstream in Avalonia, not here.
+>
+> Two decisions inside that constraint:
+>
+> - **The editor reports `Document`, not `Edit`.** `Edit` tells an assistive technology to expect a
+>   field it can navigate with the text pattern — exactly the promise this peer cannot keep.
+> - **`SetValue` is honoured on the editor**, replacing the document with plain text in one undo.
+>   Destructive, and nonetheless the contract: it is how every UI-automation framework fills a
+>   field, and an editor that refused it could not be driven by one. The viewer throws
+>   `ElementNotEnabledException`.
+>
+> **`DocumentText.Of` in `Vellum.Core` is now the single plain-text projection**, shared by the peer
+> and by the clipboard's plain-text flavour. Unifying them fixed a defect nobody had noticed: copying
+> a selection containing an image put a raw `U+FFFC` on the clipboard instead of the image's alt
+> text. An embed contributes its `PlainTextFallback`; blocks are separated by one newline and
+> nothing else, because a list marker is drawn by the view and is not in the model.
+
 ### 4.7 The text source
 
 ```csharp
@@ -770,7 +800,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
-| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; rest pending |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can

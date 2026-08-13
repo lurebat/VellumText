@@ -62,7 +62,7 @@ public class RichTextViewer : DocumentPresenter
     }
 
     /// <inheritdoc/>
-    protected override DocumentNode PresentedDocument => Document;
+    protected internal override DocumentNode PresentedDocument => Document;
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

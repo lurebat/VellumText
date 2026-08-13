@@ -121,7 +121,32 @@ public partial class RichTextView : DocumentPresenter
     }
 
     /// <inheritdoc/>
-    protected override DocumentNode PresentedDocument => _state.Doc;
+    protected internal override DocumentNode PresentedDocument => _state.Doc;
+
+    /// <inheritdoc/>
+    protected internal override bool SupportsTextInput => true;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Selecting is not an edit, so the whole replacement is one transaction and one undo takes
+    /// it back. Empty text is a deletion rather than a paste of nothing, which
+    /// <see cref="PasteText"/> would treat as no change at all.
+    /// </remarks>
+    protected internal override void SetTextFromAutomation(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        SelectAll();
+
+        if (text.Length == 0)
+        {
+            DeleteSelection();
+        }
+        else
+        {
+            PasteText(text);
+        }
+    }
 
     /// <summary>The index of the block the caret is in.</summary>
     public int CaretBlockIndex => _caretBlock;

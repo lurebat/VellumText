@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Avalonia;
+using Avalonia.Automation.Peers;
 
 namespace Vellum.Avalonia;
 
@@ -63,7 +64,30 @@ public abstract partial class DocumentPresenter
     /// The one thing a presenter cannot supply for itself. An editor reads it off its editor
     /// state; a viewer holds it directly.
     /// </remarks>
-    protected abstract DocumentNode PresentedDocument { get; }
+    protected internal abstract DocumentNode PresentedDocument { get; }
+
+    /// <summary>Whether this presenter lets the user change the document.</summary>
+    /// <remarks>
+    /// Exists for accessibility, which has to answer "is this read-only?" before it has any other
+    /// reason to distinguish an editor from a viewer. Deliberately not a settable property: a
+    /// viewer that could be made writable, or an editor that could be locked, is a feature nobody
+    /// has asked for, and inventing it here would put a second, contradictory answer next to
+    /// <see cref="global::Avalonia.Input.InputElement.Focusable"/>.
+    /// </remarks>
+    protected internal virtual bool SupportsTextInput => false;
+
+    /// <summary>Replaces the whole document with plain text, on behalf of an automation client.</summary>
+    /// <param name="text">The replacement text.</param>
+    /// <remarks>
+    /// Only ever reached when <see cref="SupportsTextInput"/> is true, so the base does nothing.
+    /// </remarks>
+    protected internal virtual void SetTextFromAutomation(string text)
+    {
+    }
+
+    /// <inheritdoc/>
+    protected override AutomationPeer OnCreateAutomationPeer() =>
+        new DocumentPresenterAutomationPeer(this);
 
     /// <summary>The block whose identity has to survive a reconcile, or null if none does.</summary>
     /// <remarks>
