@@ -11,11 +11,16 @@ namespace Vellum.Avalonia;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Only <see cref="DataFormat.Text"/> is read and written here. The richer formats architecture
-/// section 4.9 describes — a lossless native slice, HTML and RTF — need exporters that do not exist
-/// yet, and reading them needs the interop packages, which this assembly deliberately does not
-/// reference. A paste that arrives as HTML or RTF still carries a plain-text flavour, so this
-/// degrades to unformatted text rather than to nothing.
+/// Plain text always works. The richer flavours architecture section 4.9 describes — HTML and RTF
+/// — arrive by registration: this assembly deliberately does not reference the interop packages,
+/// because an application that wants a text editor should not acquire an HTML parser and an RTF
+/// reader to get one. Adding <c>HtmlFormat.Instance</c> and <c>RtfFormat.Instance</c> to
+/// <see cref="Formats"/> is what turns them on, and nothing else changes.
+/// </para>
+/// <para>
+/// A paste tries the registered formats in <see cref="RichTextClipboardFormats.Preference"/>
+/// order and stops at the first that yields a document, so a paste from a browser keeps its
+/// formatting and a paste from a terminal still arrives as text.
 /// </para>
 /// <para>
 /// The clipboard is asynchronous on every platform Avalonia supports, so these are tasks. The
@@ -25,6 +30,38 @@ namespace Vellum.Avalonia;
 /// </remarks>
 public partial class RichTextView
 {
+    /// <summary>
+    /// Refuses a format object that can neither be read nor written, at the point of registration
+    /// rather than silently doing nothing at the point of use.
+    /// </summary>
+    private sealed class DocumentFormats : System.Collections.ObjectModel.Collection<IDocumentFormat>
+    {
+        protected override void InsertItem(int index, IDocumentFormat item)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+
+            if (item is not (IDocumentImporter or IDocumentExporter))
+            {
+                throw new ArgumentException(
+                    $"'{item.Format}' can neither be read nor written: it implements neither " +
+                    $"{nameof(IDocumentImporter)} nor {nameof(IDocumentExporter)}.",
+                    nameof(item));
+            }
+
+            base.InsertItem(index, item);
+        }
+    }
+
+    /// <summary>The interchange formats copy writes and paste reads, beyond plain text.</summary>
+    /// <remarks>
+    /// A format object usually implements both <see cref="IDocumentImporter"/> and
+    /// <see cref="IDocumentExporter"/> — <c>HtmlFormat.Instance</c> and <c>RtfFormat.Instance</c>
+    /// do — but either alone is accepted, so an application can offer a format it can read
+    /// without claiming to write it. A format implementing neither is refused, loudly, at the
+    /// point of registration rather than silently doing nothing at the point of use.
+    /// </remarks>
+    public ICollection<IDocumentFormat> Formats { get; } = new DocumentFormats();
+
     /// <summary>Selects the whole document.</summary>
     /// <returns><see langword="true"/> if the selection changed.</returns>
     public bool SelectAll()
@@ -62,7 +99,7 @@ public partial class RichTextView
         return builder.ToString();
     }
 
-    /// <summary>Puts the selection on the clipboard.</summary>
+    /// <summary>Puts the selection on the clipboard, in every registered format.</summary>
     /// <returns><see langword="true"/> if anything was written.</returns>
     public async Task<bool> CopyAsync()
     {
@@ -78,9 +115,65 @@ public partial class RichTextView
             return false;
         }
 
-        await clipboard.SetTextAsync(text).ConfigureAwait(true);
+        await clipboard.SetDataAsync(BuildCopyData(text)).ConfigureAwait(true);
 
         return true;
+    }
+
+    /// <summary>
+    /// The clipboard payload for the current selection: plain text, plus a flavour for each
+    /// registered exporter that has one.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="CopyAsync"/> because it is the whole of what a copy decides, and
+    /// the only part of it a test can look at: what a real clipboard does with the payload
+    /// afterwards is the platform's business, not this control's.
+    /// </remarks>
+    internal DataTransfer BuildCopyData(string text)
+    {
+        var item = new DataTransferItem();
+
+        item.SetText(text);
+
+        // The document the flavours describe is the selection, not the whole document — copying a
+        // paragraph out of the middle must not paste the document back in.
+        var doc = SelectedDocument();
+
+        foreach (var exporter in Formats.OfType<IDocumentExporter>())
+        {
+            if (RichTextClipboardFormats.For(exporter.Format) is not { } format)
+            {
+                continue;
+            }
+
+            try
+            {
+                var payload = RichTextClipboardFormats.EncodingFor(exporter.Format)
+                    .GetBytes(exporter.Export(doc));
+
+                item.Set(format, payload);
+            }
+            catch (Exception)
+            {
+                // An exporter is contractually forbidden from throwing, so this is a bug in one.
+                // Losing that flavour is the right price; losing the user's copy is not.
+            }
+        }
+
+        var data = new DataTransfer();
+
+        data.Add(item);
+
+        return data;
+    }
+
+    /// <summary>The selection as a document in its own right.</summary>
+    internal DocumentNode SelectedDocument()
+    {
+        var selection = _state.Selection;
+        var slice = Slice.Cut(_state.Doc, selection.From, selection.To);
+
+        return new DocumentNode(slice.Content.OfType<BlockNode>());
     }
 
     /// <summary>Puts the selection on the clipboard and removes it from the document.</summary>
@@ -120,7 +213,7 @@ public partial class RichTextView
         return DeleteSelection();
     }
 
-    /// <summary>Replaces the selection with the clipboard's text.</summary>
+    /// <summary>Replaces the selection with the clipboard's richest readable flavour.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     public async Task<bool> PasteAsync()
     {
@@ -129,13 +222,41 @@ public partial class RichTextView
             return false;
         }
 
-        string? text;
-
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
+            if (data is null)
+            {
+                return false;
+            }
 
-            text = data is null ? null : await data.TryGetTextAsync().ConfigureAwait(true);
+            foreach (var importer in ReadableFormats())
+            {
+                if (RichTextClipboardFormats.For(importer.Format) is not { } format)
+                {
+                    continue;
+                }
+
+                // Bytes, deliberately, and never as a string: a clipboard backend handed a native
+                // format to decode as text will guess an encoding, and its guess for RTF produces
+                // convincing mojibake that then parses to nothing.
+                if (await data.TryGetValueAsync(format).ConfigureAwait(true) is not { Length: > 0 } bytes)
+                {
+                    continue;
+                }
+
+                var payload = RichTextClipboardFormats.EncodingFor(importer.Format).GetString(bytes);
+                var doc = importer.Import(payload).Doc;
+
+                if (!doc.Blocks.IsEmpty)
+                {
+                    return PasteDocument(doc);
+                }
+            }
+
+            var text = await data.TryGetTextAsync().ConfigureAwait(true);
+
+            return text is { Length: > 0 } && PasteText(text);
         }
         catch (Exception)
         {
@@ -143,14 +264,88 @@ public partial class RichTextView
             // control's business. Losing a paste is bad; taking the application down is worse.
             return false;
         }
+    }
 
-        if (text is not { Length: > 0 })
+    /// <summary>The registered importers, richest first.</summary>
+    /// <remarks>
+    /// Internal because the order is the whole behaviour: an application that copies from Word
+    /// gets RTF, HTML and plain text at once, and taking whichever answers first would silently
+    /// paste the poorest of the three.
+    /// </remarks>
+    internal IEnumerable<IDocumentImporter> ReadableFormats() =>
+        Formats.OfType<IDocumentImporter>()
+            .OrderBy(importer => Array.IndexOf(RichTextClipboardFormats.Preference, importer.Format) switch
+            {
+                < 0 => int.MaxValue,
+                var rank => rank,
+            });
+
+    /// <summary>Replaces the selection with <paramref name="doc"/>'s blocks.</summary>
+    /// <param name="doc">The document to insert.</param>
+    /// <returns><see langword="true"/> if the document changed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="doc"/> is <see langword="null"/>.</exception>
+    public bool PasteDocument(DocumentNode doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        if (doc.Blocks.IsEmpty)
         {
             return false;
         }
 
-        return PasteText(text);
+        // Open ends are what make the first and last pasted paragraphs merge into the paragraph
+        // the caret sits in, instead of pushing it apart — but only a paragraph can be entered
+        // that way. Content that begins or ends with something else gets an empty open paragraph
+        // at that end, which does two jobs at once: it splits the host paragraph so a table or a
+        // list has somewhere to land, and it carries the text on that side of the caret back out.
+        // Without it the step is simply refused, and the paste is lost in silence.
+        var blocks = doc.Blocks;
+
+        if (blocks[0] is not ParagraphNode)
+        {
+            blocks = blocks.Insert(0, Empty);
+        }
+
+        if (blocks[^1] is not ParagraphNode)
+        {
+            blocks = blocks.Add(Empty);
+        }
+
+        // Merging is right when there is something to merge with: pasting a word into a sentence
+        // must not bring the source paragraph's heading style along. Into an empty paragraph there
+        // is nothing to preserve, and merging would instead throw the pasted block's own kind
+        // away — pasting a heading and getting body text. So that case replaces the host outright,
+        // with the original blocks: the padding above exists only to open a slice, and a closed
+        // one would keep it as a stray empty paragraph.
+        return EmptyHostBlock() is { } host
+            ? PasteSlice(new Slice([.. doc.Blocks], 0, 0), host.From, host.To)
+            : PasteSlice(new Slice([.. blocks], 1, 1));
     }
+
+    /// <summary>
+    /// The range of the block the selection sits in, when that block is an empty paragraph and so
+    /// has nothing worth merging into.
+    /// </summary>
+    private (int From, int To)? EmptyHostBlock()
+    {
+        var selection = _state.Selection;
+
+        if (!selection.IsEmpty)
+        {
+            return null;
+        }
+
+        var at = _state.Doc.Resolve(selection.From);
+
+        if (at.Depth < 1 || at.NodeAt(at.Depth) is not ParagraphNode { Content.Text.Length: 0 })
+        {
+            return null;
+        }
+
+        return (at.Before(at.Depth), at.After(at.Depth));
+    }
+
+    private static ParagraphNode Empty => new(InlineContent.Empty);
 
     /// <summary>Replaces the selection with <paramref name="text"/>, honouring line breaks.</summary>
     /// <param name="text">The text to insert.</param>
@@ -179,18 +374,31 @@ public partial class RichTextView
         // Open on both ends is what makes the first and last pasted paragraphs merge into the
         // paragraph the caret was sitting in, rather than pushing it apart.
         var content = lines.Select(line => (Node)new ParagraphNode(InlineContent.FromText(line))).ToArray();
-        var slice = new Slice(content, 1, 1);
-        var caret = at + slice.Size;
 
+        return PasteSlice(new Slice(content, 1, 1));
+    }
+
+    /// <summary>Replaces the selection with <paramref name="slice"/>.</summary>
+    /// <remarks>
+    /// One transaction, so that one undo takes the paste back. Splitting and inserting block by
+    /// block reads more simply and is wrong: it leaves the user pressing Ctrl+Z once per block.
+    /// </remarks>
+    private bool PasteSlice(Slice slice) =>
+        PasteSlice(slice, _state.Selection.From, _state.Selection.To);
+
+    /// <summary>Replaces <paramref name="from"/>..<paramref name="to"/> with <paramref name="slice"/>.</summary>
+    private bool PasteSlice(Slice slice, int from, int to)
+    {
         var transaction = _state.Transaction().As(TransactionKind.Paste);
 
         transaction
-            .Replace(selection.From, selection.To, slice)
-            .SetSelection(TextSelection.Cursor(caret))
+            .Replace(from, to, slice)
+            .SetSelection(TextSelection.Cursor(from + slice.Size))
             .SetStoredMarks(null);
 
         return Apply(transaction);
     }
+
     /// <summary>Removes the selection, leaving a caret where it was.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     public bool DeleteSelection()

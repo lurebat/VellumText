@@ -22,14 +22,14 @@ public partial class MainWindow : Window
     /// as UTF-16, which pairs them up and turns "{\rtf1\ansi" into CJK. The importer then correctly
     /// reports that the text has no RTF header, and a perfectly good paste is lost.
     /// </remarks>
-    private static readonly DataFormat<byte[]> RtfFormat =
+    private static readonly DataFormat<byte[]> ClipboardRtf =
         DataFormat.CreateBytesPlatformFormat("Rich Text Format");
 
     /// <summary>
     /// The clipboard formats HTML arrives under. Windows uses the CF_HTML envelope under the name
     /// "HTML Format"; everything else uses the MIME type. Both are bytes, for the same reason.
     /// </summary>
-    private static readonly DataFormat<byte[]>[] HtmlFormats =
+    private static readonly DataFormat<byte[]>[] ClipboardHtmlFormats =
     [
         DataFormat.CreateBytesPlatformFormat("HTML Format"),
         DataFormat.CreateBytesPlatformFormat("text/html"),
@@ -110,14 +110,14 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (await ReadAsync(data, RtfFormat, Encoding.Latin1) is { Length: > 0 } rtf)
+            if (await ReadAsync(data, ClipboardRtf, Encoding.Latin1) is { Length: > 0 } rtf)
             {
                 SourceBox.Text = rtf;
                 Show(RtfImporter.Import(rtf), "clipboard RTF");
                 return;
             }
 
-            foreach (var format in HtmlFormats)
+            foreach (var format in ClipboardHtmlFormats)
             {
                 if (await ReadAsync(data, format, Encoding.UTF8) is { Length: > 0 } html)
                 {

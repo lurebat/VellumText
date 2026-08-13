@@ -17,16 +17,8 @@ namespace Vellum;
 /// each for the lifetime of the control.
 /// </para>
 /// </remarks>
-public interface IDocumentExporter
+public interface IDocumentExporter : IDocumentFormat
 {
-    /// <summary>A short stable name for the format, such as <c>html</c> or <c>rtf</c>.</summary>
-    string Format { get; }
-
-    /// <summary>
-    /// The IANA media type, which is also what most clipboard backends want as a format name.
-    /// </summary>
-    string MediaType { get; }
-
     /// <summary>Writes <paramref name="doc"/> out.</summary>
     /// <param name="doc">The document.</param>
     /// <returns>The document in this exporter's format.</returns>

@@ -34,6 +34,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vellum.Avalonia\Vellum.Avalonia.csproj" />
+
+    <!-- The control must not reference these, and does not. The tests must, because whether a
+         real HTML or RTF flavour survives the clipboard is not answerable with a stub. -->
+    <ProjectReference Include="..\..\src\Vellum.Interop.Html\Vellum.Interop.Html.csproj" />
+    <ProjectReference Include="..\..\src\Vellum.Interop.Rtf\Vellum.Interop.Rtf.csproj" />
   </ItemGroup>
 
 </Project>
