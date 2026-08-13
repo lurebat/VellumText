@@ -246,6 +246,51 @@ public class RtfImportTests
     }
 
     [Fact]
+    public void Coloured_text_keeps_its_colour()
+    {
+        var result = Import(
+            @"{\rtf1\ansi{\colortbl;\red255\green0\blue0;}\pard\cf1 red\cf0  plain\par}");
+
+        Assert.True(
+            AnyRunHas(result, m => m.Foreground == new Rgba(255, 0, 0, 255)),
+            "The red run came back with no colour on it.");
+    }
+
+    [Fact]
+    public void Highlighted_text_keeps_its_highlight()
+    {
+        // RtfPipe writes the highlight as the `background` shorthand rather than
+        // `background-color`, and the CSS reader expands it. Worth pinning: reading the longhand
+        // only would silently drop every highlight, and a clipboard manager would never show one.
+        var result = Import(
+            @"{\rtf1\ansi{\colortbl;\red255\green255\blue0;}\pard\highlight1 lit\highlight0  plain\par}");
+
+        Assert.True(
+            AnyRunHas(result, m => m.Highlight == new Rgba(255, 255, 0, 255)),
+            "The highlighted run came back with no highlight on it.");
+    }
+
+    /// <summary>
+    /// Text coloured explicitly black arrives with no colour, and so follows the theme.
+    /// </summary>
+    /// <remarks>
+    /// RtfPipe treats black as the absence of a colour and writes no CSS for it, so the
+    /// distinction is gone before any of our code sees the document. Recovering it would mean
+    /// reading <c>\colortbl</c> and <c>\cf</c> ourselves, which is the hand-written RTF reader
+    /// the design deliberately does not have. Pinned rather than fixed, so that a future version
+    /// of RtfPipe changing its mind is a failing test rather than a surprise.
+    /// </remarks>
+    [Fact]
+    public void Explicit_black_arrives_as_no_colour_at_all()
+    {
+        var result = Import(
+            @"{\rtf1\ansi{\colortbl;\red0\green0\blue0;}\pard\cf1 black text\par}");
+
+        Assert.Contains("black text", PlainText(result), StringComparison.Ordinal);
+        Assert.False(AnyRunHas(result, m => m.Foreground is not null));
+    }
+
+    [Fact]
     public void The_hosts_options_reach_the_html_importer()
     {
         var rtf =

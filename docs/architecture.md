@@ -481,7 +481,14 @@ Only materially distinct options; scored 1–5 (5 best).
 | DOCX | `DocumentFormat.OpenXml` 3.5.1 | **MIT** | Microsoft/.NET Foundation, active (rel. 2026-03-18), pure managed OOXML — no Office/COM, works on Linux/macOS. Low-level, so it sits behind our own adapter. |
 | HTML | `AngleSharp` 1.7.1 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
 | Markdown | `Markdig` 1.3.2 | **BSD-2** | AST + custom renderers + trivia round-trip. |
-| RTF | **Hand-rolled writer**, optional import | n/a | The OSS RTF ecosystem is stale (`RtfPipe` 2021, `RtfDomParser` 2022, `NRtfTree` is GPL-3.0). A *writer* for a controlled subset is tractable; a general *parser* is not worth it. |
+| RTF | `RtfPipe` 2.0.7 for import, hand-rolled writer for export | **MIT** | Superseded the original "a general parser is not worth it" call once the clipboard-manager use case made RTF import mandatory (§12.3). RtfPipe converts RTF to HTML, which then goes through the same AngleSharp path as any other paste, so there is exactly one place deciding what a paste may contain. Stale (last release 2021) but correct on the Word and Outlook output that matters. |
+
+**Known RTF import limitation.** RtfPipe treats black as the absence of a colour and emits no
+CSS for it, so text coloured *explicitly* black is indistinguishable from unstyled text by the
+time anything of ours sees it, and it follows the theme. Recovering the distinction would mean
+reading `\colortbl` and `\cf` ourselves — the hand-written RTF reader this section exists to
+avoid — so the behaviour is pinned by a test rather than worked around. `\highlight` and every
+non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_all`.
 
 **Rejected:** `NPOI` — Apache-2.0 source but 2.8.0 binaries impose a maintenance-fee EULA on revenue-generating users; a legal hazard for a "free" library. `DocX`/Xceed — Xceed Community License, non-commercial. `OpenXML-Office` — AGPL-3.0/commercial. `ShapeCrawler` — PPTX only.
 
