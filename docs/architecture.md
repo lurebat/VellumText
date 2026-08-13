@@ -495,6 +495,40 @@ internal sealed class ParagraphView : BlockView
 > Re-search is guarded on document identity, so moving the caret — the commonest state change, and the
 > one stepping between matches goes through — costs a reference comparison.
 
+> **As built (P7, image selection and resize).** Clicking a picture selects it and draws four corner
+> handles; dragging one resizes it, preserving aspect. `RichTextView.Images.cs` owns the gesture,
+> `BlockView.GetImageRect` answers where the picture is, and `RichTextEditor` needs nothing new.
+> Four decisions were forced by measurement:
+>
+> - **"An image is selected" is derived from the selection's *range*, not from a new selection kind.**
+>   A block image is a leaf, so `NodeSelection.At` answers for it; an inline image lives inside a
+>   paragraph, where `ResolvedPos.NodeAfter` is null because the position `IsInText`, so a node
+>   selection cannot reach it. `SelectImage` produces a `NodeSelection` for the one and a one-long
+>   `TextSelection` for the other, and `SelectedImage` just asks whether the range is one position
+>   long with an image at its start. Delete already removes either without knowing an image was
+>   involved.
+> - **`GetImageRect` is a separate question from `GetSelectionRects`.** The selection rectangle for an
+>   inline image is the *line* box, which is taller than the picture by the descent of the text beside
+>   it — measured, a 40pt image on a line reports a 43pt selection box. Handles placed on that hang
+>   off the bottom. The horizontal extent comes from `GetTextBounds`, which is right across a bidi
+>   boundary; the vertical extent comes from the run, positioned at the line's baseline less the run's.
+> - **A forced line height is absolute in Avalonia, not a minimum.** A paragraph whose
+>   `LineHeightScale` produced 19.2pt reported `Height` 19.2 with `Baseline` 40 for a line holding a
+>   40pt image — a box that cannot exist — and the picture was drawn over the block below it. This was
+>   a live rendering defect, found by asking where to put a handle. `ParagraphView` now gives the
+>   leading up when its tallest embed does not fit, which grows only the lines that need it; a small
+>   embed changes nothing.
+> - **The drag applies nothing until the pointer is released.** A transaction per pointer move would
+>   put a hundred steps on the undo stack for one gesture and reflow the document under the pointer
+>   while the user is still aiming. A press and release with no movement is a click, not a resize, and
+>   produces no transaction at all.
+>
+> The gesture is checked before the caret on press, because a handle straddles the corner and sits over
+> the text beside the picture; Shift is left to the text path so a selection can still be extended
+> across an image. Corner drags are clamped rather than mirrored — dragging past the anchor stops at
+> `MinimumImageSide` rather than growing again — and both sides are floored there because `ImageEmbed`
+> refuses a non-positive dimension.
+
 ### 4.7 The text source
 
 ```csharp
@@ -792,7 +826,7 @@ worth using". Comparing it against what Vellum actually had:
 | Headings, alignment, indent | ✅ | ✅ | ✅ |
 | Lists | ✅ | ✅ | ⚠️ renders; no commands |
 | Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ flattened to stacked paragraphs |
-| Inline & block images | ✅ | ✅ | ✅ renders; no resize handles |
+| Inline & block images | ✅ | ✅ | ✅ renders, selects and resizes by dragging a corner |
 | Hyperlinks | ✅ | ✅ | ✅ **closed** |
 | Toolbar (`EditorToolbar`) | ✅ | — | ❌ |
 | Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ❌ |
@@ -826,7 +860,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
-| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize, touch handles, perf pass pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize ✅ done; touch handles, perf pass pending |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
