@@ -71,6 +71,15 @@ public class RichTextEditor : TemplatedControl
     public static readonly DirectProperty<RichTextEditor, bool> CanRedoProperty =
         AvaloniaProperty.RegisterDirect<RichTextEditor, bool>(nameof(CanRedo), o => o.CanRedo);
 
+    /// <summary>Defines the <see cref="MatchCount"/> property.</summary>
+    public static readonly DirectProperty<RichTextEditor, int> MatchCountProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, int>(nameof(MatchCount), o => o.MatchCount);
+
+    /// <summary>Defines the <see cref="CurrentMatchNumber"/> property.</summary>
+    public static readonly DirectProperty<RichTextEditor, int> CurrentMatchNumberProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, int>(
+            nameof(CurrentMatchNumber), o => o.CurrentMatchNumber);
+
     /// <summary>Defines the <see cref="View"/> property.</summary>
     /// <remarks>
     /// Observable rather than a plain property because the view does not exist until the
@@ -242,6 +251,16 @@ public class RichTextEditor : TemplatedControl
     /// <summary>Whether there is anything to redo.</summary>
     public bool CanRedo => _view?.CanRedo ?? false;
 
+    /// <summary>How many matches the current search has.</summary>
+    public int MatchCount => _view?.MatchCount ?? 0;
+
+    /// <summary>Which match the user is on, counting from one, or 0 for none.</summary>
+    /// <remarks>
+    /// One-based because its only consumer is a "3 of 7" label, and a find bar that reported
+    /// "2 of 7" for the third match would be a defect a reader could see.
+    /// </remarks>
+    public int CurrentMatchNumber => (_view?.CurrentMatch ?? -1) + 1;
+
     /// <summary>The view doing the work, or null before the template has been applied.</summary>
     public RichTextView? View => _view;
 
@@ -270,6 +289,38 @@ public class RichTextEditor : TemplatedControl
     /// <summary>Redoes the most recently undone edit.</summary>
     /// <returns>Whether anything changed.</returns>
     public bool Redo() => _view?.Redo() ?? false;
+
+    /// <summary>Runs a search, replacing any previous one.</summary>
+    /// <param name="query">The text to find. Empty ends the search.</param>
+    /// <param name="options">How to compare, or null for <see cref="SearchOptions.Default"/>.</param>
+    /// <returns>The number of matches.</returns>
+    /// <remarks>
+    /// Does not move the selection, so a find bar can search on every keystroke. Use
+    /// <see cref="FindNext"/> to step onto a match.
+    /// </remarks>
+    public int Find(string query, SearchOptions? options = null) =>
+        _view?.Find(query, options) ?? 0;
+
+    /// <summary>Ends the search and takes the highlights away.</summary>
+    public void ClearFind() => _view?.ClearFind();
+
+    /// <summary>Selects the next match after the caret, wrapping at the end.</summary>
+    /// <returns>Whether there was one.</returns>
+    public bool FindNext() => _view?.FindNext() ?? false;
+
+    /// <summary>Selects the previous match before the caret, wrapping at the start.</summary>
+    /// <returns>Whether there was one.</returns>
+    public bool FindPrevious() => _view?.FindPrevious() ?? false;
+
+    /// <summary>Replaces the match the user is on, then moves to the next.</summary>
+    /// <param name="replacement">The text to put there.</param>
+    /// <returns>Whether anything was replaced.</returns>
+    public bool ReplaceCurrent(string replacement) => _view?.ReplaceCurrent(replacement) ?? false;
+
+    /// <summary>Replaces every match, as one undoable step.</summary>
+    /// <param name="replacement">The text to put in each one.</param>
+    /// <returns>How many were replaced.</returns>
+    public int ReplaceAll(string replacement) => _view?.ReplaceAll(replacement) ?? 0;
 
     /// <inheritdoc/>
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
@@ -430,6 +481,15 @@ public class RichTextEditor : TemplatedControl
         else if (e.Property == RichTextView.CanRedoProperty)
         {
             RaisePropertyChanged(CanRedoProperty, (bool)e.OldValue!, (bool)e.NewValue!);
+        }
+        else if (e.Property == RichTextView.MatchCountProperty)
+        {
+            RaisePropertyChanged(MatchCountProperty, (int)e.OldValue!, (int)e.NewValue!);
+        }
+        else if (e.Property == RichTextView.CurrentMatchProperty)
+        {
+            RaisePropertyChanged(
+                CurrentMatchNumberProperty, (int)e.OldValue! + 1, (int)e.NewValue! + 1);
         }
     }
 }

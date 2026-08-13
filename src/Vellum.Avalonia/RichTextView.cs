@@ -209,12 +209,16 @@ public partial class RichTextView : DocumentPresenter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The selection goes underneath the text and the caret on top; the blocks in between are
-    /// the base class's job.
+    /// Order matters and was settled by looking at the result. Found-but-not-current matches go
+    /// under the selection, because a match the user has also selected should read as selected.
+    /// The current match goes over it, because it is always selected and would otherwise be a
+    /// muddy mixture of the two. Text is above all of them and the caret above that.
     /// </remarks>
     private protected override void RenderContent(DrawingContext context)
     {
+        RenderFindHighlights(context);
         RenderSelection(context);
+        RenderCurrentFindHighlight(context);
         RenderBlocks(context);
         RenderCaret(context);
     }
@@ -372,6 +376,9 @@ public partial class RichTextView : DocumentPresenter
         // every block above it, and those are not settled until the window has been laid out.
         _pendingAnchor = true;
 
+        // Before the layout work, so a research that changes nothing does not also cost a frame.
+        Research();
+
         if (_views.Count > 0)
         {
             // Realised eagerly rather than waiting for the layout pass: see Realize.
@@ -425,9 +432,17 @@ public partial class RichTextView : DocumentPresenter
             return;
         }
 
-        var from = _state.Selection.From;
-        var to = _state.Selection.To;
+        EnumerateRange(_state.Selection.From, _state.Selection.To, onRect);
+    }
 
+    /// <summary>Walks the rectangles a document range covers, in view coordinates.</summary>
+    /// <remarks>
+    /// Shared by the selection, by <see cref="SelectionBounds"/> and by the find highlight, so
+    /// that none of them can disagree about where a range is — a toolbar floating beside a
+    /// highlight that is somewhere else is worse than no toolbar.
+    /// </remarks>
+    private void EnumerateRange(int from, int to, Action<Rect> onRect)
+    {
         for (var i = _first; i <= _last; i++)
         {
             var slot = _slots[i];
@@ -447,8 +462,8 @@ public partial class RichTextView : DocumentPresenter
                 continue;
             }
 
-            // Blocks the selection does not reach into at all. The comparisons are strict at
-            // both ends so that a selection merely touching a boundary is skipped here rather
+            // Blocks the range does not reach into at all. The comparisons are strict at
+            // both ends so that a range merely touching a boundary is skipped here rather
             // than asked for a zero-length range; GetSelectionRects answers that with nothing,
             // so this is a short-circuit, not the thing that keeps an empty sliver off screen.
             if (to <= slot.Start || from >= slot.End)
