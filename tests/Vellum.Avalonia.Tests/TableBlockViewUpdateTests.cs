@@ -378,6 +378,49 @@ public class TableBlockViewUpdateTests
         Assert.Equal(before, Red(window));
     }
 
+    /// <remarks>
+    /// The update path keeps a reference to the header brush it was built with, which is a new way
+    /// for the tint to go stale: a cell reused across an edit would keep the old brush. It does not
+    /// happen because changing the brush drops every view — but that is a fact about another class,
+    /// so it is checked here rather than assumed.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ChangingTheHeaderBrushThenTypingUsesTheNewTint()
+    {
+        var table = new TableNode([
+            new TableRowNode([
+                new TableCellNode([ParagraphNode.FromText("head")], isHeader: true),
+                TableCellNode.FromText("b"),
+            ]),
+            new TableRowNode([TableCellNode.FromText("c"), TableCellNode.FromText("d")]),
+        ]);
+
+        var host = new RichTextView
+        {
+            State = EditorState.Create(new DocumentNode([table])),
+            TableHeaderBrush = Brushes.Lime,
+        };
+
+        var window = new global::Avalonia.Controls.Window { Width = 400, Height = 300, Content = host };
+
+        window.Show();
+
+        Assert.Equal(0, Red(window));
+
+        host.TableHeaderBrush = Brushes.Red;
+
+        var tinted = Red(window);
+
+        Assert.True(tinted > 0, "the new header brush was never painted");
+
+        // And it survives an edit in a different cell, which is where a reused view would bring
+        // the old brush back.
+        host.MoveTo(host.Slots[0].Start + table.Rows[0].NodeSize + 4, extend: false);
+        host.InsertText("x");
+
+        Assert.Equal(tinted, Red(window));
+    }
+
     [AvaloniaFact]
     public void ANestedTableIsUpdatedRatherThanRebuilt()
     {
