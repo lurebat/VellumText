@@ -50,6 +50,15 @@ public class RichTextEditor : TemplatedControl
     public static readonly DirectProperty<RichTextEditor, bool> CanRedoProperty =
         AvaloniaProperty.RegisterDirect<RichTextEditor, bool>(nameof(CanRedo), o => o.CanRedo);
 
+    /// <summary>Defines the <see cref="View"/> property.</summary>
+    /// <remarks>
+    /// Observable rather than a plain property because the view does not exist until the
+    /// template is applied, and anything attaching to the editor — a toolbar, most obviously —
+    /// is built before that. Reading it once at construction would read null forever.
+    /// </remarks>
+    public static readonly DirectProperty<RichTextEditor, RichTextView?> ViewProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, RichTextView?>(nameof(View), o => o.View);
+
     static RichTextEditor()
     {
         TemplateProperty.OverrideDefaultValue<RichTextEditor>(
@@ -166,9 +175,13 @@ public class RichTextEditor : TemplatedControl
 
         base.OnApplyTemplate(e);
 
-        _view = e.NameScope.Find<RichTextView>(ViewPart)
+        var found = e.NameScope.Find<RichTextView>(ViewPart)
             ?? throw new InvalidOperationException(
                 $"A {nameof(RichTextEditor)} template must contain a {nameof(RichTextView)} named {ViewPart}.");
+
+        var old = _view;
+
+        _view = found;
 
         // Pushed into the view first, because the view's own default would otherwise overwrite
         // whatever the application set before the template was applied.
@@ -180,7 +193,16 @@ public class RichTextEditor : TemplatedControl
             _pendingHistory = null;
         }
 
+        if (old is not null)
+        {
+            // Retemplating leaves the old view detached but alive; without this its events would
+            // keep arriving and the editor would report the state of a view nobody can see.
+            old.PropertyChanged -= OnViewPropertyChanged;
+        }
+
         _view.PropertyChanged += OnViewPropertyChanged;
+
+        RaisePropertyChanged(ViewProperty, old, _view);
     }
 
     /// <inheritdoc/>
