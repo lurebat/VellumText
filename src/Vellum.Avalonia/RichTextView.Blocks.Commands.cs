@@ -142,10 +142,12 @@ public partial class RichTextView
     /// everything else. Tab is deliberately indent rather than a literal tab: a rich text
     /// control that swallowed Tab to insert whitespace would trap keyboard focus.
     /// </remarks>
-    private bool BlockShortcut(Key key, bool control, bool shift) => (key, control, shift) switch
+    internal bool BlockShortcut(Key key, bool control, bool shift) => (key, control, shift) switch
     {
-        (Key.Tab, false, false) => Indent(),
-        (Key.Tab, false, true) => Outdent(),
+        // In a list, Tab changes the nesting rather than the indent: a bullet that moved right
+        // without becoming a sub-bullet would look nested and behave as though it were not.
+        (Key.Tab, false, false) => NestListItem() || Indent(),
+        (Key.Tab, false, true) => LiftListItem() || Outdent(),
 
         (Key.D0, true, false) => SetParagraphKind(ParagraphKind.Body),
         (Key.D1, true, false) => SetParagraphKind(ParagraphKind.Heading1),
@@ -154,6 +156,9 @@ public partial class RichTextView
         (Key.D4, true, false) => SetParagraphKind(ParagraphKind.Heading4),
         (Key.D5, true, false) => SetParagraphKind(ParagraphKind.Heading5),
         (Key.D6, true, false) => SetParagraphKind(ParagraphKind.Heading6),
+
+        (Key.D7, true, true) => ToggleList(ListKind.Ordered),
+        (Key.D8, true, true) => ToggleList(ListKind.Unordered),
 
         (Key.L, true, false) => SetAlign(TextAlign.Left),
         (Key.E, true, false) => SetAlign(TextAlign.Center),

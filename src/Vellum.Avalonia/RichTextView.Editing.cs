@@ -110,6 +110,14 @@ public partial class RichTextView
             return false;
         }
 
+        // Enter in an empty bullet leaves the list rather than adding another empty one. It is
+        // the only way out of a list that does not require knowing a shortcut, and every editor
+        // a user has met behaves this way.
+        if (InEmptyListItem() && LiftListItem())
+        {
+            return true;
+        }
+
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Structure);
 

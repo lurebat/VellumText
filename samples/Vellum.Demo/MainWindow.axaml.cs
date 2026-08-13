@@ -57,6 +57,9 @@ public partial class MainWindow : Window
         IndentButton.Click += (_, _) => Run(() => View.Indent());
         OutdentButton.Click += (_, _) => Run(() => View.Outdent());
 
+        BulletListButton.Click += (_, _) => Run(() => View.ToggleList(ListKind.Unordered));
+        NumberListButton.Click += (_, _) => Run(() => View.ToggleList(ListKind.Ordered));
+
         SampleButton.Click += (_, _) => LoadSample();
         ImportHtmlButton.Click += (_, _) => Show(HtmlImporter.Import(SourceBox.Text ?? string.Empty), "HTML");
         ImportRtfButton.Click += (_, _) => Show(RtfImporter.Import(SourceBox.Text ?? string.Empty), "RTF");
@@ -392,6 +395,11 @@ public partial class MainWindow : Window
             StrikeButton.IsChecked = marks.Has(TextStyle.Strikethrough);
             SuperButton.IsChecked = marks.Has(TextStyle.Super);
             SubButton.IsChecked = marks.Has(TextStyle.Sub);
+
+            var list = View.ListKindAt;
+
+            BulletListButton.IsChecked = list == ListKind.Unordered;
+            NumberListButton.IsChecked = list == ListKind.Ordered;
 
             FontBox.SelectedIndex = marks.FontFamily is { } family
                 ? Math.Max(Array.IndexOf(Families, family), 0)
