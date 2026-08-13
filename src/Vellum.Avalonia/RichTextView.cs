@@ -378,9 +378,44 @@ public partial class RichTextView : Control
         NotifyInputMethod();
     }
 
+    /// <summary>
+    /// The rectangle the selection occupies on screen, in view coordinates, or null when nothing
+    /// is selected or no part of the selection has been realized.
+    /// </summary>
+    /// <remarks>
+    /// The union of the rectangles the selection paints, and so bounded by the realized window
+    /// rather than by the document: a selection running off the bottom of the viewport reports
+    /// only the part that is on screen. That is what a caller putting something beside the
+    /// selection actually wants, since there is nowhere off screen to put it.
+    /// </remarks>
+    public Rect? SelectionBounds()
+    {
+        Rect? bounds = null;
+
+        EnumerateSelection(rect => bounds = bounds is { } seen ? seen.Union(rect) : rect);
+
+        return bounds;
+    }
+
     private void RenderSelection(DrawingContext context)
     {
-        if (_state.Selection.IsEmpty || SelectionBrush is null)
+        if (SelectionBrush is not { } brush)
+        {
+            return;
+        }
+
+        EnumerateSelection(rect => context.FillRectangle(brush, rect));
+    }
+
+    /// <summary>Walks the rectangles the current selection covers, in view coordinates.</summary>
+    /// <remarks>
+    /// Shared by painting and by <see cref="SelectionBounds"/> so that the two can never disagree
+    /// about where the selection is — a toolbar floating beside a highlight that is somewhere else
+    /// is worse than no toolbar.
+    /// </remarks>
+    private void EnumerateSelection(Action<Rect> onRect)
+    {
+        if (_state.Selection.IsEmpty)
         {
             return;
         }
@@ -401,7 +436,7 @@ public partial class RichTextView : Control
                 // reaches past the block on both sides.
                 if (from <= slot.Start && to >= slot.Start + slot.Node.NodeSize)
                 {
-                    context.FillRectangle(SelectionBrush, new Rect(origin, _views[i].Size));
+                    onRect(new Rect(origin, _views[i].Size));
                 }
 
                 continue;
@@ -422,7 +457,7 @@ public partial class RichTextView : Control
                 Math.Max(0, from - slot.Start),
                 Math.Min(view.ContentSize, to - slot.Start)))
             {
-                context.FillRectangle(SelectionBrush, rect.Translate(origin));
+                onRect(rect.Translate(origin));
             }
         }
     }

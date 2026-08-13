@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Vellum;assembly=Vellum.Core"
         xmlns:v="clr-namespace:Vellum.Avalonia">
 
   <!--
@@ -66,6 +67,12 @@
     <Setter Property="Foreground" Value="{DynamicResource VellumToolbarForeground}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <!--
+      A toolbar button must not take the keyboard. Focus belongs to the text: clicking Bold and
+      then finding that the next keystroke went to a button, not the document, is the single most
+      irritating thing a formatting bar can do.
+    -->
+    <Setter Property="Focusable" Value="False" />
   </Style>
   <Style Selector="v|RichTextToolbar :is(Button).vellum-tool:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource VellumToolbarHover}" />
@@ -164,6 +171,90 @@
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="Height" Value="28" />
     <Setter Property="CornerRadius" Value="4" />
+  </Style>
+
+  <!--
+    The bar that floats beside a selection. A Style rather than a second ControlTheme, because a
+    style setter outranks a control theme setter and so replaces the Template the full bar gets
+    from its type theme, on exactly the toolbars that carry this class.
+
+    Nine buttons, not twenty-eight. It is offered over the text a moment after a selection is
+    made, so it has to be readable at a glance and small enough not to bury the paragraph: the
+    four character styles, the two headings worth reaching for mid-sentence, and the two things
+    one does to a phrase — link it, or strip it back. Anything rarer is a trip to the real bar.
+  -->
+  <Style Selector="v|RichTextToolbar.vellum-selection">
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="5,4" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}"
+                Padding="{TemplateBinding Padding}"
+                BoxShadow="0 4 16 0 #40000000">
+          <StackPanel Orientation="Horizontal">
+
+            <ToggleButton Classes="vellum-tool" Content="B" FontWeight="Bold" FontSize="15"
+                          ToolTip.Tip="Bold (Ctrl+B)"
+                          Command="{Binding ToggleStyleCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:TextStyle.Bold}"
+                          IsChecked="{Binding IsBold, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
+            <ToggleButton Classes="vellum-tool" Content="I" FontStyle="Italic" FontSize="15"
+                          FontFamily="Georgia,Times New Roman,serif"
+                          ToolTip.Tip="Italic (Ctrl+I)"
+                          Command="{Binding ToggleStyleCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:TextStyle.Italic}"
+                          IsChecked="{Binding IsItalic, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
+            <ToggleButton Classes="vellum-tool vellum-underline" Content="U"
+                          ToolTip.Tip="Underline (Ctrl+U)"
+                          Command="{Binding ToggleStyleCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:TextStyle.Underline}"
+                          IsChecked="{Binding IsUnderline, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
+            <ToggleButton Classes="vellum-tool vellum-strike" Content="S"
+                          ToolTip.Tip="Strikethrough"
+                          Command="{Binding ToggleStyleCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:TextStyle.Strikethrough}"
+                          IsChecked="{Binding IsStrikethrough, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}" />
+
+            <Border Classes="vellum-divider" />
+
+            <ToggleButton Classes="vellum-tool" Content="H1" ToolTip.Tip="Heading 1"
+                          Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:ParagraphKind.Heading1}"
+                          IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Heading1}" />
+            <ToggleButton Classes="vellum-tool" Content="H2" ToolTip.Tip="Heading 2"
+                          Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:ParagraphKind.Heading2}"
+                          IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Heading2}" />
+            <ToggleButton Classes="vellum-tool" Content="Quote" ToolTip.Tip="Block quote"
+                          Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          CommandParameter="{x:Static c:ParagraphKind.Quote}"
+                          IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Quote}" />
+
+            <Border Classes="vellum-divider" />
+
+            <ToggleButton Classes="vellum-tool" ToolTip.Tip="Link"
+                          Command="{Binding SetLinkCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                          IsChecked="{Binding IsLink, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}">
+              <Path Classes="vellum-icon" Data="{StaticResource VellumLinkIcon}" />
+            </ToggleButton>
+            <ToggleButton Classes="vellum-tool" ToolTip.Tip="Strip character formatting (Ctrl+Space)"
+                          Command="{Binding ClearFormattingCommand, RelativeSource={RelativeSource TemplatedParent}}">
+              <Path Classes="vellum-icon" Data="{StaticResource VellumClearIcon}" />
+            </ToggleButton>
+
+          </StackPanel>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+
+  <!-- The last button in the floating bar has nothing after it to be spaced from. -->
+  <Style Selector="v|RichTextToolbar.vellum-selection StackPanel > :is(Button).vellum-tool:nth-last-child(1)">
+    <Setter Property="Margin" Value="0" />
   </Style>
 
 </Styles>

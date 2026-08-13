@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
+using Avalonia.Media;
 
 namespace Vellum.Avalonia;
 
@@ -30,11 +31,25 @@ namespace Vellum.Avalonia;
 /// puts the whole document back on the ordinary path, because a scroll presenter only inspects
 /// its immediate child.
 /// </para>
+/// <para>
+/// <b>The selection toolbar</b> is a second <see cref="RichTextToolbar"/> in the template,
+/// overlaid on the view and moved to sit beside whatever is selected. See
+/// <see cref="IsSelectionToolbarEnabled"/>.
+/// </para>
 /// </remarks>
 public class RichTextEditor : TemplatedControl
 {
     /// <summary>The name of the <see cref="RichTextView"/> in the template.</summary>
     public const string ViewPart = "PART_View";
+
+    /// <summary>The name of the panel the selection toolbar is positioned within.</summary>
+    public const string OverlayPart = "PART_Overlay";
+
+    /// <summary>The name of the toolbar that floats beside the selection.</summary>
+    public const string SelectionToolbarPart = "PART_SelectionToolbar";
+
+    /// <summary>The gap between the selection and the toolbar floating beside it, in pixels.</summary>
+    private const double SelectionToolbarGap = 8;
 
     /// <summary>Defines the <see cref="State"/> property.</summary>
     public static readonly StyledProperty<EditorState> StateProperty =
@@ -42,6 +57,11 @@ public class RichTextEditor : TemplatedControl
             nameof(State),
             EditorState.Create(DocumentNode.Empty),
             defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
+
+    /// <summary>Defines the <see cref="IsSelectionToolbarEnabled"/> property.</summary>
+    public static readonly StyledProperty<bool> IsSelectionToolbarEnabledProperty =
+        AvaloniaProperty.Register<RichTextEditor, bool>(
+            nameof(IsSelectionToolbarEnabled), defaultValue: true);
 
     /// <summary>Defines the <see cref="CanUndo"/> property.</summary>
     public static readonly DirectProperty<RichTextEditor, bool> CanUndoProperty =
@@ -92,7 +112,46 @@ public class RichTextEditor : TemplatedControl
                 border.Bind(
                     Border.CornerRadiusProperty, editor.GetObservable(CornerRadiusProperty));
 
-                return border;
+                // The floating toolbar is a sibling of the scroll viewer rather than a popup. A
+                // popup would be free of the editor's bounds, which sounds like an advantage and
+                // is not: a formatting bar for a selection belongs over the text it formats, and
+                // an overlay cannot outlive its editor, drift onto another monitor, or need an
+                // overlay layer the host may not have templated.
+                var floating = new RichTextToolbar
+                {
+                    Name = SelectionToolbarPart,
+                    Editor = editor,
+                    HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Left,
+                    VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Top,
+
+                    // Genuinely invisible, not merely transparent. Opacity does not affect
+                    // IsEffectivelyVisible, which is what Avalonia's automation peer reports as
+                    // IsOffscreen -- a transparent bar announces nine phantom buttons to a screen
+                    // reader. The cost is that a hidden control is never measured, so the code that
+                    // shows it measures it by hand before reading DesiredSize.
+                    IsVisible = false,
+                    IsHitTestVisible = false,
+
+                    // Placed by transform rather than by margin. Measured, and it is not a
+                    // preference: Avalonia's DesiredSize includes the margin, so a bar positioned
+                    // by margin grows its own desired size, which moves it, which grows it --
+                    // "Infinite layout loop detected", every frame. A render transform does not
+                    // participate in layout at all, so the position cannot feed back into the
+                    // measurement it was computed from.
+                    RenderTransform = new TranslateTransform(),
+                    RenderTransformOrigin = RelativePoint.TopLeft,
+                };
+
+                floating.Classes.Add("vellum-selection");
+                floating.RegisterInNameScope(scope);
+
+                var overlay = new Panel { Name = OverlayPart };
+
+                overlay.Children.Add(border);
+                overlay.Children.Add(floating);
+                overlay.RegisterInNameScope(scope);
+
+                return overlay;
             }));
 
         // Horizontal scrolling is off because the view wraps to the width it is given; leaving
@@ -109,6 +168,8 @@ public class RichTextEditor : TemplatedControl
     }
 
     private RichTextView? _view;
+    private Panel? _overlay;
+    private RichTextToolbar? _floating;
     private History? _pendingHistory;
 
     /// <summary>The document and selection being edited.</summary>
@@ -116,6 +177,29 @@ public class RichTextEditor : TemplatedControl
     {
         get => GetValue(StateProperty);
         set => SetValue(StateProperty, value);
+    }
+
+    /// <summary>Whether a small formatting bar floats beside a non-empty selection.</summary>
+    /// <remarks>
+    /// <para>
+    /// On by default, because the alternative for a bare <c>&lt;RichTextEditor/&gt;</c> is a
+    /// surface with no visible way to format anything. An application that supplies its own
+    /// toolbar and wants nothing floating over the text turns it off.
+    /// </para>
+    /// <para>
+    /// It appears only once a pointer drag has finished, never during one: a bar that follows the
+    /// pointer across the paragraph being selected would land under it and swallow the release.
+    /// </para>
+    /// <para>
+    /// Nothing appears if <c>avares://Vellum.Avalonia/Themes/Vellum.axaml</c> is not among the
+    /// application's styles, since the bar has no template then. That is deliberate — an empty
+    /// box over the selection would be worse than no bar at all.
+    /// </para>
+    /// </remarks>
+    public bool IsSelectionToolbarEnabled
+    {
+        get => GetValue(IsSelectionToolbarEnabledProperty);
+        set => SetValue(IsSelectionToolbarEnabledProperty, value);
     }
 
     /// <summary>The undo history, or null before one has been set or a template applied.</summary>
@@ -161,6 +245,24 @@ public class RichTextEditor : TemplatedControl
     /// <summary>The view doing the work, or null before the template has been applied.</summary>
     public RichTextView? View => _view;
 
+    /// <summary>
+    /// The toolbar that floats beside the selection, or null when the template has none.
+    /// </summary>
+    public RichTextToolbar? SelectionToolbar => _floating;
+
+    /// <summary>
+    /// Where the floating toolbar has been put, relative to the editor's top-left corner.
+    /// </summary>
+    /// <remarks>
+    /// A translation rather than a position in the layout: the bar is arranged at the origin and
+    /// moved from there, so its <see cref="Visual.Bounds"/> say nothing about where it appears.
+    /// Placing it by margin instead was measured and is a trap — Avalonia's <c>DesiredSize</c>
+    /// includes the margin, so the bar's own position grows its size, which moves it, which grows
+    /// it again: "Infinite layout loop detected", once per frame.
+    /// </remarks>
+    public Point SelectionToolbarPlacement =>
+        _floating?.RenderTransform is TranslateTransform move ? new Point(move.X, move.Y) : default;
+
     /// <summary>Undoes the most recent edit.</summary>
     /// <returns>Whether anything changed.</returns>
     public bool Undo() => _view?.Undo() ?? false;
@@ -199,9 +301,21 @@ public class RichTextEditor : TemplatedControl
             // Retemplating leaves the old view detached but alive; without this its events would
             // keep arriving and the editor would report the state of a view nobody can see.
             old.PropertyChanged -= OnViewPropertyChanged;
+            old.LayoutUpdated -= OnViewLayoutUpdated;
         }
 
         _view.PropertyChanged += OnViewPropertyChanged;
+
+        // Where the selection is on screen depends on the heights of every block above it and on
+        // how far the view has been scrolled, neither of which is settled until the pass is over.
+        // Scrolling goes through the view's Offset setter, which invalidates measure, so this
+        // catches a wheel notch as well as a resize.
+        _view.LayoutUpdated += OnViewLayoutUpdated;
+
+        // Optional, unlike the view: a replacement template that wants no floating bar simply
+        // leaves it out, and the feature turns itself off rather than refusing to template.
+        _overlay = e.NameScope.Find<Panel>(OverlayPart);
+        _floating = e.NameScope.Find<RichTextToolbar>(SelectionToolbarPart);
 
         RaisePropertyChanged(ViewProperty, old, _view);
     }
@@ -217,7 +331,76 @@ public class RichTextEditor : TemplatedControl
         {
             _view.State = State;
         }
+        else if (change.Property == IsSelectionToolbarEnabledProperty)
+        {
+            UpdateSelectionToolbar();
+        }
     }
+
+    /// <summary>Puts the floating toolbar beside the selection, or takes it away.</summary>
+    /// <remarks>
+    /// Position is clamped into <see cref="OverlayPart"/>, so the bar can never be drawn outside
+    /// the editor. It prefers to sit above the selection and drops below it when there is no room,
+    /// which is the one case where covering the text being formatted is unavoidable.
+    /// </remarks>
+    private void UpdateSelectionToolbar()
+    {
+        if (_floating is not { } bar || _overlay is not { } overlay)
+        {
+            return;
+        }
+
+        if (!IsSelectionToolbarEnabled
+            || bar.Template is null
+            || _view is not { } view
+            || view.IsDragging
+            || view.SelectionBounds() is not { } local
+            || view.TranslatePoint(local.TopLeft, overlay) is not { } topLeft
+            || view.TranslatePoint(local.BottomRight, overlay) is not { } bottomRight)
+        {
+            bar.IsVisible = false;
+            bar.IsHitTestVisible = false;
+            return;
+        }
+
+        var area = new Rect(topLeft, bottomRight);
+        var room = overlay.Bounds.Size;
+
+        // Measured by hand, because a hidden control has no DesiredSize and the frame it becomes
+        // visible on is the frame we need to place it. Layout will measure it again with the same
+        // constraint immediately after; that pass agrees and so changes nothing.
+        bar.IsVisible = true;
+        bar.Measure(room);
+        var size = bar.DesiredSize;
+
+        var above = area.Top - size.Height - SelectionToolbarGap;
+        var y = above >= 0 ? above : area.Bottom + SelectionToolbarGap;
+
+        Place(
+            bar,
+            Math.Clamp(area.Center.X - (size.Width / 2), 0, Math.Max(0, room.Width - size.Width)),
+            Math.Clamp(y, 0, Math.Max(0, room.Height - size.Height)));
+
+        bar.IsHitTestVisible = true;
+    }
+
+    /// <summary>Reads back where <see cref="UpdateSelectionToolbar"/> put the bar.</summary>
+    /// <remarks>
+    /// The transform, not the bounds: the bar is arranged at the overlay's origin and moved from
+    /// there, so its <see cref="Visual.Bounds"/> say nothing about where it appears.
+    /// </remarks>
+    private static void Place(Control bar, double x, double y)
+    {
+        if (bar.RenderTransform is not TranslateTransform move)
+        {
+            return;
+        }
+
+        move.X = x;
+        move.Y = y;
+    }
+
+    private void OnViewLayoutUpdated(object? sender, EventArgs e) => UpdateSelectionToolbar();
 
     /// <remarks>
     /// The two properties are kept in step by hand rather than by a two-way binding, so that
@@ -234,6 +417,11 @@ public class RichTextEditor : TemplatedControl
         if (e.Property == RichTextView.StateProperty)
         {
             State = _view.State;
+            UpdateSelectionToolbar();
+        }
+        else if (e.Property == RichTextView.IsDraggingProperty)
+        {
+            UpdateSelectionToolbar();
         }
         else if (e.Property == RichTextView.CanUndoProperty)
         {

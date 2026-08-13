@@ -39,10 +39,22 @@ public class ToolbarThemeTests
         Assert.True(buttons.Count >= 24, $"expected a populated bar, found {buttons.Count} buttons");
     }
 
+    /// <summary>
+    /// No button in the bar may take the keyboard. Clicking Bold and then finding that the next
+    /// keystroke went to a button rather than into the document is the single most irritating
+    /// thing a formatting bar can do, and nothing about it is visible until you try to type.
+    /// </summary>
+    [AvaloniaFact]
+    public void NoButtonInTheBarTakesTheKeyboard()
+    {
+        var bar = Templated(out _);
+
+        Assert.All(Buttons(bar), button => Assert.False(button.Focusable));
+    }
+
     [AvaloniaFact]
     public void TheBoldButtonBoldsTheSelection()
-    {
-        var bar = Templated(out var editor);
+    {        var bar = Templated(out var editor);
 
         SelectAll(editor.View!);
 

@@ -19,6 +19,10 @@ namespace Vellum.Avalonia;
 /// </remarks>
 public partial class RichTextView
 {
+    /// <summary>Defines the <see cref="IsDragging"/> property.</summary>
+    public static readonly DirectProperty<RichTextView, bool> IsDraggingProperty =
+        AvaloniaProperty.RegisterDirect<RichTextView, bool>(nameof(IsDragging), o => o.IsDragging);
+
     private bool _dragging;
     private double? _goalX;
 
@@ -33,7 +37,17 @@ public partial class RichTextView
     public double? GoalX => _goalX;
 
     /// <summary>Whether a pointer drag is currently extending the selection.</summary>
-    public bool IsDragging => _dragging;
+    /// <remarks>
+    /// A property rather than a field because anything showing an affordance for the selection
+    /// has to wait for the drag to finish: a toolbar that appears on the first pixel of a drag
+    /// then chases the pointer across the paragraph is unusable, and worse, it lands under the
+    /// pointer and swallows the release.
+    /// </remarks>
+    public bool IsDragging
+    {
+        get => _dragging;
+        private set => SetAndRaise(IsDraggingProperty, ref _dragging, value);
+    }
 
     /// <summary>Places the caret, or extends the selection to reach it.</summary>
     /// <remarks>
@@ -157,7 +171,7 @@ public partial class RichTextView
         Focus();
 
         _goalX = null;
-        _dragging = true;
+        IsDragging = true;
 
         // Explicit, although Avalonia also captures implicitly on press — measured: deleting
         // this line changes nothing the headless harness can observe. It is kept because a drag
@@ -209,7 +223,7 @@ public partial class RichTextView
         // so does having capture taken away — a popup opening, the window deactivating. Clearing
         // the flag in a pointer-released handler as well would be duplicate bookkeeping that no
         // test could distinguish from this.
-        _dragging = false;
+        IsDragging = false;
     }
 
     /// <inheritdoc/>
