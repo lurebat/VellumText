@@ -223,6 +223,14 @@ internal static class CssStyles
             }
         }
 
+        // The author has said the spaces in here are content, so the collapsing rules are off.
+        // "pre-line" is deliberately excluded: it keeps newlines but still collapses spaces, which
+        // is the behaviour this flag would switch off.
+        if (style.GetPropertyValue("white-space") is "pre" or "pre-wrap" or "break-spaces")
+        {
+            block = block with { Preformatted = true };
+        }
+
         return block;
     }
 
