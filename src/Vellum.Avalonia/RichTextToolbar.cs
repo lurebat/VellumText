@@ -18,6 +18,12 @@ namespace Vellum.Avalonia;
 /// markup rather than a different toolbar.
 /// </para>
 /// <para>
+/// The default arrangement lives in <c>Themes/RichTextToolbar.axaml</c> and is reached by adding
+/// <c>avares://Vellum.Avalonia/Themes/Vellum.axaml</c> to the application's styles. Without it
+/// the control is present and working but draws nothing, which is the ordinary bargain of a
+/// templated control rather than a fault.
+/// </para>
+/// <para>
 /// Every state property is driven from the document rather than from what was last clicked, so
 /// that moving the caret into bold text lights the bold button, and undo puts the whole bar back.
 /// A property is only true when <em>every</em> character of the selection agrees; a half-bold
@@ -33,6 +39,19 @@ namespace Vellum.Avalonia;
 /// </remarks>
 public class RichTextToolbar : TemplatedControl
 {
+    /// <summary>The colours the default template's two colour buttons offer.</summary>
+    /// <remarks>
+    /// A palette rather than a colour wheel: two rows of eight is the whole decision for almost
+    /// every document, and a picker that opens on a hue slider makes the common case the slow one.
+    /// They are strings because markup cannot construct an <see cref="Rgba"/>, and because a
+    /// replacement template is then free to offer its own list without referencing this one.
+    /// </remarks>
+    public static IReadOnlyList<string> Palette { get; } =
+    [
+        "#000000", "#434343", "#787878", "#B7B7B7", "#D9D9D9", "#EFEFEF", "#FFFFFF", "#980000",
+        "#C82020", "#E06810", "#F0D020", "#189040", "#109098", "#2060D8", "#182870", "#8030B0",
+    ];
+
     /// <summary>Defines the <see cref="Editor"/> property.</summary>
     public static readonly StyledProperty<RichTextEditor?> EditorProperty =
         AvaloniaProperty.Register<RichTextToolbar, RichTextEditor?>(nameof(Editor));
@@ -136,8 +155,8 @@ public class RichTextToolbar : TemplatedControl
         SetParagraphKindCommand = Command<ParagraphKind>(kind => _view?.SetParagraphKind(kind));
         SetAlignCommand = Command<TextAlign>(align => _view?.SetAlign(align));
         ToggleListCommand = Command<ListKind>(kind => _view?.ToggleList(kind));
-        SetForegroundCommand = Command<Rgba?>(colour => _view?.SetForeground(colour));
-        SetHighlightCommand = Command<Rgba?>(colour => _view?.SetHighlight(colour));
+        SetForegroundCommand = Command<object?>(colour => _view?.SetForeground(Colour(colour)));
+        SetHighlightCommand = Command<object?>(colour => _view?.SetHighlight(Colour(colour)));
         SetFontFamilyCommand = Command<string?>(family => _view?.SetFontFamily(family));
         SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size)));
         IndentCommand = Command(() => _view?.Indent());
@@ -278,6 +297,20 @@ public class RichTextToolbar : TemplatedControl
         double value => value,
         int value => value,
         string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) => value,
+        _ => null,
+    };
+
+    /// <summary>Reads a colour from whatever a swatch button's parameter happened to hold.</summary>
+    /// <remarks>
+    /// Markup cannot construct an <see cref="Rgba"/>, so a palette written in XAML has no way to
+    /// say what colour a swatch is except as a string. Null means no colour, which is not black:
+    /// it removes the mark and lets the text take the colour it inherits.
+    /// </remarks>
+    private static Rgba? Colour(object? colour) => colour switch
+    {
+        Rgba value => value,
+        global::Avalonia.Media.Color value => value.ToVellum(),
+        string text when global::Avalonia.Media.Color.TryParse(text, out var value) => value.ToVellum(),
         _ => null,
     };
 

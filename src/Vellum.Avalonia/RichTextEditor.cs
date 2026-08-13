@@ -16,10 +16,11 @@ namespace Vellum.Avalonia;
 /// </para>
 /// <para>
 /// The default template is built in code rather than in XAML. It is a border around a scroll
-/// viewer around the view, with no visual states, so a markup file would buy little and would
-/// drag a resource-loading step into a library that otherwise has none. An application that
-/// wants different chrome sets <see cref="TemplatedControl.Template"/>, which is the whole
-/// point of the type.
+/// viewer around the view, with no visual states and nothing to theme, so markup would buy
+/// nothing here — unlike <see cref="RichTextToolbar"/>, whose default template is a bar of
+/// buttons and does live in <c>Themes/RichTextToolbar.axaml</c>. An application that wants
+/// different chrome sets <see cref="TemplatedControl.Template"/>, which is the whole point of
+/// the type.
 /// </para>
 /// <para>
 /// <b>Scrolling is virtualized.</b> The view implements <c>ILogicalScrollable</c> over a block
