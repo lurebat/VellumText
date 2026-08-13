@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Vellum;
 using Vellum.Avalonia;
 
@@ -25,8 +26,96 @@ namespace Vellum.Tests.Avalonia;
 /// </remarks>
 public class RichTextViewTableTests
 {
-    private static TableNode Table() =>
-        new([
+    /// <summary>
+    /// Down enters the table rather than stepping over it, and moves between rows rather than
+    /// along the row. Document order and visual order disagree here: the paragraph after the one
+    /// in the top-left cell is the one to its right, not the one below it.
+    /// </summary>
+    [AvaloniaFact]
+    public void DownMovesIntoTheTableAndThenDownItsColumn()
+    {
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
+
+        view.MoveTo(StartOf(doc, "before"), extend: false);
+
+        Press(view, Key.Down);
+        Assert.Equal(StartOf(doc, "a1"), view.State.Selection.Head);
+
+        Press(view, Key.Down);
+        Assert.Equal(StartOf(doc, "a2"), view.State.Selection.Head);
+    }
+
+    /// <summary>
+    /// Up out of the top row and down out of the bottom row both leave, so the table cannot trap
+    /// the caret. Landing keeps the goal column, so leaving the indented first cell lands just
+    /// inside the paragraph below rather than exactly at its start.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheCaretCanLeaveTheTableInBothDirections()
+    {
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
+        var below = StartOf(doc, "after");
+
+        view.MoveTo(StartOf(doc, "a2"), extend: false);
+        Press(view, Key.Down);
+        Assert.InRange(view.State.Selection.Head, below, below + "after".Length);
+
+        view.MoveTo(StartOf(doc, "a1"), extend: false);
+        Press(view, Key.Up);
+
+        var above = StartOf(doc, "before");
+
+        Assert.InRange(view.State.Selection.Head, above, above + "before".Length);
+    }
+
+    /// <summary>
+    /// The goal column follows the caret between cells. A paragraph-local goal would slide back to
+    /// the left edge of each cell it entered, so a column of cells would drift the caret sideways.
+    /// </summary>
+    /// <remarks>
+    /// The cells in the right-hand column hold enough text that the landing is not clamped to
+    /// their end. With two-character cells both the right answer and an unconverted goal column
+    /// land on the last character, and the test cannot tell them apart.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheGoalColumnSurvivesMovingBetweenCells()
+    {
+        var doc = new DocumentNode([new TableNode([
+            new TableRowNode([
+                TableCellNode.FromText("a1"),
+                TableCellNode.FromText("wide enough to land inside"),
+            ]),
+            new TableRowNode([
+                TableCellNode.FromText("a2"),
+                TableCellNode.FromText("wide enough to land inside"),
+            ]),
+        ])]);
+
+        var (_, view) = Shown(doc);
+        var top = StartOf(doc, "wide enough to land inside");
+
+        view.MoveTo(top + 4, extend: false);
+        Press(view, Key.Down);
+
+        // The same table cell text appears twice, so the one below is found by asking where the
+        // caret ended up rather than by searching the document for the text again.
+        var landed = view.State.Selection.Head;
+
+        Assert.True(landed > top + 20, $"expected a position in the row below, got {landed}");
+        Assert.Equal(4, view.State.Selection.Head - view.BlockStart);
+    }
+
+    private static void Press(RichTextView view, Key key) =>
+        view.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            Source = view,
+        });
+
+    private static TableNode Table() =>        new([
             new TableRowNode([TableCellNode.FromText("a1"), TableCellNode.FromText("b1")]),
             new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]),
         ]);

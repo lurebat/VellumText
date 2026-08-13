@@ -244,7 +244,7 @@ public partial class RichTextView
     {
         // Adjacency in the document, not in the drawn run: two paragraphs inside one table cell
         // are neighbours the user can join, and the drawn run sees only the table around them.
-        var leaves = DocumentBlocks.Leaves(_state.Doc);
+        var leaves = Leaves;
         var head = _state.Selection.Head;
         var index = -1;
 

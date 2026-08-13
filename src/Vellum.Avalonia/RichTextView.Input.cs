@@ -402,23 +402,27 @@ public partial class RichTextView
     {
         var local = CaretLocal;
         var line = CaretLine;
+        var offset = BlockOffset;
+        var caret = Block!.GetCaretRect(local);
 
-        // Read the goal before moving, and keep whatever a previous vertical move established.
-        _goalX ??= Block!.GetCaretRect(local).X;
+        // The goal is kept in this control's coordinates, not the paragraph's. Two paragraphs in
+        // two cells of a table start at different columns, so a paragraph-local goal would slide
+        // sideways every time the caret crossed between them.
+        _goalX ??= offset.X + caret.X;
 
         var target = down ? line + 1 : line - 1;
 
         if (target >= 0 && target < Block!.LineCount)
         {
-            MoveTo(BlockStart + Block.PositionAtLineX(target, _goalX.Value), extend);
+            MoveTo(BlockStart + Block.PositionAtLineX(target, _goalX.Value - offset.X), extend);
             return;
         }
 
-        // Off the end of this block: continue into the next paragraph at the same column, which
-        // is the whole reason the goal column is kept across the move.
-        var next = AdjacentParagraph(_caretBlock, down);
+        // Off the end of this paragraph: continue into the nearest one past it at the same column,
+        // which is the whole reason the goal column is kept across the move.
+        var edge = offset.Y + (down ? caret.Bottom : caret.Y);
 
-        if (next < 0)
+        if (AdjacentParagraph(_state.Selection.Head, edge, down, _goalX.Value) is not { } next)
         {
             // The first or last paragraph in the document. Go to the document edge, the way
             // every editor does, rather than refusing to move.
@@ -426,13 +430,10 @@ public partial class RichTextView
             return;
         }
 
-        // Measured on the way in, because vertical movement skips whatever is not a paragraph and
-        // so can land arbitrarily far from the realized window — past a full-page image, say. An
-        // unmeasured paragraph cannot say where its lines are.
-        var view = (ParagraphView)EnsureMeasured(next);
-
         MoveTo(
-            _slots[next].Start + view.PositionAtLineX(down ? 0 : view.LineCount - 1, _goalX.Value),
+            next.Start + next.View.PositionAtLineX(
+                down ? 0 : next.View.LineCount - 1,
+                _goalX.Value - next.Origin.X),
             extend);
     }
 

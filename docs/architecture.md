@@ -423,6 +423,21 @@ internal sealed class ParagraphView : BlockView
 > Two known gaps: there is no rectangular **cell selection** UI (`CellSelection` exists in the model
 > and the view does not raise it), and `Reconcile` has no in-place update path for a table, so any
 > edit inside one rebuilds the whole table view. Correct, but unmeasured.
+>
+> **Vertical caret movement had to become geometric.** It stepped to the adjacent *drawn* block,
+> which once a table was one block skipped every table whole. Stepping over `Leaves` instead fixed
+> that and introduced a subtler bug: document order is not visual order, so Down out of a top-left
+> cell went *right*, into the cell beside it. `AdjacentParagraph` now takes the nearest row of
+> paragraphs past the caret's line and, within that row, the one landing closest to the goal
+> column — and the goal column is kept in the control's coordinates rather than the paragraph's,
+> or it would slide back to each cell's left edge on the way through.
+>
+> That walk is linear in the document, so `Leaves` is cached against the document it was built
+> from — sound because a document is immutable, so reference equality is the right key and there is
+> no invalidation hook to forget. It is worth it: measured on 2000 paragraphs, the walk was
+> **0.577 ms of a 0.582 ms** keypress. Cached, a Down press costs **0.406 ms** against **0.459 ms**
+> for a Right press, so vertical movement is no dearer than horizontal and the residual is
+> pre-existing per-keypress cost rather than anything tables introduced.
 
 ### 4.7 The text source
 
