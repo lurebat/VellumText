@@ -212,7 +212,8 @@ public partial class RichTextView : DocumentPresenter
     /// Order matters and was settled by looking at the result. Found-but-not-current matches go
     /// under the selection, because a match the user has also selected should read as selected.
     /// The current match goes over it, because it is always selected and would otherwise be a
-    /// muddy mixture of the two. Text is above all of them and the caret above that.
+    /// muddy mixture of the two. Text is above all of them, the image handles above the text
+    /// they overlap, and the caret above everything.
     /// </remarks>
     private protected override void RenderContent(DrawingContext context)
     {
@@ -220,6 +221,7 @@ public partial class RichTextView : DocumentPresenter
         RenderSelection(context);
         RenderCurrentFindHighlight(context);
         RenderBlocks(context);
+        RenderImageHandles(context);
         RenderCaret(context);
     }
     /// <summary>Restarts the blink so the caret is solid immediately after it moves.</summary>

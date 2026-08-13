@@ -170,6 +170,31 @@ public partial class RichTextView
 
         Focus();
 
+        var point = e.GetPosition(this);
+
+        // A handle is checked before anything else: it sits outside the image's box, over the
+        // text beside it, so a press there would otherwise place a caret and drop the selection
+        // that put the handle on screen in the first place.
+        if (TryBeginResize(point))
+        {
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            return;
+        }
+
+        // Clicking a picture selects the picture, as it does everywhere else. Shift is left to
+        // the text path so that a selection can still be extended across one.
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift)
+            && ImageUnder(point) is { } image
+            && SelectImage(image))
+        {
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            return;
+        }
+
         _goalX = null;
         IsDragging = true;
 
@@ -179,7 +204,7 @@ public partial class RichTextView
         // the case capture exists for.
         e.Pointer.Capture(this);
 
-        MoveTo(PositionAt(e.GetPosition(this)), e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+        MoveTo(PositionAt(point), e.KeyModifiers.HasFlag(KeyModifiers.Shift));
         e.Handled = true;
     }
 
@@ -192,13 +217,22 @@ public partial class RichTextView
 
         var point = e.GetPosition(this);
 
+        if (_resizing is not null)
+        {
+            UpdateResize(point);
+            e.Handled = true;
+
+            return;
+        }
+
         if (!_dragging)
         {
             // An I-beam everywhere says every part of the control is text, which is wrong for
             // the space below the last block and to the right of a short line. Only recomputed
             // when it changes: assigning Cursor raises a property change and re-reads the
             // pointer on every move otherwise.
-            var wanted = IsOverContent(point) ? TextCursor : ArrowCursor;
+            var wanted = ResizeCursor(point)
+                ?? (IsOverContent(point) ? TextCursor : ArrowCursor);
 
             if (!ReferenceEquals(Cursor, wanted))
             {
@@ -224,6 +258,7 @@ public partial class RichTextView
         // the flag in a pointer-released handler as well would be duplicate bookkeeping that no
         // test could distinguish from this.
         IsDragging = false;
+        EndResize();
     }
 
     /// <inheritdoc/>

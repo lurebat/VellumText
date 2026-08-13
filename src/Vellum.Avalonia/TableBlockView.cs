@@ -317,6 +317,25 @@ public sealed class TableBlockView : BlockView
         };
     }
 
+    /// <inheritdoc/>
+    /// <remarks>Recursive, for the same reason <see cref="ParagraphAt"/> is.</remarks>
+    public override Rect? GetImageRect(int localPosition)
+    {
+        if (Find(localPosition) is not ({ } cell, { } child))
+        {
+            return null;
+        }
+
+        if (child.View.GetImageRect(localPosition - child.Start) is not { } inner)
+        {
+            return null;
+        }
+
+        var origin = ChildOrigin(cell, child);
+
+        return inner.Translate(new Vector(origin.X, origin.Y));
+    }
+
     private (Cell Cell, Child Child)? Find(int localPosition)
     {
         foreach (var cell in _cells)

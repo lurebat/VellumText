@@ -81,5 +81,14 @@ public sealed class BlockImageView : BlockView
     public override Rect GetCaretRect(int localPosition) => new(0, 0, 0, _size.Height);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The whole block: a block image is the picture and nothing else. Note that
+    /// <see cref="Measure"/> boxes an over-wide image into the column, so this is the size the
+    /// image is <em>drawn</em> at, which is what a resize handle has to be placed on.
+    /// </remarks>
+    public override Rect? GetImageRect(int localPosition) =>
+        localPosition == 0 ? new Rect(default, _size) : null;
+
+    /// <inheritdoc/>
     public override IReadOnlyList<Rect> GetSelectionRects(int from, int to) => [];
 }

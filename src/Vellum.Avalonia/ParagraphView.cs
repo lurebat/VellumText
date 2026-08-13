@@ -316,6 +316,55 @@ public sealed class ParagraphView : BlockView
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The horizontal extent comes from <c>GetTextBounds</c>, which is right across a bidi
+    /// boundary, and the vertical extent from the run itself, because the text bounds are as tall
+    /// as the line. The run's top is the line's baseline less the run's own, which is how the
+    /// formatter placed it — see <see cref="EmbedRun"/>.
+    /// </remarks>
+    public override Rect? GetImageRect(int localPosition)
+    {
+        // Deliberately kept although no test can distinguish it: the line search below happens to
+        // reject an out-of-range offset, and Avalonia happens to tolerate a negative index in
+        // GetTextBounds, but neither is a documented guarantee. Measured — removing this passes
+        // the whole suite, which is why the mutation list carries a note rather than a mutant.
+        if (localPosition < 0 || localPosition >= ContentSize)
+        {
+            return null;
+        }
+
+        var target = ToLayout(localPosition);
+        var lineTop = 0.0;
+
+        foreach (var line in Layout.TextLines)
+        {
+            if (target < line.FirstTextSourceIndex + line.Length)
+            {
+                foreach (var bounds in line.GetTextBounds(target, 1))
+                {
+                    foreach (var run in bounds.TextRunBounds)
+                    {
+                        if (run.TextRun is EmbedRun { Embed: ImageEmbed } embed)
+                        {
+                            return new Rect(
+                                Origin.X + run.Rectangle.X,
+                                Origin.Y + lineTop + line.Baseline - embed.Baseline,
+                                embed.Size.Width,
+                                embed.Size.Height);
+                        }
+                    }
+                }
+
+                return null;
+            }
+
+            lineTop += line.Height;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc/>
     public override void Render(DrawingContext context, Point origin)
     {
         ArgumentNullException.ThrowIfNull(context);

@@ -81,6 +81,18 @@ public abstract class BlockView
     /// </remarks>
     /// <param name="localPosition">A local position in <c>[0, <see cref="ContentSize"/>]</c>.</param>
     public virtual TextAt? ParagraphAt(int localPosition) => null;
+
+    /// <summary>
+    /// The box an image at a local position is drawn in, or null if there is no image there.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="GetSelectionRects"/>, which for an inline image returns the
+    /// <em>line</em> box: as tall as the line and reaching below the picture by the descent of the
+    /// text beside it. Resize handles drawn on that rectangle float visibly off the image, so the
+    /// block is asked where the picture itself is rather than where its position is.
+    /// </remarks>
+    /// <param name="localPosition">A local position in <c>[0, <see cref="ContentSize"/>]</c>.</param>
+    public virtual Rect? GetImageRect(int localPosition) => null;
 }
 
 /// <summary>Where a paragraph found inside a block lives.</summary>

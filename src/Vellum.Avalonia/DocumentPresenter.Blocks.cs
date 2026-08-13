@@ -316,6 +316,36 @@ public abstract partial class DocumentPresenter
             new Point(origin.X + at.Origin.X, origin.Y + at.Origin.Y));
     }
 
+    /// <summary>
+    /// The box the image at a document position is drawn in, in this control's coordinates, or
+    /// null if there is no image there.
+    /// </summary>
+    /// <remarks>
+    /// Measures the block on the way, for the same reason <see cref="ParagraphAt"/> does: an image
+    /// far outside the realized window cannot say where it is until it has been laid out.
+    /// </remarks>
+    /// <param name="position">The document position the image occupies.</param>
+    public Rect? ImageRect(int position)
+    {
+        if (_views.Count == 0)
+        {
+            return null;
+        }
+
+        var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
+        var slot = _slots[index];
+        var view = EnsureMeasured(index);
+
+        if (view.GetImageRect(position - slot.Start) is not { } rect)
+        {
+            return null;
+        }
+
+        var origin = BlockOrigin(index);
+
+        return rect.Translate(new Vector(origin.X, origin.Y));
+    }
+
     /// <summary>The document position nearest a point in this control's coordinates.</summary>
     /// <param name="point">The point.</param>
     public int PositionAt(Point point)
