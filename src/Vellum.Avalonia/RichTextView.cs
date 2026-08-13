@@ -221,11 +221,34 @@ public partial class RichTextView : Control
             ? DefaultWidth
             : availableSize.Width;
 
+        // An unbounded height means nothing is scrolling this view — it is inside something that
+        // will grow to whatever it asks for — so there is no window to virtualize to and every
+        // block is realized. See the Scroll part of this class.
+        _measureHeight = double.IsInfinity(availableSize.Height) || availableSize.Height <= 0
+            ? double.PositiveInfinity
+            : availableSize.Height;
+
         var size = Realize();
 
         // Room for the caret at the end of the longest line, which otherwise sits exactly on
         // the edge and is clipped to a half-pixel sliver.
         return size.WithWidth(size.Width + CaretWidth);
+    }
+
+    /// <inheritdoc/>
+    protected override Size ArrangeOverride(Size finalSize)
+    {
+        if (_viewport != finalSize)
+        {
+            _viewport = finalSize;
+            _scrollDirty = true;
+        }
+
+        var size = base.ArrangeOverride(finalSize);
+
+        FlushScroll();
+
+        return size;
     }
 
     /// <inheritdoc/>
@@ -240,7 +263,7 @@ public partial class RichTextView : Control
 
         RenderSelection(context);
 
-        for (var i = 0; i < _views.Count; i++)
+        for (var i = _first; i <= _last; i++)
         {
             _views[i].Render(context, BlockOrigin(i));
         }
@@ -340,6 +363,10 @@ public partial class RichTextView : Control
 
     private void OnStateChanged()
     {
+        // Consumed by Realize, not acted on here: where the caret is depends on the heights of
+        // every block above it, and those are not settled until the window has been laid out.
+        _pendingCaret = true;
+
         if (_views.Count > 0)
         {
             // Realised eagerly rather than waiting for the layout pass: see Realize.
@@ -361,7 +388,7 @@ public partial class RichTextView : Control
         var from = _state.Selection.From;
         var to = _state.Selection.To;
 
-        for (var i = 0; i < _views.Count; i++)
+        for (var i = _first; i <= _last; i++)
         {
             var slot = _slots[i];
             var origin = BlockOrigin(i);

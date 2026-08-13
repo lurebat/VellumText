@@ -307,6 +307,25 @@ internal sealed class ParagraphView : BlockView
 
 **Virtualization:** `BlockHeightIndex` keeps a Fenwick/prefix-sum tree of block heights. Unmeasured blocks get an estimate (average measured height); measuring on realization corrects the estimate and adjusts scroll offset. This is the standard approach and it is why AC12 is achievable.
 
+> **As built (Increment 3, P3).** `RichTextView` implements `ILogicalScrollable` over the height
+> index, in `RichTextView.Scroll.cs`. Two things are worth knowing before touching it, and one is
+> a limitation rather than a design:
+>
+> - **The estimate is a feedback loop, and the anchor is what closes it.** `SetHeight` re-estimates
+>   every unmeasured block, so laying out one screenful moves the whole document, which moves the
+>   window, which lays out more blocks. `Settle()` repeats "capture the block at the top of the
+>   viewport → lay the window out → put that block back" until the window stops changing.
+>   The fractional offset *into* the anchor is clamped to the height the block turned out to have;
+>   without that clamp a scroll lands one block past where the scroll bar pointed. Measured at
+>   33 px of visible jump before anchoring, 0 after.
+> - **The view must be the scroll viewer's own content.** `ScrollContentPresenter` inspects its
+>   immediate child and nothing deeper, so a `Border` between the two — for a page effect, say —
+>   silently reverts to laying the whole document out. `RichTextEditor`'s template gets this right;
+>   the demo deliberately does not, and is therefore not virtualized.
+> - **Layouts are not released** for blocks scrolled out of the window. Only initial layout and
+>   the measure pass are virtualized, which is what AC12 asks for; reclaiming the memory of a
+>   scrolled-away paragraph needs new `BlockView` surface and was not worth the risk here.
+
 **Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`.
 
 > **Correction (measured, Increment 2).** The pixel-snapping recipe originally given here,
@@ -635,8 +654,8 @@ Two structural things are worth copying from their design rather than inventing:
 |---|---|---|---|
 | **P1** | **Character formatting commands.** `SetMarks` and everything on top of it; stored marks for a collapsed caret; Ctrl+B/I/U and friends. | The single widest gap, and the cheapest to close — every step it needs already existed. Nothing else in this list is worth doing while the control cannot make a word bold. | ✅ **done** |
 | **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages, and the richer clipboard flavours on top of them. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | ✅ **done** |
-| **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | next |
-| **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | pending |
+| **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | ✅ **done** |
+| **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | next |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | pending |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
 | **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |

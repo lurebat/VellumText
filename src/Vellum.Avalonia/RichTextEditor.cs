@@ -22,10 +22,12 @@ namespace Vellum.Avalonia;
 /// point of the type.
 /// </para>
 /// <para>
-/// <b>Scrolling is not virtualized yet.</b> The template wraps the view in an ordinary
-/// <see cref="ScrollViewer"/>, which measures the whole document. Architecture 4.6 has
-/// <c>RichTextView</c> implementing <c>ILogicalScrollable</c> over a block height index; that
-/// arrives with the increment that has more than one block to scroll.
+/// <b>Scrolling is virtualized.</b> The view implements <c>ILogicalScrollable</c> over a block
+/// height index, and the template makes it the <see cref="ScrollViewer"/>'s own content so that
+/// the scroll presenter reaches it: only the blocks near the viewport are laid out. Anything
+/// inserted between the scroll viewer and the view — a border for a page effect, say — silently
+/// puts the whole document back on the ordinary path, because a scroll presenter only inspects
+/// its immediate child.
 /// </para>
 /// </remarks>
 public class RichTextEditor : TemplatedControl

@@ -57,6 +57,11 @@ public partial class RichTextView
     public int BlockStart => _slots.IsEmpty ? 0 : _slots[_caretBlock].Start;
 
     /// <summary>The top-left corner of a block, in this control's coordinates.</summary>
+    /// <remarks>
+    /// One of the two places document space and viewport space meet: the block stack starts at
+    /// zero and the control shows a window into it, so the scroll offset comes off here. See the
+    /// Scroll part of this class.
+    /// </remarks>
     /// <param name="index">The block's index.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not a block.</exception>
     public Point BlockOrigin(int index)
@@ -66,7 +71,7 @@ public partial class RichTextView
             throw new ArgumentOutOfRangeException(nameof(index), index, "Not a realised block.");
         }
 
-        return new Point(0, _heights.OffsetOf(index));
+        return new Point(0, _heights.OffsetOf(index) - _offset.Y);
     }
 
     /// <summary>
@@ -107,8 +112,9 @@ public partial class RichTextView
     }
 
     /// <summary>The block covering a vertical offset in this control's coordinates.</summary>
-    /// <param name="y">The offset from the top of the content.</param>
-    public int BlockIndexAt(double y) => _views.Count == 0 ? 0 : _heights.IndexAt(y);
+    /// <remarks>The other place viewport space becomes document space; see <see cref="BlockOrigin"/>.</remarks>
+    /// <param name="y">The offset from the top of the viewport.</param>
+    public int BlockIndexAt(double y) => _views.Count == 0 ? 0 : _heights.IndexAt(y + _offset.Y);
 
     /// <summary>
     /// The nearest paragraph block on one side of another block, or -1 if there is none.
@@ -146,7 +152,7 @@ public partial class RichTextView
         var slot = _slots[index];
         var origin = BlockOrigin(index);
 
-        return slot.Start + _views[index].HitTest(point - origin);
+        return slot.Start + EnsureMeasured(index).HitTest(point - origin);
     }
 
     /// <summary>
@@ -168,7 +174,7 @@ public partial class RichTextView
 
         var index = BlockIndexAt(point.Y);
         var origin = BlockOrigin(index);
-        var size = _views[index].Size;
+        var size = EnsureMeasured(index).Size;
 
         return point.Y >= origin.Y
             && point.Y < origin.Y + size.Height
@@ -192,31 +198,163 @@ public partial class RichTextView
     }
 
     /// <summary>
-    /// Brings the block list up to date with the document and lays it out at the last width the
-    /// control was measured at.
+    /// Brings the block list up to date with the document and lays out the blocks on screen.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Called from the measure pass and from every state change, because the two happen in
     /// either order. A state change that only invalidated measure would leave every geometry
     /// question answering for the document as it was before the edit until the layout pass
     /// caught up, and typing then moving the caret in the same turn is enough to see it.
+    /// </para>
+    /// <para>
+    /// Only the blocks intersecting the viewport, plus <c>Overscan</c> either side, are laid
+    /// out; the rest contribute an estimated height. When nothing is scrolling the view the
+    /// window is the whole document and this is what it always was. See the Scroll part of this
+    /// class.
+    /// </para>
     /// </remarks>
-    /// <returns>The space the blocks need together.</returns>
+    /// <returns>The space the view asks for.</returns>
     private Size Realize()
     {
         Reconcile(DocumentBlocks.Flatten(_state.Doc));
 
-        var width = 0d;
+        if (_views.Count == 0)
+        {
+            _first = 0;
+            _last = -1;
+            SetExtent(default);
 
-        for (var i = 0; i < _views.Count; i++)
+            return default;
+        }
+
+        // Which block the top of the viewport is looking at. Measuring replaces estimates with
+        // real heights, and a correction anywhere above the viewport moves everything below it;
+        // Settle is what puts this block back so the reader never sees that happen.
+        //
+        // A block laid out for a different width is not the height it was, so every height on
+        // record has become a guess again. Reset keeps what it has learned about how tall a
+        // block in this document tends to be, which is the part still true.
+        if (!_realizedWidth.Equals(_width))
+        {
+            _realizedWidth = _width;
+            _heights.Reset(_views.Count);
+        }
+
+        var size = Settle();
+
+        if (_pendingCaret)
+        {
+            _pendingCaret = false;
+
+            // Laying out a screenful replaces estimates with real heights, which moves the
+            // caret, which can put it back off the screen it was just scrolled onto. The bound
+            // is there because a loop waiting on an estimate to converge must be allowed not to.
+            for (var attempt = 0; attempt < 3 && ScrollCaretIntoView(); attempt++)
+            {
+                size = Settle();
+            }
+        }
+
+        return size;
+    }
+
+    /// <summary>
+    /// Lays out the window and puts the block at the top of the viewport back where it was.
+    /// </summary>
+    /// <remarks>
+    /// Measuring a block replaces the estimate for every block nobody has measured, because the
+    /// estimate is the mean of the ones that have been. So laying out a screenful moves the
+    /// whole document under the viewport — and moves the window, which lays out more blocks,
+    /// which moves it again. Repeating until the window stops changing is what settles it; the
+    /// anchor is what stops the reader seeing any of it.
+    /// </remarks>
+    private Size Settle()
+    {
+        var size = default(Size);
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var anchor = _heights.IndexAt(_offset.Y);
+            var into = _offset.Y - _heights.OffsetOf(anchor);
+            var first = _first;
+            var last = _last;
+
+            size = RealizeWindow();
+
+            // Clamped against the height the block turned out to have, not the one it was
+            // estimated to have. An anchor 40px tall that was guessed at 80 would otherwise keep a
+            // 60px offset into it, which is not inside it at all — the viewport would land on the
+            // block after the one the scroll bar pointed at.
+            var height = _heights.HeightOf(anchor);
+
+            ApplyOffset(
+                new Vector(_offset.X, _heights.OffsetOf(anchor) + Math.Min(into, height)),
+                relayout: false);
+
+            if (_first == first && _last == last)
+            {
+                break;
+            }
+        }
+
+        return size;
+    }
+
+    /// <summary>Lays out the blocks the viewport covers and reports what the view needs.</summary>
+    private Size RealizeWindow()
+    {
+        var virtualizing = IsVirtualizing;
+        var first = virtualizing ? _heights.IndexAt(Math.Max(0, _offset.Y - Overscan)) : 0;
+        var limit = virtualizing ? _offset.Y + ViewportHeight + Overscan : double.PositiveInfinity;
+
+        var width = 0d;
+        var last = first;
+
+        for (var i = first; i < _views.Count; i++)
         {
             var size = _views[i].Measure(_width);
 
             _heights.SetHeight(i, size.Height);
             width = Math.Max(width, size.Width);
+            last = i;
+
+            // Asked after the measurement, not before: the block's own height is what decides
+            // whether the window is full, and its offset is only correct once it is recorded.
+            if (_heights.OffsetOf(i) + size.Height >= limit)
+            {
+                break;
+            }
         }
 
-        return new Size(width, _heights.TotalHeight);
+        _first = first;
+        _last = last;
+
+        SetExtent(new Size(width, _heights.TotalHeight));
+
+        return new Size(
+            width,
+            virtualizing ? Math.Min(_heights.TotalHeight, ViewportHeight) : _heights.TotalHeight);
+    }
+
+    /// <summary>Lays a block out if the realized window has not already.</summary>
+    /// <remarks>
+    /// A geometry question can be asked about a block nowhere near the viewport — the caret
+    /// jumping to the end of the document is exactly that — and answering it needs a layout.
+    /// Where the block <em>sits</em> is still derived from estimates for everything above it, so
+    /// that answer is only as good as those estimates; laying the block out is what stops the
+    /// answer about its inside from being nonsense.
+    /// </remarks>
+    /// <param name="index">The block's index.</param>
+    private BlockView EnsureMeasured(int index)
+    {
+        if (!_heights.Measured(index))
+        {
+            _heights.SetHeight(index, _views[index].Measure(_width).Height);
+            SetExtent(_extent.WithHeight(_heights.TotalHeight));
+        }
+
+        return _views[index];
     }
 
     private void Reconcile(ImmutableArray<BlockSlot> slots)
@@ -327,5 +465,8 @@ public partial class RichTextView
         _slots = [];
         _heights.Reset(0);
         _caretBlock = 0;
+        _first = 0;
+        _last = -1;
+        _realizedWidth = double.NaN;
     }
 }
