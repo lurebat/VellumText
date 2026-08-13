@@ -357,6 +357,37 @@ internal sealed class ParagraphView : BlockView
 > - **Every toolbar button is `Focusable="False"`.** Otherwise clicking Bold moves the keyboard out
 >   of the document, and the selection the command was meant to act on is gone by the time it runs.
 
+> **As built (P5).** `RichTextViewer` renders a document with no caret, no keyboard and no history.
+> It is a distinct control rather than an `IsReadOnly` flag on the editor, and that choice was
+> settled by measurement rather than taste: constructing a `RichTextView` costs **19.7 KiB and
+> 0.050 ms** more than a bare `Control` before it lays out a single line — the blink timer, the
+> input-method client and the context flyout — which is **50% of the allocation** of a laid-out
+> view of a clipboard-sized document. Fifty history entries would spend about a megabyte on
+> editing machinery no reader can reach. Composition (a viewer hosting a `RichTextView` with
+> editing switched off) was rejected for the same reason: it pays the cost and then hides it.
+>
+> Both controls derive from **`DocumentPresenter`**, which owns everything that is not editing:
+> block flattening and reconciliation, the height index, virtualization, `ILogicalScrollable`, and
+> measure/arrange. The subclass seams are `PresentedDocument`, `Anchor`/`OnReconciled` (following
+> a block across a rebuild), `ScrollAnchorIntoView`, and `RenderContent`. Sharing the layout code
+> rather than duplicating it is what makes a document render identically in either control — an
+> invariant asserted directly, down to the caret gutter, which the viewer pays for so that moving
+> a document between the two cannot reflow it by a pixel.
+>
+> Two things worth carrying forward:
+>
+> - **The presenter declares its font properties with `AddOwner`, not just `TextElement`
+>   inheritance.** A viewer is typically a leaf inside someone else's `DataTemplate` with nothing
+>   above it carrying a font, so `FontSize="12"` has to resolve on the control itself. Without it
+>   the failure is a XAML *compile* error (`AVLN2000`), and — found the hard way — an incremental
+>   `dotnet build` can report success while XAML compilation has failed, leaving a stale binary
+>   running. `AddOwner` returns the same property instance, so the existing font-invalidation set
+>   still matches; that is asserted by a test rather than assumed.
+> - **Text is not selectable in the viewer yet.** A reader who cannot copy part of an entry will
+>   copy the whole thing and delete the rest. Closing it means sharing the editor's pointer
+>   handling and clipboard write, which is larger than the control itself, so it is recorded as a
+>   known gap rather than quietly omitted.
+
 ### 4.7 The text source
 
 ```csharp
@@ -686,7 +717,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages, and the richer clipboard flavours on top of them. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | ✅ **done** |
 | **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | ✅ **done** |
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
-| **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | pending |
+| **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
 | **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | pending |
 
