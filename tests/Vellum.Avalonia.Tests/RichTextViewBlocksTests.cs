@@ -218,7 +218,7 @@ public class RichTextViewBlocksTests
     }
 
     [AvaloniaFact]
-    public void ATableIsDrawnAsTheParagraphsInsideItRatherThanRefused()
+    public void ATableIsDrawnAsAGridRatherThanRefused()
     {
         // This used to throw, and the HTML importer emits a table from any pasted web page, so
         // the throw was reachable by an ordinary copy out of a browser.
@@ -231,7 +231,12 @@ public class RichTextViewBlocksTests
 
         view.Measure(new Size(400, 200));
 
-        Assert.Equal("cell", ((ParagraphNode)view.Slots[0].Node).Content.Text);
+        Assert.IsType<TableNode>(view.Slots[0].Node);
+
+        var table = Assert.IsType<TableBlockView>(view.Blocks[0]);
+
+        Assert.Equal(1, table.Columns);
+        Assert.True(table.Size.Height > 0, "the table measured to nothing");
     }
 
     /// <summary>

@@ -7,12 +7,21 @@ using Vellum.Avalonia;
 namespace Vellum.Tests.Avalonia;
 
 /// <summary>
-/// What the view does with the blocks it cannot yet draw properly.
+/// Editing inside a table.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The HTML importer produces a <see cref="TableNode"/> from any pasted web page, so a document
 /// holding one is not a hypothetical: it is what arrives from an ordinary copy out of a browser.
-/// Before these, that threw on the way to the screen.
+/// </para>
+/// <para>
+/// Every position here is found by walking the document for the paragraph it belongs to, never
+/// by indexing into <c>Slots</c>. Slot indices are a property of how the view chooses to flatten
+/// the document, and they moved when tables stopped being flattened — but a test that indexed
+/// into them did not fail, it silently started exercising a different position. Two of these
+/// tests were passing that way. Deriving the position from the document is what makes them
+/// about editing rather than about flattening.
+/// </para>
 /// </remarks>
 public class RichTextViewTableTests
 {
@@ -37,27 +46,61 @@ public class RichTextViewTableTests
     private static DocumentNode WithTable() =>
         new([ParagraphNode.FromText("before"), Table(), ParagraphNode.FromText("after")]);
 
+    /// <summary>The document position just inside the paragraph holding some text.</summary>
+    private static int StartOf(DocumentNode doc, string text) =>
+        Find(doc.Blocks, 0, text)
+        ?? throw new InvalidOperationException($"No paragraph reads '{text}'.");
+
+    private static int? Find(IReadOnlyList<Node> nodes, int start, string text)
+    {
+        var pos = start;
+
+        foreach (var node in nodes)
+        {
+            if (node is ParagraphNode paragraph && paragraph.Content.Text == text)
+            {
+                return pos + 1;
+            }
+
+            if (!node.IsLeaf && Find(node.Children, pos + 1, text) is { } found)
+            {
+                return found;
+            }
+
+            pos += node.NodeSize;
+        }
+
+        return null;
+    }
+
     [AvaloniaFact]
     public void ADocumentHoldingATableReachesTheScreen()
     {
         var (_, view) = Shown(WithTable());
 
-        Assert.Equal(6, view.Slots.Length);
+        Assert.Equal(3, view.Slots.Length);
+        Assert.IsType<TableBlockView>(view.Blocks[1]);
     }
 
+    /// <summary>
+    /// A table is one block to the flat run, not the paragraphs inside it. That is the whole
+    /// difference between a table that draws as a grid and one that draws as a stack.
+    /// </summary>
     [AvaloniaFact]
-    public void EveryCellKeepsItsText()
+    public void ATableIsOneSlotAndSpansEveryPositionInsideIt()
     {
-        var (_, view) = Shown(WithTable());
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
+        var slot = view.Slots[1];
 
-        Assert.Equal(
-            ["before", "a1", "b1", "a2", "b2", "after"],
-            view.Slots.Select(s => ((ParagraphNode)s.Node).Content.Text));
+        Assert.IsType<TableNode>(slot.Node);
+        Assert.InRange(StartOf(doc, "a1"), slot.Start, slot.End);
+        Assert.InRange(StartOf(doc, "b2"), slot.Start, slot.End);
     }
 
     /// <summary>
     /// The invariant that makes flattening safe, checked against the document's own resolver
-    /// rather than against the arithmetic that produced the slots. If a cell's start were off by
+    /// rather than against the arithmetic that produced the slots. If a slot's start were off by
     /// even one, the caret would edit the wrong node while the text still looked right.
     /// </summary>
     [AvaloniaFact]
@@ -69,19 +112,9 @@ public class RichTextViewTableTests
         Assert.All(view.Slots, slot => Assert.Same(slot.Node, doc.Resolve(slot.Start).Parent));
     }
 
-    [AvaloniaFact]
-    public void ACellIsIndentedPastTheParagraphsAroundIt()
-    {
-        var (_, view) = Shown(WithTable());
-
-        Assert.Equal(0, view.Slots[0].Depth);
-        Assert.All(view.Slots[1..5], slot => Assert.Equal(1, slot.Depth));
-        Assert.Equal(0, view.Slots[5].Depth);
-    }
-
     /// <summary>
-    /// Flattening is a drawing decision, not an editing one: the document still holds a real
-    /// table, so an exporter or a round-trip back to HTML has lost nothing.
+    /// Drawing is a view decision: the document still holds a real table, so an exporter or a
+    /// round-trip back to HTML has lost nothing.
     /// </summary>
     [AvaloniaFact]
     public void TheDocumentStillHoldsARealTable()
@@ -97,9 +130,10 @@ public class RichTextViewTableTests
     [AvaloniaFact]
     public void TypingInACellEditsThatCellAndLeavesTheOthersAlone()
     {
-        var (_, view) = Shown(WithTable());
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
 
-        view.MoveTo(view.Slots[2].End, extend: false);
+        view.MoveTo(StartOf(doc, "b1") + 2, extend: false);
 
         Assert.True(view.InsertText("!"));
 
@@ -113,13 +147,14 @@ public class RichTextViewTableTests
     [AvaloniaFact]
     public void ACaretCanWalkFromBeforeATableIntoIt()
     {
-        var (_, view) = Shown(WithTable());
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
 
         view.MoveTo(view.Slots[0].End, extend: false);
 
         Assert.Equal(0, view.CaretBlockIndex);
 
-        view.MoveTo(view.Slots[1].Start, extend: false);
+        view.MoveTo(StartOf(doc, "a1"), extend: false);
 
         Assert.Equal(1, view.CaretBlockIndex);
     }
@@ -156,7 +191,8 @@ public class RichTextViewTableTests
         Assert.True(image.Size.Width <= 500, $"width was {image.Size.Width}");
         Assert.Equal(image.Size.Width / 2, image.Size.Height, 3);
     }
-   [AvaloniaFact]
+
+    [AvaloniaFact]
     public void BackspaceAtTheStartOfACellDoesNotJoinItToTheOneBeforeIt()
     {
         // Two cells of a row hold their paragraphs at the same depth, so joining them is a
@@ -176,7 +212,7 @@ public class RichTextViewTableTests
         var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[2].Start, extend: false);
+        view.MoveTo(StartOf(doc, "b1"), extend: false);
 
         Assert.False(view.Backspace());
 
@@ -198,7 +234,7 @@ public class RichTextViewTableTests
         var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[0].End, extend: false);
+        view.MoveTo(StartOf(doc, "a1") + 2, extend: false);
 
         Assert.False(view.Delete());
         Assert.Equal(2, ((TableNode)view.State.Doc.Blocks[0]).Rows.Length);
@@ -207,10 +243,11 @@ public class RichTextViewTableTests
     [AvaloniaFact]
     public void BackspaceAtTheStartOfTheFirstCellDoesNotSwallowTheParagraphBeforeTheTable()
     {
-        var (_, view) = Shown(WithTable());
+        var doc = WithTable();
+        var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[1].Start, extend: false);
+        view.MoveTo(StartOf(doc, "a1"), extend: false);
 
         Assert.False(view.Backspace());
         Assert.Equal("before", ((ParagraphNode)view.State.Doc.Blocks[0]).Content.Text);
@@ -234,7 +271,7 @@ public class RichTextViewTableTests
         var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[1].Start, extend: false);
+        view.MoveTo(StartOf(doc, "two"), extend: false);
 
         Assert.True(view.Backspace());
 
@@ -242,7 +279,8 @@ public class RichTextViewTableTests
 
         Assert.Equal("onetwo", ((ParagraphNode)Assert.Single(cell.Blocks)).Content.Text);
     }
-   [AvaloniaFact]
+
+    [AvaloniaFact]
     public void DeletingASelectionThatSpansTwoCellsDoesNotMergeThem()
     {
         // The same corruption as Backspace at a cell boundary, reached by dragging instead. It
@@ -258,8 +296,8 @@ public class RichTextViewTableTests
         var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[0].Start + 1, extend: false);
-        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+        view.MoveTo(StartOf(doc, "a1") + 1, extend: false);
+        view.MoveTo(StartOf(doc, "b1") + 1, extend: true);
 
         Assert.False(view.Delete());
         Assert.Equal(2, Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells.Length);
@@ -278,8 +316,8 @@ public class RichTextViewTableTests
         var (_, view) = Shown(doc);
 
         view.Focus();
-        view.MoveTo(view.Slots[0].Start + 1, extend: false);
-        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+        view.MoveTo(StartOf(doc, "a1") + 1, extend: false);
+        view.MoveTo(StartOf(doc, "b1") + 1, extend: true);
 
         Assert.False(view.InsertText("x"));
 
