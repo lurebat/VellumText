@@ -523,6 +523,54 @@ public class RichTextViewScrollTests
         return view;
     }
 
+    // ---- geometry about blocks the window is nowhere near ------------------------------------
+
+    [AvaloniaFact]
+    public void A_block_edited_outside_the_window_can_still_answer_a_geometry_question()
+    {
+        // Two facts had drifted apart: whether the height index holds a measurement for a block,
+        // and whether the block's view still has a layout. Reconciling an edit throws the layout
+        // away and leaves the index untouched, and only the realized window is repaired -- so a
+        // block scrolled far out of sight ended up recorded as measured with nothing to measure
+        // against, and the next question about it threw out of MeasureOverride.
+        var view = Focused(Paragraphs(200));
+
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.InsertText("Z");
+
+        Scroll(view, view.Extent.Height - Height);
+
+        Assert.True(
+            view.RealizedBlocks.Start.Value > 0,
+            $"The edited block is still realized: {view.RealizedBlocks}.");
+
+        Assert.Null(Record.Exception(() => view.Undo()));
+        Assert.StartsWith("block 0", view.State.Doc.Resolve(view.Slots[0].Start).Paragraph!.Content.Text);
+    }
+
+    [AvaloniaFact]
+    public void The_caret_can_be_scrolled_back_to_a_block_that_was_edited_out_of_the_window()
+    {
+        var view = Focused(Paragraphs(200));
+
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.InsertText("Z");
+
+        Scroll(view, view.Extent.Height - Height);
+        view.Undo();
+
+        Pump(view);
+
+        Assert.Equal(0, view.Offset.Y, 0);
+    }
+
+    private static RichTextView Focused(DocumentNode doc)
+    {
+        Hosted(doc, out var view);
+        view.Focus();
+
+        return view;
+    }
     /// <summary>Puts a view inside a real scroll presenter and lays the pair out.</summary>
     /// <remarks>
     /// The presenter rather than a <see cref="ScrollViewer"/>, because the headless test

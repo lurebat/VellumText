@@ -345,12 +345,24 @@ public partial class RichTextView
     /// that answer is only as good as those estimates; laying the block out is what stops the
     /// answer about its inside from being nonsense.
     /// </remarks>
+    /// <remarks>
+    /// The height index is asked to record the result, not asked whether to bother. Its
+    /// measurement flag is a fact about the index and the view's layout is a fact about the view,
+    /// and reconciling an edit routinely separates the two: a block whose paragraph was replaced,
+    /// or whose list marker moved, has thrown its layout away while the index still holds a height
+    /// for it. Outside the realized window nothing repairs that, so guarding on the flag would
+    /// answer "already measured" about a view that cannot answer a geometry question at all.
+    /// <see cref="BlockView.Measure"/> is idempotent and returns immediately when the layout is
+    /// current, so there is nothing to save by asking first.
+    /// </remarks>
     /// <param name="index">The block's index.</param>
     private BlockView EnsureMeasured(int index)
     {
-        if (!_heights.Measured(index))
+        var height = _views[index].Measure(_width).Height;
+
+        if (!_heights.Measured(index) || Math.Abs(_heights.HeightOf(index) - height) > 0.01)
         {
-            _heights.SetHeight(index, _views[index].Measure(_width).Height);
+            _heights.SetHeight(index, height);
             SetExtent(_extent.WithHeight(_heights.TotalHeight));
         }
 
