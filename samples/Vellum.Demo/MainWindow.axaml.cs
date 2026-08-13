@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
 using Avalonia;
@@ -12,6 +13,23 @@ using Vellum.Interop.Html;
 using Vellum.Interop.Rtf;
 
 namespace Vellum.Demo;
+
+/// <summary>One thing that came in through this window.</summary>
+/// <param name="Label">Where it came from and when.</param>
+/// <param name="Doc">The imported document, kept whole rather than flattened to a string.</param>
+public sealed record HistoryEntry(string Label, DocumentNode Doc)
+{
+    /// <summary>
+    /// What a screen reader reads for the row.
+    /// </summary>
+    /// <remarks>
+    /// A list item with no template-supplied name falls back to the item's own
+    /// <see cref="object.ToString"/>, and a record's generated one is its field dump — verified in
+    /// the running app, which announced the row as
+    /// <c>HistoryEntry { Label = sample, Doc = doc[11 blocks, size 787] }</c>.
+    /// </remarks>
+    public override string ToString() => Label;
+}
 
 public partial class MainWindow : Window
 {
@@ -35,9 +53,17 @@ public partial class MainWindow : Window
         DataFormat.CreateBytesPlatformFormat("text/html"),
     ];
 
+    private readonly ObservableCollection<HistoryEntry> _history = [];
+
+    /// <summary>Set while the editor is being loaded from the history, so it is not re-recorded.</summary>
+    private bool _restoring;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        HistoryList.ItemsSource = _history;
+        HistoryList.SelectionChanged += OnHistorySelected;
 
         SampleButton.Click += (_, _) => LoadSample();
         ImportHtmlButton.Click += (_, _) => Show(HtmlImporter.Import(SourceBox.Text ?? string.Empty), "HTML");
@@ -166,6 +192,14 @@ public partial class MainWindow : Window
     {
         Editor.State = EditorState.Create(result.Doc);
 
+        if (!_restoring)
+        {
+            // Newest first, which is the order a clipboard history is read in.
+            _history.Insert(0, new HistoryEntry(
+                $"{what}  \u00b7  {DateTime.Now.ToString("HH:mm:ss", CultureInfo.CurrentCulture)}",
+                result.Doc));
+        }
+
         DiagnosticsText.Text = result.Diagnostics.Length == 0
             ? $"Nothing was dropped reading the {what}."
             : string.Join(
@@ -185,6 +219,27 @@ public partial class MainWindow : Window
     }
 
     private void Status(string message) => StatusText.Text = message;
+
+    /// <summary>Brings an old entry back into the editor, which is what a history is for.</summary>
+    private void OnHistorySelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (HistoryList.SelectedItem is not HistoryEntry entry)
+        {
+            return;
+        }
+
+        // Otherwise loading an entry would record it again, and every click would grow the list.
+        _restoring = true;
+
+        try
+        {
+            Show(new ImportResult(entry.Doc, []), "history");
+        }
+        finally
+        {
+            _restoring = false;
+        }
+    }
 
     private void UpdateStatus()
     {

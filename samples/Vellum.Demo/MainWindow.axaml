@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vellum="clr-namespace:Vellum.Avalonia;assembly=Vellum.Avalonia"
+        xmlns:demo="clr-namespace:Vellum.Demo"
         x:Class="Vellum.Demo.MainWindow"
         Title="Vellum"
         Width="1240" Height="860"
@@ -69,18 +70,67 @@
     </Style>
   </Window.Styles>
 
-  <Grid ColumnDefinitions="*,Auto,340" RowDefinitions="Auto,*,Auto">
+  <Grid ColumnDefinitions="236,*,Auto,340" RowDefinitions="Auto,*,Auto">
 
     <!-- The whole formatting bar, from the library. What used to be two hundred lines of markup
          and a hundred of code-behind here is now one element and one binding. -->
-    <vellum:RichTextToolbar Grid.Row="0" Grid.ColumnSpan="3" Editor="{Binding #Editor}" />
+    <vellum:RichTextToolbar Grid.Row="0" Grid.ColumnSpan="4" Editor="{Binding #Editor}" />
+
+    <!-- The clipboard history: every import that has come through this window, each one a live
+         rich-text rendering rather than a flattened string. These are RichTextViewer, not
+         RichTextEditor — no caret, no keyboard, no undo stack, nothing a reader can reach. That
+         is the entire reason the control exists, and a history is where it shows: fifty of these
+         cost a fraction of fifty editors, and none of them is a tab stop. -->
+    <Border Grid.Row="1" Grid.Column="0"
+            Background="{DynamicResource Chrome}"
+            BorderThickness="0,0,1,0" BorderBrush="{DynamicResource Hairline}"
+            Padding="14,14,10,14">
+      <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0" Classes="section" Text="HISTORY" />
+
+        <ListBox Grid.Row="1" x:Name="HistoryList"
+                 Background="Transparent" BorderThickness="0" Padding="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem">
+              <Setter Property="Padding" Value="0" />
+              <Setter Property="Margin" Value="0,0,0,8" />
+              <Setter Property="CornerRadius" Value="7" />
+              <Setter Property="Background" Value="Transparent" />
+            </Style>
+          </ListBox.Styles>
+
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="demo:HistoryEntry">
+              <Border Background="{DynamicResource Page}"
+                      BorderBrush="{DynamicResource PageEdge}" BorderThickness="1"
+                      CornerRadius="7" Padding="10,9">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="{Binding Label}" FontSize="10.5"
+                             Foreground="{DynamicResource Muted}" />
+
+                  <!-- Clipped rather than scrolled: a preview that scrolls invites a reader to
+                       scroll it, and there is nothing down there worth the gesture. -->
+                  <Border MaxHeight="84" ClipToBounds="True">
+                    <vellum:RichTextViewer Document="{Binding Doc}"
+                                           FontSize="11.5"
+                                           Foreground="{DynamicResource Ink}"
+                                           VerticalAlignment="Top" />
+                  </Border>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
 
     <!-- The document, on a page. The backdrop is what tells the eye where the page stops; an
          editor that fills the frame edge to edge reads as a text box.
 
          The page is the editor itself rather than a border wrapped around it, because the
          editor's scroll viewer must own the view directly for the layout to stay virtualized. -->
-    <vellum:RichTextEditor Grid.Row="1" Grid.Column="0"
+    <vellum:RichTextEditor Grid.Row="1" Grid.Column="1"
                            x:Name="Editor"
                            MaxWidth="680"
                            Margin="28,28,28,48"
@@ -93,10 +143,10 @@
                            FontFamily="Segoe UI Variable Text,Segoe UI,Inter,system-ui"
                            Foreground="{DynamicResource Ink}" />
 
-    <GridSplitter Grid.Row="1" Grid.Column="1" Width="1"
+    <GridSplitter Grid.Row="1" Grid.Column="2" Width="1"
                   Background="Transparent" ResizeDirection="Columns" />
 
-    <Border Grid.Row="1" Grid.Column="2"
+    <Border Grid.Row="1" Grid.Column="3"
             Background="{DynamicResource Chrome}"
             BorderThickness="1,0,0,0" BorderBrush="{DynamicResource Hairline}"
             Padding="16,14">
@@ -138,7 +188,7 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="2" Grid.ColumnSpan="3"
+    <Border Grid.Row="2" Grid.ColumnSpan="4"
             Background="{DynamicResource Chrome}"
             BorderThickness="0,1,0,0" BorderBrush="{DynamicResource Hairline}"
             Padding="14,6">
