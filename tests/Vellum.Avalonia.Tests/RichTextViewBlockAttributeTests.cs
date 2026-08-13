@@ -213,6 +213,85 @@ public class RichTextViewBlockAttributeTests
     }
 
     [AvaloniaFact]
+    public void TheKindTheSelectionReportsIsTheOneEveryParagraphShares()
+    {
+        var view = Shown("first", "second");
+
+        Press(view, Key.A, KeyModifiers.Control);
+        Assert.True(view.SetParagraphKind(ParagraphKind.Heading2));
+
+        Assert.Equal(ParagraphKind.Heading2, view.ParagraphKindAt);
+    }
+
+    [AvaloniaFact]
+    public void ASelectionOverTwoDifferentKindsReportsNoKindAtAll()
+    {
+        var view = Shown("first", "second");
+
+        view.MoveTo(view.Slots[1].Start + 1, extend: false);
+        Assert.True(view.SetParagraphKind(ParagraphKind.Heading1));
+
+        view.MoveTo(view.Slots[0].Start + 1, extend: false);
+        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+
+        Assert.Null(view.ParagraphKindAt);
+    }
+
+    [AvaloniaFact]
+    public void AlignmentAndIndentAreReportedTheSameWay()
+    {
+        var view = Shown("first", "second");
+
+        view.MoveTo(view.Slots[0].Start + 1, extend: false);
+
+        Assert.Equal(TextAlign.Default, view.AlignAt);
+        Assert.Equal(0, view.IndentLevelAt);
+
+        Assert.True(view.SetAlign(TextAlign.Center));
+        Assert.True(view.Indent());
+
+        Assert.Equal(TextAlign.Center, view.AlignAt);
+        Assert.Equal(1, view.IndentLevelAt);
+
+        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+
+        Assert.Null(view.AlignAt);
+        Assert.Null(view.IndentLevelAt);
+    }
+
+    /// <summary>
+    /// A block that is not a paragraph does not count as disagreeing, because the heading button
+    /// would not touch it either.
+    /// </summary>
+    [AvaloniaFact]
+    public void ARuleInTheSelectionDoesNotMakeTheKindLookMixed()
+    {
+        var view = Shown(new DocumentNode([
+            ParagraphNode.FromText("above"),
+            RuleNode.Instance,
+            ParagraphNode.FromText("below"),
+        ]));
+
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.MoveTo(view.Slots[2].End, extend: true);
+
+        Assert.True(view.SetParagraphKind(ParagraphKind.Quote));
+
+        Assert.Equal(ParagraphKind.Quote, view.ParagraphKindAt);
+    }
+
+    /// <summary>A selection holding no paragraph at all has no kind to report.</summary>
+    [AvaloniaFact]
+    public void ADocumentOfOnlyARuleReportsNoKind()
+    {
+        var view = Shown(new DocumentNode([RuleNode.Instance]));
+
+        Assert.Null(view.ParagraphKindAt);
+        Assert.Null(view.AlignAt);
+        Assert.Null(view.IndentLevelAt);
+    }
+
+    [AvaloniaFact]
     public void ARuleInTheSelectionIsLeftAlone()
     {
         var view = Shown(new DocumentNode([

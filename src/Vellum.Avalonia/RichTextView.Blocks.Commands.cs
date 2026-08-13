@@ -52,6 +52,52 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool Outdent() => ShiftIndent(-1);
 
+    /// <summary>The kind every paragraph the selection touches shares, or null if they differ.</summary>
+    /// <remarks>
+    /// The same rule <see cref="SelectionMarks"/> follows: only what <em>every</em> one of them
+    /// has. A selection running from a heading into body text reports null rather than picking
+    /// one, so a toolbar shows nothing lit instead of lying about which it is.
+    /// </remarks>
+    public ParagraphKind? ParagraphKindAt =>
+        Shared(BlockAttr.ParagraphKind) is { } value ? (ParagraphKind)value : null;
+
+    /// <summary>The alignment every paragraph the selection touches shares, or null if they differ.</summary>
+    public TextAlign? AlignAt => Shared(BlockAttr.Align) is { } value ? (TextAlign)value : null;
+
+    /// <summary>The indent level every paragraph the selection touches shares, or null if they differ.</summary>
+    public int? IndentLevelAt => Shared(BlockAttr.IndentLevel);
+
+    /// <summary>The value of an attribute across the selection, when every paragraph agrees.</summary>
+    /// <remarks>
+    /// Blocks that are not paragraphs are skipped rather than counted as disagreeing, matching
+    /// the commands: a selection covering a paragraph and an image reports the paragraph's kind,
+    /// because that is the only thing the heading button would change. A selection with no
+    /// paragraph in it at all reports null, since there is nothing to agree.
+    /// </remarks>
+    private int? Shared(BlockAttr attr)
+    {
+        int? shared = null;
+
+        foreach (var index in SelectedBlocks())
+        {
+            if (_slots[index].Node is not ParagraphNode paragraph)
+            {
+                continue;
+            }
+
+            var value = Current(paragraph, attr);
+
+            if (shared is { } already && already != value)
+            {
+                return null;
+            }
+
+            shared = value;
+        }
+
+        return shared;
+    }
+
     /// <summary>The block indices the selection touches, in document order.</summary>
     /// <remarks>
     /// A collapsed caret touches the one block it is in. A range touches every block it overlaps
