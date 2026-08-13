@@ -372,6 +372,17 @@ public partial class MainWindow : Window
             + (view is null ? "" : $"   |   block {view.CaretBlockIndex + 1} of {view.Blocks.Count}"));
     }
 
+    /// <summary>A 1x1 transparent PNG, so the sample can carry an image without a file beside it.</summary>
+    /// <remarks>
+    /// A <c>data:</c> URL rather than a relative path because the sanitizer drops a relative
+    /// address — it has no document to resolve it against — and a dropped source drops the image
+    /// with it. The placeholder renderer draws a box at the declared size either way; the point of
+    /// the sample is something to click and drag, not a picture.
+    /// </remarks>
+    private const string Dot =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+        + "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
     /// <summary>
     /// The starting document is produced by the HTML importer rather than assembled by hand, so the
     /// demo exercises the import path before anyone touches a button.
@@ -397,6 +408,11 @@ public partial class MainWindow : Window
             .Append("<tr><td>Import</td><td>HTML and RTF</td><td rowspan='2'>A cell can span rows.</td></tr>")
             .Append("<tr><td>Export</td><td>HTML and RTF</td></tr>")
             .Append("<tr><td colspan='3'>And a cell can span columns.</td></tr></table>")
+            .Append("<h2>Images</h2>")
+            .Append("<p>An image sits in the text like a very large letter: ")
+            .Append($"<img src='{Dot}' width='48' height='32' alt='inline'> &mdash; click it and ")
+            .Append("drag a corner to resize it.</p>")
+            .Append($"<p><img src='{Dot}' width='160' height='90' alt='block'></p>")
             .Append("<h2>Text that tends to break editors</h2>")
             .Append("<p>Bidi: the Hebrew word \u05e9\u05dc\u05d5\u05dd sits inside this English sentence.</p>")
             .Append("<p>Clusters: \U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 and e\u0301\u0332 ")
