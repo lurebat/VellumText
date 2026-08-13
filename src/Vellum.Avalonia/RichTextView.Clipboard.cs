@@ -1,4 +1,3 @@
-using System.Text;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -91,12 +90,7 @@ public partial class RichTextView
             return string.Empty;
         }
 
-        var builder = new StringBuilder();
-        var any = false;
-
-        Append(builder, Slice.Cut(_state.Doc, selection.From, selection.To).Content, ref any);
-
-        return builder.ToString();
+        return DocumentText.Of(Slice.Cut(_state.Doc, selection.From, selection.To).Content);
     }
 
     /// <summary>Puts the selection on the clipboard, in every registered format.</summary>
@@ -434,33 +428,5 @@ public partial class RichTextView
             .SetStoredMarks(null);
 
         return Apply(transaction);
-    }
-
-    /// <summary>Appends the text of every paragraph reachable from <paramref name="nodes"/>.</summary>
-    /// <remarks>
-    /// The separator is counted rather than inferred from whether anything has been written yet.
-    /// A document whose first paragraph is empty would otherwise lose its leading blank line.
-    /// </remarks>
-    private static void Append(StringBuilder builder, IEnumerable<Node> nodes, ref bool any)
-    {
-        foreach (var node in nodes)
-        {
-            switch (node)
-            {
-                case ParagraphNode paragraph:
-                    if (any)
-                    {
-                        builder.Append('\n');
-                    }
-
-                    builder.Append(paragraph.Content.Text);
-                    any = true;
-                    break;
-
-                default:
-                    Append(builder, node.Children, ref any);
-                    break;
-            }
-        }
     }
 }
