@@ -331,8 +331,12 @@ public class RichTextViewBlocksTests
         var rows = HighlightedRows(view);
         var rule = view.BlockOrigin(1).Y;
 
+        // Rows lying *wholly* inside the rule's band. A block boundary need not fall on a pixel
+        // edge -- a paragraph's height is its line height, which is fractional -- so the row
+        // straddling the boundary is partly covered by the neighbouring block's highlight and
+        // proves nothing either way.
         Assert.NotEmpty(rows);
-        Assert.DoesNotContain(rows, y => y >= rule && y < rule + RuleView.BlockHeight);
+        Assert.DoesNotContain(rows, y => y >= rule && y + 1 <= rule + RuleView.BlockHeight);
     }
 
     private static RichTextView RuleDocument() => Shown(new DocumentNode([

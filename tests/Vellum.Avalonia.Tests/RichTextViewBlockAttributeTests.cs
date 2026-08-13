@@ -69,9 +69,14 @@ public class RichTextViewBlockAttributeTests
     {
         var view = Shown("quoted");
 
-        // Counting *grey* rows, not painted ones. The glyphs of an ordinary paragraph already
-        // reach the leftmost columns, so "anything is painted there" is true before the quote
-        // exists and would let a test pass that proves nothing.
+        // The bar's colour is supplied by the test rather than read from the library's default,
+        // so the assertion is about the mechanism and survives a change of palette. It is a hue
+        // no glyph is painted in, which is what lets the count discriminate.
+        view.ParagraphStyles = new BarStyles(BarColour);
+
+        // Counting *bar-coloured* rows, not painted ones. The glyphs of an ordinary paragraph
+        // already reach the leftmost columns, so "anything is painted there" is true before the
+        // quote exists and would let a test pass that proves nothing.
         var before = BarRows(view);
 
         Assert.True(view.SetParagraphKind(ParagraphKind.Quote));
@@ -355,7 +360,7 @@ public class RichTextViewBlockAttributeTests
                 var pixel = pixels[(y * width) + x];
 
                 if ((pixel & 0xFF000000) == 0xFF000000
-                    && (pixel & 0x00FFFFFF) == 0x00C0C0C0)
+                    && (pixel & 0x00FFFFFF) == BarColour)
                 {
                     rows++;
                     break;
@@ -364,6 +369,20 @@ public class RichTextViewBlockAttributeTests
         }
 
         return rows;
+    }
+
+    /// <summary>An opaque hue nothing else in the test draws in, so counting it means something.</summary>
+    private const uint BarColour = 0x00FF00FF;
+
+    /// <summary>A resolver whose quote bar is a known colour and whose other kinds are plain.</summary>
+    private sealed class BarStyles(uint colour) : IParagraphStyleResolver
+    {
+        public ParagraphStyle Resolve(ParagraphKind kind) => kind == ParagraphKind.Quote
+            ? new ParagraphStyle(
+                Bar: new SolidColorBrush(Color.FromUInt32(colour | 0xFF000000)),
+                BarWidth: 3,
+                BarGap: 8)
+            : ParagraphStyle.Body;
     }
 
     private static double[] Remeasure(RichTextView view)

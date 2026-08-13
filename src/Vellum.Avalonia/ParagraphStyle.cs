@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
 
@@ -30,6 +31,17 @@ namespace Vellum.Avalonia;
 /// <param name="BarWidth">How wide that rule is.</param>
 /// <param name="BarGap">How far the text sits from the rule.</param>
 /// <param name="Background">A fill behind the whole block, as a code block has, or null for none.</param>
+/// <param name="LineHeightScale">
+/// The distance between baselines as a multiple of the block's resolved font size, or zero to
+/// leave it to the font. A font's own line spacing suits continuous prose at a text size; it
+/// reads cramped at display sizes and loose at small ones, so body text and headings want
+/// different multiples of their own size rather than one shared number of pixels.
+/// </param>
+/// <param name="Padding">
+/// Space between the block's fill and its text. Distinct from <paramref name="SpaceBefore"/>
+/// and <paramref name="SpaceAfter"/>, which sit <em>outside</em> the fill: a code block wants
+/// air inside its background and a gap to the paragraph above it, and one number cannot be both.
+/// </param>
 /// <remarks>
 /// A reference type on purpose. As a struct its default value would have a
 /// <see cref="FontScale"/> of zero — a member initialiser cannot reach <c>default(T)</c> for a
@@ -45,10 +57,12 @@ public sealed record ParagraphStyle(
     IBrush? Bar = null,
     double BarWidth = 0,
     double BarGap = 0,
-    IBrush? Background = null)
+    IBrush? Background = null,
+    double LineHeightScale = 0,
+    Thickness Padding = default)
 {
-    /// <summary>How far the text is inset from the block's left edge by the bar, if there is one.</summary>
-    public double LeftInset => Bar is null ? 0 : BarWidth + BarGap;
+    /// <summary>How far the text is inset from the block's left edge by the bar and the padding.</summary>
+    public double LeftInset => (Bar is null ? 0 : BarWidth + BarGap) + Padding.Left;
 
     /// <summary>The presentation of an ordinary body paragraph: no change to anything.</summary>
     public static ParagraphStyle Body { get; } = new();
@@ -67,13 +81,34 @@ public interface IParagraphStyleResolver
 /// side of a quote, and a monospace fill behind code.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The heading scale is a geometric-ish ramp rather than the HTML defaults, which put h4 and
 /// below at or under body size and make a six-level hierarchy read as five. Every number here is
 /// a default a host is free to replace by supplying its own resolver.
+/// </para>
+/// <para>
+/// Spacing around a heading is a multiple of the heading's <em>own</em> size, not of the body
+/// spacing. A fixed gap that suits a 15px paragraph is a hairline under a 30px display line, so
+/// a flat number makes the hierarchy collapse exactly where it should be strongest.
+/// </para>
 /// </remarks>
 public sealed class ParagraphStyleResolver : IParagraphStyleResolver
 {
     private static readonly double[] HeadingScales = [2.0, 1.6, 1.35, 1.2, 1.1, 1.0];
+
+    /// <summary>
+    /// Baseline-to-baseline distance for body text, as a multiple of its size. The usual reading
+    /// range is 1.4 to 1.6; the top of it because an editor's line is a click target as well as
+    /// something to read, and because 4.5:1 text on a tight grid is what makes a control look
+    /// like a text box rather than a document.
+    /// </summary>
+    private const double BodyLineHeight = 1.6;
+
+    /// <summary>
+    /// The same for a heading. Display sizes need proportionally less: a heading set at the body
+    /// multiple has its two lines drifting apart into separate thoughts.
+    /// </summary>
+    private const double HeadingLineHeight = 1.22;
 
     private readonly IBrush _bar;
     private readonly IBrush _codeBackground;
@@ -92,7 +127,7 @@ public sealed class ParagraphStyleResolver : IParagraphStyleResolver
         IBrush? bar = null,
         IBrush? codeBackground = null,
         FontFamily? codeFamily = null,
-        double spacing = 6)
+        double spacing = 10)
     {
         if (spacing < 0 || !double.IsFinite(spacing))
         {
@@ -100,9 +135,11 @@ public sealed class ParagraphStyleResolver : IParagraphStyleResolver
                 nameof(spacing), spacing, "Spacing must be a non-negative finite number.");
         }
 
-        _bar = bar ?? new ImmutableSolidColorBrush(Color.FromRgb(0xC0, 0xC0, 0xC0));
+        // Translucent rather than a fixed grey, so both defaults sit correctly on a light page
+        // and on a dark one instead of being right under one theme and invisible under the other.
+        _bar = bar ?? new ImmutableSolidColorBrush(Color.FromArgb(0x55, 0x80, 0x80, 0x80));
         _codeBackground = codeBackground
-            ?? new ImmutableSolidColorBrush(Color.FromArgb(0x18, 0x80, 0x80, 0x80));
+            ?? new ImmutableSolidColorBrush(Color.FromArgb(0x14, 0x80, 0x80, 0x80));
         _codeFamily = codeFamily;
         _spacing = spacing;
     }
@@ -122,23 +159,28 @@ public sealed class ParagraphStyleResolver : IParagraphStyleResolver
             SpaceAfter: _spacing,
             Bar: _bar,
             BarWidth: 3,
-            BarGap: _spacing + 2),
+            BarGap: _spacing + 4,
+            LineHeightScale: BodyLineHeight),
 
         ParagraphKind.Code => new ParagraphStyle(
-            FontScale: 0.95,
+            FontScale: 0.92,
             Family: _codeFamily,
             SpaceBefore: _spacing,
             SpaceAfter: _spacing,
-            Background: _codeBackground),
+            Background: _codeBackground,
+            LineHeightScale: 1.5,
+            Padding: new Thickness(_spacing + 4, _spacing, _spacing + 4, _spacing)),
 
-        _ => new ParagraphStyle(SpaceAfter: _spacing),
+        _ => new ParagraphStyle(SpaceAfter: _spacing, LineHeightScale: BodyLineHeight),
     };
 
     private ParagraphStyle Heading(int level) => new(
         FontScale: HeadingScales[level],
         Weight: FontWeight.Bold,
 
-        // A heading belongs to what follows it, so it leaves more room above than below.
-        SpaceBefore: _spacing * (2.0 - (level * 0.25)),
-        SpaceAfter: _spacing * (0.8 - (level * 0.1)));
+        // A heading belongs to what follows it, so it leaves more room above than below, and
+        // both gaps are measured in the heading's own size rather than the body's.
+        SpaceBefore: _spacing * HeadingScales[level] * 1.6,
+        SpaceAfter: _spacing * HeadingScales[level] * 0.45,
+        LineHeightScale: HeadingLineHeight);
 }

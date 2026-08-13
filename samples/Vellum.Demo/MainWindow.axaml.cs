@@ -203,7 +203,14 @@ public partial class MainWindow : Window
                     + (string.IsNullOrEmpty(d.Context) ? "" : $"  ({d.Context})")));
 
         Status($"Read {what}: {result.Doc.Blocks.Length} block(s), {result.Diagnostics.Length} diagnostic(s).");
-        View.Focus();
+
+        // Only once there is a window to take focus. Focusing during construction makes the
+        // scroll viewer bring the caret into view before it has been laid out, and the document
+        // opens scrolled past its own title.
+        if (IsLoaded)
+        {
+            View.Focus();
+        }
     }
 
     private void Status(string message) => StatusText.Text = message;
@@ -211,10 +218,13 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         var state = View.State;
+
+        // Counted in laid-out blocks, the same denominator as the index beside it. The
+        // document's own Blocks are top-level nodes, so a list of four items counts as one and
+        // the pair read as an index out of range.
         Status($"Caret {state.Selection.From}"
             + (state.Selection.From == state.Selection.To ? "" : $"\u2013{state.Selection.To}")
-            + $"   |   {state.Doc.Blocks.Length} block(s)"
-            + $"   |   block {View.CaretBlockIndex}");
+            + $"   |   block {View.CaretBlockIndex + 1} of {View.Blocks.Count}");
     }
 
     /// <summary>

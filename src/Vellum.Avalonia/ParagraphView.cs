@@ -71,8 +71,14 @@ public sealed class ParagraphView : BlockView
         _styles = KindStyles.Wrap(styles, _style);
     }
 
-    /// <summary>The default width of one indent level, in device pixels.</summary>
+    /// <summary>The default width of one indent step, in device pixels.</summary>
     public const double DefaultIndentStep = 24;
+
+    /// <summary>
+    /// How far a block fill's corners are rounded. Small on purpose: enough to stop a code
+    /// block reading as a raw scanline, not enough to make it a card.
+    /// </summary>
+    private const double BackgroundCornerRadius = 4;
 
     /// <summary>The paragraph currently presented.</summary>
     public ParagraphNode Paragraph => _paragraph;
@@ -127,7 +133,7 @@ public sealed class ParagraphView : BlockView
     }
 
     /// <summary>Where the text sits inside the block, past the indent and the space above.</summary>
-    private Point Origin => new(Indent, _style.SpaceBefore);
+    private Point Origin => new(Indent, _style.SpaceBefore + _style.Padding.Top);
 
     /// <inheritdoc/>
     public override int ContentSize => _paragraph.ContentSize;
@@ -135,7 +141,10 @@ public sealed class ParagraphView : BlockView
     /// <inheritdoc/>
     public override Size Size =>
         _layout is null ? default : new Size(
-            Indent + _layout.Width, _style.SpaceBefore + _layout.Height + _style.SpaceAfter);
+            Indent + _layout.Width + _style.Padding.Right,
+            _style.SpaceBefore + _style.Padding.Top
+                + _layout.Height
+                + _style.Padding.Bottom + _style.SpaceAfter);
 
     /// <summary>
     /// The current layout, laying it out at the last measured width if it is stale.
@@ -290,10 +299,10 @@ public sealed class ParagraphView : BlockView
             return Size;
         }
 
-        // The indent eats into the width the text may wrap to, so an indented paragraph wraps
-        // where it visually runs out of room rather than where an unindented one would. A
-        // width smaller than the indent still has to leave somewhere to put the text.
-        var textWidth = Math.Max(1, availableWidth - Indent);
+        // The indent and the padding both eat into the width the text may wrap to, so a padded
+        // or indented paragraph wraps where it visually runs out of room rather than where a
+        // plain one would. A width smaller than that still has to leave somewhere for the text.
+        var textWidth = Math.Max(1, availableWidth - Indent - _style.Padding.Right);
 
         _layout = new TextLayout(
             new InlineTextSource(_paragraph.Content, _styles, _embeds, _preedit),
@@ -313,7 +322,19 @@ public sealed class ParagraphView : BlockView
 
         if (_style.Background is { } background)
         {
-            context.FillRectangle(background, new Rect(origin, Size));
+            // The block's content box: across the full column, not just as wide as the longest
+            // line, and inside the outer spacing rather than over it. A fill that hugged the
+            // glyphs would read as a highlight on the text, and one that covered SpaceBefore
+            // would close the gap to the paragraph above and merge two code blocks into one.
+            var width = double.IsNaN(_layoutWidth) ? Size.Width : _layoutWidth;
+            var height = Size.Height - _style.SpaceBefore - _style.SpaceAfter;
+
+            context.DrawRectangle(
+                background,
+                pen: null,
+                new RoundedRect(
+                    new Rect(origin.X, origin.Y + _style.SpaceBefore, width, height),
+                    BackgroundCornerRadius));
         }
 
         if (_style.Bar is { } bar)
@@ -605,6 +626,11 @@ public sealed class ParagraphView : BlockView
     /// <c>indent</c> is zero here on purpose: Avalonia's paragraph indent applies to the first
     /// line only, whereas an indent level insets the whole block. See <see cref="Indent"/>.
     /// </para>
+    /// <para>
+    /// The line height is resolved against the block's own already-scaled default size rather
+    /// than being carried as pixels, so a heading and a body paragraph get the leading each
+    /// wants from one number in the style. Zero leaves the spacing to the font.
+    /// </para>
     /// </remarks>
     private TextParagraphProperties ParagraphProperties() =>
         new GenericTextParagraphProperties(
@@ -614,7 +640,9 @@ public sealed class ParagraphView : BlockView
             alwaysCollapsible: false,
             _styles.Default,
             TextWrapping.Wrap,
-            lineHeight: 0,
+            lineHeight: _style.LineHeightScale > 0
+                ? _style.LineHeightScale * _styles.Default.FontRenderingEmSize
+                : 0,
             indent: 0,
             letterSpacing: 0);
 

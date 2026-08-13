@@ -15,10 +15,11 @@ namespace Vellum.Avalonia;
 /// without inheriting from or reaching into the part that lays text out.
 /// </para>
 /// <para>
-/// The default template is built in code rather than in XAML. It has exactly two elements and
-/// no visual states, so a markup file would buy nothing and would drag a resource-loading step
-/// into a library that otherwise has none. An application that wants different chrome sets
-/// <see cref="TemplatedControl.Template"/>, which is the whole point of the type.
+/// The default template is built in code rather than in XAML. It is a border around a scroll
+/// viewer around the view, with no visual states, so a markup file would buy little and would
+/// drag a resource-loading step into a library that otherwise has none. An application that
+/// wants different chrome sets <see cref="TemplatedControl.Template"/>, which is the whole
+/// point of the type.
 /// </para>
 /// <para>
 /// <b>Scrolling is not virtualized yet.</b> The template wraps the view in an ordinary
@@ -50,19 +51,45 @@ public class RichTextEditor : TemplatedControl
     static RichTextEditor()
     {
         TemplateProperty.OverrideDefaultValue<RichTextEditor>(
-            new FuncControlTemplate<RichTextEditor>((_, scope) =>
+            new FuncControlTemplate<RichTextEditor>((editor, scope) =>
             {
                 var view = new RichTextView { Name = ViewPart };
 
                 view.RegisterInNameScope(scope);
 
-                return new ScrollViewer
+                var scroller = new ScrollViewer
                 {
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     Content = view,
                 };
+
+                // Padding belongs to the scroll viewer's content, not to the border around it,
+                // so the text scrolls out from under the top margin instead of the margin
+                // staying pinned over it while the words slide past underneath.
+                scroller.Bind(
+                    Decorator.PaddingProperty,
+                    editor.GetObservable(PaddingProperty));
+
+                var border = new Border { Child = scroller };
+
+                border.Bind(Border.BackgroundProperty, editor.GetObservable(BackgroundProperty));
+                border.Bind(Border.BorderBrushProperty, editor.GetObservable(BorderBrushProperty));
+                border.Bind(
+                    Border.BorderThicknessProperty, editor.GetObservable(BorderThicknessProperty));
+                border.Bind(
+                    Border.CornerRadiusProperty, editor.GetObservable(CornerRadiusProperty));
+
+                return border;
             }));
+
+        // Horizontal scrolling is off because the view wraps to the width it is given; leaving
+        // it automatic lets a wide embed widen the content, which widens the wrap width, which
+        // widens the content -- a layout cycle the user sees as a flickering scrollbar.
+
+        // Room for the text to breathe. A document that starts at the frame edge reads as a
+        // text box; the default should look like a page without the host having to say so.
+        PaddingProperty.OverrideDefaultValue<RichTextEditor>(new Thickness(28, 24));
 
         // The shell is chrome; the view is what takes the keyboard. Leaving both focusable puts
         // a tab stop in front of the editor that does nothing when you reach it.

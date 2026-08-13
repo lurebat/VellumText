@@ -21,9 +21,28 @@ public class RichTextEditorTests
 
         Assert.NotNull(editor.View);
 
-        var scroller = Assert.IsType<ScrollViewer>(editor.GetVisualChildren().Single());
+        // Found by descent rather than as the single child, so that the assertion is about the
+        // contract -- the view is inside something that scrolls it -- and not about how many
+        // layers of chrome the default template happens to wrap around it.
+        var scroller = editor.GetVisualDescendants().OfType<ScrollViewer>().Single();
 
         Assert.Same(editor.View, scroller.Content);
+    }
+
+    [AvaloniaFact]
+    public void TheDefaultTemplateGivesTheDocumentRoomToBreathe()
+    {
+        // Text that starts hard against the frame reads as a text box. The padding is the
+        // shell's job, so a host that only says <RichTextEditor/> still gets a page.
+        var editor = Shown("hello");
+        var scroller = editor.GetVisualDescendants().OfType<ScrollViewer>().Single();
+
+        Assert.True(editor.Padding.Left > 0, "the shell has no horizontal padding");
+        Assert.True(editor.Padding.Top > 0, "the shell has no vertical padding");
+
+        // On the scrolled content, not on the border: otherwise the top margin stays pinned
+        // over the text while the words slide underneath it.
+        Assert.Equal(editor.Padding, scroller.Padding);
     }
 
     [AvaloniaFact]
