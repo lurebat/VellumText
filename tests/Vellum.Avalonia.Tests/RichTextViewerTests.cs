@@ -5,6 +5,7 @@ using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Controls.Documents;
 using global::Avalonia.Media;
+using global::Avalonia.Media.Imaging;
 using global::Avalonia.Threading;
 using Vellum;
 using Vellum.Avalonia;
@@ -282,6 +283,71 @@ public class RichTextViewerTests
         Assert.Same(TextElement.FontSizeProperty, DocumentPresenter.FontSizeProperty);
         Assert.Same(TextElement.ForegroundProperty, DocumentPresenter.ForegroundProperty);
         Assert.Same(TextElement.FontFamilyProperty, DocumentPresenter.FontFamilyProperty);
+    }
+
+    /// <remarks>
+    /// Separate from the measure test because a document can change without changing size, and
+    /// then invalidating the measure achieves nothing — Avalonia has no reason to repaint a
+    /// control whose layout it believes is still correct. A colour-only edit is the clean case:
+    /// identical geometry, different pixels. Asserted on a real rendered frame, because there is
+    /// no other honest way to ask whether something was actually drawn.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ChangingOnlyTheColourStillRepaints()
+    {
+        var viewer = new RichTextViewer { Document = Coloured(255, 0, 0) };
+        var window = new Window { Content = viewer, Width = Width, Height = Height };
+
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var before = Pixels(window);
+        var size = viewer.Extent;
+
+        viewer.Document = Coloured(0, 0, 255);
+        Dispatcher.UIThread.RunJobs();
+
+        // If these differed, a measure invalidation alone would have forced the repaint and the
+        // test would prove nothing about painting.
+        Assert.Equal(size, viewer.Extent);
+        Assert.False(
+            before.SequenceEqual(Pixels(window)),
+            "the frame is identical after recolouring the text, so nothing repainted");
+    }
+
+    /// <remarks>
+    /// Assigning a document to a control that has never been measured must not lay it out. There
+    /// is no width to lay it out against yet, so it would be measured at the fallback width and
+    /// immediately thrown away by the first real measure — wasted work in exactly the case the
+    /// control exists to make cheap, a list building many previews before any of them is shown.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AssigningADocumentBeforeTheFirstMeasureLaysNothingOut()
+    {
+        var viewer = new RichTextViewer();
+
+        viewer.Document = Document();
+
+        Assert.Empty(viewer.Blocks);
+    }
+
+    private static DocumentNode Coloured(byte r, byte g, byte b) =>
+        new([
+            new ParagraphNode(InlineContent.Create(
+                "some text whose colour is the only thing that changes",
+                [new ValueSpan<MarkSet>(0, 53, new MarkSet { Foreground = Rgba.FromRgb(r, g, b) })],
+                [])),
+        ]);
+
+    private static byte[] Pixels(Window window)
+    {
+        using var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("nothing was rendered");
+        using var stream = new MemoryStream();
+
+        frame.Save(stream, new PngBitmapEncoderOptions());
+
+        return stream.ToArray();
     }
 
     private static RichTextViewer Shown(DocumentNode doc, out Window window)

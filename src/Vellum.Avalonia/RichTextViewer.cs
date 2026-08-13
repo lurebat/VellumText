@@ -81,8 +81,11 @@ public class RichTextViewer : DocumentPresenter
                 Realize();
             }
 
+            // Only the measure. A document change always changes what the control asks for or
+            // what it draws, and the relayout that follows repaints it either way — verified by
+            // recolouring a document without changing its size, which still produced a different
+            // frame with no InvalidateVisual here at all.
             InvalidateMeasure();
-            InvalidateVisual();
         }
     }
 
