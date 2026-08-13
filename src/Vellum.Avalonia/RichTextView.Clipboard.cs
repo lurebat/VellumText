@@ -391,6 +391,22 @@ public partial class RichTextView
     {
         var transaction = _state.Transaction().As(TransactionKind.Paste);
 
+        // A range whose ends are at different depths is not one replacement, so the removal has
+        // to happen first and the slice go into the caret it leaves. Doing this only when the
+        // depths differ keeps the ordinary paste one step, which is what makes its open edges
+        // join to what surrounds them rather than landing as separate blocks.
+        if (from < to && _state.Doc.Resolve(from).Depth != _state.Doc.Resolve(to).Depth)
+        {
+            transaction.DeleteRange(from, to);
+
+            if (!transaction.Failures.IsEmpty)
+            {
+                return false;
+            }
+
+            to = from;
+        }
+
         transaction
             .Replace(from, to, slice)
             .SetSelection(TextSelection.Cursor(from + slice.Size))
@@ -413,7 +429,7 @@ public partial class RichTextView
         var transaction = _state.Transaction().As(TransactionKind.Structure);
 
         transaction
-            .Delete(selection.From, selection.To)
+            .DeleteRange(selection.From, selection.To)
             .SetSelection(TextSelection.Cursor(selection.From))
             .SetStoredMarks(null);
 

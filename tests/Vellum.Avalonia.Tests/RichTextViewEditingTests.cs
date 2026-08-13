@@ -392,4 +392,103 @@ public class RichTextViewEditingTests
             KeyModifiers = modifiers,
             Source = view,
         });
+   // ---- selections that do not stay at one depth -------------------------------------------
+
+    [AvaloniaFact]
+    public void TypingOverASelectionThatLeavesAListReplacesIt()
+    {
+        // Ctrl+A in anything pasted out of a browser produces this selection: one end inside a
+        // bullet, the other in a plain paragraph. A single replace step cannot express it, and
+        // when the delete was dropped and the insert went ahead anyway the typed character was
+        // added to the selection instead of replacing it -- select-all and retype grew the
+        // document.
+        var view = FocusedDocument(new DocumentNode([
+            new ListNode([ListItemNode.FromText("ab")]),
+            ParagraphNode.FromText("cd"),
+        ]));
+
+        view.SelectAll();
+
+        Assert.True(view.InsertText("x"));
+
+        var list = Assert.IsType<ListNode>(Assert.Single(view.State.Doc.Blocks));
+        var item = Assert.Single(list.Items);
+
+        Assert.Equal("x", ((ParagraphNode)item.Blocks[0]).Content.Text);
+    }
+
+    [AvaloniaFact]
+    public void EnterInASelectionThatLeavesAListSplitsWhatIsLeftRatherThanWhatWasSelected()
+    {
+        var view = FocusedDocument(new DocumentNode([
+            new ListNode([ListItemNode.FromText("ab")]),
+            ParagraphNode.FromText("cd"),
+        ]));
+
+        view.SelectAll();
+
+        Assert.True(view.Split());
+
+        var list = Assert.IsType<ListNode>(Assert.Single(view.State.Doc.Blocks));
+        var item = Assert.Single(list.Items);
+
+        // Two paragraphs in one bullet is what Enter inside a bullet does today, pinned by
+        // Enter_in_a_bullet_with_words_in_it_still_splits_it. What matters here is that the
+        // selection is gone rather than split around.
+        Assert.Equal(2, item.Blocks.Length);
+        Assert.All(item.Blocks, b => Assert.Equal(string.Empty, ((ParagraphNode)b).Content.Text));
+    }
+
+    [AvaloniaFact]
+    public void BackspaceOverASelectionThatLeavesAListRemovesIt()
+    {
+        var view = FocusedDocument(new DocumentNode([
+            new ListNode([ListItemNode.FromText("ab")]),
+            ParagraphNode.FromText("cd"),
+        ]));
+
+        view.SelectAll();
+
+        Assert.True(view.Backspace());
+
+        var list = Assert.IsType<ListNode>(Assert.Single(view.State.Doc.Blocks));
+
+        Assert.Equal(string.Empty, ((ParagraphNode)Assert.Single(list.Items).Blocks[0]).Content.Text);
+    }
+
+    [AvaloniaFact]
+    public void WhatWasOutsideACrossDepthSelectionSurvivesTypingOverIt()
+    {
+        var view = FocusedDocument(new DocumentNode([
+            new ListNode([ListItemNode.FromText("ab")]),
+            ParagraphNode.FromText("cd"),
+        ]));
+
+        // From between "a" and "b" to between "c" and "d".
+        view.MoveTo(4, extend: false);
+        view.MoveTo(10, extend: true);
+
+        Assert.True(view.InsertText("-"));
+
+        var list = Assert.IsType<ListNode>(Assert.Single(view.State.Doc.Blocks));
+
+        Assert.Equal("a-d", ((ParagraphNode)Assert.Single(list.Items).Blocks[0]).Content.Text);
+    }
+
+    [AvaloniaFact]
+    public void PastingOverACrossDepthSelectionReplacesIt()
+    {
+        var view = FocusedDocument(new DocumentNode([
+            new ListNode([ListItemNode.FromText("ab")]),
+            ParagraphNode.FromText("cd"),
+        ]));
+
+        view.SelectAll();
+
+        Assert.True(view.PasteText("hello"));
+        Assert.Equal(
+            "hello",
+            ((ParagraphNode)Assert.Single(Assert.IsType<ListNode>(
+                Assert.Single(view.State.Doc.Blocks)).Items).Blocks[0]).Content.Text);
+    }
 }

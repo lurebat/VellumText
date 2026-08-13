@@ -188,6 +188,80 @@ public sealed class Transaction
     /// <param name="to">Where it ends.</param>
     public Transaction Delete(int from, int to) => Step(ReplaceStep.Delete(from, to));
 
+    /// <summary>Removes a range whose two ends need not sit at the same depth.</summary>
+    /// <remarks>
+    /// <para>
+    /// A single <see cref="ReplaceStep"/> cannot express this. Its two ends have to close back up
+    /// at one level, so it refuses a range running from inside a list item into a plain paragraph
+    /// — which is what a user produces by selecting across a bullet, and what Ctrl+A produces in
+    /// any document that has a list or a table in it. That refusal is correct for the step and
+    /// useless as an answer to the user, so the range is taken apart here into pieces each of
+    /// which <em>is</em> one step.
+    /// </para>
+    /// <para>
+    /// There are four, emitted last first so that each one lands on positions the ones after it
+    /// have not moved: the block holding the end of the range goes entirely, carrying with it any
+    /// ancestor it leaves empty; the whole blocks in between go; whatever survived after the range
+    /// inside that last block is re-inserted at the range's start; and the range's own tail is
+    /// removed from the block it started in. The result keeps the <em>first</em> block's
+    /// structure, so selecting from a bullet into a paragraph and deleting leaves a bullet.
+    /// </para>
+    /// </remarks>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    public Transaction DeleteRange(int from, int to)
+    {
+        RequireOpen();
+
+        if (from < 0 || to > Doc.ContentSize || to <= from)
+        {
+            return Delete(from, to);
+        }
+
+        var start = Doc.Resolve(from);
+        var end = Doc.Resolve(to);
+
+        // Equal depths are what a plain step already handles, and a position sitting directly in
+        // the document has no block of its own to take apart.
+        if (start.Depth == end.Depth || start.Depth == 0 || end.Depth == 0)
+        {
+            return Delete(from, to);
+        }
+
+        var tail = end.Paragraph is { } paragraph
+            ? paragraph.Content.Substring(end.ParentOffset, paragraph.Content.Length - end.ParentOffset)
+            : InlineContent.Empty;
+
+        // How much of the last block goes: the node holding the range's end, and then every
+        // ancestor that node was the only child of, because a list with no items left in it is
+        // not a document the schema will accept.
+        var depth = end.Depth;
+
+        while (depth > 1 && end.NodeAt(depth - 1).Children.Count == 1)
+        {
+            depth--;
+        }
+
+        var contentEnd = start.End(start.Depth);
+
+        Delete(end.Before(depth), end.After(depth));
+
+        // Nothing lies between the two blocks when the range never left one, and an empty range
+        // is not a step: it would rebuild the document into an equal copy and put an undo entry
+        // on the stack that undoes nothing.
+        if (start.After(1) < end.Before(1))
+        {
+            Delete(start.After(1), end.Before(1));
+        }
+
+        if (tail.Length > 0)
+        {
+            Replace(contentEnd, contentEnd, Slice.OfInline(tail));
+        }
+
+        return from < contentEnd ? Delete(from, contentEnd) : this;
+    }
+
     /// <summary>Inserts text.</summary>
     /// <param name="pos">Where to insert.</param>
     /// <param name="text">What to insert.</param>

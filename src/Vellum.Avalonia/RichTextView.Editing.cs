@@ -69,9 +69,9 @@ public partial class RichTextView
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Typing);
 
-        if (!selection.IsEmpty)
+        if (!RemoveSelection(transaction, selection))
         {
-            transaction.Delete(selection.From, selection.To);
+            return false;
         }
 
         var at = selection.From;
@@ -121,9 +121,9 @@ public partial class RichTextView
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Structure);
 
-        if (!selection.IsEmpty)
+        if (!RemoveSelection(transaction, selection))
         {
-            transaction.Delete(selection.From, selection.To);
+            return false;
         }
 
         var at = selection.From;
@@ -214,7 +214,7 @@ public partial class RichTextView
         }
 
         transaction
-            .Delete(from, to)
+            .DeleteRange(from, to)
             .SetSelection(TextSelection.Cursor(from))
             .SetStoredMarks(null);
 
@@ -235,6 +235,9 @@ public partial class RichTextView
     /// <para>
     /// A join the schema will not allow is left to fail on its own: the step reports it, the
     /// transaction changed nothing, and the key reads as ignored rather than corrupting the tree.
+    /// Joining two parts of a table is one of those refusals: the step will not close a range
+    /// back up over a cell boundary, because a single-row table merged into one cell is still a
+    /// legal table and is not the one the user had.
     /// </para>
     /// </remarks>
     private bool DeleteAcrossBoundary(bool forward, Transaction transaction)
@@ -248,6 +251,7 @@ public partial class RichTextView
 
         var slot = _slots[_caretBlock];
         var other = _slots[neighbour];
+
 
         var (from, to) = other.Node.IsLeaf
             ? (other.Start, other.Start + other.Node.NodeSize)
@@ -265,8 +269,32 @@ public partial class RichTextView
         return Apply(transaction);
     }
 
-    /// <summary>The formatting a character typed at a position should take.</summary>
+
+    /// <summary>Clears the selection so that something can be put in its place.</summary>
     /// <remarks>
+    /// The caller has a second step to add — the typed character, the split, the pasted slice —
+    /// and that step is written against the document the delete was supposed to leave. A dropped
+    /// delete is recorded on the transaction and nowhere else, so a caller that does not ask ends
+    /// up inserting <em>into</em> the selection it believed it had removed: type over a select-all
+    /// and the document grows. Reporting the refusal is the caller's cue to abandon the whole
+    /// edit, which is the difference between a key that did nothing and a document that is wrong.
+    /// </remarks>
+    /// <param name="transaction">The transaction to delete on.</param>
+    /// <param name="selection">The selection to remove.</param>
+    /// <returns>Whether the selection is gone.</returns>
+    private static bool RemoveSelection(Transaction transaction, Selection selection)
+    {
+        if (selection.IsEmpty)
+        {
+            return true;
+        }
+
+        transaction.DeleteRange(selection.From, selection.To);
+
+        return transaction.Failures.IsEmpty;
+    }
+
+    /// <summary>The formatting a character typed at a position should take.</summary>    /// <remarks>
     /// A stored mark wins: it is what a user asking for bold before typing anything set. With no
     /// stored mark the formatting is inherited from the character to the left, which is what
     /// keeps typing at the end of a bold word bold.
