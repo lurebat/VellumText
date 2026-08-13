@@ -37,7 +37,7 @@ namespace Vellum.Avalonia;
 /// adds it. Everything else composes those and needed no change.
 /// </para>
 /// </remarks>
-public partial class RichTextView : ILogicalScrollable
+public abstract partial class DocumentPresenter : ILogicalScrollable
 {
     /// <summary>How much content is realized beyond each edge of the viewport, in pixels.</summary>
     /// <remarks>
@@ -47,17 +47,17 @@ public partial class RichTextView : ILogicalScrollable
     /// </remarks>
     private const double Overscan = 200;
 
-    private Vector _offset;
-    private Size _viewport;
+    private protected Vector _offset;
+    private protected Size _viewport;
     private Size _extent;
     private bool _canHorizontallyScroll;
     private bool _canVerticallyScroll = true;
-    private bool _scrollDirty;
-    private bool _pendingCaret;
-    private double _measureHeight = double.PositiveInfinity;
+    private protected bool _scrollDirty;
+    private protected bool _pendingAnchor;
+    private protected double _measureHeight = double.PositiveInfinity;
     private double _realizedWidth = double.NaN;
-    private int _first;
-    private int _last = -1;
+    private protected int _first;
+    private protected int _last = -1;
     private EventHandler? _scrollInvalidated;
 
     /// <summary>The size of the whole document, measured blocks and estimated ones together.</summary>
@@ -143,9 +143,9 @@ public partial class RichTextView : ILogicalScrollable
     void ILogicalScrollable.RaiseScrollInvalidated(EventArgs e) => _scrollInvalidated?.Invoke(this, e);
 
     /// <remarks>
-    /// The view has no child controls, so there is never a descendant to bring into view. The
-    /// thing a caller actually wants scrolled to is the caret, and the view does that itself
-    /// whenever the selection moves — see <see cref="ScrollCaretIntoView"/>.
+    /// The view has no child controls, so there is never a descendant to bring into view. What a
+    /// caller actually wants scrolled to — the editor's caret — the presenter does itself
+    /// whenever the document changes; see <see cref="ScrollAnchorIntoView"/>.
     /// </remarks>
     bool ILogicalScrollable.BringIntoView(Control target, Rect targetRect) => false;
 
@@ -164,74 +164,10 @@ public partial class RichTextView : ILogicalScrollable
     /// on a value produced by the pass that follows it, so there is no way for the two to chase
     /// each other. Infinite means nothing is scrolling the view and every block is realized.
     /// </remarks>
-    private double ViewportHeight => _measureHeight;
+    private protected double ViewportHeight => _measureHeight;
 
     /// <summary>Whether the view is laying out a window rather than the whole document.</summary>
-    private bool IsVirtualizing => !double.IsInfinity(_measureHeight) && _canVerticallyScroll;
-
-    /// <summary>
-    /// Scrolls until the caret is inside the viewport.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Wanted whenever the selection moves, which is the only time a caret can leave the screen
-    /// on its own. Typing at the bottom of a screenful and watching the line you are writing
-    /// disappear is the defect this exists to prevent.
-    /// </para>
-    /// <para>
-    /// Called from <c>Realize</c> rather than straight from the state change, because where the
-    /// caret <em>is</em> depends on the heights of every block above it, and those are not
-    /// settled until the window has been laid out.
-    /// </para>
-    /// <para>
-    /// The caret's block may be nowhere near the realized window — Ctrl+End is exactly that — so
-    /// it is laid out on demand before it is asked where its caret is.
-    /// </para>
-    /// </remarks>
-    /// <returns>Whether the view moved.</returns>
-    private bool ScrollCaretIntoView()
-    {
-        if (!IsVirtualizing || _views.Count == 0)
-        {
-            return false;
-        }
-
-        EnsureMeasured(_caretBlock);
-
-        // A block with no caret in it — a rule, an image — has no caret rectangle to aim at,
-        // so the whole block is brought into view instead.
-        var caret = Block is null
-            ? new Rect(0, BlockOrigin(_caretBlock).Y, 0, _views[_caretBlock].Size.Height)
-            : CaretRect();
-
-        // Measured against the constraint, not against the arranged viewport: a document can
-        // arrive with its caret already at the end — a restored one does — and the first measure
-        // runs before any arrange, so the arranged viewport is still nothing. The constraint is
-        // known by then, and is the same height.
-        var delta = 0d;
-
-        if (caret.Bottom > ViewportHeight)
-        {
-            delta = caret.Bottom - ViewportHeight;
-        }
-
-        // Checked after the downward correction and allowed to override it: a caret taller than
-        // the viewport cannot be shown whole, and showing its top is more use than its bottom.
-        if (caret.Top - delta < 0)
-        {
-            delta = caret.Top;
-        }
-
-        // No dead zone around the delta. A caret already on screen produces exactly zero, and
-        // the comparison below is what reports whether anything moved; a sub-pixel threshold on
-        // top of that was tried and could not be shown to prevent anything — swept over 200
-        // scroll positions, no repeated layout ever moved the view by a fraction of a pixel.
-        var before = _offset;
-
-        ApplyOffset(new Vector(_offset.X, _offset.Y + delta), relayout: false);
-
-        return _offset != before;
-    }
+    private protected bool IsVirtualizing => !double.IsInfinity(_measureHeight) && _canVerticallyScroll;
 
     /// <summary>Records a new extent, telling the scroll viewer if it moved.</summary>
     private void SetExtent(Size value)
@@ -253,7 +189,7 @@ public partial class RichTextView : ILogicalScrollable
     /// estimates: the same content is on screen, so laying it out again would be work for
     /// nothing — and, done from inside the measure pass, an invalidation that measures again.
     /// </param>
-    private void ApplyOffset(Vector value, bool relayout)
+    private protected void ApplyOffset(Vector value, bool relayout)
     {
         var clamped = new Vector(
             Math.Clamp(value.X, 0, Math.Max(0, _extent.Width - _viewport.Width)),
@@ -282,7 +218,7 @@ public partial class RichTextView : ILogicalScrollable
     /// doing that in the middle of a measure pass is how a control gets stuck laying itself out
     /// forever.
     /// </remarks>
-    private void FlushScroll()
+    private protected void FlushScroll()
     {
         if (!_scrollDirty)
         {

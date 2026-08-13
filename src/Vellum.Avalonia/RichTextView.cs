@@ -25,25 +25,12 @@ namespace Vellum.Avalonia;
 /// which is knowledge it has no business having.
 /// </para>
 /// </remarks>
-public partial class RichTextView : Control
+public partial class RichTextView : DocumentPresenter
 {
     /// <summary>Defines the <see cref="State"/> property.</summary>
     public static readonly DirectProperty<RichTextView, EditorState> StateProperty =
         AvaloniaProperty.RegisterDirect<RichTextView, EditorState>(
             nameof(State), o => o.State, (o, v) => o.State = v);
-
-    /// <summary>Defines the <see cref="Background"/> property.</summary>
-    /// <remarks>
-    /// Transparent rather than null, and this matters: Avalonia hit-tests a plain
-    /// <see cref="Control"/> against what it actually drew, so a view that painted only glyphs
-    /// would not receive a click in the leading above a line, in the gap below one, or to the
-    /// right of the last character. Measured: a click 2px from the top of the control reported
-    /// the parent <c>ContentPresenter</c> as its source and never reached the view. Filling the
-    /// bounds with a transparent brush is what makes the whole control clickable, and it costs
-    /// nothing visually.
-    /// </remarks>
-    public static readonly StyledProperty<IBrush?> BackgroundProperty =
-        AvaloniaProperty.Register<RichTextView, IBrush?>(nameof(Background), Brushes.Transparent);
 
     /// <summary>Defines the <see cref="SelectionBrush"/> property.</summary>
     public static readonly StyledProperty<IBrush?> SelectionBrushProperty =
@@ -63,19 +50,10 @@ public partial class RichTextView : Control
     /// <summary>The interval at which the caret changes state.</summary>
     public static readonly TimeSpan BlinkInterval = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>The pointer shown over text, shared because a Cursor owns a platform handle.</summary>
-    internal static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
-
-    /// <summary>The pointer shown anywhere in the control that is not text.</summary>
-    internal static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
-
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
-    private ITextStyleResolver? _styles;
-    private IParagraphStyleResolver _paragraphStyles = new ParagraphStyleResolver();
-    private IEmbedRenderer _embeds = new PlaceholderEmbedRenderer();
     private bool _caretVisible;
-    private double _width = DefaultWidth;
+    private int _caretBlock;
 
     /// <summary>Creates the view.</summary>
     public RichTextView()
@@ -128,14 +106,6 @@ public partial class RichTextView : Control
         }
     }
 
-    /// <summary>The fill behind the whole control.</summary>
-    /// <remarks>See <see cref="BackgroundProperty"/> — this is load-bearing for hit testing.</remarks>
-    public IBrush? Background
-    {
-        get => GetValue(BackgroundProperty);
-        set => SetValue(BackgroundProperty, value);
-    }
-
     /// <summary>The fill behind selected text.</summary>
     public IBrush? SelectionBrush
     {
@@ -150,127 +120,43 @@ public partial class RichTextView : Control
         set => SetValue(CaretBrushProperty, value);
     }
 
-    /// <summary>Resolves mark sets to run properties.</summary>
+    /// <inheritdoc/>
+    protected override DocumentNode PresentedDocument => _state.Doc;
+
+    /// <summary>The index of the block the caret is in.</summary>
+    public int CaretBlockIndex => _caretBlock;
+
+    /// <summary>
+    /// The view of the block the caret is in, or null before the control has been measured.
+    /// </summary>
     /// <remarks>
-    /// <para>
-    /// Not called <c>Styles</c>: <see cref="StyledElement.Styles"/> already is.
-    /// </para>
-    /// <para>
-    /// Left unset it is derived from the control's own inherited text properties, so a document
-    /// put inside a themed panel picks up that theme's font the way any other control would.
-    /// Setting it explicitly opts out of that, and clearing it back to null opts in again.
-    /// Either way every layout is discarded, because every run's properties have changed.
-    /// </para>
+    /// A paragraph, or null when the caret is somewhere no text lives — which today means a
+    /// document of nothing but rules, since <see cref="Selection.Near"/> puts a text caret
+    /// wherever one can go.
     /// </remarks>
-    [System.Diagnostics.CodeAnalysis.AllowNull]
-    public ITextStyleResolver TextStyles
-    {
-        get => _styles ??= BuildStyles();
-        set
-        {
-            _styles = value;
-            _derivedStyles = value is null;
-            DropLayout();
-            InvalidateMeasure();
-        }
-    }
+    public ParagraphView? Block =>
+        _views.Count == 0 ? null : _views[_caretBlock] as ParagraphView;
 
-    /// <summary>Measures and draws inline embeds.</summary>
-    public IEmbedRenderer Embeds
-    {
-        get => _embeds;
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-
-            _embeds = value;
-            DropLayout();
-            InvalidateMeasure();
-        }
-    }
-
-    /// <summary>Decides how each paragraph kind is presented.</summary>
-    /// <remarks>
-    /// Block-level presentation — heading sizes, the bar down a quote, the fill behind code —
-    /// as opposed to the character-level presentation <see cref="TextStyles"/> resolves. A host
-    /// replaces this to restyle headings without touching the document.
-    /// </remarks>
-    public IParagraphStyleResolver ParagraphStyles
-    {
-        get => _paragraphStyles;
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-
-            _paragraphStyles = value;
-            DropLayout();
-            InvalidateMeasure();
-        }
-    }
+    /// <summary>
+    /// The document position at which the caret's block starts.
+    /// </summary>
+    /// <remarks>The one place a block-local position becomes a document position.</remarks>
+    public int BlockStart => _slots.IsEmpty ? 0 : _slots[_caretBlock].Start;
 
     /// <summary>Whether the caret is currently painted, for tests and for the blink timer.</summary>
     public bool IsCaretVisible => _caretVisible;
 
     /// <inheritdoc/>
-    protected override Size MeasureOverride(Size availableSize)
+    /// <remarks>
+    /// The selection goes underneath the text and the caret on top; the blocks in between are
+    /// the base class's job.
+    /// </remarks>
+    private protected override void RenderContent(DrawingContext context)
     {
-        // An unconstrained width has no wrap point, so the text would lay out on one endless
-        // line and the control would ask for it. A finite fallback keeps that from happening
-        // when the control is measured outside a width-constraining parent.
-        _width = double.IsInfinity(availableSize.Width) || availableSize.Width <= 0
-            ? DefaultWidth
-            : availableSize.Width;
-
-        // An unbounded height means nothing is scrolling this view — it is inside something that
-        // will grow to whatever it asks for — so there is no window to virtualize to and every
-        // block is realized. See the Scroll part of this class.
-        _measureHeight = double.IsInfinity(availableSize.Height) || availableSize.Height <= 0
-            ? double.PositiveInfinity
-            : availableSize.Height;
-
-        var size = Realize();
-
-        // Room for the caret at the end of the longest line, which otherwise sits exactly on
-        // the edge and is clipped to a half-pixel sliver.
-        return size.WithWidth(size.Width + CaretWidth);
-    }
-
-    /// <inheritdoc/>
-    protected override Size ArrangeOverride(Size finalSize)
-    {
-        if (_viewport != finalSize)
-        {
-            _viewport = finalSize;
-            _scrollDirty = true;
-        }
-
-        var size = base.ArrangeOverride(finalSize);
-
-        FlushScroll();
-
-        return size;
-    }
-
-    /// <inheritdoc/>
-    public override void Render(DrawingContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-
-        if (Background is { } background)
-        {
-            context.FillRectangle(background, new Rect(Bounds.Size));
-        }
-
         RenderSelection(context);
-
-        for (var i = _first; i <= _last; i++)
-        {
-            _views[i].Render(context, BlockOrigin(i));
-        }
-
+        RenderBlocks(context);
         RenderCaret(context);
     }
-
     /// <summary>Restarts the blink so the caret is solid immediately after it moves.</summary>
     /// <remarks>
     /// Without this a caret moved just before the timer ticks vanishes on arrival, which reads
@@ -319,53 +205,111 @@ public partial class RichTextView : Control
         base.OnPropertyChanged(change);
 
         // A derived resolver is only as current as the properties it was derived from, so a
-        // font change has to invalidate it. An explicitly set one is the caller's to manage.
-        if (_derivedStyles && TextProperties.Contains(change.Property))
-        {
-            _styles = null;
-            DropLayout();
-            InvalidateMeasure();
-        }
-        else if (change.Property == SelectionBrushProperty || change.Property == CaretBrushProperty)
+        // font change has to invalidate it. An explicitly set one is the caller's to manage;
+        // the base class owns that decision, and this only adds the brushes it knows nothing of.
+        if (change.Property == SelectionBrushProperty || change.Property == CaretBrushProperty)
         {
             InvalidateVisual();
         }
     }
 
-    private static readonly HashSet<AvaloniaProperty> TextProperties =
-    [
-        TextElement.FontFamilyProperty,
-        TextElement.FontSizeProperty,
-        TextElement.FontStyleProperty,
-        TextElement.FontWeightProperty,
-        TextElement.FontStretchProperty,
-        TextElement.ForegroundProperty,
-    ];
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The caret's block, so that <see cref="OnReconciled"/> can tell whether the caret has
+    /// moved to a different paragraph while a composition was in progress.
+    /// </remarks>
+    private protected override BlockView? Anchor =>
+        _caretBlock < _views.Count ? _views[_caretBlock] : null;
 
-    private bool _derivedStyles = true;
-
-    private ITextStyleResolver BuildStyles()
+    /// <inheritdoc/>
+    private protected override void OnReconciled(BlockView? before)
     {
-        _derivedStyles = true;
+        _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
-        return new TextStyleResolver(
-            new Typeface(
-                TextElement.GetFontFamily(this),
-                TextElement.GetFontStyle(this),
-                TextElement.GetFontWeight(this),
-                TextElement.GetFontStretch(this)),
-            TextElement.GetFontSize(this),
-            TextElement.GetForeground(this) ?? Brushes.Black);
+        // A composition belongs to the block the caret was in. If the caret has left, the
+        // composition has to go with it: leaving it behind would draw composed text in a
+        // paragraph the input method is no longer talking about, and it would never be
+        // committed there.
+        if (before is ParagraphView left
+            && !ReferenceEquals(left, _views.Count == 0 ? null : _views[_caretBlock]))
+        {
+            left.SetPreedit(null);
+        }
     }
 
-    private const double DefaultWidth = 400;
-    private const double CaretWidth = 1;
+    /// <inheritdoc/>
+    private protected override void OnLayoutDropped() => _caretBlock = 0;
+
+    /// <inheritdoc/>
+    /// <summary>
+    /// Scrolls until the caret is inside the viewport.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wanted whenever the selection moves, which is the only time a caret can leave the screen
+    /// on its own. Typing at the bottom of a screenful and watching the line you are writing
+    /// disappear is the defect this exists to prevent.
+    /// </para>
+    /// <para>
+    /// Called from <c>Realize</c> rather than straight from the state change, because where the
+    /// caret <em>is</em> depends on the heights of every block above it, and those are not
+    /// settled until the window has been laid out.
+    /// </para>
+    /// <para>
+    /// The caret's block may be nowhere near the realized window — Ctrl+End is exactly that — so
+    /// it is laid out on demand before it is asked where its caret is.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether the view moved.</returns>
+    private protected override bool ScrollAnchorIntoView()
+    {
+        if (!IsVirtualizing || _views.Count == 0)
+        {
+            return false;
+        }
+
+        EnsureMeasured(_caretBlock);
+
+        // A block with no caret in it — a rule, an image — has no caret rectangle to aim at,
+        // so the whole block is brought into view instead.
+        var caret = Block is null
+            ? new Rect(0, BlockOrigin(_caretBlock).Y, 0, _views[_caretBlock].Size.Height)
+            : CaretRect();
+
+        // Measured against the constraint, not against the arranged viewport: a document can
+        // arrive with its caret already at the end — a restored one does — and the first measure
+        // runs before any arrange, so the arranged viewport is still nothing. The constraint is
+        // known by then, and is the same height.
+        var delta = 0d;
+
+        if (caret.Bottom > ViewportHeight)
+        {
+            delta = caret.Bottom - ViewportHeight;
+        }
+
+        // Checked after the downward correction and allowed to override it: a caret taller than
+        // the viewport cannot be shown whole, and showing its top is more use than its bottom.
+        if (caret.Top - delta < 0)
+        {
+            delta = caret.Top;
+        }
+
+        // No dead zone around the delta. A caret already on screen produces exactly zero, and
+        // the comparison below is what reports whether anything moved; a sub-pixel threshold on
+        // top of that was tried and could not be shown to prevent anything — swept over 200
+        // scroll positions, no repeated layout ever moved the view by a fraction of a pixel.
+        var before = _offset;
+
+        ApplyOffset(new Vector(_offset.X, _offset.Y + delta), relayout: false);
+
+        return _offset != before;
+    }
 
     private void OnStateChanged()
     {
         // Consumed by Realize, not acted on here: where the caret is depends on the heights of
         // every block above it, and those are not settled until the window has been laid out.
-        _pendingCaret = true;
+        _pendingAnchor = true;
 
         if (_views.Count > 0)
         {

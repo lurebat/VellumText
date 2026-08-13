@@ -23,38 +23,47 @@ namespace Vellum.Avalonia;
 /// than all of them.
 /// </para>
 /// </remarks>
-public partial class RichTextView
+public abstract partial class DocumentPresenter
 {
-    private readonly BlockHeightIndex _heights = new();
-    private readonly List<BlockView> _views = [];
-    private ImmutableArray<BlockSlot> _slots = [];
-    private int _caretBlock;
+    private protected readonly BlockHeightIndex _heights = new();
+    private protected readonly List<BlockView> _views = [];
+    private protected ImmutableArray<BlockSlot> _slots = [];
+
+    /// <summary>The document whose blocks are presented.</summary>
+    /// <remarks>
+    /// The one thing a presenter cannot supply for itself. An editor reads it off its editor
+    /// state; a viewer holds it directly.
+    /// </remarks>
+    protected abstract DocumentNode PresentedDocument { get; }
+
+    /// <summary>The block whose identity has to survive a reconcile, or null if none does.</summary>
+    /// <remarks>
+    /// Captured before the block list is rebuilt and handed back to
+    /// <see cref="OnReconciled"/> afterwards, so a subclass can notice that the block it was
+    /// tracking has been replaced. The editor tracks the caret's block this way.
+    /// </remarks>
+    private protected virtual BlockView? Anchor => null;
+
+    /// <summary>Called once the block list matches the document again.</summary>
+    /// <param name="before">Whatever <see cref="Anchor"/> was before the rebuild.</param>
+    private protected virtual void OnReconciled(BlockView? before)
+    {
+    }
+
+    /// <summary>Scrolls whatever the subclass wants kept on screen into view.</summary>
+    /// <remarks>
+    /// Called from <see cref="Realize"/>, because where the anchor sits depends on the heights
+    /// of every block above it and those are not settled until the window has been laid out.
+    /// A presenter with nothing to keep on screen — a viewer — does nothing and says so.
+    /// </remarks>
+    /// <returns>Whether the view moved.</returns>
+    private protected virtual bool ScrollAnchorIntoView() => false;
 
     /// <summary>The blocks that have been laid out, in document order.</summary>
     public IReadOnlyList<BlockView> Blocks => _views;
 
     /// <summary>What the document says about each block, in document order.</summary>
     public ImmutableArray<BlockSlot> Slots => _slots;
-
-    /// <summary>The index of the block the caret is in.</summary>
-    public int CaretBlockIndex => _caretBlock;
-
-    /// <summary>
-    /// The view of the block the caret is in, or null before the control has been measured.
-    /// </summary>
-    /// <remarks>
-    /// A paragraph, or null when the caret is somewhere no text lives — which today means a
-    /// document of nothing but rules, since <see cref="Selection.Near"/> puts a text caret
-    /// wherever one can go.
-    /// </remarks>
-    public ParagraphView? Block =>
-        _views.Count == 0 ? null : _views[_caretBlock] as ParagraphView;
-
-    /// <summary>
-    /// The document position at which the caret's block starts.
-    /// </summary>
-    /// <remarks>The one place a block-local position becomes a document position.</remarks>
-    public int BlockStart => _slots.IsEmpty ? 0 : _slots[_caretBlock].Start;
 
     /// <summary>The top-left corner of a block, in this control's coordinates.</summary>
     /// <remarks>
@@ -126,7 +135,7 @@ public partial class RichTextView
     /// </remarks>
     /// <param name="index">The block to search from, exclusive.</param>
     /// <param name="forward">Which way to search.</param>
-    private int AdjacentParagraph(int index, bool forward)
+    private protected int AdjacentParagraph(int index, bool forward)
     {
         for (var i = index + (forward ? 1 : -1); i >= 0 && i < _views.Count; i += forward ? 1 : -1)
         {
@@ -189,11 +198,11 @@ public partial class RichTextView
     /// blocks the document has and where they start. Measuring needs a width, which is not known
     /// until the layout pass; asking a question about block structure does not.
     /// </remarks>
-    private void EnsureSlots()
+    private protected void EnsureSlots()
     {
         if (_slots.IsEmpty)
         {
-            Reconcile(DocumentBlocks.Flatten(_state.Doc));
+            Reconcile(DocumentBlocks.Flatten(PresentedDocument));
         }
     }
 
@@ -215,9 +224,9 @@ public partial class RichTextView
     /// </para>
     /// </remarks>
     /// <returns>The space the view asks for.</returns>
-    private Size Realize()
+    private protected Size Realize()
     {
-        Reconcile(DocumentBlocks.Flatten(_state.Doc));
+        Reconcile(DocumentBlocks.Flatten(PresentedDocument));
 
         if (_views.Count == 0)
         {
@@ -243,14 +252,14 @@ public partial class RichTextView
 
         var size = Settle();
 
-        if (_pendingCaret)
+        if (_pendingAnchor)
         {
-            _pendingCaret = false;
+            _pendingAnchor = false;
 
             // Laying out a screenful replaces estimates with real heights, which moves the
             // caret, which can put it back off the screen it was just scrolled onto. The bound
             // is there because a loop waiting on an estimate to converge must be allowed not to.
-            for (var attempt = 0; attempt < 3 && ScrollCaretIntoView(); attempt++)
+            for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
             {
                 size = Settle();
             }
@@ -356,7 +365,7 @@ public partial class RichTextView
     /// current, so there is nothing to save by asking first.
     /// </remarks>
     /// <param name="index">The block's index.</param>
-    private BlockView EnsureMeasured(int index)
+    private protected BlockView EnsureMeasured(int index)
     {
         var height = _views[index].Measure(_width).Height;
 
@@ -371,7 +380,7 @@ public partial class RichTextView
 
     private void Reconcile(ImmutableArray<BlockSlot> slots)
     {
-        var previous = _caretBlock < _views.Count ? _views[_caretBlock] : null;
+        var previous = Anchor;
 
         var prefix = 0;
 
@@ -427,7 +436,6 @@ public partial class RichTextView
         }
 
         _slots = slots;
-        _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
         // Every block, not just the rebuilt middle. A marker is not part of a paragraph, so an
         // item's number can change while its paragraph node stays the very same object — which
@@ -440,15 +448,7 @@ public partial class RichTextView
             }
         }
 
-        // A composition belongs to the block the caret was in. If the caret has left, the
-        // composition has to go with it: leaving it behind would draw composed text in a
-        // paragraph the input method is no longer talking about, and it would never be
-        // committed there.
-        if (previous is ParagraphView left
-            && !ReferenceEquals(left, _views.Count == 0 ? null : _views[_caretBlock]))
-        {
-            left.SetPreedit(null);
-        }
+        OnReconciled(previous);
     }
 
     private BlockView Create(BlockNode node) => node switch
@@ -471,14 +471,20 @@ public partial class RichTextView
     /// resolver, a new embed renderer, a font change on the control. The heights go with them,
     /// since a block laid out with a different font is not the height it was.
     /// </remarks>
-    private void DropLayout()
+    private protected void DropLayout()
     {
         _views.Clear();
         _slots = [];
         _heights.Reset(0);
-        _caretBlock = 0;
         _first = 0;
         _last = -1;
         _realizedWidth = double.NaN;
+
+        OnLayoutDropped();
+    }
+
+    /// <summary>Called after every layout has been discarded, so a subclass can forget too.</summary>
+    private protected virtual void OnLayoutDropped()
+    {
     }
 }
