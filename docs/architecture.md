@@ -399,6 +399,27 @@ internal static class RichTextClipboardFormats
 
 Windows `HTML Format` requires the CF_HTML preamble (`Version:0.9`, `StartHTML`/`EndHTML`/`StartFragment`/`EndFragment` **byte** offsets, UTF-8). Byte offsets, not character offsets — a classic source of silent corruption with non-ASCII content.
 
+#### As built (P2)
+
+Two things changed against the sketch above, both forced by decision 3 in §12.1:
+
+- **`Vellum.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
+- **`NativeSlice` is not built.** It exists to carry what HTML cannot, and HTML currently carries everything the model can hold. It is worth adding when that stops being true, and not before.
+
+Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
+
+**What a round trip actually costs**, measured rather than assumed:
+
+| | HTML | RTF |
+|---|---|---|
+| Text, escapes, astral characters, bidi, ZWJ clusters | exact | exact |
+| Marks, colour, highlight, font, size, links | exact | exact |
+| Headings, alignment, indent, lists incl. `start`, tables | exact | exact |
+| Collapsible whitespace | preserved, via `white-space:pre-wrap` on the paragraphs that need it | doubled spaces return with the second as U+00A0; a tab is lost; a space at a paragraph edge is lost |
+| Quote, code block, header cells | exact | flattened to indent, body and bold |
+
+The RTF losses are in the **reader** — RTF itself keeps all of it, and a word processor opening the file sees it — so the exporter's tests assert on the bytes emitted, not only on what survives a round trip.
+
 ---
 
 ## 5. Alternatives considered
@@ -613,8 +634,8 @@ Two structural things are worth copying from their design rather than inventing:
 | # | Work | Why it is where it is | State |
 |---|---|---|---|
 | **P1** | **Character formatting commands.** `SetMarks` and everything on top of it; stored marks for a collapsed caret; Ctrl+B/I/U and friends. | The single widest gap, and the cheapest to close — every step it needs already existed. Nothing else in this list is worth doing while the control cannot make a word bold. | ✅ **done** |
-| **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | next |
-| **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | pending |
+| **P2** | **Exporters.** `IDocumentExporter`, then HTML and RTF, in the existing interop packages, and the richer clipboard flavours on top of them. | A clipboard manager has to put rich text *back* on the clipboard. Import-only is half a feature, and §4.9's richer clipboard formats depend on it. | ✅ **done** |
+| **P3** | **List commands + `ILogicalScrollable`.** The two deferred pieces of Increment 3. | Lists render but cannot be created, which is the same class of gap P1 just closed. | next |
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | pending |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | pending |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | pending |
