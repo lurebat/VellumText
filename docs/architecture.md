@@ -558,6 +558,41 @@ internal sealed class ParagraphView : BlockView
 > directly (all have public constructors) and `RaiseEvent` them, which exercises the real routing
 > rather than calling the handlers.
 
+> **As built (P7, the perf pass).** Measured rather than guessed, on this machine, median of 30–40
+> reps after warmup. Typing one character costs:
+>
+> | Document | Per keystroke |
+> |---|---|
+> | 50 paragraphs | 0.56 ms |
+> | 500 paragraphs | 1.36 ms |
+> | 2 000 paragraphs | 2.22 ms |
+> | one 400-word paragraph | 7–12 ms |
+> | 5×3 table | 1.11 ms → **0.29 ms** |
+> | 20×5 table | 6.34 ms → **0.51 ms** |
+> | 50×5 table | 18.47 ms → **0.87 ms** |
+>
+> **One structural defect, now fixed.** A table was the only block `Reconcile` could not update in
+> place, so every keystroke inside one rebuilt the view of every cell — a fresh `TextLayout` each.
+> That is the only thing in the document whose per-keystroke cost scaled with its own size, and at
+> 250 cells it was past a 16.7 ms frame for one typed character. `TableBlockView.Update` now keeps
+> every cell whose node the edit did not touch, which the persistent tree makes a reference
+> comparison. Roughly **21× at 250 cells**, and the remaining cost is the walk rather than text
+> shaping.
+>
+> **Three things measured as fine and deliberately left alone:**
+>
+> - `DocumentBlocks.Flatten` is 0.12 ms at 2 000 paragraphs — 6% of the keystroke, not worth
+>   making incremental.
+> - `Reconcile` touches every block on every edit to reset list markers, but `ParagraphView.SetLead`
+>   early-outs on an unchanged depth and marker, so that loop is a comparison per block.
+> - Scrolling a 2 000-paragraph document by a viewport is ~4–5 ms, inside a frame.
+>
+> **One known limit, not fixed.** A single very long paragraph costs 7–12 ms per keystroke, because
+> A1 established that Avalonia 12.1.1 cannot reshape a paragraph incrementally and the fallback is a
+> wholesale rebuild. It is bounded by paragraph length rather than document length, so it does not
+> get worse as a document grows, and virtualization keeps it off screen entirely for paragraphs that
+> are not visible. Fixing it needs upstream support for partial invalidation, not a change here.
+
 ### 4.7 The text source
 
 ```csharp
@@ -889,7 +924,7 @@ Two structural things are worth copying from their design rather than inventing:
 | **P4** | **A default theme and a toolbar.** Light/dark resources, `RichTextEditor` template, an opinionated toolbar control, selection flyout. | Only worth building once there are commands to put on it — which is now. Resolves OD2. | ✅ done |
 | **P5** | **Read-only viewer.** A control that renders a document with no caret, input or history. | Directly serves the clipboard-history case, and is a small fraction of the editor. | ✅ done |
 | **P6** | **Real table rendering.** A block view that hosts child views side by side, replacing today's flattening. | The model is ready and pasted tables already survive round-trip; only the *view* degrades. Deliberately after the cheaper wins. | ✅ done |
-| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | a11y ✅ done; find/replace ✅ done; image resize ✅ done; touch handles ✅ done; perf pass pending |
+| **P7** | **The rest of Increment 8.** a11y, find/replace, image resize handles, touch handles, perf pass. | Unchanged. | ✅ **done** — a11y, find/replace, image resize, touch handles, perf pass |
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
