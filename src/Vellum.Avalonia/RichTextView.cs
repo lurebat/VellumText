@@ -222,6 +222,7 @@ public partial class RichTextView : DocumentPresenter
         RenderCurrentFindHighlight(context);
         RenderBlocks(context);
         RenderImageHandles(context);
+        RenderTouchHandles(context);
         RenderCaret(context);
     }
     /// <summary>Restarts the blink so the caret is solid immediately after it moves.</summary>
@@ -253,6 +254,10 @@ public partial class RichTextView : DocumentPresenter
     protected override void OnLostFocus(global::Avalonia.Input.FocusChangedEventArgs e)
     {
         base.OnLostFocus(e);
+
+        // Touch chrome is an affordance for adjusting a selection the user is looking at. A view
+        // that is not focused has no such selection on offer.
+        HideTouchHandles();
         ResetCaretBlink();
     }
 

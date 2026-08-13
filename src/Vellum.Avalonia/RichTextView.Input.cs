@@ -172,6 +172,27 @@ public partial class RichTextView
 
         var point = e.GetPosition(this);
 
+        // Touch chrome belongs to touch. A mouse press on a hybrid device takes it away, or the
+        // handles sit under a mouse caret with nothing that would ever remove them.
+        if (e.Pointer.Type == PointerType.Touch)
+        {
+            // Before the caret: a handle hangs below the line and sits over the text under it, so
+            // a press there would otherwise place a caret and drop the selection being adjusted.
+            if (TryBeginTouchDrag(point))
+            {
+                e.Pointer.Capture(this);
+                e.Handled = true;
+
+                return;
+            }
+
+            ShowTouchHandles();
+        }
+        else
+        {
+            HideTouchHandles();
+        }
+
         // A handle is checked before anything else: it sits outside the image's box, over the
         // text beside it, so a press there would otherwise place a caret and drop the selection
         // that put the handle on screen in the first place.
@@ -217,6 +238,14 @@ public partial class RichTextView
 
         var point = e.GetPosition(this);
 
+        if (_touchDrag is not null)
+        {
+            UpdateTouchDrag(point);
+            e.Handled = true;
+
+            return;
+        }
+
         if (_resizing is not null)
         {
             UpdateResize(point);
@@ -259,6 +288,7 @@ public partial class RichTextView
         // test could distinguish from this.
         IsDragging = false;
         EndResize();
+        EndTouchDrag();
     }
 
     /// <inheritdoc/>
@@ -272,6 +302,10 @@ public partial class RichTextView
         {
             return;
         }
+
+        // Touch chrome does not survive the keyboard: a handle left under text the user is typing
+        // into points at a selection that the next keystroke is about to replace.
+        HideTouchHandles();
 
         var extend = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         var word = e.KeyModifiers.HasFlag(KeyModifiers.Control);
