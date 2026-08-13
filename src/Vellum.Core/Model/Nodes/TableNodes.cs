@@ -275,7 +275,7 @@ public sealed class TableCellNode : BlockNode
 /// <param name="Left">The first column it occupies.</param>
 /// <param name="Bottom">One past the last row it occupies.</param>
 /// <param name="Right">One past the last column it occupies.</param>
-internal readonly record struct CellPlacement(int Top, int Left, int Bottom, int Right);
+public readonly record struct CellPlacement(int Top, int Left, int Bottom, int Right);
 
 /// <summary>
 /// Works out which grid slots each cell of a table occupies.
@@ -287,11 +287,13 @@ internal readonly record struct CellPlacement(int Top, int Left, int Bottom, int
 /// spans - misreads such a table as ragged. Only tracking occupancy gets it right.
 /// </para>
 /// <para>
-/// This is shared rather than duplicated because both the schema and the selection grid need
-/// exactly this answer, and two copies of an algorithm this fiddly would drift apart.
+/// This is shared rather than duplicated because everything that needs to know the shape of a
+/// table needs exactly this answer, and copies of an algorithm this fiddly would drift apart.
+/// The schema validates against it, cell selection uses it to work out a rectangle of cells,
+/// and the view uses it to decide which column a cell is drawn in.
 /// </para>
 /// </remarks>
-internal static class TableGeometry
+public static class TableGeometry
 {
     /// <summary>
     /// Places every cell of a table, in row-major order, matching the order the rows and
@@ -299,14 +301,17 @@ internal static class TableGeometry
     /// </summary>
     /// <param name="table">The table.</param>
     /// <param name="width">How many columns the placements span.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="table"/> is null.</exception>
     /// <remarks>
     /// Total by construction: a cell whose span will not fit beside what is already there is
     /// pushed right until it does, widening the table rather than overwriting a neighbour.
     /// A malformed table therefore comes back as a wider grid with holes in it, which the
     /// schema can report on, instead of as silently lost cells.
     /// </remarks>
-    internal static ImmutableArray<CellPlacement> Place(TableNode table, out int width)
+    public static ImmutableArray<CellPlacement> Place(TableNode table, out int width)
     {
+        ArgumentNullException.ThrowIfNull(table);
+
         var placements = ImmutableArray.CreateBuilder<CellPlacement>();
         var occupied = new HashSet<(int Row, int Column)>();
 
