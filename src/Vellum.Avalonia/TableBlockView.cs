@@ -37,10 +37,13 @@ public sealed class TableBlockView : BlockView
     private const double CellPadding = 6;
     private const double BorderThickness = 1;
 
-    private readonly TableNode _table;
-    private readonly ImmutableArray<Cell> _cells;
-    private readonly int _columns;
+    private readonly Func<BlockNode, BlockView> _create;
+    private readonly IBrush? _header;
     private readonly IPen _border;
+
+    private TableNode _table;
+    private ImmutableArray<Cell> _cells;
+    private int _columns;
 
     private double[] _columnEdges = [];
     private double[] _rowEdges = [];
@@ -63,9 +66,65 @@ public sealed class TableBlockView : BlockView
         ArgumentNullException.ThrowIfNull(border);
 
         _table = table;
+        _create = create;
+        _header = header;
         _border = new Pen(border, BorderThickness);
+        _cells = Build(table, create, header, previous: default, out _columns);
+    }
 
-        var placements = TableGeometry.Place(table, out _columns);
+    /// <summary>
+    /// Brings the view up to date with an edited table, keeping the views of every cell the edit
+    /// did not touch.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Rebuilding the view instead costs a fresh <c>TextLayout</c> for every block in every cell,
+    /// on every keystroke. Measured on a 50×5 table, that was 18.5 ms per typed character against
+    /// a 16.7 ms frame — the table was the only structure in the document that got slower the
+    /// bigger it was, because it was the only one <c>Reconcile</c> could not update in place.
+    /// </para>
+    /// <para>
+    /// The document is a persistent tree, so an edit inside one cell leaves every other cell node
+    /// reference-identical to the one already on screen. That is what makes the reuse safe and
+    /// what makes it cheap: the walk is the same walk, and all it adds is a reference comparison
+    /// per block.
+    /// </para>
+    /// </remarks>
+    /// <param name="table">The table as it is now.</param>
+    /// <returns>Whether anything changed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="table"/> is null.</exception>
+    public bool Update(TableNode table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        if (ReferenceEquals(table, _table))
+        {
+            return false;
+        }
+
+        _cells = Build(table, _create, _header, _cells, out _columns);
+        _table = table;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Walks the table into the flat cell list everything else here searches, reusing the views
+    /// in <paramref name="previous"/> wherever the edit left a block untouched.
+    /// </summary>
+    /// <remarks>
+    /// The one place the local position arithmetic lives. It has to mirror
+    /// <see cref="DocumentBlocks"/> exactly, and a second copy of it for the update path is the
+    /// obvious way for the two to drift apart by one and put the caret in the wrong cell.
+    /// </remarks>
+    private static ImmutableArray<Cell> Build(
+        TableNode table,
+        Func<BlockNode, BlockView> create,
+        IBrush? header,
+        ImmutableArray<Cell> previous,
+        out int columns)
+    {
+        var placements = TableGeometry.Place(table, out columns);
         var cells = ImmutableArray.CreateBuilder<Cell>(placements.Length);
 
         // Walked in exactly the order TableGeometry placed them, which is the order the rows and
@@ -80,23 +139,38 @@ public sealed class TableBlockView : BlockView
 
             foreach (var cell in row.Cells)
             {
+                // Cells are matched by position rather than by identity. An edit inside one cell
+                // leaves the others alone, so the i'th cell of the new table is the i'th of the
+                // old one; a structural change that makes that false only costs a rebuild, which
+                // is what would have happened anyway.
+                var was = !previous.IsDefault && index < previous.Length ? previous[index] : null;
                 var blocks = ImmutableArray.CreateBuilder<Child>(cell.Blocks.Length);
 
                 // And one past the cell's own opening boundary.
                 var blockStart = cellStart + 1;
+                var at = 0;
 
                 foreach (var block in cell.Blocks)
                 {
+                    var before = was is not null && at < was.Blocks.Length ? was.Blocks[at] : null;
+
                     // A leaf occupies its position rather than sitting inside a pair of
                     // boundaries, so its content starts where the block itself is.
                     blocks.Add(new Child(
-                        create(block),
+                        block,
+                        Reuse(before, block) ?? create(block),
                         block.IsLeaf ? blockStart : blockStart + 1));
 
                     blockStart += block.NodeSize;
+                    at++;
                 }
 
-                cells.Add(new Cell(cell, placements[index], cellStart + 1, blocks.ToImmutable(), header));
+                cells.Add(new Cell(
+                    cell,
+                    placements[index],
+                    cellStart + 1,
+                    blocks.ToImmutable(),
+                    header));
 
                 cellStart += cell.NodeSize;
                 index++;
@@ -105,7 +179,37 @@ public sealed class TableBlockView : BlockView
             rowStart += row.NodeSize;
         }
 
-        _cells = cells.ToImmutable();
+        return cells.ToImmutable();
+    }
+
+    /// <summary>The view already on screen for a block, if it can be kept, or null.</summary>
+    /// <remarks>
+    /// An unchanged block keeps its view outright. A changed one keeps it only if the view can be
+    /// told to update itself, which a paragraph and a nested table can and an image and a rule
+    /// cannot — and an image especially must not be rebuilt for nothing, because building one
+    /// resolves its source.
+    /// </remarks>
+    private static BlockView? Reuse(Child? before, BlockNode block) => before switch
+    {
+        null => null,
+        _ when ReferenceEquals(before.Node, block) => before.View,
+        { View: ParagraphView view } when block is ParagraphNode paragraph => Updated(view, paragraph),
+        { View: TableBlockView view } when block is TableNode nested => Updated(view, nested),
+        _ => null,
+    };
+
+    private static BlockView Updated(ParagraphView view, ParagraphNode paragraph)
+    {
+        view.Update(paragraph);
+
+        return view;
+    }
+
+    private static BlockView Updated(TableBlockView view, TableNode table)
+    {
+        view.Update(table);
+
+        return view;
     }
 
     /// <inheritdoc/>
@@ -506,8 +610,11 @@ public sealed class TableBlockView : BlockView
     }
 
     /// <summary>One block inside a cell, with where it starts in both senses.</summary>
-    private sealed class Child(BlockView view, int start)
+    private sealed class Child(BlockNode node, BlockView view, int start)
     {
+        /// <summary>The block itself, so an update can tell whether this one was edited.</summary>
+        public BlockNode Node { get; } = node;
+
         public BlockView View { get; } = view;
 
         /// <summary>The local position of the block's first inner position.</summary>

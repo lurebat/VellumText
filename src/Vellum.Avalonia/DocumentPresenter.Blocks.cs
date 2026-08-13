@@ -612,6 +612,10 @@ public abstract partial class DocumentPresenter
             {
                 view.Update(paragraph);
             }
+            else if (_views[index] is TableBlockView table && slots[index].Node is TableNode edited)
+            {
+                table.Update(edited);
+            }
             else
             {
                 _views[index] = Create(slots[index].Node);
