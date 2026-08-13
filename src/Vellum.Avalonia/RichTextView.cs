@@ -64,10 +64,10 @@ public partial class RichTextView : Control
     public static readonly TimeSpan BlinkInterval = TimeSpan.FromMilliseconds(500);
 
     /// <summary>The pointer shown over text, shared because a Cursor owns a platform handle.</summary>
-    private static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
+    internal static readonly Cursor TextCursor = new(StandardCursorType.Ibeam);
 
     /// <summary>The pointer shown anywhere in the control that is not text.</summary>
-    private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
+    internal static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
 
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);

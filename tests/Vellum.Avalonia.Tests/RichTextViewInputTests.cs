@@ -608,4 +608,49 @@ public class RichTextViewInputTests
         Assert.True(view.State.Selection.IsEmpty);
         Assert.InRange(view.State.Selection.Head, view.Slots[0].Start, view.Slots[0].End);
     }
+
+    /// <summary>
+    /// The pointer shape follows what is actually under the pointer. An I-beam pinned to the
+    /// whole control claims the empty space below the last paragraph is text; an arrow
+    /// everywhere gives no sign that the document can be selected at all. Both have been
+    /// reported, so the shape is asserted from a real pointer move rather than from the
+    /// predicate alone.
+    /// </summary>
+    [AvaloniaFact]
+    public void ThePointerIsAnIBeamOverTextAndAnArrowOffIt()
+    {
+        var (window, view) = Nested("alpha bravo", "charlie delta", "echo foxtrot");
+
+        window.MouseMove(In(window, view, 1, 20));
+        Assert.Same(RichTextView.TextCursor, view.Cursor);
+
+        // Below the last block. The control is nearly always taller than its document.
+        var below = view.TranslatePoint(
+            new Point(20, view.Blocks.Sum(b => b.Size.Height) + 40), window)!.Value;
+
+        window.MouseMove(below);
+        Assert.Same(RichTextView.ArrowCursor, view.Cursor);
+
+        window.MouseMove(In(window, view, 0, 20));
+        Assert.Same(RichTextView.TextCursor, view.Cursor);
+    }
+
+    /// <summary>
+    /// Dragging keeps the I-beam even once the pointer leaves the text, because the gesture is
+    /// still a selection. Flickering to an arrow at the end of a short line during a drag reads
+    /// as the selection having been dropped.
+    /// </summary>
+    [AvaloniaFact]
+    public void ADragKeepsTheIBeamEvenPastTheEndOfTheText()
+    {
+        var (window, view) = Nested("alpha bravo", "charlie delta", "echo foxtrot");
+
+        window.MouseMove(In(window, view, 1, 20));
+        window.MouseDown(In(window, view, 1, 20), MouseButton.Left);
+        window.MouseMove(In(window, view, 1, 380));
+
+        Assert.Same(RichTextView.TextCursor, view.Cursor);
+
+        window.MouseUp(In(window, view, 1, 380), MouseButton.Left);
+    }
 }
