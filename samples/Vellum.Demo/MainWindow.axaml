@@ -38,24 +38,12 @@
         </ResourceDictionary>
 
       </ResourceDictionary.ThemeDictionaries>
-
-      <!-- Drawn rather than set in an icon font, so the toolbar reads the same on a machine with
-           no Segoe Fluent Icons instead of falling back to tofu. -->
-      <StreamGeometry x:Key="AlignLeftIcon">M1,2.5 H15 V4 H1 Z M1,6.5 H10 V8 H1 Z M1,10.5 H15 V12 H1 Z M1,14.5 H10 V16 H1 Z</StreamGeometry>
-      <StreamGeometry x:Key="AlignCenterIcon">M1,2.5 H15 V4 H1 Z M3.5,6.5 H12.5 V8 H3.5 Z M1,10.5 H15 V12 H1 Z M3.5,14.5 H12.5 V16 H3.5 Z</StreamGeometry>
-      <StreamGeometry x:Key="AlignRightIcon">M1,2.5 H15 V4 H1 Z M6,6.5 H15 V8 H6 Z M1,10.5 H15 V12 H1 Z M6,14.5 H15 V16 H6 Z</StreamGeometry>
-      <StreamGeometry x:Key="AlignJustifyIcon">M1,2.5 H15 V4 H1 Z M1,6.5 H15 V8 H1 Z M1,10.5 H15 V12 H1 Z M1,14.5 H15 V16 H1 Z</StreamGeometry>
-      <StreamGeometry x:Key="IndentIcon">M1,2.5 H15 V4 H1 Z M6,6.5 H15 V8 H6 Z M6,10.5 H15 V12 H6 Z M1,14.5 H15 V16 H1 Z M1,6 L4.5,9.25 L1,12.5 Z</StreamGeometry>
-      <StreamGeometry x:Key="OutdentIcon">M1,2.5 H15 V4 H1 Z M6,6.5 H15 V8 H6 Z M6,10.5 H15 V12 H6 Z M1,14.5 H15 V16 H1 Z M4.5,6 L1,9.25 L4.5,12.5 Z</StreamGeometry>
-      <StreamGeometry x:Key="BulletListIcon">M6,2.5 H15 V4 H6 Z M6,7.5 H15 V9 H6 Z M6,12.5 H15 V14 H6 Z M1,2 A1.4,1.4 0 1 1 1,4.9 A1.4,1.4 0 1 1 1,2 Z M1,7 A1.4,1.4 0 1 1 1,9.9 A1.4,1.4 0 1 1 1,7 Z M1,12 A1.4,1.4 0 1 1 1,14.9 A1.4,1.4 0 1 1 1,12 Z</StreamGeometry>
-      <StreamGeometry x:Key="NumberListIcon">M6,2.5 H15 V4 H6 Z M6,7.5 H15 V9 H6 Z M6,12.5 H15 V14 H6 Z M1.6,1.6 H2.6 V4.9 H1.8 V2.4 H1.1 Z M0.9,6.6 H3.2 V7.4 L1.9,9.1 H3.3 V9.9 H0.8 V9.1 L2.1,7.4 H0.9 Z M0.9,11.6 H3.2 V12.3 L2.4,13 L3.3,13.6 V14.9 H0.9 V14.1 H2.4 V13.7 H1.5 V13 H2.3 V12.4 H0.9 Z</StreamGeometry>
     </ResourceDictionary>
   </Window.Resources>
 
   <Window.Styles>
 
-    <!-- One height, one radius, one hover for everything in the bar, so the row reads as a single
-         instrument rather than a collection of buttons that happen to be adjacent. -->
+    <!-- Only the side panel's own buttons. The formatting bar's look ships with the control. -->
     <Style Selector=":is(Button).tool">
       <Setter Property="Height" Value="30" />
       <Setter Property="MinWidth" Value="30" />
@@ -72,38 +60,6 @@
       <Setter Property="Background" Value="{DynamicResource Hover}" />
       <Setter Property="TextBlock.Foreground" Value="{DynamicResource Ink}" />
     </Style>
-    <Style Selector=":is(Button).tool:disabled">
-      <Setter Property="Opacity" Value="0.35" />
-    </Style>
-    <Style Selector=":is(Button).tool:disabled /template/ ContentPresenter">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="TextBlock.Foreground" Value="{DynamicResource Ink}" />
-    </Style>
-    <Style Selector="ToggleButton.tool:checked /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SystemAccentColorBrush}" />
-      <Setter Property="TextBlock.Foreground" Value="#FFFFFF" />
-    </Style>
-    <Style Selector="ToggleButton.tool:checked:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource SystemAccentColorBrush}" />
-      <Setter Property="TextBlock.Foreground" Value="#FFFFFF" />
-    </Style>
-
-    <Style Selector="Path.icon">
-      <Setter Property="Width" Value="16" />
-      <Setter Property="Height" Value="16" />
-      <Setter Property="Stretch" Value="Uniform" />
-      <Setter Property="Fill" Value="{DynamicResource Ink}" />
-    </Style>
-
-    <!-- A hairline, not a labelled group. The gap does the grouping; the rule confirms it. -->
-    <Style Selector="Border.divider">
-      <Setter Property="Width" Value="1" />
-      <Setter Property="Height" Value="18" />
-      <Setter Property="Margin" Value="7,0,9,0" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Background" Value="{DynamicResource Hairline}" />
-    </Style>
 
     <Style Selector="TextBlock.section">
       <Setter Property="FontSize" Value="11" />
@@ -111,158 +67,31 @@
       <Setter Property="Foreground" Value="{DynamicResource Muted}" />
       <Setter Property="Margin" Value="0,0,0,7" />
     </Style>
-
-    <Style Selector="Border.swatch">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-      <Setter Property="Margin" Value="0,0,5,0" />
-      <Setter Property="CornerRadius" Value="3" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="BorderBrush" Value="{DynamicResource Hairline}" />
-    </Style>
-
-    <Style Selector="ComboBox.tool">
-      <Setter Property="Height" Value="30" />
-      <Setter Property="MinHeight" Value="30" />
-      <Setter Property="Margin" Value="0,0,4,0" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
   </Window.Styles>
 
   <Grid ColumnDefinitions="*,Auto,340" RowDefinitions="Auto,*,Auto">
 
-    <Border Grid.Row="0" Grid.ColumnSpan="3"
-            Background="{DynamicResource Chrome}"
-            BorderThickness="0,0,0,1" BorderBrush="{DynamicResource Hairline}"
-            Padding="10,8">
-      <StackPanel Spacing="4">
-
-        <WrapPanel>
-          <Button x:Name="UndoButton" Classes="tool" Content="&#x21B6;"
-                  FontSize="16" ToolTip.Tip="Undo (Ctrl+Z)"
-                  IsEnabled="{Binding #View.CanUndo}" />
-          <Button x:Name="RedoButton" Classes="tool" Content="&#x21B7;"
-                  FontSize="16" ToolTip.Tip="Redo (Ctrl+Y)"
-                  IsEnabled="{Binding #View.CanRedo}" />
-
-          <Border Classes="divider" />
-
-          <Button x:Name="BodyButton" Classes="tool" Content="Body" ToolTip.Tip="Body text" />
-          <Button x:Name="H1Button" Classes="tool" Content="H1" ToolTip.Tip="Heading 1" />
-          <Button x:Name="H2Button" Classes="tool" Content="H2" ToolTip.Tip="Heading 2" />
-          <Button x:Name="H3Button" Classes="tool" Content="H3" ToolTip.Tip="Heading 3" />
-          <Button x:Name="QuoteButton" Classes="tool" Content="Quote" ToolTip.Tip="Block quote" />
-          <Button x:Name="CodeButton" Classes="tool" Content="Code" ToolTip.Tip="Code block" />
-
-          <Border Classes="divider" />
-
-          <Button x:Name="AlignLeftButton" Classes="tool" ToolTip.Tip="Align left">
-            <Path Classes="icon" Data="{StaticResource AlignLeftIcon}" />
-          </Button>
-          <Button x:Name="AlignCenterButton" Classes="tool" ToolTip.Tip="Centre">
-            <Path Classes="icon" Data="{StaticResource AlignCenterIcon}" />
-          </Button>
-          <Button x:Name="AlignRightButton" Classes="tool" ToolTip.Tip="Align right">
-            <Path Classes="icon" Data="{StaticResource AlignRightIcon}" />
-          </Button>
-          <Button x:Name="AlignJustifyButton" Classes="tool" ToolTip.Tip="Justify">
-            <Path Classes="icon" Data="{StaticResource AlignJustifyIcon}" />
-          </Button>
-
-          <Border Classes="divider" />
-
-          <ToggleButton x:Name="BulletListButton" Classes="tool" ToolTip.Tip="Bulleted list (Ctrl+Shift+8)">
-            <Path Classes="icon" Data="{StaticResource BulletListIcon}" />
-          </ToggleButton>
-          <ToggleButton x:Name="NumberListButton" Classes="tool" ToolTip.Tip="Numbered list (Ctrl+Shift+7)">
-            <Path Classes="icon" Data="{StaticResource NumberListIcon}" />
-          </ToggleButton>
-
-          <Border Classes="divider" />
-
-          <Button x:Name="OutdentButton" Classes="tool" ToolTip.Tip="Decrease indent">
-            <Path Classes="icon" Data="{StaticResource OutdentIcon}" />
-          </Button>
-          <Button x:Name="IndentButton" Classes="tool" ToolTip.Tip="Increase indent">
-            <Path Classes="icon" Data="{StaticResource IndentIcon}" />
-          </Button>
-        </WrapPanel>
-
-        <WrapPanel>
-          <ToggleButton x:Name="BoldButton" Classes="tool" FontWeight="Bold" Content="B"
-                        FontSize="15" ToolTip.Tip="Bold (Ctrl+B)" />
-          <ToggleButton x:Name="ItalicButton" Classes="tool" FontStyle="Italic" Content="I"
-                        FontSize="15" FontFamily="Georgia,Times New Roman,serif"
-                        ToolTip.Tip="Italic (Ctrl+I)" />
-          <ToggleButton x:Name="UnderlineButton" Classes="tool" Content="U"
-                        FontSize="15" ToolTip.Tip="Underline (Ctrl+U)">
-            <ToggleButton.Styles>
-              <Style Selector="ToggleButton#UnderlineButton /template/ ContentPresenter">
-                <Setter Property="TextBlock.TextDecorations" Value="Underline" />
-              </Style>
-            </ToggleButton.Styles>
-          </ToggleButton>
-          <ToggleButton x:Name="StrikeButton" Classes="tool" Content="S"
-                        FontSize="15" ToolTip.Tip="Strikethrough (Ctrl+Shift+X)">
-            <ToggleButton.Styles>
-              <Style Selector="ToggleButton#StrikeButton /template/ ContentPresenter">
-                <Setter Property="TextBlock.TextDecorations" Value="Strikethrough" />
-              </Style>
-            </ToggleButton.Styles>
-          </ToggleButton>
-          <ToggleButton x:Name="SuperButton" Classes="tool" Content="x&#x00B2;"
-                        ToolTip.Tip="Superscript (Ctrl+.)" />
-          <ToggleButton x:Name="SubButton" Classes="tool" Content="x&#x2082;"
-                        ToolTip.Tip="Subscript (Ctrl+,)" />
-
-          <Border Classes="divider" />
-
-          <ComboBox x:Name="FontBox" Classes="tool" Width="168" PlaceholderText="Font" />
-          <ComboBox x:Name="SizeBox" Classes="tool" Width="100" PlaceholderText="Size" />
-
-          <Border Classes="divider" />
-
-          <Button x:Name="ColourButton" Classes="tool" ToolTip.Tip="Text colour">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <Border Classes="swatch" Background="{Binding #ColourButton.Tag}" />
-              <TextBlock Text="A" FontWeight="SemiBold" />
-            </StackPanel>
-          </Button>
-          <Button x:Name="HighlightButton" Classes="tool" ToolTip.Tip="Highlight">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <Border Classes="swatch" Background="{Binding #HighlightButton.Tag}" />
-              <TextBlock Text="&#x25A0;" />
-            </StackPanel>
-          </Button>
-          <Button x:Name="LinkButton" Classes="tool" Content="Link"
-                  ToolTip.Tip="Turn the selection into a link to example.com" />
-          <Button x:Name="ClearButton" Classes="tool" Content="Clear"
-                  ToolTip.Tip="Strip character formatting (Ctrl+Space)" />
-        </WrapPanel>
-      </StackPanel>
-    </Border>
+    <!-- The whole formatting bar, from the library. What used to be two hundred lines of markup
+         and a hundred of code-behind here is now one element and one binding. -->
+    <vellum:RichTextToolbar Grid.Row="0" Grid.ColumnSpan="3" Editor="{Binding #Editor}" />
 
     <!-- The document, on a page. The backdrop is what tells the eye where the page stops; an
-         editor that fills the frame edge to edge reads as a text box. -->
-    <ScrollViewer Grid.Row="1" Grid.Column="0"
-                  HorizontalScrollBarVisibility="Disabled"
-                  VerticalScrollBarVisibility="Auto"
-                  Padding="0,28,0,48">
-      <Border Background="{DynamicResource Page}"
-              BorderBrush="{DynamicResource PageEdge}" BorderThickness="1"
-              CornerRadius="8"
-              Padding="56,48"
-              Margin="28,0"
-              MaxWidth="680"
-              HorizontalAlignment="Center"
-              BoxShadow="0 6 24 -6 #33000000"
-              TextElement.FontSize="15.5"
-              TextElement.FontFamily="Segoe UI Variable Text,Segoe UI,Inter,system-ui"
-              TextElement.Foreground="{DynamicResource Ink}">
-        <vellum:RichTextView x:Name="View" MinHeight="460" />
-      </Border>
-    </ScrollViewer>
+         editor that fills the frame edge to edge reads as a text box.
+
+         The page is the editor itself rather than a border wrapped around it, because the
+         editor's scroll viewer must own the view directly for the layout to stay virtualized. -->
+    <vellum:RichTextEditor Grid.Row="1" Grid.Column="0"
+                           x:Name="Editor"
+                           MaxWidth="680"
+                           Margin="28,28,28,48"
+                           HorizontalAlignment="Center"
+                           Background="{DynamicResource Page}"
+                           BorderBrush="{DynamicResource PageEdge}" BorderThickness="1"
+                           CornerRadius="8"
+                           Padding="56,48"
+                           FontSize="15.5"
+                           FontFamily="Segoe UI Variable Text,Segoe UI,Inter,system-ui"
+                           Foreground="{DynamicResource Ink}" />
 
     <GridSplitter Grid.Row="1" Grid.Column="1" Width="1"
                   Background="Transparent" ResizeDirection="Columns" />
