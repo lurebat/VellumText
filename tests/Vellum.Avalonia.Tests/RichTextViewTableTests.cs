@@ -156,4 +156,137 @@ public class RichTextViewTableTests
         Assert.True(image.Size.Width <= 500, $"width was {image.Size.Width}");
         Assert.Equal(image.Size.Width / 2, image.Size.Height, 3);
     }
+   [AvaloniaFact]
+    public void BackspaceAtTheStartOfACellDoesNotJoinItToTheOneBeforeIt()
+    {
+        // Two cells of a row hold their paragraphs at the same depth, so joining them is a
+        // well-formed splice as far as the schema is concerned: it merges the paragraphs, then
+        // the cells, then the rows. A 2x2 table is caught by the occupancy check afterwards, but
+        // a single row stays rectangular and the join succeeds -- the user sees two lines merge
+        // and what actually happened is that a column disappeared out of the model.
+        var doc = new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new TableNode([new TableRowNode([
+                TableCellNode.FromText("a1"),
+                TableCellNode.FromText("b1"),
+            ])]),
+            ParagraphNode.FromText("after"),
+        ]);
+
+        var (_, view) = Shown(doc);
+
+        view.Focus();
+        view.MoveTo(view.Slots[2].Start, extend: false);
+
+        Assert.False(view.Backspace());
+
+        var table = (TableNode)view.State.Doc.Blocks[1];
+
+        Assert.Equal(2, Assert.Single(table.Rows).Cells.Length);
+    }
+
+    [AvaloniaFact]
+    public void DeleteAtTheEndOfACellDoesNotJoinItToTheOneAfterIt()
+    {
+        var doc = new DocumentNode([
+            new TableNode([
+                new TableRowNode([TableCellNode.FromText("a1")]),
+                new TableRowNode([TableCellNode.FromText("a2")]),
+            ]),
+        ]);
+
+        var (_, view) = Shown(doc);
+
+        view.Focus();
+        view.MoveTo(view.Slots[0].End, extend: false);
+
+        Assert.False(view.Delete());
+        Assert.Equal(2, ((TableNode)view.State.Doc.Blocks[0]).Rows.Length);
+    }
+
+    [AvaloniaFact]
+    public void BackspaceAtTheStartOfTheFirstCellDoesNotSwallowTheParagraphBeforeTheTable()
+    {
+        var (_, view) = Shown(WithTable());
+
+        view.Focus();
+        view.MoveTo(view.Slots[1].Start, extend: false);
+
+        Assert.False(view.Backspace());
+        Assert.Equal("before", ((ParagraphNode)view.State.Doc.Blocks[0]).Content.Text);
+        Assert.IsType<TableNode>(view.State.Doc.Blocks[1]);
+    }
+
+    [AvaloniaFact]
+    public void BackspaceStillJoinsTwoParagraphsInsideOneCell()
+    {
+        // Nesting the two blocks share is not what a join would merge, so a cell holding two
+        // paragraphs behaves like anywhere else. Refusing this too would be the easy overshoot.
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                new TableCellNode([
+                    ParagraphNode.FromText("one"),
+                    ParagraphNode.FromText("two"),
+                ]),
+            ])]),
+        ]);
+
+        var (_, view) = Shown(doc);
+
+        view.Focus();
+        view.MoveTo(view.Slots[1].Start, extend: false);
+
+        Assert.True(view.Backspace());
+
+        var cell = Assert.Single(Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells);
+
+        Assert.Equal("onetwo", ((ParagraphNode)Assert.Single(cell.Blocks)).Content.Text);
+    }
+   [AvaloniaFact]
+    public void DeletingASelectionThatSpansTwoCellsDoesNotMergeThem()
+    {
+        // The same corruption as Backspace at a cell boundary, reached by dragging instead. It
+        // is refused in the step rather than in the view precisely so that every way of asking
+        // for it -- Backspace, Delete, typing over it, pasting over it -- is refused at once.
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                TableCellNode.FromText("a1"),
+                TableCellNode.FromText("b1"),
+            ])]),
+        ]);
+
+        var (_, view) = Shown(doc);
+
+        view.Focus();
+        view.MoveTo(view.Slots[0].Start + 1, extend: false);
+        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+
+        Assert.False(view.Delete());
+        Assert.Equal(2, Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells.Length);
+    }
+
+    [AvaloniaFact]
+    public void TypingOverASelectionThatSpansTwoCellsChangesNothing()
+    {
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                TableCellNode.FromText("a1"),
+                TableCellNode.FromText("b1"),
+            ])]),
+        ]);
+
+        var (_, view) = Shown(doc);
+
+        view.Focus();
+        view.MoveTo(view.Slots[0].Start + 1, extend: false);
+        view.MoveTo(view.Slots[1].Start + 1, extend: true);
+
+        Assert.False(view.InsertText("x"));
+
+        var cells = Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells;
+
+        Assert.Equal(2, cells.Length);
+        Assert.Equal("a1", ((ParagraphNode)cells[0].Blocks[0]).Content.Text);
+        Assert.Equal("b1", ((ParagraphNode)cells[1].Blocks[0]).Content.Text);
+    }
 }

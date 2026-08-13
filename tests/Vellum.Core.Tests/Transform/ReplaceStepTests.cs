@@ -294,6 +294,50 @@ public class ReplaceStepFailureTests
     }
 
     [Fact]
+    public void DeletingFromOneCellIntoTheNextFails()
+    {
+        // Two cells of a row hold their paragraphs at the same depth, so the depth guard lets
+        // this through and the splice merges the cells as well as the text. A two-by-two table
+        // is caught afterwards because the grid comes out ragged; a table with one row does not,
+        // and the step would quietly return a valid table that has lost a column.
+        var result = ReplaceStep.Delete(5, 11).Apply(OneRow());
+
+        Assert.False(result.IsOk);
+        Assert.Contains("table", result.Failure);
+    }
+
+    [Fact]
+    public void CuttingARangeSpanningTwoCellsAndPuttingItBackIsAllowed()
+    {
+        // The refusal is about a merge the slice does not pay for. A slice open all the way down
+        // carries the cells with it, nothing is merged, and refusing this too would break every
+        // round trip through a table.
+        var doc = OneRow();
+
+        var result = new ReplaceStep(5, 11, Slice.Cut(doc, 5, 11)).Apply(doc);
+
+        Assert.True(result.IsOk, result.Failure);
+        Assert.Equal(doc, result.Doc);
+    }
+
+    [Fact]
+    public void DeletingInsideOneCellIsAllowed()
+    {
+        var result = ReplaceStep.Delete(4, 6).Apply(OneRow());
+
+        Assert.True(result.IsOk, result.Failure);
+    }
+
+    /// <summary>A table no occupancy check can catch a merge in: one row, two cells.</summary>
+    private static DocumentNode OneRow() =>
+        new([
+            new TableNode([new TableRowNode([
+                TableCellNode.FromText("a1"),
+                TableCellNode.FromText("b1"),
+            ])]),
+        ]);
+
+    [Fact]
     public void AStepThatWouldEmptyTheDocumentFails()
     {
         // The schema requires at least one block so the caret always has somewhere to be. A

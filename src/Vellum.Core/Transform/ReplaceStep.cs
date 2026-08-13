@@ -59,6 +59,11 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
                 + $"{end.Depth}-{Content.OpenEnd}.");
         }
 
+        if (TakesATableApart(start, end, extra))
+        {
+            return StepResult.Failed("The range would join two parts of a table together.");
+        }
+
         try
         {
             return Rebuild(doc, start, end, extra);
@@ -98,8 +103,46 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
         return new ReplaceStep(from.Pos, Math.Max(from.Pos, to.Pos), Content);
     }
 
-    private StepResult Rebuild(DocumentNode doc, ResolvedPos start, ResolvedPos end, int extra)
+    /// <summary>Whether closing the range back up would merge two parts of a table.</summary>
+    /// <remarks>
+    /// <para>
+    /// The levels the step has to merge are the ones the slice does not supply — the first
+    /// <paramref name="extra"/> of them, which are rebuilt from the range's <em>start</em> and
+    /// then joined to the tree the range's end left behind. Where the two ends share an ancestor
+    /// that join puts a node back together with itself and is what editing inside one cell is
+    /// made of. Where they do not, it merges two different nodes, and if either is a table, a row
+    /// or a cell then a piece of the table disappears into another one.
+    /// </para>
+    /// <para>
+    /// This cannot be left to <see cref="DocumentSchema"/>, which is only asked whether the
+    /// result is a legal table and not whether it is the same one: two cells of a two-by-two
+    /// table merge into a grid with a hole in it and are caught, while two cells of a table with
+    /// one row merge into a table with one cell, which is perfectly rectangular and perfectly
+    /// wrong. Nor can <see cref="TreeSurgery.Splice"/> decide it — at the seam it sees two cells
+    /// and cannot tell two halves of one cell from two different ones. Only the two resolved
+    /// positions know that, so this is where it is asked.
+    /// </para>
+    /// <para>
+    /// A slice open all the way down is the case this must <em>not</em> refuse: cutting a range
+    /// that spans two cells and putting the very same slice back is an identity, and it is an
+    /// identity precisely because the slice carries the cells with it and nothing is merged.
+    /// </para>
+    /// </remarks>
+    private static bool TakesATableApart(ResolvedPos start, ResolvedPos end, int extra)
     {
+        for (var depth = start.SharedDepth(end) + 1; depth <= extra; depth++)
+        {
+            if (start.NodeAt(depth) is TableNode or TableRowNode or TableCellNode
+                || end.NodeAt(depth) is TableNode or TableRowNode or TableCellNode)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private StepResult Rebuild(DocumentNode doc, ResolvedPos start, ResolvedPos end, int extra)    {
         var left = TreeSurgery.CutBefore(start, 0);
         var right = TreeSurgery.CutAfter(end, 0);
 
