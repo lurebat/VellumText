@@ -2,7 +2,7 @@
 
 A free, MIT-licensed **rich text editor control for [Avalonia UI](https://avaloniaui.net)**.
 
-> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See the [user guide](docs/guide.md) to use it, and [`docs/architecture.md`](docs/architecture.md) for the design and implementation plan.
+> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See the [user guide](docs/guide.md) to use it, [`docs/consuming.md`](docs/consuming.md) to reference it before it is published, and [`docs/architecture.md`](docs/architecture.md) for the design and implementation plan.
 
 Avalonia's own [Rich Text Editor](https://avaloniaui.net/rich-text-editor) is a commercial Accelerate component. The open-source alternatives are either a *code* editor ([AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit)) or unmaintained. Vellum aims to be a genuinely good, permissively-licensed WYSIWYG editor built on Avalonia's own text stack.
 
