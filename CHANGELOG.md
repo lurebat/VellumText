@@ -9,6 +9,9 @@ allowed to move.
 
 ## [Unreleased]
 
+Packages are built at **0.2.0** and published to a local feed; see
+[`docs/consuming.md`](docs/consuming.md). Nothing is on NuGet.
+
 ### Added
 
 - **`Vellum.Core`** — the headless document model. An immutable node tree with
@@ -30,6 +33,9 @@ allowed to move.
 - **`RichTextClipboard`** — a public clipboard API with no way to read a native format as a string,
   because doing so silently destroys RTF.
 - **`DocumentPreview`** — grapheme-safe truncation, for lists of documents.
+- **Syntax highlighting for code blocks.** `ISyntaxHighlighter` emits token kinds, `SyntaxTheme`
+  maps them to colours, and the result is applied at layout time and never stored — so exports,
+  equality and undo are untouched and a theme change is a redraw. `JsonHighlighter` included.
 - **`DocumentTextMap`** — a two-way map between document positions and plain-text offsets, for
   code that transforms a selected range and has to get back to the document.
   `DocumentText.Of` cannot serve this: it expands an embed to its alt text, so it is not

@@ -41,8 +41,8 @@ Add this `nuget.config` beside the consuming solution:
 Then reference the packages normally:
 
 ```xml
-<PackageReference Include="Vellum.Avalonia" Version="0.1.0" />
-<PackageReference Include="Vellum.Interop.Html" Version="0.1.0" />
+<PackageReference Include="Vellum.Avalonia" Version="0.2.0" />
+<PackageReference Include="Vellum.Interop.Html" Version="0.2.0" />
 ```
 
 ### Two things that will bite you

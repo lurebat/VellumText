@@ -14,6 +14,7 @@ it is.
 - [Import and export](#import-and-export)
 - [The clipboard](#the-clipboard)
 - [Images](#images)
+- [Syntax highlighting](#syntax-highlighting)
 - [Find and replace](#find-and-replace)
 - [Tables](#tables)
 - [Undo](#undo)
@@ -366,6 +367,43 @@ view.ImageRefused += (_, e) => Toast($"That image is too large ({e.ByteCount / 1
 ```
 
 Users can select an image by clicking it and resize it by dragging a corner.
+
+## Syntax highlighting
+
+Code blocks can be coloured. Set a highlighter and every `ParagraphKind.Code` block in that view is
+tokenized and coloured:
+
+```csharp
+view.SyntaxHighlighter = JsonHighlighter.Instance;
+view.SyntaxTheme = SyntaxTheme.Light;   // or Dark, the default
+```
+
+**Off by default**, because a highlighter is a claim about what language the code is in and nothing
+in a document says. A host that knows — because it just pretty-printed the JSON, or because the
+user picked a language — sets it.
+
+**Highlighting is presentation and never reaches the document.** It is applied while building the
+layout and discarded with it, so exports, equality and the undo stack are untouched, and changing
+theme is a redraw rather than an edit. A colour already on the text wins over one the tokenizer
+chose.
+
+`JsonHighlighter` ships in the box. To add a language, implement `ISyntaxHighlighter`:
+
+```csharp
+public interface ISyntaxHighlighter
+{
+    string Language { get; }
+    ImmutableArray<ValueSpan<TokenKind>> Tokenize(string text);
+}
+```
+
+It returns *kinds*, not colours — a kind is a fact about the text and a colour is a decision about a
+theme, so one tokenizer serves both palettes. It is called **one paragraph at a time**, which is
+exact for languages whose tokens cannot span a line (JSON) and an approximation for those where
+they can — a C block comment opened on one line and closed on the next will not be understood.
+Carrying state between lines is not currently supported.
+
+A highlighter must not throw; one that does costs its own colour and nothing else.
 
 ## Find and replace
 
