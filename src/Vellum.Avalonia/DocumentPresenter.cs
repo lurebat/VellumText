@@ -96,6 +96,8 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     private ITextStyleResolver? _styles;
     private IParagraphStyleResolver _paragraphStyles = new ParagraphStyleResolver();
     private IEmbedRenderer _embeds = BitmapEmbedRenderer.Shared;
+    private ISyntaxHighlighter? _highlighter;
+    private ISyntaxTheme _syntaxTheme = global::Vellum.Avalonia.SyntaxTheme.Dark;
     private bool _derivedStyles = true;
     private protected double _width = DefaultWidth;
 
@@ -148,6 +150,59 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
             ArgumentNullException.ThrowIfNull(value);
 
             _embeds = value;
+            DropLayout();
+            InvalidateMeasure();
+        }
+    }
+
+    /// <summary>Colours the code blocks in this view, or null to leave them plain.</summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, because a highlighter is a claim about what language the code is in and
+    /// nothing in a document says. A host that knows — because it just pretty-printed the JSON, or
+    /// because the user picked a language — sets it; a host that does not, does not guess.
+    /// </para>
+    /// <para>
+    /// <b>Highlighting never reaches the document.</b> It is applied while building the layout and
+    /// discarded with it, so exports, the undo stack and equality are all untouched, and changing
+    /// theme is a redraw rather than an edit.
+    /// </para>
+    /// </remarks>
+    public ISyntaxHighlighter? SyntaxHighlighter
+    {
+        get => _highlighter;
+        set
+        {
+            if (ReferenceEquals(_highlighter, value))
+            {
+                return;
+            }
+
+            _highlighter = value;
+            DropLayout();
+            InvalidateMeasure();
+        }
+    }
+
+    /// <summary>The palette <see cref="SyntaxHighlighter"/>'s tokens are drawn in.</summary>
+    /// <remarks>
+    /// Defaults to <see cref="SyntaxTheme.Dark"/>. Assigning null restores that rather than
+    /// leaving the view unable to colour anything.
+    /// </remarks>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ISyntaxTheme SyntaxTheme
+    {
+        get => _syntaxTheme;
+        set
+        {
+            var resolved = value ?? global::Vellum.Avalonia.SyntaxTheme.Dark;
+
+            if (ReferenceEquals(_syntaxTheme, resolved))
+            {
+                return;
+            }
+
+            _syntaxTheme = resolved;
             DropLayout();
             InvalidateMeasure();
         }

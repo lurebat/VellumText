@@ -655,7 +655,11 @@ public abstract partial class DocumentPresenter
 
     private BlockView Create(BlockNode node) => node switch
     {
-        ParagraphNode paragraph => new ParagraphView(paragraph, TextStyles, _embeds, _paragraphStyles),
+        ParagraphNode paragraph => new ParagraphView(
+            SyntaxHighlighting.Apply(paragraph, _highlighter, _syntaxTheme),
+            TextStyles,
+            _embeds,
+            _paragraphStyles),
         RuleNode => new RuleView(TextStyles.Resolve(MarkSet.Empty).ForegroundBrush ?? global::Avalonia.Media.Brushes.Black),
         BlockImageNode image => new BlockImageView(image, _embeds, TextStyles.Resolve(MarkSet.Empty)),
         TableNode table => new TableBlockView(table, Create, TableBorderBrush, TableHeaderBrush),
