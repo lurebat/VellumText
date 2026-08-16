@@ -24,7 +24,7 @@ public class HistoryTests
 
         public EditorState State { get; private set; }
 
-        public History History { get; private set; }
+        public History History { get; set; }
 
         public DocumentNode Doc => State.Doc;
 
@@ -493,5 +493,144 @@ public class HistoryTests
         var (undone, _) = early.Undo(earlyState);
 
         Assert.Equal("hello", ((ParagraphNode)undone.Doc.Children[0]).Content.Text);
+    }
+    /// <summary>Types one separate undo step per call, spaced beyond the coalescing window.</summary>
+    /// <remarks>
+    /// Each step inserts a different letter at a different position, so undoing them in the wrong
+    /// order produces different text. Repeating one character would make the steps commute, and a
+    /// test that cannot tell the orders apart cannot tell a reversed stack from a correct one.
+    /// </remarks>
+    private static Editor Steps(Editor editor, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            editor.Type(1 + i, ((char)('a' + i)).ToString(), TimeSpan.FromSeconds(i));
+        }
+
+        return editor;
+    }
+
+    [Fact]
+    public void AnUnboundedHistoryKeepsEveryStep()
+    {
+        var editor = Steps(new Editor(), 12);
+
+        Assert.Equal(HistoryPolicy.Unlimited, editor.History.Policy.Limit);
+        Assert.Equal(12, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void ALimitedHistoryStopsGrowingAtTheLimit()
+    {
+        var editor = Steps(new Editor(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 3)), 10);
+
+        Assert.Equal(3, editor.History.UndoDepth);
+    }
+
+    [Fact]
+    public void ItIsTheOldestStepThatIsDiscarded()
+    {
+        var editor = Steps(new Editor(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 3)), 5);
+
+        Assert.Equal("abcdehello", editor.Text(0));
+
+        // Three undos are all that is left, and they peel off the three most recent edits.
+        editor.Undo().Undo().Undo();
+
+        Assert.Equal("abhello", editor.Text(0));
+
+        // The two discarded ones are gone for good, not merely unreachable for the moment.
+        Assert.False(editor.History.CanUndo);
+        Assert.Equal("abhello", editor.Undo().Text(0));
+    }
+
+    [Fact]
+    public void RedoStillWorksAfterAStepHasBeenDiscarded()
+    {
+        var editor = Steps(new Editor(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 3)), 5);
+        var after = editor.Doc;
+
+        editor.Undo().Undo().Undo();
+
+        Assert.Equal(3, editor.History.RedoDepth);
+        Assert.Equal(after, editor.Redo().Redo().Redo().Doc);
+    }
+
+    [Fact]
+    public void ALimitOfZeroRecordsNothing()
+    {
+        var editor = Steps(new Editor(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 0)), 4);
+
+        Assert.Equal(0, editor.History.UndoDepth);
+        Assert.False(editor.History.CanUndo);
+        Assert.Equal("abcdhello", editor.Undo().Text(0));
+    }
+
+    [Fact]
+    public void SettingALimitOfZeroClearsBothStacks()
+    {
+        var editor = Steps(new Editor(), 2);
+
+        editor.Undo();
+
+        Assert.Equal(1, editor.History.RedoDepth);
+
+        editor.History = editor.History.WithPolicy(
+            new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 0));
+
+        Assert.False(editor.History.CanUndo);
+        Assert.False(editor.History.CanRedo);
+    }
+
+    [Fact]
+    public void LoweringTheLimitTrimsARedoStackTooDeepForIt()
+    {
+        var editor = Steps(new Editor(), 5);
+
+        editor.Undo().Undo().Undo().Undo().Undo();
+
+        Assert.Equal(5, editor.History.RedoDepth);
+
+        editor.History = editor.History.WithPolicy(
+            new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 2));
+
+        Assert.Equal(2, editor.History.RedoDepth);
+    }
+
+    [Fact]
+    public void CoalescedTypingCostsOneStepNotOnePerCharacter()
+    {
+        var editor = new Editor(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 2));
+
+        for (var i = 0; i < 6; i++)
+        {
+            editor.Type(1 + i, "x", TimeSpan.FromMilliseconds(i * 10));
+        }
+
+        Assert.Equal(1, editor.History.UndoDepth);
+        Assert.Equal("hello", editor.Undo().Text(0));
+    }
+
+    [Fact]
+    public void SettingALimitTrimsTheStackImmediately()
+    {
+        var editor = Steps(new Editor(), 5);
+
+        editor.History = editor.History.WithPolicy(
+            new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: 2));
+
+        Assert.Equal(2, editor.History.UndoDepth);
+
+        // And it is the newest two that survived.
+        Assert.Equal("abchello", editor.Undo().Undo().Text(0));
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MinValue)]
+    public void ALimitBelowUnlimitedIsRefused(int limit)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => History.With(new HistoryPolicy(TimeSpan.FromMilliseconds(500), Limit: limit)));
     }
 }
