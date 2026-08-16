@@ -1,0 +1,284 @@
+using Avalonia.Headless.XUnit;
+using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
+using Vellum.Avalonia;
+
+namespace Vellum.Tests.Avalonia;
+
+/// <summary>
+/// Turning an <see cref="ImageEmbed"/> into pixels, and the sources that are refused.
+/// </summary>
+public class BitmapEmbedRendererTests
+{
+    /// <summary>A real PNG of the given size, as a data URL.</summary>
+    /// <remarks>
+    /// Encoded here rather than pasted in as a literal, because a hand-made PNG that Skia refuses
+    /// to decode fails these tests in exactly the way a broken renderer would.
+    /// </remarks>
+    private static string Png(int width, int height)
+    {
+        using var bitmap = new global::Avalonia.Media.Imaging.RenderTargetBitmap(
+            new global::Avalonia.PixelSize(width, height));
+        using var buffer = new MemoryStream();
+
+        bitmap.Save(buffer, new global::Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+
+        return $"data:image/png;base64,{Convert.ToBase64String(buffer.ToArray())}";
+    }
+
+    private static TextRunProperties Properties() =>
+        new GenericTextRunProperties(new Typeface(FontFamily.Default), fontRenderingEmSize: 12);
+
+    [AvaloniaFact]
+    public void AnImageIsMeasuredAtItsIntrinsicSizeWhenItAsksForNone()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+
+        var size = renderer.Measure(new ImageEmbed(Png(2, 1)), Properties());
+
+        Assert.Equal(new global::Avalonia.Size(2, 1), size);
+    }
+
+    [AvaloniaFact]
+    public void AnExplicitSizeWins()
+    {
+        // A resized image has to stay the size it was dragged to.
+        using var renderer = new BitmapEmbedRenderer();
+
+        var size = renderer.Measure(new ImageEmbed(Png(2, 1), 80, 40), Properties());
+
+        Assert.Equal(new global::Avalonia.Size(80, 40), size);
+    }
+
+    [AvaloniaFact]
+    public void OneDimensionScalesTheOtherByTheAspectRatio()
+    {
+        // The bug this prevents: an image given only a width arriving square, and squashed.
+        using var renderer = new BitmapEmbedRenderer();
+
+        Assert.Equal(
+            new global::Avalonia.Size(100, 50),
+            renderer.Measure(new ImageEmbed(Png(2, 1), width: 100), Properties()));
+
+        Assert.Equal(
+            new global::Avalonia.Size(100, 50),
+            renderer.Measure(new ImageEmbed(Png(2, 1), height: 50), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void ASourceThatCannotBeDecodedFallsBackToABoxRatherThanThrowing()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+
+        foreach (var source in new[]
+        {
+            "data:image/png;base64,not-base64-at-all",
+            "data:image/png;base64,",
+            "data:image/png,unencoded",
+            "data:",
+            "no-such-file.png",
+            "/nonexistent/path.png",
+        })
+        {
+            var size = renderer.Measure(new ImageEmbed(source, 30, 20), Properties());
+
+            Assert.Equal(new global::Avalonia.Size(30, 20), size);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ANetworkSourceIsRefusedRatherThanFetched()
+    {
+        // A pasted document is untrusted input. Resolving http would let it make a request from
+        // the user's machine to an address it chose - a tracking pixel, or a request forgery.
+        using var renderer = new BitmapEmbedRenderer { AllowLocalSources = true };
+
+        foreach (var source in new[]
+        {
+            "http://example.com/a.png",
+            "https://example.com/a.png",
+            "ftp://example.com/a.png",
+        })
+        {
+            // Refused even with local sources allowed: this type never fetches, at any setting.
+            var size = renderer.Measure(new ImageEmbed(source), Properties());
+
+            Assert.Equal(new global::Avalonia.Size(12, 12), size);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ALocalFileIsNotReadUnlessTheHostAsksForIt()
+    {
+        // The point: a document arriving by paste names the source, so resolving a path by
+        // default would let pasted content put a local file on screen.
+        var file = Path.Combine(Path.GetTempPath(), $"vellum-{Guid.NewGuid():N}.png");
+
+        try
+        {
+            File.WriteAllBytes(file, Convert.FromBase64String(Png(2, 1).Split(',')[1]));
+
+            using (var guarded = new BitmapEmbedRenderer())
+            {
+                Assert.Equal(
+                    new global::Avalonia.Size(12, 12),
+                    guarded.Measure(new ImageEmbed(file), Properties()));
+
+                Assert.Equal(
+                    new global::Avalonia.Size(12, 12),
+                    guarded.Measure(new ImageEmbed(new Uri(file).AbsoluteUri), Properties()));
+            }
+
+            using var trusting = new BitmapEmbedRenderer { AllowLocalSources = true };
+
+            Assert.Equal(
+                new global::Avalonia.Size(2, 1),
+                trusting.Measure(new ImageEmbed(file), Properties()));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [AvaloniaFact]
+    public void AnOversizedPayloadIsRefusedBeforeItIsDecoded()
+    {
+        using var renderer = new BitmapEmbedRenderer { MaximumSourceBytes = 16 };
+
+        Assert.Equal(
+            new global::Avalonia.Size(12, 12),
+            renderer.Measure(new ImageEmbed(Png(8, 8)), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void APngClaimingMorePixelsThanAllowedIsRefusedFromItsHeader()
+    {
+        // A decompression bomb: a few bytes of PNG describing a picture too large to hold. The
+        // dimensions are in the header at a fixed offset, so this costs no allocation to refuse.
+        using var renderer = new BitmapEmbedRenderer { MaximumPixels = 16 };
+
+        Assert.Equal(
+            new global::Avalonia.Size(12, 12),
+            renderer.Measure(new ImageEmbed(Png(8, 8)), Properties()));
+
+        using var generous = new BitmapEmbedRenderer { MaximumPixels = 64 };
+
+        Assert.Equal(
+            new global::Avalonia.Size(8, 8),
+            generous.Measure(new ImageEmbed(Png(8, 8)), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void DrawingAnUndecodableImageDoesNotThrow()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+        using var bitmap = new global::Avalonia.Media.Imaging.RenderTargetBitmap(
+            new global::Avalonia.PixelSize(40, 40));
+        using var context = bitmap.CreateDrawingContext();
+
+        renderer.Draw(context, new global::Avalonia.Rect(0, 0, 20, 20), new ImageEmbed("broken"));
+        renderer.Draw(context, new global::Avalonia.Rect(0, 0, 20, 20), new ImageEmbed(Png(2, 1)));
+    }
+
+    [AvaloniaFact]
+    public void ANonImageEmbedIsLeftToTheFallback()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+
+        Assert.Null(renderer.Measure(new Unknown(), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void TheSameSourceIsDecodedOnceAndSurvivesInvalidation()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+
+        var first = renderer.Measure(new ImageEmbed(Png(2, 1)), Properties());
+
+        renderer.Invalidate();
+
+        Assert.Equal(first, renderer.Measure(new ImageEmbed(Png(2, 1)), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void ADisposedRendererStopsResolvingRatherThanUsingFreedBitmaps()
+    {
+        var renderer = new BitmapEmbedRenderer();
+
+        renderer.Measure(new ImageEmbed(Png(2, 1)), Properties());
+        renderer.Dispose();
+        renderer.Dispose();
+
+        // Falls back rather than handing back a bitmap it has already disposed.
+        Assert.Equal(
+            new global::Avalonia.Size(12, 12),
+            renderer.Measure(new ImageEmbed(Png(2, 1)), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void TheRendererRejectsNulls()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+
+        Assert.Throws<ArgumentNullException>(() => renderer.Measure(null!, Properties()));
+        Assert.Throws<ArgumentNullException>(() => renderer.Measure(new ImageEmbed("a"), null!));
+    }
+
+    [AvaloniaFact]
+    public void AnEditorRendersImagesWithoutTheHostArrangingAnything()
+    {
+        // The default matters: a rich text control that cannot show an image is not one.
+        Assert.IsType<BitmapEmbedRenderer>(new RichTextView().Embeds);
+        Assert.IsType<BitmapEmbedRenderer>(new RichTextViewer().Embeds);
+    }
+
+    // ---- the image store ----------------------------------------------------------------------
+
+    [AvaloniaFact]
+    public void TheDataUriStoreRoundTripsThroughTheRenderer()
+    {
+        // The two halves of the same feature: what the store writes, the renderer must resolve.
+        var store = new DataUriImageStore();
+        var uri = Png(2, 1);
+        var png = Convert.FromBase64String(uri[(uri.IndexOf(',') + 1)..]);
+
+        var source = store.Save(png, "image/png");
+
+        Assert.NotNull(source);
+
+        using var renderer = new BitmapEmbedRenderer();
+
+        Assert.Equal(
+            new global::Avalonia.Size(2, 1),
+            renderer.Measure(new ImageEmbed(source), Properties()));
+    }
+
+    [AvaloniaFact]
+    public void TheStoreRefusesAnImageOverTheLimitRatherThanTruncatingIt()
+    {
+        var store = new DataUriImageStore(maximumBytes: 8);
+
+        Assert.Null(store.Save(new byte[9], "image/png"));
+        Assert.NotNull(store.Save(new byte[8], "image/png"));
+    }
+
+    [AvaloniaFact]
+    public void TheStoreRefusesNothingAtAll()
+    {
+        Assert.Null(new DataUriImageStore().Save([], "image/png"));
+    }
+
+    [AvaloniaFact]
+    public void TheStoreChecksItsArguments()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DataUriImageStore(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DataUriImageStore(-1));
+        Assert.Throws<ArgumentNullException>(() => new DataUriImageStore().Save(new byte[1], null!));
+    }
+
+    private sealed record Unknown : InlineEmbed
+    {
+        public override string PlainTextFallback => "?";
+    }
+}
