@@ -20,6 +20,16 @@ allowed to move.
   a block-reconciling view, built on Avalonia's own text stack: bidi-aware
   selection geometry, grapheme-correct caret movement, inline embeds via
   `DrawableTextRun`, and IME composition.
+- **`Vellum.Interop.Json`** — lossless, schema-versioned JSON, for storing documents rather
+  than exchanging them. A document written and read back is equal to the one written.
+- **Images that actually draw.** `BitmapEmbedRenderer` is the default renderer; by design it
+  resolves only `data:` URLs unless a host opts in, because a pasted document is untrusted input
+  and its sources are addresses that content chose.
+- **Pasting and dropping** images, files and rich text. `IImageStore` decides where pixels go, and
+  defaults to carrying them inside the document.
+- **`RichTextClipboard`** — a public clipboard API with no way to read a native format as a string,
+  because doing so silently destroys RTF.
+- **`DocumentPreview`** — grapheme-safe truncation, for lists of documents.
 - Multi-block editing: cross-block caret movement and selection, Enter to
   split, Backspace and Delete to join, headings, blockquotes, code blocks,
   alignment, indent, and bulleted and numbered lists.

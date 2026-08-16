@@ -2,7 +2,7 @@
 
 A free, MIT-licensed **rich text editor control for [Avalonia UI](https://avaloniaui.net)**.
 
-> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See [`docs/architecture.md`](docs/architecture.md) for the full architecture and implementation plan.
+> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See the [user guide](docs/guide.md) to use it, and [`docs/architecture.md`](docs/architecture.md) for the design and implementation plan.
 
 Avalonia's own [Rich Text Editor](https://avaloniaui.net/rich-text-editor) is a commercial Accelerate component. The open-source alternatives are either a *code* editor ([AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit)) or unmaintained. Vellum aims to be a genuinely good, permissively-licensed WYSIWYG editor built on Avalonia's own text stack.
 
@@ -20,10 +20,11 @@ Vellum is therefore not a text engine. It is a **document model, a transaction s
 |---|---|---|
 | `Vellum.Core` | **nothing at all** — model, positions, transactions, undo. Headlessly testable. | working |
 | `Vellum.Avalonia` | `Avalonia` — the `RichTextEditor` control, block views, caret/selection, IME, themes. | working |
-| `Vellum.Interop.Html` | AngleSharp (MIT) | in progress |
-| `Vellum.Interop.Rtf` | none | in progress |
+| `Vellum.Interop.Html` | AngleSharp (MIT) — import, export, sanitizing | working |
+| `Vellum.Interop.Rtf` | RtfPipe (MIT) — import and export | working |
+| `Vellum.Interop.Json` | **nothing** — lossless, versioned, for storage | working |
 | `Vellum.Interop.Markdown` | Markdig (BSD-2) | planned |
-| `Vellum.Interop.Docx` | DocumentFormat.OpenXml (MIT) | planned |
+| `Vellum.Interop.Docx` | DocumentFormat.OpenXml (MIT) | v2.0 |
 
 `Vellum.Core` takes no dependency on `Avalonia.Base` either. It owns the two
 primitives it would otherwise have borrowed (`Rgba` and `ValueSpan<T>`), and a
