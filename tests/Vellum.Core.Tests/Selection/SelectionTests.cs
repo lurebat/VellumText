@@ -556,3 +556,121 @@ public class CellSelectionTests
         Assert.Equal(new[] { 2, 7 }, selection.Cells(SelectionSample.MergedTable).ToArray());
     }
 }
+
+/// <summary>Promoting two arbitrary positions to a rectangle, which is what a drag needs.</summary>
+public class CellSelectionAcrossTests
+{
+    [Fact]
+    public void TwoPositionsInDifferentCellsSelectTheRectangleBetweenThem()
+    {
+        // 4 is the character in the top-left cell, 21 the one in the bottom-right.
+        var selection = CellSelection.Across(SelectionSample.Table, 4, 21);
+
+        Assert.NotNull(selection);
+        Assert.Equal(new[] { 2, 7, 14, 19 }, selection.Cells(SelectionSample.Table).ToArray());
+    }
+
+    [Fact]
+    public void TwoPositionsInOneCellAreNotARectangle()
+    {
+        // Dragging inside a cell is ordinary text selection. Promoting it would take the whole
+        // cell and make selecting a single word inside a table impossible.
+        Assert.Null(CellSelection.Across(SelectionSample.Table, 3, 5));
+    }
+
+    [Fact]
+    public void APositionOutsideAnyTableIsNotARectangle()
+    {
+        Assert.Null(CellSelection.Across(SelectionSample.WithRule, 1, 8));
+    }
+
+    [Fact]
+    public void OnlyOneEndBeingInATableIsNotARectangle()
+    {
+        var doc = new DocumentNode(
+        [
+            (TableNode)SelectionSample.Table.Children[0],
+            ParagraphNode.FromText("after"),
+        ]);
+
+        // 4 is inside the first cell; 29 is in the paragraph that follows the table.
+        Assert.Null(CellSelection.Across(doc, 4, 29));
+    }
+
+    [Fact]
+    public void OutOfRangePositionsAreNotARectangle()
+    {
+        Assert.Null(CellSelection.Across(SelectionSample.Table, -1, 4));
+        Assert.Null(
+            CellSelection.Across(SelectionSample.Table, 4, SelectionSample.Table.ContentSize + 1));
+    }
+
+    [Fact]
+    public void ADragOutOfANestedTableSelectsCellsOfTheOuterOne()
+    {
+        // The case the chain walk exists for. Matching at the innermost level would compare a
+        // cell of the inner table against a cell of the outer one - two unrelated grids - and
+        // find no rectangle at all. The only rectangle containing both ends is in the outer
+        // table, so that is the level the selection has to be drawn at.
+        var inner = new TableNode(
+        [
+            new TableRowNode([TableCellNode.FromText("i"), TableCellNode.FromText("j")]),
+        ]);
+
+        var outer = new TableNode(
+        [
+            new TableRowNode(
+            [
+                new TableCellNode([inner]),
+                TableCellNode.FromText("b"),
+            ]),
+        ]);
+
+        var doc = new DocumentNode([outer]);
+
+        Assert.Empty(DocumentSchema.Validate(doc));
+
+        var outerCells = TableGrid.Build(0, outer);
+        var firstOuter = outerCells.At(0, 0)!.Value.Pos;
+        var secondOuter = outerCells.At(0, 1)!.Value.Pos;
+
+        // A position deep inside the nested table's first cell.
+        var innerGrid = TableGrid.ForCell(doc, firstOuter + 3)!;
+        var innerCell = innerGrid.At(0, 0)!.Value.Pos;
+        var deep = innerCell + 2;
+
+        Assert.True(doc.Resolve(deep).IsInText, "the probe position should be inside cell text");
+
+        var selection = CellSelection.Across(doc, deep, secondOuter + 2);
+
+        Assert.NotNull(selection);
+        Assert.Equal(new[] { firstOuter, secondOuter }, selection.Cells(doc).ToArray());
+    }
+
+    [Fact]
+    public void ADragWithinOneNestedCellStaysInTheInnerTable()
+    {
+        // The mirror of the case above: both ends are in the inner table, so the rectangle
+        // belongs to the inner table and must not be promoted to the outer one.
+        var inner = new TableNode(
+        [
+            new TableRowNode([TableCellNode.FromText("i"), TableCellNode.FromText("j")]),
+        ]);
+
+        var outer = new TableNode(
+        [
+            new TableRowNode([new TableCellNode([inner]), TableCellNode.FromText("b")]),
+        ]);
+
+        var doc = new DocumentNode([outer]);
+        var outerFirst = TableGrid.Build(0, outer).At(0, 0)!.Value.Pos;
+        var innerGrid = TableGrid.ForCell(doc, outerFirst + 3)!;
+        var a = innerGrid.At(0, 0)!.Value.Pos;
+        var b = innerGrid.At(0, 1)!.Value.Pos;
+
+        var selection = CellSelection.Across(doc, a + 2, b + 2);
+
+        Assert.NotNull(selection);
+        Assert.Equal(new[] { a, b }, selection.Cells(doc).ToArray());
+    }
+}

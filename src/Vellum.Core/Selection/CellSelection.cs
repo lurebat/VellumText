@@ -274,6 +274,88 @@ public sealed record CellSelection(int AnchorCell, int HeadCell)
     }
 
     /// <summary>
+    /// A cell selection spanning the two cells containing two arbitrary positions, or null if
+    /// they do not sit in two different cells of one table.
+    /// </summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="anchorPos">Any position inside the cell the drag started in.</param>
+    /// <param name="headPos">Any position inside the cell it is currently over.</param>
+    /// <remarks>
+    /// <para>
+    /// This is what a pointer drag needs: it knows two positions, not two cells. Both ends are
+    /// resolved to the chain of cells that contain them, innermost first, and the deepest table
+    /// they have in common decides the level the rectangle is drawn at. Dragging from inside a
+    /// nested table out to a sibling cell of the outer one therefore selects two cells of the
+    /// <em>outer</em> table, which is the only rectangle that can contain both ends — matching at
+    /// the innermost level instead would compare cells of two unrelated grids.
+    /// </para>
+    /// <para>
+    /// Two positions in the same cell return null rather than a one-cell rectangle, because a
+    /// drag within a cell is ordinary text selection and promoting it would make it impossible
+    /// to select a word.
+    /// </para>
+    /// </remarks>
+    public static CellSelection? Across(DocumentNode doc, int anchorPos, int headPos)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        if (anchorPos < 0 || anchorPos > doc.ContentSize
+            || headPos < 0 || headPos > doc.ContentSize)
+        {
+            return null;
+        }
+
+        var anchors = CellChain(doc, anchorPos);
+
+        if (anchors.Count == 0)
+        {
+            return null;
+        }
+
+        var heads = CellChain(doc, headPos);
+
+        foreach (var (cell, table) in anchors)
+        {
+            foreach (var (otherCell, otherTable) in heads)
+            {
+                if (otherTable != table)
+                {
+                    continue;
+                }
+
+                return cell == otherCell ? null : Create(doc, cell, otherCell);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Every table cell containing a position, as the position before the cell paired with the
+    /// position before its table, innermost first.
+    /// </summary>
+    private static List<(int Cell, int Table)> CellChain(DocumentNode doc, int pos)
+    {
+        var at = doc.Resolve(pos);
+        var chain = new List<(int, int)>();
+
+        // A cell is always a row's child and a row always a table's, so a cell at depth d puts
+        // its table at d - 2. Stopping at 3 keeps that lookup at depth 1 or deeper, which is
+        // what Before requires: there is nothing outside the document to address.
+        for (var depth = at.Depth; depth >= 3; depth--)
+        {
+            if (at.NodeAt(depth) is TableCellNode
+                && at.NodeAt(depth - 1) is TableRowNode
+                && at.NodeAt(depth - 2) is TableNode)
+            {
+                chain.Add((at.Before(depth), at.Before(depth - 2)));
+            }
+        }
+
+        return chain;
+    }
+
+    /// <summary>
     /// The positions before each selected cell, in document order.
     /// </summary>
     /// <param name="doc">The document this selection was measured against.</param>
