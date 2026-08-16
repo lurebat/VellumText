@@ -120,8 +120,9 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// <summary>How many distinct sources to keep decoded.</summary>
     /// <remarks>
     /// A bound rather than none: a clipboard history browsing hundreds of documents would
-    /// otherwise hold every image any of them ever showed. Past the limit new sources are decoded
-    /// each time rather than evicting, which is slower but never wrong.
+    /// otherwise hold every image any of them ever showed. At the limit an existing entry is
+    /// evicted and disposed to make room, so every decoded bitmap is owned by the cache and freed
+    /// with it.
     /// </remarks>
     public int CacheLimit { get; init; } = 64;
 
@@ -231,6 +232,19 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
         Invalidate();
     }
 
+    /// <summary>How many sources are currently decoded and held.</summary>
+    internal int CachedCount => _cache.Count;
+
+    /// <summary>How many times a source has actually been decoded.</summary>
+    /// <remarks>
+    /// Exists for the regression test on cache ownership: a source that is resolved twice but
+    /// decoded twice is one the cache did not keep, and a bitmap the cache does not keep is one
+    /// nothing will ever dispose.
+    /// </remarks>
+    internal int DecodeCount => _decodes;
+
+    private int _decodes;
+
     private Bitmap? Resolve(string source)
     {
         if (_disposed || string.IsNullOrWhiteSpace(source))
@@ -245,9 +259,21 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 
         var bitmap = Decode(source);
 
-        // Past the limit the result is still returned, just not kept. Growing without bound is the
-        // only outcome that would actually be a bug.
-        if (_cache.Count < CacheLimit && !_cache.TryAdd(source, bitmap))
+        Interlocked.Increment(ref _decodes);
+
+        // Make room rather than handing back a bitmap the cache does not own. An uncached one has
+        // no owner and nothing ever disposes it, so a document with more distinct images than the
+        // limit would leak one per image per layout pass - in native memory, where it does not
+        // even show up as managed pressure.
+        while (_cache.Count >= CacheLimit && _cache.Keys.FirstOrDefault() is { } victim)
+        {
+            if (_cache.TryRemove(victim, out var evicted))
+            {
+                evicted?.Dispose();
+            }
+        }
+
+        if (!_cache.TryAdd(source, bitmap))
         {
             bitmap?.Dispose();
 

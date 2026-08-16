@@ -217,6 +217,43 @@ public class BitmapEmbedRendererTests
     }
 
     [AvaloniaFact]
+    public void TheCacheStaysBoundedRatherThanLeakingWhatItCannotHold()
+    {
+        // The bug this exists for: at the limit, the old code returned a decoded bitmap it had not
+        // kept. Nothing owned it, so nothing disposed it, and because it was not cached the very
+        // next layout pass decoded it again - leaking one native bitmap per image per pass, where
+        // it never shows up as managed pressure.
+        //
+        // The count staying under the limit does NOT catch that, because the old code stayed under
+        // it too. Re-decoding is the observable symptom, so that is what this asserts.
+        using var renderer = new BitmapEmbedRenderer { CacheLimit = 4 };
+
+        for (var i = 1; i <= 4; i++)
+        {
+            renderer.Measure(new ImageEmbed(Png(i, 1)), Properties());
+        }
+
+        Assert.Equal(4, renderer.CachedCount);
+
+        var beyond = new ImageEmbed(Png(9, 1));
+        var before = renderer.DecodeCount;
+
+        renderer.Measure(beyond, Properties());
+        renderer.Measure(beyond, Properties());
+        renderer.Measure(beyond, Properties());
+
+        Assert.Equal(before + 1, renderer.DecodeCount);
+        Assert.True(
+            renderer.CachedCount <= 4,
+            $"cache held {renderer.CachedCount} against a limit of 4");
+
+        // Eviction must not leave the renderer unable to resolve what it dropped.
+        Assert.Equal(
+            new global::Avalonia.Size(3, 1),
+            renderer.Measure(new ImageEmbed(Png(3, 1)), Properties()));
+    }
+
+    [AvaloniaFact]
     public void TheRendererRejectsNulls()
     {
         using var renderer = new BitmapEmbedRenderer();
