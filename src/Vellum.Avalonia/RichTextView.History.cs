@@ -27,8 +27,17 @@ public partial class RichTextView
 
     /// <summary>The undo history.</summary>
     /// <remarks>
+    /// <para>
     /// Settable so that a host can choose a grouping policy, or clear the history after loading
     /// a document. Replacing it discards whatever was on both stacks, which is the point.
+    /// </para>
+    /// <para>
+    /// This and <see cref="UndoLimit"/> are two names for one value, and the last one written
+    /// wins: assigning a history adopts the limit its policy carries, and setting the property
+    /// writes into the history in place. Anything else lets them disagree, and a control whose
+    /// <see cref="UndoLimit"/> says ten while its history keeps everything is lying about the
+    /// memory it holds.
+    /// </para>
     /// </remarks>
     public History History
     {
@@ -41,20 +50,31 @@ public partial class RichTextView
 
             _history = value;
 
+            // SetCurrentValue, not the property: a host that bound UndoLimit still owns it, and
+            // this must not overwrite the binding with a value the binding did not produce.
+            SetCurrentValue(UndoLimitProperty, value.Policy.Limit);
+
             RaiseHistoryFlags(before);
         }
     }
 
     /// <summary>Whether there is anything to undo.</summary>
     /// <remarks>
+    /// <para>
     /// Observable, so that a toolbar button can bind its enabled state to it. A command surface
     /// that had to poll this would be wrong for exactly as long as nobody looked.
+    /// </para>
+    /// <para>
+    /// False while <see cref="IsReadOnly"/>, because <see cref="Undo"/> would refuse. Reporting
+    /// what the stack holds rather than what the control will do would leave a bound button
+    /// enabled and inert.
+    /// </para>
     /// </remarks>
-    public bool CanUndo => _history.CanUndo;
+    public bool CanUndo => !IsReadOnly && _history.CanUndo;
 
     /// <summary>Whether there is anything to redo.</summary>
     /// <remarks>See <see cref="CanUndo"/>.</remarks>
-    public bool CanRedo => _history.CanRedo;
+    public bool CanRedo => !IsReadOnly && _history.CanRedo;
 
     /// <summary>Undoes the most recent edit.</summary>
     /// <returns>Whether anything changed.</returns>
@@ -64,7 +84,7 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool Redo() => Replay(undo: false);
 
-    private (bool Undo, bool Redo) HistoryFlags => (_history.CanUndo, _history.CanRedo);
+    private (bool Undo, bool Redo) HistoryFlags => (CanUndo, CanRedo);
 
     /// <remarks>
     /// Raised after the state has been installed, never before. A listener woken by
@@ -73,19 +93,26 @@ public partial class RichTextView
     /// </remarks>
     private void RaiseHistoryFlags((bool Undo, bool Redo) before)
     {
-        if (before.Undo != _history.CanUndo)
+        if (before.Undo != CanUndo)
         {
-            RaisePropertyChanged(CanUndoProperty, before.Undo, _history.CanUndo);
+            RaisePropertyChanged(CanUndoProperty, before.Undo, CanUndo);
         }
 
-        if (before.Redo != _history.CanRedo)
+        if (before.Redo != CanRedo)
         {
-            RaisePropertyChanged(CanRedoProperty, before.Redo, _history.CanRedo);
+            RaisePropertyChanged(CanRedoProperty, before.Redo, CanRedo);
         }
     }
 
     private bool Replay(bool undo)
     {
+        // Undo is an edit. Read-only would be a thin promise if Ctrl+Z could still rewind past
+        // whatever the host installed.
+        if (IsReadOnly)
+        {
+            return false;
+        }
+
         if (undo ? !_history.CanUndo : !_history.CanRedo)
         {
             return false;

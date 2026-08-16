@@ -240,6 +240,13 @@ public partial class RichTextView
     /// </remarks>
     private bool Tab(bool lift)
     {
+        // Off, the key belongs to focus navigation - including inside a list, where the remarks
+        // above otherwise argue for consuming it. A host that turned this off asked for that.
+        if (!AcceptsTab)
+        {
+            return false;
+        }
+
         if (ListKindAt is null)
         {
             return lift ? Outdent() : Indent();

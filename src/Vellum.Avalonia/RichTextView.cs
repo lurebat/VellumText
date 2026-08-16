@@ -283,6 +283,21 @@ public partial class RichTextView : DocumentPresenter
         {
             InvalidateVisual();
         }
+
+        if (change.Property == UndoLimitProperty)
+        {
+            OnUndoLimitChanged(change.GetNewValue<int>());
+        }
+
+        // Read-only changes what Undo and Redo will do, so a bound button has to hear about it.
+        // The caret stays: a read-only TextBox shows one too, and it is what tells a reader
+        // where a selection they are about to extend actually starts.
+        if (change.Property == IsReadOnlyProperty)
+        {
+            RaiseHistoryFlags((
+                !change.GetOldValue<bool>() && _history.CanUndo,
+                !change.GetOldValue<bool>() && _history.CanRedo));
+        }
     }
 
     /// <inheritdoc/>

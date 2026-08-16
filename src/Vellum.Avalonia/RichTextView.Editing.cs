@@ -37,6 +37,13 @@ public partial class RichTextView
             return false;
         }
 
+        // The one place read-only is enforced. See RichTextView.Options.cs: a check at each
+        // command is a check the next command will forget, and forgetting it is silent.
+        if (IsReadOnly)
+        {
+            return false;
+        }
+
         var before = HistoryFlags;
 
         // Recorded before the state is installed, and unconditionally: every edit that goes
@@ -112,7 +119,7 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool Split()
     {
-        if (Block is null || Rectangle is not null)
+        if (Block is null || Rectangle is not null || !AcceptsReturn)
         {
             return false;
         }

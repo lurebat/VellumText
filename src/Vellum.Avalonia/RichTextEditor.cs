@@ -63,6 +63,27 @@ public class RichTextEditor : TemplatedControl
         AvaloniaProperty.Register<RichTextEditor, bool>(
             nameof(IsSelectionToolbarEnabled), defaultValue: true);
 
+    /// <summary>Defines the <see cref="IsReadOnly"/> property.</summary>
+    /// <remarks>
+    /// These four are added owners of the view's properties rather than new ones, so the default
+    /// and the coercion are defined once. The shell still has to push each into the view, because
+    /// an added owner shares the definition and not the value.
+    /// </remarks>
+    public static readonly StyledProperty<bool> IsReadOnlyProperty =
+        RichTextView.IsReadOnlyProperty.AddOwner<RichTextEditor>();
+
+    /// <summary>Defines the <see cref="AcceptsReturn"/> property.</summary>
+    public static readonly StyledProperty<bool> AcceptsReturnProperty =
+        RichTextView.AcceptsReturnProperty.AddOwner<RichTextEditor>();
+
+    /// <summary>Defines the <see cref="AcceptsTab"/> property.</summary>
+    public static readonly StyledProperty<bool> AcceptsTabProperty =
+        RichTextView.AcceptsTabProperty.AddOwner<RichTextEditor>();
+
+    /// <summary>Defines the <see cref="UndoLimit"/> property.</summary>
+    public static readonly StyledProperty<int> UndoLimitProperty =
+        RichTextView.UndoLimitProperty.AddOwner<RichTextEditor>();
+
     /// <summary>Defines the <see cref="CanUndo"/> property.</summary>
     public static readonly DirectProperty<RichTextEditor, bool> CanUndoProperty =
         AvaloniaProperty.RegisterDirect<RichTextEditor, bool>(nameof(CanUndo), o => o.CanUndo);
@@ -211,6 +232,38 @@ public class RichTextEditor : TemplatedControl
         set => SetValue(IsSelectionToolbarEnabledProperty, value);
     }
 
+    /// <summary>Whether the document may be changed by the user.</summary>
+    /// <remarks>Forwarded to <see cref="RichTextView.IsReadOnly"/>, which documents it.</remarks>
+    public bool IsReadOnly
+    {
+        get => GetValue(IsReadOnlyProperty);
+        set => SetValue(IsReadOnlyProperty, value);
+    }
+
+    /// <summary>Whether Enter splits the paragraph.</summary>
+    /// <remarks>Forwarded to <see cref="RichTextView.AcceptsReturn"/>, which documents it.</remarks>
+    public bool AcceptsReturn
+    {
+        get => GetValue(AcceptsReturnProperty);
+        set => SetValue(AcceptsReturnProperty, value);
+    }
+
+    /// <summary>Whether Tab indents, and nests a list item, rather than moving focus.</summary>
+    /// <remarks>Forwarded to <see cref="RichTextView.AcceptsTab"/>, which documents it.</remarks>
+    public bool AcceptsTab
+    {
+        get => GetValue(AcceptsTabProperty);
+        set => SetValue(AcceptsTabProperty, value);
+    }
+
+    /// <summary>The most edits the undo stack will keep, or -1 for no limit.</summary>
+    /// <remarks>Forwarded to <see cref="RichTextView.UndoLimit"/>, which documents it.</remarks>
+    public int UndoLimit
+    {
+        get => GetValue(UndoLimitProperty);
+        set => SetValue(UndoLimitProperty, value);
+    }
+
     /// <summary>The undo history, or null before one has been set or a template applied.</summary>
     /// <remarks>
     /// <para>
@@ -224,6 +277,12 @@ public class RichTextEditor : TemplatedControl
     /// it arrives. An application that configures the control in a constructor or from a view
     /// model binding has no way to know when templating happens, so dropping the value there
     /// would silently restore the default grouping policy.
+    /// </para>
+    /// <para>
+    /// Assigning one adopts the limit its policy carries into <see cref="UndoLimit"/>, the same
+    /// last-one-written-wins rule the view applies. Without it the shell would keep pushing the
+    /// older <see cref="UndoLimit"/> back over the assigned policy at the next unrelated property
+    /// change.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><c>value</c> is null.</exception>
@@ -242,6 +301,8 @@ public class RichTextEditor : TemplatedControl
             {
                 _pendingHistory = value;
             }
+
+            SetCurrentValue(UndoLimitProperty, value.Policy.Limit);
         }
     }
 
@@ -341,6 +402,8 @@ public class RichTextEditor : TemplatedControl
         // whatever the application set before the template was applied.
         _view.State = State;
 
+        PushOptions();
+
         if (_pendingHistory is not null)
         {
             _view.History = _pendingHistory;
@@ -386,6 +449,32 @@ public class RichTextEditor : TemplatedControl
         {
             UpdateSelectionToolbar();
         }
+        else if (change.Property == IsReadOnlyProperty
+            || change.Property == AcceptsReturnProperty
+            || change.Property == AcceptsTabProperty
+            || change.Property == UndoLimitProperty)
+        {
+            PushOptions();
+        }
+    }
+
+    /// <summary>Copies the four behaviour properties into the templated view.</summary>
+    /// <remarks>
+    /// Assignment rather than binding. A binding would have to be torn down when the control is
+    /// retemplated, and a subscription left behind on a discarded view is the kind of leak that
+    /// only shows up in an application that retemplates in a loop.
+    /// </remarks>
+    private void PushOptions()
+    {
+        if (_view is not { } view)
+        {
+            return;
+        }
+
+        view.IsReadOnly = IsReadOnly;
+        view.AcceptsReturn = AcceptsReturn;
+        view.AcceptsTab = AcceptsTab;
+        view.UndoLimit = UndoLimit;
     }
 
     /// <summary>Puts the floating toolbar beside the selection, or takes it away.</summary>
