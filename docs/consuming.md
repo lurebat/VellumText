@@ -25,18 +25,27 @@ Add this `nuget.config` beside the consuming solution:
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
-    <add key="vellum-local" value="G:\packages\vellum-local" />
+    <add key="vellum-local" value="external/vellum-packages" />
   </packageSources>
   <packageSourceMapping>
     <packageSource key="vellum-local">
       <package pattern="Vellum.*" />
     </packageSource>
-    <packageSource key="nuget.org">
-      <package pattern="*" />
-    </packageSource>
+    <!--
+      List every feed name your machines might use. A mapping naming a source that is
+      disabled, or that does not exist at all, is ignored rather than fatal - so one
+      committed file works on a dev box behind a mirror and on a hosted runner using
+      nuget.org directly, without anyone editing it per machine.
+    -->
+    <packageSource key="nuget.org"><package pattern="*" /></packageSource>
+    <packageSource key="azure-default"><package pattern="*" /></packageSource>
   </packageSourceMapping>
 </configuration>
 ```
+
+Use a **relative** path when the packages are committed. An absolute path outside the repository
+restores on the machine that set it up and nowhere else, which is the same class of problem as
+vendoring the source.
 
 Then reference the packages normally:
 
@@ -60,22 +69,31 @@ restores successfully and yields `DekManager`, `PayloadEncryptor` and
 restore time. You find out at compile time when `DocumentNode` does not exist, and the error names
 a type rather than a package.
 
+**Pinning a version does not help, which is the non-obvious part.** The impostor publishes both
+`0.1.0` and `0.2.0` — the same coordinates Vellum is built at — so an exact version reference
+names a package that exists in two places and says nothing about which one you want. Its own
+description reads *"PLACEHOLDER: This package name is reserved… Do not install"*, which is no help
+at all once NuGet has already installed it.
+
 Source mapping is what makes resolution deterministic instead of a race between a fast local folder
 and a slow remote feed. Do not skip it. See §10.4 of [`architecture.md`](architecture.md) for the
 naming decision this is waiting on — until it is taken, `Vellum.*` **must** be pinned.
 
-**2. `packageSourceMapping` is all-or-nothing, and your feed is probably not called `nuget.org`.**
+**2. `packageSourceMapping` is all-or-nothing, but one committed file still works everywhere.**
 The moment the element is present, *every* package must match some mapping, including ones you
-never thought about. Corporate proxies and Azure Artifacts feeds rarely use that name — the machine
-this was verified on restores from `azure-default`, with `nuget.org` registered but **disabled**.
-Mapping `*` to a source that is not enabled fails everything else with `NU1100`, which helpfully
-lists the sources it did *not* consider. Find the real name first:
+never thought about, and a package matching none fails with `NU1100` — which helpfully lists the
+sources it did *not* consider. Corporate proxies and Azure Artifacts feeds rarely use the name
+`nuget.org`: the machine this was verified on restores from `azure-default`, with `nuget.org`
+registered but **disabled**, while a hosted CI runner uses `nuget.org` directly.
+
+The fix is *not* to edit the config per machine. **A mapping naming a source that is disabled, or
+that does not exist at all, is ignored rather than fatal** — verified here with both a disabled
+`nuget.org` and a wholly invented source name in the same file, restoring correctly. So list every
+feed name your machines might use and commit one file. To find the names in play:
 
 ```powershell
 dotnet nuget list source
 ```
-
-and use it for the `*` pattern.
 
 ## For CI
 
