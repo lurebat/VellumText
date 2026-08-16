@@ -1123,6 +1123,19 @@ requires a description, reproduction steps and an Avalonia version. **The conseq
 an agent must not file or open PRs here.** Drafting is fine; a human has to read, own and submit
 them, and to answer review comments afterwards.
 
+**Both reports are drafted and waiting for a human**, in `docs/upstream/`:
+
+| Draft | Verified how |
+|---|---|
+| [`drawabletextrun-baseline.md`](upstream/drawabletextrun-baseline.md) | Reproduced in a **clean 12.1.1 project containing no Vellum code**, and the repro printed in the report is the exact program that was run. Cause pinned to `TextLineImpl.cs:128`, where `textRun.Properties?.BaselineAlignment` makes null reachable by design and the `switch` then has no `null` arm, so it reaches `default:` and throws. The suggested one-line fix and the "override `Properties`" workaround were both run. |
+| [`headless-touch.md`](upstream/headless-touch.md) | Input surface enumerated from `Avalonia.Headless.dll` 12.1.1 by metadata reader: `IHeadlessWindow` exposes keyboard, mouse, wheel and drag-drop only, and **no member anywhere in the assembly** matches `Touch`, `Pointer`, `Pen` or `Gesture`. |
+
+Tracker re-searched immediately before drafting: neither is reported.
+[#21792](https://github.com/AvaloniaUI/Avalonia/issues/21792) is the nearest neighbour to the first
+and is a different defect; [#17403](https://github.com/AvaloniaUI/Avalonia/issues/17403) concerns
+`BaselineAlignment` being applied wrongly, not a crash when it is absent.
+
+
 **Checked, and Vellum is not exposed:** [#21902](https://github.com/AvaloniaUI/Avalonia/issues/21902)
 reports a `TextRunCache` poisoned by a `TextLayout` built outside measure, affecting 12.1.0–12.1.1.
 `ParagraphView` builds its layout at exactly one site, inside `Measure`, and replaces `_runCache`
