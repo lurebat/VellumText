@@ -947,7 +947,7 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | # | Work | Evidence it is open | Size |
 |---|---|---|---|
 | **P8** | ~~**Cross-cell (rectangular) table selection.**~~ **Done.** See "As built" below. | — | — |
-| **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. **Blocked on package identity:** `Vellum.Core` is taken on NuGet by an unrelated project. | `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Decision, then small |
+| **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. **Blocked on package identity, deliberately deferred:** `Vellum.Core` is taken on NuGet by an unrelated project. | `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Decision, then small |
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
@@ -968,6 +968,22 @@ encryption library, at 0.2.0 as of 2026-07-03. That project owns a whole `Vellum
 `Vellum.Avalonia` being free today is not much comfort — shipping into someone else's namespace
 would confuse both sets of users, and the ID cannot be changed after the first publish. This needs
 a naming decision before anything is pushed. Nothing else blocks v1.
+
+> **Naming decision: deferred, not settled** (2026-08-16). The name stays **Vellum** for now; the
+> alternatives were surveyed and are recorded here so the work is not repeated. `Affluent.Core`,
+> `Affluent.Avalonia` and `Affluent.Interop.*` are all free, with only an abandoned placeholder at
+> the `Affluent` root; `VellumText.*`, `Vellum.RichText.*` and `Vellum.Text.*` are free as well.
+> **`Avalonia.*` is prefix-reserved**, so `Avalonia.RichText` would be rejected at push time even
+> though the ID is free — worth knowing before anyone proposes it again.
+>
+> Only `PackageId` has to change, so this decision costs one commit whenever it is taken:
+> assembly names, namespaces, the `avares://` theme URIs and all 3,786 tests are unaffected.
+>
+> **Nothing may be published to NuGet without the maintainer's explicit confirmation** (standing
+> instruction). Four independent things currently prevent it: the release workflow fires only on a
+> `v*` tag and none exists, `publish` sits behind the `nuget` environment, `NUGET_API_KEY` is
+> unset, and the preflight check would refuse `Vellum.Core 0.1.0` anyway.
+
 
 > **P8 as built — a rectangle is not a range.**
 >
