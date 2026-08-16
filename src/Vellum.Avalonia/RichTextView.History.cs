@@ -123,7 +123,7 @@ public partial class RichTextView
 
         _history = history;
         _goalX = null;
-        State = state;
+        SetState(state, derived: true);
 
         RaiseHistoryFlags(before);
 

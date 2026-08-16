@@ -378,6 +378,129 @@ public class RichTextViewHistoryTests
         Assert.Contains(nameof(RichTextView.CanUndo), raised);
         Assert.False(view.CanUndo);
     }
+    // ---- loading a different document ---------------------------------------------------------
+
+    [AvaloniaFact]
+    public void LoadingADifferentDocumentDiscardsTheHistory()
+    {
+        // Measured before this existed: typing into a four-character clip, loading a
+        // one-character clip and pressing Ctrl+Z threw
+        // "Range [3, 4) is not inside the document". A clipboard history or a file list reaches
+        // that by arrowing down and pressing a key.
+        var view = Focused("aaaa");
+
+        Caret(view, 3);
+        view.InsertText("X");
+
+        Assert.True(view.CanUndo);
+
+        view.State = EditorState.Create(DocumentNode.FromParagraphs("b"));
+
+        Assert.False(view.CanUndo);
+        Assert.False(view.Undo());
+        Assert.Equal("b", Content(view));
+    }
+
+    [AvaloniaFact]
+    public void LoadingADifferentDocumentDiscardsTheRedoStackToo()
+    {
+        var view = Ungrouped("aaaa");
+
+        Caret(view, 3);
+        view.InsertText("X");
+        view.Undo();
+
+        Assert.True(view.CanRedo);
+
+        view.State = EditorState.Create(DocumentNode.FromParagraphs("b"));
+
+        Assert.False(view.CanRedo);
+        Assert.False(view.Redo());
+    }
+
+    [AvaloniaFact]
+    public void SettingOnlyTheSelectionKeepsTheHistory()
+    {
+        // The other half of the rule. Assigning a state carrying the same document is how
+        // selection is set from outside, and it must not cost the user their undo stack.
+        var view = Focused("hello");
+
+        Caret(view, 3);
+        view.InsertText("X");
+
+        var doc = view.State.Doc;
+
+        view.State = EditorState.Create(doc, TextSelection.Create(doc, 1, 3));
+
+        Assert.True(view.CanUndo);
+        Assert.True(view.Undo());
+        Assert.Equal("hello", Content(view));
+    }
+
+    [AvaloniaFact]
+    public void SelectAllKeepsTheHistory()
+    {
+        // SelectAll assigns State directly, so it goes through the same path as a host doing it.
+        var view = Focused("hello");
+
+        Caret(view, 3);
+        view.InsertText("X");
+        view.SelectAll();
+
+        Assert.True(view.CanUndo);
+    }
+
+    [AvaloniaFact]
+    public void EditingStillRecordsHistoryAfterTheChange()
+    {
+        // Apply installs a state with a different document every time, so a rule that keyed only
+        // on the document changing would delete the history it had just recorded.
+        var view = Ungrouped("abc");
+
+        Caret(view, 1);
+        view.InsertText("X");
+
+        Assert.True(view.CanUndo);
+
+        view.InsertText("Y");
+
+        Assert.True(view.CanUndo);
+        Assert.True(view.Undo());
+        Assert.True(view.Undo());
+        Assert.Equal("abc", Content(view));
+    }
+
+    [AvaloniaFact]
+    public void UndoAndRedoSurviveTheirOwnStateChanges()
+    {
+        // Replay installs a state too, and undoing must not discard the redo it just created.
+        var view = Ungrouped("abc");
+
+        Caret(view, 1);
+        view.InsertText("X");
+        view.Undo();
+
+        Assert.True(view.CanRedo);
+        Assert.True(view.Redo());
+        Assert.Equal("aXbc", Content(view));
+    }
+
+    [AvaloniaFact]
+    public void TheUndoLimitSurvivesLoadingADifferentDocument()
+    {
+        // The limit is the host's configuration rather than the document's history.
+        var view = Focused("aaaa");
+
+        view.UndoLimit = 5;
+        Caret(view, 3);
+        view.InsertText("X");
+
+        view.State = EditorState.Create(DocumentNode.FromParagraphs("b"));
+
+        Assert.Equal(5, view.UndoLimit);
+        Assert.Equal(5, view.History.Policy.Limit);
+    }
+
     private static string Content(RichTextView view) =>
         ((ParagraphNode)view.State.Doc.Blocks[0]).Content.Text;
 

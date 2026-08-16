@@ -53,7 +53,7 @@ public partial class RichTextView
         _history = _history.Record(transaction);
 
         // Installing the state resets the caret blink; see OnStateChanged.
-        State = _state.Apply(transaction);
+        SetState(_state.Apply(transaction), derived: true);
 
         // Announced last, so that a listener woken by either signal sees both settled.
         RaiseHistoryFlags(before);

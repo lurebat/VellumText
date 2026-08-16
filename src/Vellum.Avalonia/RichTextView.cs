@@ -101,15 +101,52 @@ public partial class RichTextView : DocumentPresenter
                 return;
             }
 
-            // The view reconciles before the change is announced, not after. A consumer handling
-            // StateProperty asks the view questions -- which block the caret is in, what the caret
-            // block's style is -- and those are answered from state that OnStateChanged rebuilds.
-            // Raising first hands every listener the previous document's answers.
-            var previous = _state;
-            _state = value;
-            OnStateChanged();
-            RaisePropertyChanged(StateProperty, previous, value);
+            SetState(value, derived: false);
         }
+    }
+
+    /// <summary>Installs a new state, and decides what becomes of the history.</summary>
+    /// <param name="value">The state to install.</param>
+    /// <param name="derived">
+    /// Whether the state came from this control editing the one before it, as opposed to a host
+    /// loading a different document.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Loading a different document discards the history</b>, because the history describes
+    /// edits to a document that is no longer here. Undoing it against the new one at best restores
+    /// text from somewhere else and at worst throws, since the positions it recorded need not
+    /// exist — measured, before this existed: typing into a four-character clip, loading a
+    /// one-character clip and pressing Ctrl+Z threw <c>Range [3, 4) is not inside the document</c>.
+    /// A clipboard history or a file list hits that by arrowing down and pressing a key.
+    /// </para>
+    /// <para>
+    /// Only a change of <em>document</em> counts. Assigning a state that carries the same document
+    /// with a different selection is how selection is set from outside — <see cref="SelectAll"/>
+    /// does it — and must not cost the user their undo stack.
+    /// </para>
+    /// <para>
+    /// The limit survives, since it is the host's configuration rather than the document's
+    /// history. A host that genuinely wants the old stack can put it back through
+    /// <see cref="History"/> afterwards.
+    /// </para>
+    /// </remarks>
+    private void SetState(EditorState value, bool derived)
+    {
+        // The view reconciles before the change is announced, not after. A consumer handling
+        // StateProperty asks the view questions -- which block the caret is in, what the caret
+        // block's style is -- and those are answered from state that OnStateChanged rebuilds.
+        // Raising first hands every listener the previous document's answers.
+        var previous = _state;
+        _state = value;
+
+        if (!derived && !ReferenceEquals(previous.Doc, value.Doc))
+        {
+            History = History.With(_history.Policy);
+        }
+
+        OnStateChanged();
+        RaisePropertyChanged(StateProperty, previous, value);
     }
 
     /// <summary>The fill behind selected text.</summary>
