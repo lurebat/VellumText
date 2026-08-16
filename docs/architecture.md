@@ -888,16 +888,25 @@ worth using". Comparing it against what Vellum actually had:
 |---|---|---|---|
 | Character formatting (17+ controls) | ✅ | ✅ every mark | ❌ → ✅ **closed** |
 | Headings, alignment, indent | ✅ | ✅ | ✅ |
-| Lists | ✅ | ✅ | ⚠️ renders; no commands |
-| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ flattened to stacked paragraphs |
+| Lists | ✅ | ✅ | ❌ → ✅ **closed** (P3) |
+| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ → ✅ real grid (P6); **no cross-cell selection** |
 | Inline & block images | ✅ | ✅ | ✅ renders, selects and resizes by dragging a corner |
 | Hyperlinks | ✅ | ✅ | ✅ **closed** |
-| Toolbar (`EditorToolbar`) | ✅ | — | ❌ |
-| Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ❌ |
-| Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ |
-| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ❌ **import only, no export at all** |
-| Light & dark theme | ✅ | — | ❌ no default theme |
+| Toolbar (`EditorToolbar`) | ✅ | — | ❌ → ✅ **closed** (P4) |
+| Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ⚠️ right-click context menu only; no floating selection flyout |
+| Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ → ✅ **closed** (P5) `RichTextViewer` |
+| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ⚠️ HTML + RTF both ways (P2); no DOCX/XAML |
+| Light & dark theme | ✅ | — | ❌ → ✅ **closed** (P4) light + dark variants |
 | `IsReadOnly`, `UndoLimit`, `AcceptsReturn`/`Tab` | ✅ | — | ❌ |
+| Spellcheck | ✅ | — | ❌ no hook |
+
+> **Verified against the tree at P7 (2026-08-16), not from memory.** This table had gone stale: P2–P6
+> closed seven of its rows while it still read `❌`. Each row above was re-checked against the code —
+> `RichTextView.Lists.Commands.cs`, `TableBlockView`, `RichTextToolbar`, `RichTextViewer`,
+> `Html`/`RtfExporter`, `Themes/Vellum.axaml` — and the four that remain open were confirmed absent by
+> search. `IsReadOnly` exists **only** as `IValueProvider.IsReadOnly` on the automation peer, derived
+> from `SupportsTextInput`; it is not a settable control property. Note the read-only *flag* is partly
+> moot by the decision below that a viewer is a distinct control.
 
 **The finding that matters:** the document model was never the gap. It is competitive already —
 it has tables with row and column spans, nested lists, links, embeds and every mark, all
@@ -929,6 +938,40 @@ Two structural things are worth copying from their design rather than inventing:
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
 represent. Vellum spent several increments able to import formatting it could not produce.
+
+### 10.4 Open after P7
+
+P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not recollection — the
+§10.2 table above had drifted badly, so these were each confirmed present or absent in code:
+
+| # | Work | Evidence it is open | Size |
+|---|---|---|---|
+| **P8** | **Cross-cell (rectangular) table selection.** Dragging across cells should produce the `CellSelection` the model already defines, and copy/delete should honour it. | `CellSelection` exists in `Vellum.Core/Selection/`; **zero references** anywhere in `Vellum.Avalonia`. Deferred in Increment 1 and never picked up. | The largest remaining functional gap |
+| **P9** | **Packaging.** `PackageId`, `Description`, `PackageLicenseExpression`, tags, README-in-package, `GeneratePackageOnBuild`, and a versioning/release story. | `Directory.Build.props` carries only `VersionPrefix 0.1.0`, `Authors` and `RepositoryUrl`. **Nothing is publishable today.** | Small, and blocks every consumer |
+| **P10** | **The four control properties.** `IsReadOnly`, `UndoLimit`, `AcceptsReturn`, `AcceptsTab`. | Absent from `src/`; the only `IsReadOnly` is the automation peer's. Partly moot for read-only by §10.2's viewer decision. | Small |
+| **P11** | **Selection flyout** — the floating toolbar over a selection. | `RichTextView.ContextMenu.cs` builds a right-click `MenuFlyout` only. | Small, on top of P4's toolbar |
+| — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | Deliberately unscheduled |
+
+**Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
+documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback
+is a wholesale rebuild. It is bounded by *paragraph* length rather than document length and is
+virtualized off screen. Closing it needs upstream partial invalidation, not a change here.
+
+### 10.5 Candidate upstream Avalonia reports
+
+Findings from this project that belong to the framework, not to Vellum. Recorded so the evidence
+is not lost; **none has been filed.**
+
+| Claim | Evidence | Framing |
+|---|---|---|
+| A `DrawableTextRun` whose `Properties` is left at its default `null` **formats successfully then throws at paint time** — `ArgumentOutOfRangeException (Parameter 'baselineAlignment')` in `TextLineImpl.GetBaselineOffset`. | §1 Trap 1 of the Increment 0 findings; reproduced. | **Bug.** Fails late, on the render path only, naming a parameter the caller never passed. Metric-only tests pass. |
+| `Avalonia.Headless` has **no touch input** — mouse, keyboard and drag-drop only. | P7's touch handles had to be tested by hand-constructing `Pointer` and raising `PointerPressedEventArgs`. | **Feature request.** Touch behaviour is currently untestable headlessly. |
+| `TextRunCache.InvalidateFrom(k)` for k ≥ 1 silently yields the **pre-edit** layout. | `a1-diagnostic.md`: **zero** `GetTextRun` calls. | **Docs/API clarity, not "broken."** An earlier framing of this as a bug was overturned in review — invalidation is entry-granular and a paragraph is one entry keyed 0. Still a trap. |
+| No `ITextProvider`/`ITextRangeProvider` in automation. | §9 R1. | **Feature request, realistically a PR.** Worth an issue first to gauge appetite. |
+
+Explicitly **not** worth reporting, because the error was ours: the `Top`/`TextTop` baseline offset
+(the prediction was wrong, not the formula), `IsTrailing` always being `False` (the sweep sampled
+only interior points), and `CaptureRenderedFrame` returning Rgba8888.
 
 ---
 
