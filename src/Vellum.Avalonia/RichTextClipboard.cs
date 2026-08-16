@@ -296,6 +296,56 @@ public static class RichTextClipboard
         }
     }
 
+    /// <summary>Reads the richest readable flavour of a transfer as a document.</summary>
+    /// <param name="data">A transfer whose contents are already in hand, as a drop's are.</param>
+    /// <param name="importers">The formats to try, in any order.</param>
+    /// <returns>
+    /// The result, or <see langword="null"/> when the transfer holds nothing any of them could
+    /// read. Plain text counts: it arrives as a document of one paragraph per line.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// The synchronous half of the pair, for <see cref="DragEventArgs.DataTransfer"/>, which hands
+    /// over data that has already crossed the process boundary and so needs no awaiting.
+    /// </remarks>
+    public static ImportResult? Read(IDataTransfer data, IEnumerable<IDocumentImporter> importers)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(importers);
+
+        try
+        {
+            foreach (var importer in InPreferenceOrder(importers))
+            {
+                if (FlavorFor(importer.Format) is not { } flavour)
+                {
+                    continue;
+                }
+
+                // Bytes, deliberately, and never as a string. See the type's remarks.
+                if (data.TryGetValue(flavour.DataFormat) is not { Length: > 0 } bytes)
+                {
+                    continue;
+                }
+
+                var result = importer.Import(flavour.Encoding.GetString(bytes));
+
+                if (!result.Doc.Blocks.IsEmpty)
+                {
+                    return result;
+                }
+            }
+
+            return data.TryGetText() is { Length: > 0 } text
+                ? new ImportResult(DocumentNode.FromParagraphs(text.ReplaceLineEndings("\n").Split('\n')))
+                : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The importers, richest first.</summary>
     internal static IEnumerable<IDocumentImporter> InPreferenceOrder(
         IEnumerable<IDocumentImporter> importers) =>

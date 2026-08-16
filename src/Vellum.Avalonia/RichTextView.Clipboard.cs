@@ -240,7 +240,6 @@ public partial class RichTextView
                 {
                     continue;
                 }
-
                 // Bytes, deliberately, and never as a string: a clipboard backend handed a native
                 // format to decode as text will guess an encoding, and its guess for RTF produces
                 // convincing mojibake that then parses to nothing.
@@ -255,6 +254,14 @@ public partial class RichTextView
                 {
                     return PasteDocument(doc);
                 }
+            }
+
+            // After the rich formats and before plain text. A screenshot on the clipboard often
+            // carries a text flavour too - a filename, or nothing useful - so taking text first
+            // would paste the label instead of the picture.
+            if (await InsertImageFrom(data).ConfigureAwait(true))
+            {
+                return true;
             }
 
             var text = await data.TryGetTextAsync().ConfigureAwait(true);

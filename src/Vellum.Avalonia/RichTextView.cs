@@ -66,6 +66,12 @@ public partial class RichTextView : DocumentPresenter
 
         ContextFlyout = BuildContextFlyout();
 
+        // A drop is a transfer from another application, exactly like a paste, so it is handled
+        // here rather than left to the host to wire up.
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+
         _inputMethod = new RichTextInputMethodClient(this);
 
         // How a control offers itself to the platform input method: the request bubbles from
