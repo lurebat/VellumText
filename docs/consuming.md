@@ -95,6 +95,17 @@ feed name your machines might use and commit one file. To find the names in play
 dotnet nuget list source
 ```
 
+## Where the packages should live
+
+**The feed is where packages come *from*; the repository is where they *live*.** Point a consumer at
+the publishing machine's folder and it acquires a dependency on someone else's filesystem — a
+stranger coupling than the vendored source this replaces, and one that breaks on a clean clone, on
+CI, and whenever the publisher tidies up. Commit the `.nupkg` files into the consuming repository
+and use a relative path.
+
+That is not theoretical: deleting the superseded artifacts from the publishing folder here broke
+nothing for a consumer who had committed them, and would have broken the build of one who had not.
+
 ## For CI
 
 A folder on a developer's machine is not visible to a hosted runner. Two options:
