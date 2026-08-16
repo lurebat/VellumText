@@ -9,7 +9,7 @@ allowed to move.
 
 ## [Unreleased]
 
-Packages are built at **0.2.0** and published to a local feed; see
+Packages are built at **0.3.0** and published to a local feed; see
 [`docs/consuming.md`](docs/consuming.md). Nothing is on NuGet.
 
 ### Added
@@ -46,6 +46,11 @@ Packages are built at **0.2.0** and published to a local feed; see
   alignment, indent, and bulleted and numbered lists.
 
 ### Fixed
+
+- Two linear lookups over already-sorted data, both quadratic in document size and both invisible
+  until a document is large: the text formatter scanned for the next embed on every run request,
+  and `DocumentTextMap` walked its span table on every lookup. A full walk of an 8,000-paragraph
+  document went from 49.1 ms to 1.50 ms.
 
 - Loading a different document into a view no longer leaves the previous document's undo stack
   live. Pressing Ctrl+Z after swapping threw `Range [3, 4) is not inside the document`.
