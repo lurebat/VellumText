@@ -153,8 +153,11 @@ public sealed class InlineTextSource : ITextSource
             }
         }
 
-        // An embed must be alone in its run, so the run before it stops at its placeholder.
-        var placeholder = _content.Text.IndexOf(InlineContent.Placeholder, start + 1);
+        // An embed must be alone in its run, so the run before it stops at its placeholder. Found
+        // by binary search over known offsets rather than by scanning the text: the formatter asks
+        // once per line, and a scan to the end of the paragraph on each makes laying out one
+        // paragraph quadratic in its length.
+        var placeholder = _content.NextPlaceholderFrom(start + 1);
 
         if (placeholder >= 0)
         {

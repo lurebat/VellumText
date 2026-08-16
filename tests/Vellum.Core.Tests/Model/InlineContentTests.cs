@@ -676,4 +676,47 @@ public class ImageEmbedTests
         Assert.Equal(new ImageEmbed("cat.png", 10, 20), new ImageEmbed("cat.png", 10, 20));
         Assert.NotEqual(new ImageEmbed("cat.png", 10, 20), new ImageEmbed("cat.png", 10, 21));
     }
+
+    [Fact]
+    public void TheNextPlaceholderIsFoundWithoutScanningTheText()
+    {
+        // Used by the text formatter, which asks per line. A scan of the text would make laying
+        // out one paragraph quadratic in its length rather than in the number of embeds.
+        var content = InlineContent.Create(
+            $"a{InlineContent.Placeholder}b{InlineContent.Placeholder}c",
+            [],
+            [new ImageEmbed("1.png"), new ImageEmbed("2.png")]);
+
+        Assert.Equal(1, content.NextPlaceholderFrom(0));
+        Assert.Equal(1, content.NextPlaceholderFrom(1));
+        Assert.Equal(3, content.NextPlaceholderFrom(2));
+        Assert.Equal(3, content.NextPlaceholderFrom(3));
+        Assert.Equal(-1, content.NextPlaceholderFrom(4));
+        Assert.Equal(-1, content.NextPlaceholderFrom(9999));
+    }
+
+    [Fact]
+    public void ContentWithNoEmbedsHasNoPlaceholderAnywhere()
+    {
+        Assert.Equal(-1, InlineContent.FromText("plain").NextPlaceholderFrom(0));
+        Assert.Equal(-1, InlineContent.Empty.NextPlaceholderFrom(0));
+    }
+
+    [Fact]
+    public void TheLookupAgreesWithScanningTheTextItReplaces()
+    {
+        // The old implementation scanned with IndexOf. Anywhere the two disagreed would be a
+        // rendering bug, so they are checked against each other across every offset.
+        var content = InlineContent.Create(
+            $"{InlineContent.Placeholder}ab{InlineContent.Placeholder}{InlineContent.Placeholder}cd",
+            [],
+            [new ImageEmbed("1.png"), new ImageEmbed("2.png"), new ImageEmbed("3.png")]);
+
+        for (var i = 0; i <= content.Length; i++)
+        {
+            Assert.Equal(
+                content.Text.IndexOf(InlineContent.Placeholder, Math.Min(i, content.Length)),
+                content.NextPlaceholderFrom(i));
+        }
+    }
 }

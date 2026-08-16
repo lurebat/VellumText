@@ -245,6 +245,33 @@ public sealed class InlineContent : IEquatable<InlineContent>
         return offset == 0 ? MarkAt(0) : MarkAt(offset - 1);
     }
 
+    /// <summary>The offset of the first embed placeholder at or after <paramref name="offset"/>.</summary>
+    /// <param name="offset">Where to start looking.</param>
+    /// <returns>The placeholder's offset, or -1 when there is none.</returns>
+    /// <remarks>
+    /// A binary search over offsets that are already known, rather than a scan of the text. The
+    /// caller is the text formatter, which asks once per line: a scan makes laying out one
+    /// paragraph quadratic in its length, which is invisible until a paragraph is enormous and
+    /// then is a hang rather than a slowdown.
+    /// </remarks>
+    public int NextPlaceholderFrom(int offset)
+    {
+        if (_placeholderOffsets.IsEmpty)
+        {
+            return -1;
+        }
+
+        var index = _placeholderOffsets.BinarySearch(offset);
+
+        if (index < 0)
+        {
+            // The complement is where it would be inserted, which is the first one after it.
+            index = ~index;
+        }
+
+        return index < _placeholderOffsets.Length ? _placeholderOffsets[index] : -1;
+    }
+
     /// <summary>Gets the embed whose placeholder sits at <paramref name="offset"/>.</summary>
     /// <param name="offset">The offset to look at.</param>
     /// <param name="embed">Receives the embed, if there is one.</param>
