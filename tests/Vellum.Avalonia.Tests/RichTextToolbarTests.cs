@@ -32,6 +32,35 @@ public class RichTextToolbarTests
         bar.ToggleStyleCommand.Execute(TextStyle.Bold);
         bar.UndoCommand.Execute(null);
         bar.SetParagraphKindCommand.Execute(ParagraphKind.Heading1);
+        bar.ToggleParagraphKindCommand.Execute(ParagraphKind.Heading1);
+    }
+
+    [AvaloniaFact]
+    public void TheFontListIsUsableAsAPickersItems()
+    {
+        // The list is read from the platform once at type load. The thing worth asserting is that
+        // reaching it cannot throw and cannot hand a picker duplicates or blanks to show - a
+        // font-less platform yields an empty list rather than taking the toolbar down with it.
+        var families = RichTextToolbar.FontFamilies;
+
+        Assert.NotNull(families);
+        Assert.All(families, name => Assert.False(string.IsNullOrWhiteSpace(name)));
+        Assert.Equal(
+            families.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            families.Count);
+        Assert.Equal(
+            [.. families.OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)],
+            families);
+    }
+
+    [AvaloniaFact]
+    public void TheSizeListIsAscendingAndUsable()
+    {
+        var sizes = RichTextToolbar.FontSizes;
+
+        Assert.NotEmpty(sizes);
+        Assert.All(sizes, size => Assert.True(size > 0, $"{size} is not a usable point size"));
+        Assert.Equal([.. sizes.Order()], sizes);
     }
 
     /// <summary>

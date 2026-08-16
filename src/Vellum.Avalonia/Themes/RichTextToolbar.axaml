@@ -176,29 +176,41 @@
               <Border Classes="vellum-divider" />
 
               <!--
-                An editable box rather than a list: the sizes an application offers are its
-                business, and a bar that only accepts the eight it guessed is a bar that cannot
-                set nine and a half. Enter commits; the converter turns the text into points and
-                a value that is not a number is simply not applied.
+                Editable lists rather than plain boxes: picking a font by typing its exact name
+                is a memory test, and picking a size from eight guesses cannot set nine and a
+                half. Editable gets both — the drop-down for the common case, typing for the rest.
+                Enter commits the typed text, selecting an item commits that; the converters turn
+                text into points and a value that is not a number is simply not applied.
               -->
-              <TextBox x:Name="PART_FontBox" Classes="vellum-field" Width="150" PlaceholderText="Font"
-                       Text="{Binding SelectionFontFamily, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
-                       ToolTip.Tip="Font family — type a name and press Enter">
-                <TextBox.KeyBindings>
+              <ComboBox x:Name="PART_FontBox" Classes="vellum-field" Width="150" IsEditable="True"
+                        PlaceholderText="Font"
+                        MaxDropDownHeight="320"
+                        ItemsSource="{x:Static v:RichTextToolbar.FontFamilies}"
+                        Text="{Binding SelectionFontFamily, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                        ToolTip.Tip="Font family — pick one, or type a name and press Enter">
+                <ComboBox.KeyBindings>
                   <KeyBinding Gesture="Enter"
                               Command="{Binding SetFontFamilyCommand, RelativeSource={RelativeSource TemplatedParent}}"
                               CommandParameter="{Binding #PART_FontBox.Text}" />
-                </TextBox.KeyBindings>
-              </TextBox>
-              <TextBox x:Name="PART_SizeBox" Classes="vellum-field" Width="64" PlaceholderText="Size"
-                       Text="{Binding SelectionFontSize, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Points}}"
-                       ToolTip.Tip="Font size in points — type a number and press Enter">
-                <TextBox.KeyBindings>
+                </ComboBox.KeyBindings>
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{Binding}" FontFamily="{Binding}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <ComboBox x:Name="PART_SizeBox" Classes="vellum-field" Width="86" IsEditable="True"
+                        PlaceholderText="Size"
+                        MaxDropDownHeight="320"
+                        ItemsSource="{x:Static v:RichTextToolbar.FontSizes}"
+                        Text="{Binding SelectionFontSize, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Points}}"
+                        ToolTip.Tip="Font size in points — pick one, or type a number and press Enter">
+                <ComboBox.KeyBindings>
                   <KeyBinding Gesture="Enter"
                               Command="{Binding SetFontSizeCommand, RelativeSource={RelativeSource TemplatedParent}}"
                               CommandParameter="{Binding #PART_SizeBox.Text}" />
-                </TextBox.KeyBindings>
-              </TextBox>
+                </ComboBox.KeyBindings>
+              </ComboBox>
 
               <Border Classes="vellum-divider" />
 

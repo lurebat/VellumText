@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls.Primitives;
+using Avalonia.Media;
 
 namespace Vellum.Avalonia;
 
@@ -51,6 +52,45 @@ public class RichTextToolbar : TemplatedControl
         "#000000", "#434343", "#787878", "#B7B7B7", "#D9D9D9", "#EFEFEF", "#FFFFFF", "#980000",
         "#C82020", "#E06810", "#F0D020", "#189040", "#109098", "#2060D8", "#182870", "#8030B0",
     ];
+
+    /// <summary>The font sizes, in points, the default template's size box offers.</summary>
+    /// <remarks>
+    /// A list to pick from, not a limit: the box stays editable, so an application that needs
+    /// nine and a half can still type it. These are only the sizes worth one click.
+    /// </remarks>
+    public static IReadOnlyList<double> FontSizes { get; } =
+        [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72];
+
+    /// <summary>The font families installed on this machine, in alphabetical order.</summary>
+    /// <remarks>
+    /// <para>
+    /// Enumerated once and cached, because asking the platform is not free and the answer does
+    /// not change while the application runs.
+    /// </para>
+    /// <para>
+    /// Strings rather than <see cref="FontFamily"/> so that what the editable box commits is what
+    /// the list shows, and so a template can bind the same list to something else entirely. A
+    /// headless or otherwise font-less platform yields an empty list rather than throwing: a
+    /// toolbar with no font list is usable, a toolbar that throws while templating is not.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> FontFamilies { get; } = InstalledFonts();
+
+    private static IReadOnlyList<string> InstalledFonts()
+    {
+        try
+        {
+            return [.. FontManager.Current.SystemFonts
+                .Select(family => family.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
 
     /// <summary>Defines the <see cref="Editor"/> property.</summary>
     public static readonly StyledProperty<RichTextEditor?> EditorProperty =
