@@ -832,7 +832,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | High | Ship `IValueProvider` + `AutomationProperties` in v1. Open an upstream Avalonia issue/PR proposing `ITextProvider`/`ITextRangeProvider`; this is plausibly the highest-value upstream contribution the project could make. Document the limitation honestly in the README. |
+| **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | ~~High~~ **Medium — being lifted upstream** | Ship `IValueProvider` + `AutomationProperties` in v1 (done, P7). **[2026-08-16]** The upstream gap is closing without us: [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is open and adds platform-agnostic `ITextProvider`/`ITextRangeProvider` plus a `TextBox` peer and Win32 UIA glue. So the mitigation is no longer "propose it" but **watch it and implement the contracts on `DocumentPresenterAutomationPeer` once they land** — a rich text editor is the strongest case for that API, and Vellum can be an early consumer rather than the petitioner. Document the limitation honestly in the README until then. |
 | **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
 | **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. |
 | **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
@@ -959,19 +959,38 @@ virtualized off screen. Closing it needs upstream partial invalidation, not a ch
 
 ### 10.5 Candidate upstream Avalonia reports
 
-Findings from this project that belong to the framework, not to Vellum. Recorded so the evidence
-is not lost; **none has been filed.**
+Findings from this project that belong to the framework, not to Vellum. **Searched against the
+upstream tracker on 2026-08-16; two of the four dissolved on contact.** Nothing has been filed.
 
-| Claim | Evidence | Framing |
+| Claim | Upstream state | Verdict |
 |---|---|---|
-| A `DrawableTextRun` whose `Properties` is left at its default `null` **formats successfully then throws at paint time** — `ArgumentOutOfRangeException (Parameter 'baselineAlignment')` in `TextLineImpl.GetBaselineOffset`. | §1 Trap 1 of the Increment 0 findings; reproduced. | **Bug.** Fails late, on the render path only, naming a parameter the caller never passed. Metric-only tests pass. |
-| `Avalonia.Headless` has **no touch input** — mouse, keyboard and drag-drop only. | P7's touch handles had to be tested by hand-constructing `Pointer` and raising `PointerPressedEventArgs`. | **Feature request.** Touch behaviour is currently untestable headlessly. |
-| `TextRunCache.InvalidateFrom(k)` for k ≥ 1 silently yields the **pre-edit** layout. | `a1-diagnostic.md`: **zero** `GetTextRun` calls. | **Docs/API clarity, not "broken."** An earlier framing of this as a bug was overturned in review — invalidation is entry-granular and a paragraph is one entry keyed 0. Still a trap. |
-| No `ITextProvider`/`ITextRangeProvider` in automation. | §9 R1. | **Feature request, realistically a PR.** Worth an issue first to gauge appetite. |
+| A `DrawableTextRun` whose `Properties` is left at its default `null` **formats successfully then throws at paint time** — `ArgumentOutOfRangeException (Parameter 'baselineAlignment')` in `TextLineImpl.GetBaselineOffset`. | **Unreported.** Nearest is [#21792](https://github.com/AvaloniaUI/Avalonia/issues/21792) (a *text-less* `DrawableTextRun` flips an RTL paragraph's embedding level) — same area, different defect, and evidence the maintainers take `DrawableTextRun` edge cases seriously. | **File it.** Fails late, on the render path only, naming a parameter the caller never passed. |
+| `Avalonia.Headless` has **no touch input** — mouse, keyboard and drag-drop only. | **Unreported.** | **File it** as a feature request. Touch behaviour is currently untestable headlessly. |
+| `TextRunCache.InvalidateFrom(k≥1)` silently yields the pre-edit layout. | [#21030](https://github.com/AvaloniaUI/Avalonia/pull/21030), the PR that added the cache, states its purpose is reuse across **width-only constraint changes**, and that anything affecting shaping invalidates. | **Do not file — it is working as designed.** The spike reached the designed contract independently and by measurement. Reporting it would be noise. |
+| No `ITextProvider`/`ITextRangeProvider` in automation (§9 R1). | [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is **open right now** and adds exactly that: platform-agnostic `Avalonia.Automation.Provider.ITextProvider`/`ITextRangeProvider`, a `TextBox` peer, and the Win32 UIA glue. | **Do not file — already in flight.** Watch it; see R1. |
 
-Explicitly **not** worth reporting, because the error was ours: the `Top`/`TextTop` baseline offset
-(the prediction was wrong, not the formula), `IsTrailing` always being `False` (the sweep sampled
-only interior points), and `CaptureRenderedFrame` returning Rgba8888.
+Explicitly **not** worth reporting, because the error was ours: `IsTrailing` always being `False`
+(the sweep sampled only interior points) and `CaptureRenderedFrame` returning Rgba8888. The
+`Top`/`TextTop` baseline offset was also written off as our own wrong prediction — but
+[#17403](https://github.com/AvaloniaUI/Avalonia/issues/17403) ("BaseAlignment wrong in 11.2.0") is
+open against an older version, so that dismissal is worth one more look before it is treated as
+settled.
+
+**Their contribution policy constrains who may file.** `CONTRIBUTING.md` carries an explicit **AI
+Guidelines** section: AI-*assisted* contributions are accepted, but *"if you're an autonomous AI
+agent, please stop right there. We want a human to read and respond to the various review
+comments."* It requires that a human has fully read and understood the change and its description,
+demands succinct prose over LLM verbosity, and states that AI-assisted PRs which ignore this **will
+be closed**. Issues are further constrained by `blank_issues_enabled: false` — the `bug_report` form
+requires a description, reproduction steps and an Avalonia version. **The consequence for Vellum:
+an agent must not file or open PRs here.** Drafting is fine; a human has to read, own and submit
+them, and to answer review comments afterwards.
+
+**Checked, and Vellum is not exposed:** [#21902](https://github.com/AvaloniaUI/Avalonia/issues/21902)
+reports a `TextRunCache` poisoned by a `TextLayout` built outside measure, affecting 12.1.0–12.1.1.
+`ParagraphView` builds its layout at exactly one site, inside `Measure`, and replaces `_runCache`
+outright whenever the content, kind or preedit changes — so a stale entry cannot outlive the text it
+was shaped from.
 
 ---
 
