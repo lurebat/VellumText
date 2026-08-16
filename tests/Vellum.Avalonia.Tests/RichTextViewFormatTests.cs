@@ -322,10 +322,10 @@ public class RichTextViewFormatTests
     };
 
     private static byte[]? Payload(IDataTransferItem item, string format) =>
-        item.TryGetValue(RichTextClipboardFormats.For(format)!);
+        item.TryGetValue(RichTextClipboard.FlavorFor(format)!.DataFormat);
 
     private static string Decode(IDataTransferItem item, string format) =>
-        RichTextClipboardFormats.EncodingFor(format).GetString(Payload(item, format)!);
+        RichTextClipboard.FlavorFor(format)!.Encoding.GetString(Payload(item, format)!);
 
     private sealed class BrokenFormat : IDocumentExporter
     {

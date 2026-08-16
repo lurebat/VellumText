@@ -17,7 +17,7 @@ namespace Vellum.Avalonia;
 /// <see cref="Formats"/> is what turns them on, and nothing else changes.
 /// </para>
 /// <para>
-/// A paste tries the registered formats in <see cref="RichTextClipboardFormats.Preference"/>
+/// A paste tries the registered formats in <see cref="RichTextClipboard.Preference"/>
 /// order and stops at the first that yields a document, so a paste from a browser keeps its
 /// formatting and a paste from a terminal still arrives as text.
 /// </para>
@@ -140,17 +140,14 @@ public partial class RichTextView
 
         foreach (var exporter in Formats.OfType<IDocumentExporter>())
         {
-            if (RichTextClipboardFormats.For(exporter.Format) is not { } format)
+            if (RichTextClipboard.FlavorFor(exporter.Format) is not { } flavour)
             {
                 continue;
             }
 
             try
             {
-                var payload = RichTextClipboardFormats.EncodingFor(exporter.Format)
-                    .GetBytes(exporter.Export(doc));
-
-                item.Set(format, payload);
+                item.Set(flavour.DataFormat, flavour.Encoding.GetBytes(exporter.Export(doc)));
             }
             catch (Exception)
             {
@@ -239,7 +236,7 @@ public partial class RichTextView
 
             foreach (var importer in ReadableFormats())
             {
-                if (RichTextClipboardFormats.For(importer.Format) is not { } format)
+                if (RichTextClipboard.FlavorFor(importer.Format) is not { } flavour)
                 {
                     continue;
                 }
@@ -247,13 +244,12 @@ public partial class RichTextView
                 // Bytes, deliberately, and never as a string: a clipboard backend handed a native
                 // format to decode as text will guess an encoding, and its guess for RTF produces
                 // convincing mojibake that then parses to nothing.
-                if (await data.TryGetValueAsync(format).ConfigureAwait(true) is not { Length: > 0 } bytes)
+                if (await data.TryGetValueAsync(flavour.DataFormat).ConfigureAwait(true) is not { Length: > 0 } bytes)
                 {
                     continue;
                 }
 
-                var payload = RichTextClipboardFormats.EncodingFor(importer.Format).GetString(bytes);
-                var doc = importer.Import(payload).Doc;
+                var doc = importer.Import(flavour.Encoding.GetString(bytes)).Doc;
 
                 if (!doc.Blocks.IsEmpty)
                 {
@@ -280,12 +276,7 @@ public partial class RichTextView
     /// paste the poorest of the three.
     /// </remarks>
     internal IEnumerable<IDocumentImporter> ReadableFormats() =>
-        Formats.OfType<IDocumentImporter>()
-            .OrderBy(importer => Array.IndexOf(RichTextClipboardFormats.Preference, importer.Format) switch
-            {
-                < 0 => int.MaxValue,
-                var rank => rank,
-            });
+        RichTextClipboard.InPreferenceOrder(Formats.OfType<IDocumentImporter>());
 
     /// <summary>Replaces the selection with <paramref name="doc"/>'s blocks.</summary>
     /// <param name="doc">The document to insert.</param>
