@@ -153,6 +153,7 @@ public class RichTextToolbar : TemplatedControl
     {
         ToggleStyleCommand = Command<TextStyle>(style => _view?.ToggleStyle(style));
         SetParagraphKindCommand = Command<ParagraphKind>(kind => _view?.SetParagraphKind(kind));
+        ToggleParagraphKindCommand = Command<ParagraphKind>(kind => _view?.ToggleParagraphKind(kind));
         SetAlignCommand = Command<TextAlign>(align => _view?.SetAlign(align));
         ToggleListCommand = Command<ListKind>(kind => _view?.ToggleList(kind));
         SetForegroundCommand = Command<object?>(colour => _view?.SetForeground(Colour(colour)));
@@ -235,6 +236,17 @@ public class RichTextToolbar : TemplatedControl
 
     /// <summary>Sets the <see cref="global::Vellum.ParagraphKind"/> of every selected paragraph.</summary>
     public ICommand SetParagraphKindCommand { get; }
+
+    /// <summary>
+    /// Turns a <see cref="global::Vellum.ParagraphKind"/> on across the selection, or back off to
+    /// <see cref="ParagraphKind.Body"/> when it is already on.
+    /// </summary>
+    /// <remarks>
+    /// This rather than <see cref="SetParagraphKindCommand"/> is what a <c>ToggleButton</c> wants:
+    /// its lit state has to be reversible by pressing it again, which a command that only ever
+    /// sets cannot do.
+    /// </remarks>
+    public ICommand ToggleParagraphKindCommand { get; }
 
     /// <summary>Sets the <see cref="TextAlign"/> of every selected paragraph.</summary>
     public ICommand SetAlignCommand { get; }

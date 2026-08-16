@@ -397,6 +397,134 @@ public class RichTextViewBlockAttributeTests
         public ParagraphStyle Resolve(ParagraphKind kind) => ParagraphStyle.Body;
     }
 
+    [AvaloniaFact]
+    public void PressingTheSameKindTwiceGoesBackToBody()
+    {
+        // The bug this exists for: the toolbar buttons are ToggleButtons, so a kind that can only
+        // be set leaves the lit button with no way to unlight it.
+        var view = Shown("a heading");
+
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Heading1));
+        Assert.Equal(ParagraphKind.Heading1, Kind(view, 0));
+
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Heading1));
+        Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+    }
+
+    [AvaloniaFact]
+    public void EveryKindTogglesBackOffAgain()
+    {
+        // Quote and code are the two the user reported alongside the headings, and they reach the
+        // same command, so proving one kind toggles proves nothing about the others.
+        foreach (var kind in Enum.GetValues<ParagraphKind>().Where(k => k != ParagraphKind.Body))
+        {
+            var view = Shown("text");
+
+            Assert.True(view.ToggleParagraphKind(kind));
+            Assert.Equal(kind, Kind(view, 0));
+
+            Assert.True(view.ToggleParagraphKind(kind));
+            Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+        }
+    }
+
+    [AvaloniaFact]
+    public void TogglingADifferentKindSwitchesRatherThanClearing()
+    {
+        var view = Shown("a heading");
+
+        view.ToggleParagraphKind(ParagraphKind.Heading1);
+
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Heading2));
+        Assert.Equal(ParagraphKind.Heading2, Kind(view, 0));
+    }
+
+    [AvaloniaFact]
+    public void AMixedSelectionTakesTheKindRatherThanClearingIt()
+    {
+        // The button is unlit for a mixed selection, so pressing it has to turn the kind on. The
+        // opposite reading - that any paragraph already having it counts as on - would make one
+        // heading in a five-paragraph selection clear the other four.
+        var view = Shown("first", "second");
+
+        view.State = EditorState.Create(
+            view.State.Doc,
+            TextSelection.Create(view.State.Doc, view.Slots[0].Start, view.Slots[0].End));
+        view.ToggleParagraphKind(ParagraphKind.Heading1);
+
+        view.State = EditorState.Create(
+            view.State.Doc,
+            TextSelection.Create(view.State.Doc, view.Slots[0].Start, view.Slots[1].End));
+
+        Assert.Null(view.ParagraphKindAt);
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Heading1));
+        Assert.Equal(ParagraphKind.Heading1, Kind(view, 0));
+        Assert.Equal(ParagraphKind.Heading1, Kind(view, 1));
+    }
+
+    [AvaloniaFact]
+    public void AWholeSelectionAlreadyOfTheKindClearsAllOfIt()
+    {
+        var view = Shown("first", "second");
+
+        view.SelectAll();
+        view.ToggleParagraphKind(ParagraphKind.Quote);
+
+        Assert.Equal(ParagraphKind.Quote, view.ParagraphKindAt);
+
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Quote));
+        Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+        Assert.Equal(ParagraphKind.Body, Kind(view, 1));
+    }
+
+    [AvaloniaFact]
+    public void TogglingBodyIsJustSettingIt()
+    {
+        // Body is what "off" means, so it has no off of its own to toggle to.
+        var view = Shown("text");
+
+        Assert.False(view.ToggleParagraphKind(ParagraphKind.Body));
+        Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+
+        view.ToggleParagraphKind(ParagraphKind.Heading3);
+
+        Assert.True(view.ToggleParagraphKind(ParagraphKind.Body));
+        Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+    }
+
+    [AvaloniaFact]
+    public void AKindThatIsNotOneRefusesRatherThanStoringIt()
+    {
+        var view = Shown("text");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => view.ToggleParagraphKind((ParagraphKind)99));
+    }
+
+    [AvaloniaFact]
+    public void TheHeadingShortcutTogglesBackOffToo()
+    {
+        // Ctrl+1 twice is the keyboard's version of pressing H1 twice, and reaches the same rule.
+        var view = Shown("a heading");
+
+        Press(view, Key.D1, KeyModifiers.Control);
+        Assert.Equal(ParagraphKind.Heading1, Kind(view, 0));
+
+        Press(view, Key.D1, KeyModifiers.Control);
+        Assert.Equal(ParagraphKind.Body, Kind(view, 0));
+    }
+
+    [AvaloniaFact]
+    public void SetParagraphKindStillOnlySets()
+    {
+        // The explicit setter is what a host binds when it wants a kind chosen from a list, where
+        // choosing the current one again must not clear it.
+        var view = Shown("a heading");
+
+        Assert.True(view.SetParagraphKind(ParagraphKind.Heading1));
+        Assert.False(view.SetParagraphKind(ParagraphKind.Heading1));
+        Assert.Equal(ParagraphKind.Heading1, Kind(view, 0));
+    }
+
     private static ParagraphKind Kind(RichTextView view, int index) =>
         ((ParagraphNode)view.Slots[index].Node).Kind;
 

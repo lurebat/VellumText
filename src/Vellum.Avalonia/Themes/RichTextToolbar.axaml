@@ -61,27 +61,27 @@
               <Border Classes="vellum-divider" />
 
               <ToggleButton Classes="vellum-tool" Content="Body" ToolTip.Tip="Body text"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Body}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Body}" />
               <ToggleButton Classes="vellum-tool" Content="H1" ToolTip.Tip="Heading 1"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Heading1}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Heading1}" />
               <ToggleButton Classes="vellum-tool" Content="H2" ToolTip.Tip="Heading 2"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Heading2}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Heading2}" />
               <ToggleButton Classes="vellum-tool" Content="H3" ToolTip.Tip="Heading 3"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Heading3}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Heading3}" />
               <ToggleButton Classes="vellum-tool" Content="Quote" ToolTip.Tip="Block quote"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Quote}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Quote}" />
               <ToggleButton Classes="vellum-tool" Content="Code" ToolTip.Tip="Code block"
-                            Command="{Binding SetParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
+                            Command="{Binding ToggleParagraphKindCommand, RelativeSource={RelativeSource TemplatedParent}}"
                             CommandParameter="{x:Static c:ParagraphKind.Code}"
                             IsChecked="{Binding ParagraphKind, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay, Converter={x:Static v:ToolbarConverters.Is}, ConverterParameter=Code}" />
 

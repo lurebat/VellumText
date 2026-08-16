@@ -33,6 +33,34 @@ public partial class RichTextView
     public bool SetParagraphKind(ParagraphKind kind) =>
         SetBlockAttr(BlockAttr.ParagraphKind, (int)kind);
 
+    /// <summary>Turns a paragraph kind on or off over the selection.</summary>
+    /// <param name="kind">The kind to toggle.</param>
+    /// <returns>Whether anything changed.</returns>
+    /// <remarks>
+    /// <para>
+    /// A selection that is already entirely of this kind goes back to <see cref="ParagraphKind.Body"/>;
+    /// anything else becomes this kind. That is what a button which stays lit has to mean — a
+    /// heading button that only ever sets leaves no way back to body text except a second button,
+    /// and the lit state becomes a display that cannot be turned off.
+    /// </para>
+    /// <para>
+    /// A mixed selection takes the kind rather than clearing it, matching the lit state: the
+    /// button is not lit, so pressing it turns the kind on. Toggling
+    /// <see cref="ParagraphKind.Body"/> is just setting it, since body text is what off means —
+    /// no guard is needed for that, because both branches yield body when body is what was asked
+    /// for.
+    /// </para>
+    /// </remarks>
+    public bool ToggleParagraphKind(ParagraphKind kind)
+    {
+        if (!Enum.IsDefined(kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a kind of paragraph.");
+        }
+
+        return SetParagraphKind(ParagraphKindAt == kind ? ParagraphKind.Body : kind);
+    }
+
     /// <summary>Sets the alignment of every paragraph the selection touches.</summary>
     /// <param name="align">The alignment to set.</param>
     /// <returns>Whether anything changed.</returns>
@@ -201,12 +229,12 @@ public partial class RichTextView
         (Key.Tab, false, var lift) => Tab(lift),
 
         (Key.D0, true, false) => SetParagraphKind(ParagraphKind.Body),
-        (Key.D1, true, false) => SetParagraphKind(ParagraphKind.Heading1),
-        (Key.D2, true, false) => SetParagraphKind(ParagraphKind.Heading2),
-        (Key.D3, true, false) => SetParagraphKind(ParagraphKind.Heading3),
-        (Key.D4, true, false) => SetParagraphKind(ParagraphKind.Heading4),
-        (Key.D5, true, false) => SetParagraphKind(ParagraphKind.Heading5),
-        (Key.D6, true, false) => SetParagraphKind(ParagraphKind.Heading6),
+        (Key.D1, true, false) => ToggleParagraphKind(ParagraphKind.Heading1),
+        (Key.D2, true, false) => ToggleParagraphKind(ParagraphKind.Heading2),
+        (Key.D3, true, false) => ToggleParagraphKind(ParagraphKind.Heading3),
+        (Key.D4, true, false) => ToggleParagraphKind(ParagraphKind.Heading4),
+        (Key.D5, true, false) => ToggleParagraphKind(ParagraphKind.Heading5),
+        (Key.D6, true, false) => ToggleParagraphKind(ParagraphKind.Heading6),
 
         (Key.D7, true, true) => ToggleList(ListKind.Ordered),
         (Key.D8, true, true) => ToggleList(ListKind.Unordered),
