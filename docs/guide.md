@@ -292,9 +292,9 @@ be drawn. Users can select an image by clicking it and resize it by dragging a c
 view.Find("needle", new SearchOptions { MatchCase = true, WholeWord = false });
 view.FindNext();
 view.FindPrevious();
-view.Replace("thread");
+view.ReplaceCurrent("thread");
 view.ReplaceAll("thread");
-view.EndFind();
+view.ClearFind();
 ```
 
 The view reports `MatchCount`, `CurrentMatch` (zero-based, `-1` for none) and `Matches`. The editor
@@ -309,8 +309,10 @@ Dragging across cells makes a **rectangular** selection, which follows Word's ru
 empty the selected cells rather than removing them; marks apply to each cell independently; copy
 yields a table of just those cells; typing, paste and structural commands are refused.
 
+A rectangular selection is a `CellSelection` on the state:
+
 ```csharp
-view.Rectangle;   // the CellSelection, or null
+var rectangle = view.State.Selection as CellSelection;
 ```
 
 ## Undo

@@ -1,108 +1,180 @@
+using System.Reflection;
+using System.Text.RegularExpressions;
 using Avalonia.Headless.XUnit;
 using Vellum.Avalonia;
-using Vellum.Interop.Html;
-using Vellum.Interop.Json;
-using Vellum.Interop.Rtf;
 
 namespace Vellum.Tests.Avalonia;
 
-/// <summary>Every API the guide claims exists, compiled.</summary>
+/// <summary>
+/// Checks that every member <c>docs/guide.md</c> names actually exists, by reading the guide.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Documentation drifts silently because nothing checks it. Four of this guide's claims were wrong
+/// when it was first written and all four looked plausible: <c>Replace</c> took a different
+/// argument list, <c>EndFind</c> was really <c>ClearFind</c>, <c>CurrentMatchNumber</c> is on the
+/// editor while the view has a zero-based <c>CurrentMatch</c>, and <c>Rectangle</c> is private.
+/// </para>
+/// <para>
+/// <b>An earlier version of this file hand-copied the guide's snippets, which is exactly what does
+/// not work.</b> When the guide turned out to still contain the wrong names, the copy was quietly
+/// corrected instead — so it compiled, passed, and proved nothing at all about the document it was
+/// supposed to be guarding. It reads the file now: whatever the guide says is what gets checked,
+/// and correcting one without the other fails.
+/// </para>
+/// </remarks>
 public class GuideCheckTests
 {
+    /// <summary>Receivers the guide uses, and the type each one stands for.</summary>
+    private static readonly (string Receiver, Type Type)[] Receivers =
+    [
+        ("view", typeof(RichTextView)),
+        ("editor", typeof(RichTextEditor)),
+        ("Editor", typeof(RichTextEditor)),
+        ("RichTextClipboard", typeof(RichTextClipboard)),
+        ("DocumentPreview", typeof(DocumentPreview)),
+        ("DocumentText", typeof(DocumentText)),
+        ("DocumentSearch", typeof(DocumentSearch)),
+        ("RichTextToolbar", typeof(RichTextToolbar)),
+    ];
+
     [AvaloniaFact]
-    public void TheGuideCompiles()
+    public void EveryMemberTheGuideNamesExists()
     {
-        var doc = new DocumentNode([
-            new ParagraphNode(InlineContent.FromText("A heading"), ParagraphKind.Heading1),
-            new ParagraphNode(InlineContent.Create(
-                "Some bold text.",
-                [new ValueSpan<MarkSet>(5, 4, new MarkSet { Style = TextStyle.Bold })],
-                [])),
-        ]);
+        var guide = ReadGuide();
+        var missing = new List<string>();
+        var found = 0;
 
-        var editor = new RichTextEditor { State = EditorState.Create(doc) };
-        var view = new RichTextView { State = EditorState.Create(doc) };
-
-        _ = DocumentText.Of(doc);
-        _ = DocumentPreview.Truncate(doc, 200);
-        _ = DocumentPreview.IsLongerThan(doc, 200);
-
-        view.ToggleStyle(TextStyle.Bold);
-        view.SetForeground(new Rgba(200, 0, 0, 255));
-        view.SetHighlight(null);
-        view.SetFontFamily("Georgia");
-        view.SetFontSize(13.5);
-        view.SetLink(new LinkMark("https://example.com"));
-        view.ClearFormatting();
-        view.ToggleParagraphKind(ParagraphKind.Heading1);
-        view.SetParagraphKind(ParagraphKind.Quote);
-        view.SetAlign(TextAlign.Center);
-        view.Indent();
-        view.Outdent();
-        view.ToggleList(ListKind.Unordered);
-        view.Undo();
-        view.Redo();
-
-        _ = view.SelectionMarks.Style.HasFlag(TextStyle.Bold);
-        _ = view.ParagraphKindAt;
-        _ = view.AlignAt;
-        _ = view.ListKindAt;
-        _ = view.State.Selection as CellSelection;
-        _ = view.MatchCount;
-        _ = view.CurrentMatch;
-        _ = view.Matches;
-        _ = editor.CurrentMatchNumber;
-        _ = editor.MatchCount;
-        _ = view.ParagraphStyles;
-        _ = view.TextStyles;
-        _ = view.Embeds;
-
-        view.Formats.Add(HtmlFormat.Instance);
-        view.Formats.Add(RtfFormat.Instance);
-
-        var result = HtmlFormat.Instance.Import("<p>x</p>");
-        _ = result.AnythingDropped;
-        foreach (var d in result.Diagnostics) { _ = d.ToString(); }
-        _ = HtmlFormat.Instance.Export(result.Doc);
-        _ = JsonFormat.Instance.Export(result.Doc);
-        _ = JsonFormat.Instance.Import("{}").Doc;
-
-        foreach (var flavour in RichTextClipboard.Flavors)
+        foreach (var (receiver, type) in Receivers)
         {
-            _ = flavour.Format; _ = flavour.DataFormat; _ = flavour.Encoding;
+            foreach (Match match in Regex.Matches(guide, $@"\b{receiver}\.([A-Z]\w*)"))
+            {
+                var member = match.Groups[1].Value;
+
+                found++;
+
+                if (type.GetMember(
+                        member,
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+                            | BindingFlags.FlattenHierarchy).Length == 0)
+                {
+                    missing.Add($"{type.Name}.{member}");
+                }
+            }
         }
 
-        var payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
-        _ = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
-
-        view.Embeds = new BitmapEmbedRenderer { AllowLocalSources = true };
-        view.ImageStore = new DataUriImageStore(maximumBytes: 1024 * 1024);
-        view.InsertImage(new byte[] { 1 }, "image/png");
-
-        view.Find("needle", new SearchOptions { MatchCase = true, WholeWord = false });
-        view.FindNext();
-        view.FindPrevious();
-        view.ReplaceCurrent("thread");
-        view.ReplaceAll("thread");
-        view.ClearFind();
-
-        _ = DocumentSearch.Find(doc, "x", SearchOptions.Default);
-
-        editor.UndoLimit = 100;
-        _ = editor.CanUndo;
-        editor.IsSelectionToolbarEnabled = false;
-        editor.IsReadOnly = false;
-        editor.AcceptsReturn = true;
-        editor.AcceptsTab = true;
-        view.AcceptsDrop = true;
-
-        _ = RichTextToolbar.FontFamilies;
-        _ = RichTextToolbar.FontSizes;
-        _ = RichTextToolbar.Palette;
-
-        // Theming: every brush the guide names.
-        _ = view.SelectionBrush; _ = view.CaretBrush; _ = view.FindHighlightBrush;
-        _ = view.CurrentFindHighlightBrush; _ = view.TableBorderBrush; _ = view.TableHeaderBrush;
-        _ = view.ImageHandleBrush; _ = view.ImageHandleBorderBrush; _ = view.TouchHandleBrush;
+        // Guards the guard: a regex that matched nothing would pass silently.
+        Assert.True(found > 40, $"only {found} member references found - has the guide moved?");
+        Assert.Equal([], missing.Distinct().Order());
     }
+
+    [AvaloniaFact]
+    public void TheThemeUriTheGuideGivesResolves()
+    {
+        // The first claim a reader acts on, and the one that breaks silently if anything is
+        // renamed.
+        var uri = Regex.Match(ReadGuide(), @"avares://[^\s""]+\.axaml").Value;
+
+        Assert.Equal("avares://Vellum.Avalonia/Themes/Vellum.axaml", uri);
+    }
+
+    [AvaloniaFact]
+    public void TheControlPropertiesTheGuidesTableNamesExist()
+    {
+        // The options table is prose rather than code, so nothing else here would catch it.
+        var guide = ReadGuide();
+        var table = guide[guide.IndexOf("## Options", StringComparison.Ordinal)..];
+        var missing = new List<string>();
+        var found = 0;
+
+        foreach (Match match in Regex.Matches(table[..table.IndexOf("## Theming", StringComparison.Ordinal)], @"^\| `(\w+)`", RegexOptions.Multiline))
+        {
+            var name = match.Groups[1].Value;
+
+            found++;
+
+            if (typeof(RichTextView).GetMember(name).Length == 0
+                && typeof(RichTextEditor).GetMember(name).Length == 0)
+            {
+                missing.Add(name);
+            }
+        }
+
+        Assert.True(found >= 6, $"only {found} options found - has the table moved?");
+        Assert.Equal([], missing.Order());
+    }
+
+    [AvaloniaFact]
+    public void TheBrushesTheGuideNamesAreRealProperties()
+    {
+        var guide = ReadGuide();
+        var section = guide[guide.IndexOf("## Theming", StringComparison.Ordinal)..];
+        var missing = new List<string>();
+        var found = 0;
+
+        foreach (Match match in Regex.Matches(section, @"`(\w+Brush)`"))
+        {
+            var name = match.Groups[1].Value;
+
+            // Vellum-prefixed names in this section are theme resource keys, checked below.
+            if (name.StartsWith("Vellum", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            found++;
+
+            if (typeof(RichTextView).GetProperty(name) is null)
+            {
+                missing.Add(name);
+            }
+        }
+
+        Assert.True(found >= 5, $"only {found} brushes found - has the section moved?");
+        Assert.Equal([], missing.Distinct().Order());
+    }
+
+    [AvaloniaFact]
+    public void TheToolbarResourcesTheGuideNamesAreDefined()
+    {
+        // Checked against the theme source rather than Application.Current, because the theme's
+        // resources live inside its own Styles and the test harness does not include it - a
+        // lookup there finds nothing and would fail every key, which says nothing about the guide.
+        var theme = string.Concat(
+            Directory.EnumerateFiles(Path.Combine(RepositoryRoot(), "src", "Vellum.Avalonia", "Themes"), "*.axaml")
+                .Select(File.ReadAllText));
+
+        var defined = Regex.Matches(theme, @"x:Key=""(Vellum\w+)""")
+            .Select(match => match.Groups[1].Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(defined);
+
+        var missing = Regex.Matches(ReadGuide(), @"`(VellumToolbar\w*)`")
+            .Select(match => match.Groups[1].Value)
+            .Distinct()
+            .Where(key => !defined.Contains(key))
+            .Order()
+            .ToArray();
+
+        Assert.Equal([], missing);
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "docs", "guide.md")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+
+        return directory.FullName;
+    }
+
+    private static string ReadGuide() =>
+        File.ReadAllText(Path.Combine(RepositoryRoot(), "docs", "guide.md"));
 }
