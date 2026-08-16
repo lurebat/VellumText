@@ -73,6 +73,40 @@ public class RichTextViewImageInsertTests
     }
 
     [AvaloniaFact]
+    public void ARefusedImageSaysSoRatherThanVanishing()
+    {
+        // Pasting a photograph into an editor whose store caps at four megabytes did nothing at
+        // all - no image, no error, no clue. From the user's side that is indistinguishable from
+        // an editor that ignores Ctrl+V.
+        var view = View();
+        var refused = new List<RichTextView.ImageRefusedEventArgs>();
+
+        view.ImageStore = new DataUriImageStore(maximumBytes: 4);
+        view.ImageRefused += (_, e) => refused.Add(e);
+
+        var png = Png(8, 8);
+
+        Assert.False(view.InsertImage(png, "image/png"));
+
+        var report = Assert.Single(refused);
+
+        Assert.Equal(png.Length, report.ByteCount);
+        Assert.Equal("image/png", report.MediaType);
+    }
+
+    [AvaloniaFact]
+    public void AnImageThatIsAcceptedRaisesNothing()
+    {
+        var view = View();
+        var refused = 0;
+
+        view.ImageRefused += (_, _) => refused++;
+
+        Assert.True(view.InsertImage(Png(2, 2), "image/png"));
+        Assert.Equal(0, refused);
+    }
+
+    [AvaloniaFact]
     public void AReadOnlyViewRefusesAnImage()
     {
         var view = View();

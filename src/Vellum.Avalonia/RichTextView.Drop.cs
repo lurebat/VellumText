@@ -44,24 +44,57 @@ public partial class RichTextView
     /// </remarks>
     public bool AcceptsDrop { get; set; } = true;
 
+    /// <summary>Why an image could not be inserted.</summary>
+    /// <param name="byteCount">How large it was.</param>
+    /// <param name="mediaType">What kind of image it was.</param>
+    public sealed class ImageRefusedEventArgs(int byteCount, string mediaType) : EventArgs
+    {
+        /// <summary>How large the refused image was, in bytes.</summary>
+        public int ByteCount { get; } = byteCount;
+
+        /// <summary>The media type it arrived as.</summary>
+        public string MediaType { get; } = mediaType;
+    }
+
+    /// <summary>Raised when <see cref="ImageStore"/> declined an image.</summary>
+    /// <remarks>
+    /// <para>
+    /// Pasting a photograph into an editor whose store caps at four megabytes does nothing at all:
+    /// no image, no error, no clue. The refusal is right — better no image than one that cannot be
+    /// drawn — but silence about it is not, because from the user's side an editor that ignores
+    /// Ctrl+V is indistinguishable from one that is broken.
+    /// </para>
+    /// <para>
+    /// A host that does not subscribe gets the old behaviour, so this costs nothing to ignore.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<ImageRefusedEventArgs>? ImageRefused;
+
     /// <summary>Inserts an image at the caret, replacing the selection.</summary>
     /// <param name="bytes">The image, in whatever format it arrived in.</param>
     /// <param name="mediaType">Its media type, such as <c>image/png</c>.</param>
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="mediaType"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// Refuses quietly when <see cref="ImageStore"/> declines the bytes — too large, wrong type, a
-    /// store that is full. That is a refusal rather than a failure: the document is left as it was
-    /// rather than gaining an image that cannot be drawn.
+    /// Leaves the document alone when <see cref="ImageStore"/> declines the bytes — too large,
+    /// wrong type, a store that is full — and raises <see cref="ImageRefused"/> so the host can
+    /// say so. That is a refusal rather than a failure: better a document without the image than
+    /// one carrying an embed that resolves to nothing.
     /// </remarks>
     public bool InsertImage(ReadOnlySpan<byte> bytes, string mediaType)
     {
         ArgumentNullException.ThrowIfNull(mediaType);
 
-        return ImageStore.Save(bytes, mediaType) is { } source
-            && PasteDocument(new DocumentNode([
-                new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source))),
-            ]));
+        if (ImageStore.Save(bytes, mediaType) is not { } source)
+        {
+            ImageRefused?.Invoke(this, new ImageRefusedEventArgs(bytes.Length, mediaType));
+
+            return false;
+        }
+
+        return PasteDocument(new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source))),
+        ]));
     }
 
     /// <summary>Reads an image out of a transfer whose contents are already in hand.</summary>

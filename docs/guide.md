@@ -107,6 +107,57 @@ DocumentPreview.IsLongerThan(doc, 200);
 `Truncate` cuts on grapheme boundaries, so an emoji or a combining mark is kept whole or dropped
 whole rather than halved into replacement glyphs.
 
+### Text offsets
+
+`DocumentText.Of` is for *reading* — search, a label, a screen reader. **It cannot be inverted**,
+because an embed contributes its alt text: an image with `alt="PHOTO"` is one position and five
+characters, and one without alt text is one position and none. A text offset can land inside an
+image's alt text, where no document position exists.
+
+For code that works in plain-text offsets and has to get back to the document — a transformation
+applied to a selected range, an offset stored before an edit — use `DocumentTextMap`, which
+projects one `\uFFFC` per embed so the two stay in step:
+
+```csharp
+var map = DocumentTextMap.Of(doc);
+
+var (offset, length) = map.ToOffsets(selection.From, selection.To);
+var transformed = MyTransform(map.Text.Substring(offset, length));
+
+var (from, to) = map.ToPositions(offset, length);
+transaction.Step(new ReplaceStep(from, to, Slice.OfLines(transformed)));
+```
+
+Note the change of convention, which matches what each side expects: text runs are an offset and a
+**length**, document ranges are a **pair of positions** — which is what `ReplaceStep` takes.
+
+Going through positions rather than splicing `map.Text` and rebuilding is the point: **formatting
+outside the range survives**, because a replace only touches what it spans.
+
+**Use `Slice.OfLines`, not `Slice.OfText`**, whenever the replacement might contain newlines —
+pretty-printed JSON, sorted lines, rewrapped prose. `OfText` puts the whole string in one block, so
+those newlines become characters nothing will ever render as a break. `OfLines` completes the
+projection: a block boundary became `\n` on the way out, and `\n` becomes a block boundary on the
+way back in.
+
+The block the range **starts** in keeps its kind, because the first line merges into it rather than
+replacing it — so transforming part of a heading leaves a heading, and any further blocks are body
+text. Only `\n` divides; a `\r` stays as text, exactly as it does when read back out, so CRLF
+survives a round trip. Normalise first if your text uses CRLF without meaning it.
+
+Two cases to decide about rather than discover:
+
+```csharp
+map.ContainsEmbeds(from, to);   // check before transforming
+```
+
+A transformation takes text and returns text, so an image reaches it as a bare placeholder standing
+for something it knows nothing about — and comes back still carrying that placeholder with no embed
+attached. `Slice.OfText` refuses such text, correctly but from a long way away. Either skip those
+ranges or accept that replacing one discards the image.
+
+The map is a snapshot. Edit the document and build a new one.
+
 ## Editing
 
 Every command is a method on `RichTextView`, returns `bool` for "did anything change", and is one

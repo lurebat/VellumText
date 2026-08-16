@@ -135,6 +135,46 @@ public sealed record Slice
     /// <param name="text">The text.</param>
     public static Slice OfText(string text) => OfInline(InlineContent.FromText(text));
 
+    /// <summary>A slice of plain text whose newlines become block boundaries.</summary>
+    /// <param name="text">The text. Each <c>\n</c> starts a new block.</param>
+    /// <param name="kind">The kind to give the blocks this creates.</param>
+    /// <returns>The slice.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="text"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// The counterpart of <see cref="DocumentTextMap"/>'s projection, which turns a block boundary
+    /// into a newline on the way out. Without this the way back in is not symmetric:
+    /// <see cref="OfText"/> puts the whole string in one block, so replacing a selection with text
+    /// that has newlines in it — pretty-printed JSON, sorted lines, rewrapped prose — yields one
+    /// run-on paragraph containing newline characters that nothing will ever render as breaks.
+    /// </para>
+    /// <para>
+    /// <b>The first and last blocks merge with what they land between</b>, which is what the open
+    /// ends mean and why <paramref name="kind"/> only reaches the blocks in between. So replacing
+    /// part of a heading with three lines leaves the heading a heading and adds two blocks after
+    /// it, rather than turning the heading into whatever this slice says.
+    /// </para>
+    /// <para>
+    /// Only <c>\n</c> divides. A <c>\r</c> stays as text, exactly as it does when read back out, so
+    /// a document holding CRLF still round-trips through the projection unchanged. Text arriving
+    /// from somewhere that uses CRLF and not meaning it should be normalised by the caller, which
+    /// is a decision this cannot make on its behalf.
+    /// </para>
+    /// </remarks>
+    public static Slice OfLines(string text, ParagraphKind kind = ParagraphKind.Body)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        var lines = text.Split('\n');
+
+        return lines.Length == 1
+            ? OfText(text)
+            : new Slice(
+                [.. lines.Select(line => new ParagraphNode(InlineContent.FromText(line), kind))],
+                1,
+                1);
+    }
+
     /// <summary>A slice of whole blocks, to be inserted between existing ones.</summary>
     /// <param name="blocks">The blocks.</param>
     public static Slice OfBlocks(params BlockNode[] blocks) => new(blocks, 0, 0);

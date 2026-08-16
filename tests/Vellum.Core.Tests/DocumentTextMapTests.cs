@@ -345,6 +345,166 @@ public class DocumentTextMapTests
     }
 
     [Fact]
+    public void ReplacementNewlinesBecomeBlocksJustAsBlocksBecameNewlines()
+    {
+        // The projection has to run both ways or it is not one. A transform that turns one line
+        // into twelve - pretty-printed JSON, sorted lines, rewrapped prose - is the common path,
+        // not a corner: Slice.OfText would put all twelve in a single paragraph carrying newline
+        // characters that nothing renders as breaks.
+        var doc = DocumentNode.FromParagraphs("before", "REPLACE", "after");
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(map.Text.IndexOf("REPLACE", StringComparison.Ordinal), 7);
+
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfLines("one\ntwo\nthree")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal(5, edited.Blocks.Length);
+        Assert.Equal("before\none\ntwo\nthree\nafter", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void TheBlockAReplacementStartsInKeepsItsKind()
+    {
+        // The rule the open ends give for free: the first line merges into the block the range
+        // started in, so a transform inside a heading leaves a heading.
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.FromText("a heading here"), ParagraphKind.Heading1),
+        ]);
+
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(2, 7);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfLines("ONE\nTWO")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal(ParagraphKind.Heading1, ((ParagraphNode)edited.Blocks[0]).Kind);
+        Assert.Equal(ParagraphKind.Body, ((ParagraphNode)edited.Blocks[1]).Kind);
+        Assert.Equal("a ONE\nTWO here", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void ReplacementTextWithNoNewlineBehavesExactlyAsBefore()
+    {
+        var doc = DocumentNode.FromParagraphs("hello world");
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(6, 5);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfLines("there")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Single(edited.Blocks);
+        Assert.Equal("hello there", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void ACaretRangeInsertsWithoutRemovingAnything()
+    {
+        // Clipthrough's "insert at cursor": a zero-length range.
+        var doc = DocumentNode.FromParagraphs("ab");
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(1, 0);
+
+        Assert.Equal(from, to);
+
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfLines("X\nY")));
+
+        Assert.Equal("aX\nYb", DocumentText.Of(state.Apply(transaction).Doc));
+    }
+
+    [Fact]
+    public void ARangeEndingOnABlockBoundaryDoesNotEatTheBlockAfterIt()
+    {
+        // An offset sitting on a newline is the end of the block before it, not the start of the
+        // one after, so a range ending there must leave the next block whole.
+        var doc = DocumentNode.FromParagraphs("one", "two");
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(0, 3);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfText("X")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal(2, edited.Blocks.Length);
+        Assert.Equal("X\ntwo", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void ARangeCoveringAWholeBlockAndItsBoundaryJoinsWhatIsLeft()
+    {
+        var doc = DocumentNode.FromParagraphs("one", "two", "three");
+        var map = DocumentTextMap.Of(doc);
+
+        // From the end of "one" through the end of "two" - the boundary and the whole block.
+        var (from, to) = map.ToPositions(3, 4);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfText("")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal(2, edited.Blocks.Length);
+        Assert.Equal("one\nthree", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void ACarriageReturnStaysTextRatherThanBecomingABoundary()
+    {
+        // Symmetry with the read direction, where \r is content inside a block and only \n
+        // divides. A document holding CRLF therefore survives a round trip through both.
+        var slice = Slice.OfLines("a\r\nb");
+        var doc = DocumentNode.FromParagraphs("");
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(1, 1, slice));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal(2, edited.Blocks.Length);
+        Assert.Equal("a\r\nb", DocumentText.Of(edited));
+    }
+
+    [Fact]
+    public void OfLinesChecksItsArgument()
+    {
+        Assert.Throws<ArgumentNullException>(() => Slice.OfLines(null!));
+    }
+
+    [Fact]
+    public void APositionPastTheEndIsRefusedRatherThanClamped()
+    {
+        // A map held across an edit is the mistake this type is most likely to be involved in,
+        // and a position past the end is the cheapest evidence of it. Silently returning the last
+        // offset would turn a stale range into a plausible-looking edit in the wrong place.
+        var doc = DocumentNode.FromParagraphs("abc");
+        var map = DocumentTextMap.Of(doc);
+
+        Assert.Equal(doc.ContentSize, map.ContentSize);
+        Assert.Equal(3, map.ToOffset(doc.ContentSize));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => map.ToOffset(doc.ContentSize + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => map.ToOffsets(0, doc.ContentSize + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => map.Slice(0, 9999));
+        Assert.Throws<ArgumentOutOfRangeException>(() => map.ContainsEmbeds(0, 9999));
+    }
+
+    [Fact]
     public void TheArgumentsAreChecked()
     {
         var map = DocumentTextMap.Of(DocumentNode.FromParagraphs("abc"));
