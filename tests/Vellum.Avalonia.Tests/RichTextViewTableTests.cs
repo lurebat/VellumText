@@ -108,6 +108,71 @@ public class RichTextViewTableTests
     }
 
     /// <summary>
+    /// A list has no view of its own — it is drawn as its paragraphs wearing a marker — so a cell
+    /// that handed its blocks straight to the view factory threw the moment the user pressed the
+    /// bullet button with the caret inside a table.
+    /// </summary>
+    [AvaloniaFact]
+    public void MakingACellsParagraphABulletDrawsItAsOne()
+    {
+        var doc = new DocumentNode([Table()]);
+        var (window, view) = Shown(doc);
+
+        view.MoveTo(StartOf(doc, "a1"), extend: false);
+
+        var before = view.CaretRect();
+
+        Assert.True(view.ToggleList(ListKind.Unordered));
+
+        window.Measure(new Size(500, 400));
+        window.Arrange(new Rect(0, 0, 500, 400));
+
+        // Indented behind a bullet, which is the observable difference between a list item and
+        // the paragraph it was: without the marker the text would start where it always did.
+        var after = view.CaretRect();
+
+        Assert.True(
+            after.X > before.X,
+            $"expected the bullet to indent the text, got {after.X} from {before.X}");
+
+        // And the bullet is drawn, not merely reserved for. It lives in the gap the indent
+        // opened up, which is the one place the caret is not, so any ink there is the marker.
+        Assert.True(
+            Ink(window, before.X, after.X, after.Y, after.Bottom) > 0,
+            "expected the bullet glyph to be drawn in the space the indent opened up");
+    }
+
+    /// <summary>Counts pixels that are neither white nor transparent in a region.</summary>
+    private static int Ink(Window window, double left, double right, double top, double bottom)
+    {
+        var frame = global::Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window)!;
+
+        using var locked = frame.Lock();
+
+        var bytes = new byte[locked.RowBytes * locked.Size.Height];
+
+        System.Runtime.InteropServices.Marshal.Copy(locked.Address, bytes, 0, bytes.Length);
+
+        var count = 0;
+
+        for (var y = (int)top; y < (int)bottom && y < locked.Size.Height; y++)
+        {
+            for (var x = (int)left; x < (int)right && x < locked.Size.Width; x++)
+            {
+                var i = (y * locked.RowBytes) + (x * 4);
+
+                // Rgba8888, not BGRA: reading it the other way round finds nothing at all.
+                if (bytes[i + 3] > 0 && (bytes[i] < 200 || bytes[i + 1] < 200 || bytes[i + 2] < 200))
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// A paragraph inside a table cell is not a top-level block, so reading the shared formatting
     /// off the top-level blocks alone finds no characters and falls back to the formatting at the
     /// selection's start — reporting a half-bold cell as bold, and making Ctrl+B unbold it.

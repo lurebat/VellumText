@@ -146,22 +146,25 @@ public sealed class TableBlockView : BlockView
                 var was = !previous.IsDefault && index < previous.Length ? previous[index] : null;
                 var blocks = ImmutableArray.CreateBuilder<Child>(cell.Blocks.Length);
 
-                // And one past the cell's own opening boundary.
-                var blockStart = cellStart + 1;
+                // Flattened, because a list has no view of its own: it is drawn as its paragraphs
+                // wearing a depth and a marker. A cell that handed its blocks straight to create
+                // would throw the moment one of them was a list.
+                var slots = DocumentBlocks.Flatten(cell.Blocks, cellStart + 1);
                 var at = 0;
 
-                foreach (var block in cell.Blocks)
+                foreach (var slot in slots)
                 {
                     var before = was is not null && at < was.Blocks.Length ? was.Blocks[at] : null;
+                    var view = Reuse(before, slot.Node) ?? create(slot.Node);
 
-                    // A leaf occupies its position rather than sitting inside a pair of
-                    // boundaries, so its content starts where the block itself is.
-                    blocks.Add(new Child(
-                        block,
-                        Reuse(before, block) ?? create(block),
-                        block.IsLeaf ? blockStart : blockStart + 1));
+                    // A marker is not part of the paragraph node, so a reused view can be drawn
+                    // for the same paragraph under a different bullet and must be told each time.
+                    if (view is ParagraphView paragraph)
+                    {
+                        paragraph.SetLead(slot.Depth, slot.Marker);
+                    }
 
-                    blockStart += block.NodeSize;
+                    blocks.Add(new Child(slot.Node, view, slot.Start));
                     at++;
                 }
 

@@ -81,7 +81,7 @@ public static class DocumentBlocks
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Not the same question as <see cref="Flatten"/>, which asks what gets drawn. A table is
+    /// Not the same question as <see cref="Flatten(DocumentNode)"/>, which asks what gets drawn. A table is
     /// drawn as one block but holds many paragraphs a caret can be in, and the two answers
     /// diverge exactly there. Backspace at the start of a block needs the block before it in
     /// <em>this</em> order — the paragraph above it inside the same cell, say — because that is
@@ -102,6 +102,26 @@ public static class DocumentBlocks
         var slots = ImmutableArray.CreateBuilder<BlockSlot>(doc.Blocks.Length);
 
         Descend(doc.Blocks, 0, slots);
+
+        return slots.ToImmutable();
+    }
+
+    /// <summary>The blocks of a container, in the order they are drawn.</summary>
+    /// <remarks>
+    /// Lists are flattened into their paragraphs, each carrying the depth and marker that make it
+    /// look like a list item. Nothing else draws a list, so a container whose blocks reach a view
+    /// unflattened has no way to draw one at all.
+    /// </remarks>
+    /// <param name="blocks">The container's block content.</param>
+    /// <param name="start">The position its content starts at.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="blocks"/> is null.</exception>
+    public static ImmutableArray<BlockSlot> Flatten(IReadOnlyList<BlockNode> blocks, int start)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+
+        var slots = ImmutableArray.CreateBuilder<BlockSlot>(blocks.Count);
+
+        Walk(blocks, start, 0, null, slots);
 
         return slots.ToImmutable();
     }
