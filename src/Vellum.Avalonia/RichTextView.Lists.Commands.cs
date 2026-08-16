@@ -316,6 +316,12 @@ public partial class RichTextView
     {
         var doc = _state.Doc;
         var selection = _state.Selection;
+
+        if (selection is CellSelection)
+        {
+            return null;
+        }
+
         var from = doc.Resolve(selection.From);
         var to = doc.Resolve(selection.To);
 
@@ -360,6 +366,15 @@ public partial class RichTextView
     {
         var doc = _state.Doc;
         var selection = _state.Selection;
+
+        // A rectangle's bounds are the row positions either side of it, so the "run of sibling
+        // blocks" it touches is a run of cells. Wrapping cells in a list is not what was asked
+        // for, and it is only the schema that stops it happening.
+        if (selection is CellSelection)
+        {
+            return null;
+        }
+
         var from = doc.Resolve(selection.From);
         var to = doc.Resolve(selection.To);
         var depth = from.SharedDepth(to);

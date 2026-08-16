@@ -364,6 +364,65 @@ public sealed class TableBlockView : BlockView
             .Translate(new Vector(origin.X, origin.Y));
     }
 
+    /// <summary>
+    /// The boxes of the given cells, for a rectangular selection.
+    /// </summary>
+    /// <param name="cells">
+    /// The document positions directly before each selected cell, as
+    /// <see cref="CellSelection.Cells"/> reports them.
+    /// </param>
+    /// <param name="start">This table's own first inner position, in document coordinates.</param>
+    /// <remarks>
+    /// Distinct from <see cref="GetSelectionRects"/>, which highlights the text a range covers.
+    /// A rectangle selects cells rather than text, so an empty cell must still be filled and a
+    /// half-empty one filled to its edges — anything else draws a ragged rectangle that does not
+    /// look like a selection at all.
+    /// </remarks>
+    public IReadOnlyList<Rect> GetCellRects(IReadOnlyCollection<int> cells, int start)
+    {
+        ArgumentNullException.ThrowIfNull(cells);
+
+        var rects = new List<Rect>();
+
+        Collect(cells, rects, start, default);
+
+        return rects;
+    }
+
+    private void Collect(IReadOnlyCollection<int> cells, List<Rect> into, int start, Vector offset)
+    {
+        foreach (var cell in _cells)
+        {
+            // A cell's local first inner position is one past the position before it, which is
+            // what a cell selection names.
+            if (cells.Contains(start + cell.Start - 1))
+            {
+                into.Add(CellBounds(cell.Placement).Translate(offset));
+
+                // A selected cell is covered whole, so there is nothing to find inside it. A
+                // rectangle cannot select a cell and one of its nested cells at once: they
+                // belong to different grids, and Across resolves to exactly one of them.
+                continue;
+            }
+
+            foreach (var child in cell.Blocks)
+            {
+                if (child.View is not TableBlockView nested)
+                {
+                    continue;
+                }
+
+                var origin = ChildOrigin(cell, child);
+
+                nested.Collect(
+                    cells,
+                    into,
+                    start + child.Start,
+                    offset + new Vector(origin.X, origin.Y));
+            }
+        }
+    }
+
     /// <inheritdoc/>
     /// <remarks>
     /// No guard against an empty or inverted range: each cell clamps the range to its own

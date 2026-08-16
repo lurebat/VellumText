@@ -49,6 +49,13 @@ public partial class RichTextView
             return false;
         }
 
+        // Composing needs a caret, and a rectangle of cells has none — the position its bounds
+        // begin at is in a row, outside any text. The commit would land in the wrong cell.
+        if (Rectangle is not null)
+        {
+            return false;
+        }
+
         var anchor = Math.Clamp(_state.Selection.From - BlockStart, 0, block.ContentSize);
 
         // The cursor is clamped rather than validated: it comes from a platform input method,

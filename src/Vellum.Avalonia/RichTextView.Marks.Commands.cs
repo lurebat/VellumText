@@ -37,6 +37,11 @@ public partial class RichTextView
         {
             var selection = _state.Selection;
 
+            if (selection is CellSelection rectangle)
+            {
+                return CellMarks(rectangle) ?? MarkSet.Empty;
+            }
+
             return selection.IsEmpty
                 ? MarkForInsertion(selection.From)
                 : MarksAcross(selection.From, selection.To)
@@ -143,6 +148,11 @@ public partial class RichTextView
         }
 
         var selection = _state.Selection;
+
+        if (selection is CellSelection rectangle)
+        {
+            return MarkCells(rectangle, value, fields);
+        }
 
         if (selection.IsEmpty)
         {

@@ -109,6 +109,14 @@ public partial class RichTextView
 
             var selection = _state.Selection;
 
+            // No handles on a rectangle of cells. A handle is the end of a text range that
+            // dragging it moves, and a rectangle has no such ends: its bounds are positions in
+            // a row, and dragging one would extend a text selection through cells beside it.
+            if (selection is CellSelection)
+            {
+                return [];
+            }
+
             if (selection.IsEmpty)
             {
                 return HandleAt(selection.Head) is { } caret ? [caret] : [];

@@ -439,7 +439,47 @@ public partial class RichTextView : DocumentPresenter
             return;
         }
 
+        if (_state.Selection is CellSelection rectangle)
+        {
+            EnumerateCells(rectangle, onRect);
+
+            return;
+        }
+
         EnumerateRange(_state.Selection.From, _state.Selection.To, onRect);
+    }
+
+    /// <summary>Walks the boxes of the cells a rectangular selection covers.</summary>
+    /// <remarks>
+    /// A rectangle is not a range: selecting the left column of a two-column table skips the
+    /// right one in every row, so walking <c>From</c> to <c>To</c> would highlight cells the
+    /// reader did not select. The cells are asked for by position instead.
+    /// </remarks>
+    private void EnumerateCells(CellSelection selection, Action<Rect> onRect)
+    {
+        var cells = selection.Cells(_state.Doc);
+
+        if (cells.IsEmpty)
+        {
+            return;
+        }
+
+        var wanted = cells.ToHashSet();
+
+        for (var i = _first; i <= _last; i++)
+        {
+            if (_views[i] is not TableBlockView table)
+            {
+                continue;
+            }
+
+            var origin = BlockOrigin(i);
+
+            foreach (var rect in table.GetCellRects(wanted, _slots[i].Start))
+            {
+                onRect(rect.Translate(origin));
+            }
+        }
     }
 
     /// <summary>Walks the rectangles a document range covers, in view coordinates.</summary>

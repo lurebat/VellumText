@@ -420,9 +420,9 @@ internal sealed class ParagraphView : BlockView
 >   reaches the view, so "the schema guarantees it" is never a safe assumption about view input.
 >   Assuming it cost a real `IndexOutOfRangeException`.
 >
-> Two known gaps: there is no rectangular **cell selection** UI (`CellSelection` exists in the model
-> and the view does not raise it), and `Reconcile` has no in-place update path for a table, so any
-> edit inside one rebuilds the whole table view. Correct, but unmeasured.
+> Two known gaps at the time: `Reconcile` has no in-place update path for a table, so any
+> edit inside one rebuilds the whole table view. Correct, but unmeasured. Rectangular **cell
+> selection** was the other, and is closed by P8 below.
 >
 > **Vertical caret movement had to become geometric.** It stepped to the adjacent *drawn* block,
 > which once a table was one block skipped every table whole. Stepping over `Leaves` instead fixed
@@ -889,7 +889,7 @@ worth using". Comparing it against what Vellum actually had:
 | Character formatting (17+ controls) | ✅ | ✅ every mark | ❌ → ✅ **closed** |
 | Headings, alignment, indent | ✅ | ✅ | ✅ |
 | Lists | ✅ | ✅ | ❌ → ✅ **closed** (P3) |
-| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ → ✅ real grid (P6); **no cross-cell selection** |
+| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ → ✅ real grid (P6); cross-cell selection (P8) |
 | Inline & block images | ✅ | ✅ | ✅ renders, selects and resizes by dragging a corner |
 | Hyperlinks | ✅ | ✅ | ✅ **closed** |
 | Toolbar (`EditorToolbar`) | ✅ | — | ❌ → ✅ **closed** (P4) |
@@ -946,11 +946,49 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 
 | # | Work | Evidence it is open | Size |
 |---|---|---|---|
-| **P8** | **Cross-cell (rectangular) table selection.** Dragging across cells should produce the `CellSelection` the model already defines, and copy/delete should honour it. | `CellSelection` exists in `Vellum.Core/Selection/`; **zero references** anywhere in `Vellum.Avalonia`. Deferred in Increment 1 and never picked up. | The largest remaining functional gap |
+| **P8** | ~~**Cross-cell (rectangular) table selection.**~~ **Done.** See "As built" below. | — | — |
 | **P9** | **Packaging.** `PackageId`, `Description`, `PackageLicenseExpression`, tags, README-in-package, `GeneratePackageOnBuild`, and a versioning/release story. | `Directory.Build.props` carries only `VersionPrefix 0.1.0`, `Authors` and `RepositoryUrl`. **Nothing is publishable today.** | Small, and blocks every consumer |
 | **P10** | **The four control properties.** `IsReadOnly`, `UndoLimit`, `AcceptsReturn`, `AcceptsTab`. | Absent from `src/`; the only `IsReadOnly` is the automation peer's. Partly moot for read-only by §10.2's viewer decision. | Small |
 | **P11** | **Selection flyout** — the floating toolbar over a selection. | `RichTextView.ContextMenu.cs` builds a right-click `MenuFlyout` only. | Small, on top of P4's toolbar |
-| — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | Deliberately unscheduled |
+| — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
+
+**Scope of v1, decided 2026-08-16.** P8–P11 are all required for v1.0. DOCX/XAML serialization and
+the spellcheck hook are explicitly **out** — they widen what the library can represent rather than
+closing the gap between the model and the control, which is the sequencing principle below.
+
+> **P8 as built — a rectangle is not a range.**
+>
+> `CellSelection.From..To` only *bounds* the selected cells. Selecting the left column of a
+> two-column table gives a range running straight through the right column, so any command that
+> treats `From..To` as the affected range reformats or deletes cells the user never selected — and
+> `DeleteRange` over it takes whole cells out of their rows rather than emptying them. Every
+> command must therefore ask `Cells(doc)` or refuse outright. This was not theoretical: it is the
+> bug the first working version shipped, caught by an existing test.
+>
+> **Agreed semantics** (Word's, chosen by the user over two alternatives):
+>
+> | Command | On a rectangle |
+> |---|---|
+> | Delete, Backspace, cut | Empties each selected cell, keeping the table and one empty paragraph per cell |
+> | Bold, italic, colour, any mark | Applied to every selected cell independently |
+> | Copy | Yields a table of just those cells, each merged cell taken once |
+> | Typing, paste, split, lists, indent, IME | Refused |
+>
+> **Two defects this uncovered**, both pre-existing and both fixed as their own commits: shared
+> marks were read from the top-level blocks only, so a paragraph in a cell was invisible and a
+> half-bold selection reported bold; and a cell handed its blocks straight to the view factory,
+> so pressing the bullet button with the caret in a table threw at measure time.
+>
+> **Verification.** 30 mutants of the new code, 18 killed. The 12 survivors are recorded rather
+> than hidden: three are genuinely equivalent, three are mutually redundant guards that the suite
+> kills as a set (verified by removing all three at once, which fails), and six are explicit
+> guards protected incidentally by a schema refusal or a null block — kept deliberately, because
+> the alternative is a library that relies on accidental refusals.
+>
+> **The one non-obvious rule:** a rectangle covering a *whole* table has bounds the schema
+> refuses to replace, so destructive commands appear safe there whether or not they check
+> anything. Refusal tests must use a rectangle **within a single row**, whose bounds are
+> replaceable. Making that change alone took the mutation score from 10/28 to 12/28.
 
 **Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
 documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback

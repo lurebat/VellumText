@@ -206,7 +206,8 @@ public class RichTextViewTableTests
             Source = view,
         });
 
-    private static TableNode Table() =>        new([
+    private static TableNode Table() =>
+        new([
             new TableRowNode([TableCellNode.FromText("a1"), TableCellNode.FromText("b1")]),
             new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]),
         ]);
@@ -461,11 +462,11 @@ public class RichTextViewTableTests
     }
 
     [AvaloniaFact]
-    public void DeletingASelectionThatSpansTwoCellsDoesNotMergeThem()
+    public void DeletingASelectionThatSpansTwoCellsEmptiesThemWithoutMergingThem()
     {
-        // The same corruption as Backspace at a cell boundary, reached by dragging instead. It
-        // is refused in the step rather than in the view precisely so that every way of asking
-        // for it -- Backspace, Delete, typing over it, pasting over it -- is refused at once.
+        // Dragging across a cell boundary makes a rectangle, and deleting a rectangle empties
+        // the cells it covers. What must not happen is the corruption Backspace at a boundary
+        // would cause: the two cells collapsing into one.
         var doc = new DocumentNode([
             new TableNode([new TableRowNode([
                 TableCellNode.FromText("a1"),
@@ -479,8 +480,13 @@ public class RichTextViewTableTests
         view.MoveTo(StartOf(doc, "a1") + 1, extend: false);
         view.MoveTo(StartOf(doc, "b1") + 1, extend: true);
 
-        Assert.False(view.Delete());
-        Assert.Equal(2, Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells.Length);
+        Assert.True(view.Delete());
+
+        var cells = Assert.Single(((TableNode)view.State.Doc.Blocks[0]).Rows).Cells;
+
+        Assert.Equal(2, cells.Length);
+        Assert.Equal(string.Empty, ((ParagraphNode)cells[0].Blocks[0]).Content.Text);
+        Assert.Equal(string.Empty, ((ParagraphNode)cells[1].Blocks[0]).Content.Text);
     }
 
     [AvaloniaFact]

@@ -66,6 +66,13 @@ public partial class RichTextView
             return false;
         }
 
+        // A rectangle of cells has no one place a character could go, and its From..To spans
+        // cells outside it — replacing that range would take whole cells out of their rows.
+        if (Rectangle is not null)
+        {
+            return false;
+        }
+
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Typing);
 
@@ -105,7 +112,7 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool Split()
     {
-        if (Block is null)
+        if (Block is null || Rectangle is not null)
         {
             return false;
         }
@@ -170,6 +177,13 @@ public partial class RichTextView
 
     private bool DeleteAround(bool forward)
     {
+        // Before the Block guard: a rectangle's caret is not inside any one block, so asking
+        // whether there is a current block would refuse the delete before it was considered.
+        if (Rectangle is { } rectangle)
+        {
+            return ClearCells(rectangle);
+        }
+
         if (Block is null)
         {
             return false;
@@ -301,6 +315,16 @@ public partial class RichTextView
         if (selection.IsEmpty)
         {
             return true;
+        }
+
+        // The one place every "replace what is selected" command passes through, so it is where
+        // a rectangle is stopped for good. Its From..To runs through cells outside it, and
+        // deleting that range takes whole cells out of their rows rather than emptying them.
+        // A caller that wants to empty cells asks ClearCells; one that cannot express a
+        // rectangle gets a refusal here even if it forgot to check.
+        if (selection is CellSelection)
+        {
+            return false;
         }
 
         transaction.DeleteRange(selection.From, selection.To);

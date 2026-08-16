@@ -25,6 +25,7 @@ public partial class RichTextView
 
     private bool _dragging;
     private double? _goalX;
+    private int _cellOrigin;
 
     /// <summary>
     /// The horizontal offset a vertical move is trying to keep, if one is in progress.
@@ -69,11 +70,20 @@ public partial class RichTextView
     /// <param name="extend">Whether to keep the current anchor.</param>
     public void MoveTo(int position, bool extend)
     {
-        var head = NearestTextPosition(
-            position, forward: !extend || position >= _state.Selection.Anchor);
+        // Once the selection is a rectangle its Anchor is the position before a cell, which is
+        // in the row rather than in any cell's text. Resolving that back to a cell finds nothing,
+        // so the text position the drag started from is remembered separately and is what both
+        // the rectangle and the fall back to text are measured from.
+        var origin = _state.Selection is CellSelection current
+            ? CellOrigin(current)
+            : _state.Selection.Anchor;
 
-        var anchor = extend ? _state.Selection.Anchor : head;
-        var selection = TextSelection.Create(_state.Doc, anchor, head);
+        var head = NearestTextPosition(position, forward: !extend || position >= origin);
+        var anchor = extend ? origin : head;
+
+        var selection = extend && CellSelection.Across(_state.Doc, anchor, head) is { } rectangle
+            ? rectangle
+            : (Selection)TextSelection.Create(_state.Doc, anchor, head);
 
         if (selection == _state.Selection)
         {
@@ -83,6 +93,7 @@ public partial class RichTextView
             return;
         }
 
+        _cellOrigin = anchor;
         State = EditorState.Create(_state.Doc, selection);
         ResetCaretBlink();
     }

@@ -88,7 +88,11 @@ public partial class RichTextView
         {
             var selection = _state.Selection;
 
-            return selection.To - selection.From == 1 && ImageAt(selection.From) is not null
+            // A rectangle's bounds happen to be one apart when it is a single cell wide, and
+            // the position they start at is not an image but the cell boundary.
+            return selection is not CellSelection
+                && selection.To - selection.From == 1
+                && ImageAt(selection.From) is not null
                 ? selection.From
                 : null;
         }

@@ -90,6 +90,11 @@ public partial class RichTextView
             return string.Empty;
         }
 
+        if (selection is CellSelection rectangle)
+        {
+            return DocumentText.Of(CellDocument(rectangle).Blocks);
+        }
+
         return DocumentText.Of(Slice.Cut(_state.Doc, selection.From, selection.To).Content);
     }
 
@@ -165,6 +170,14 @@ public partial class RichTextView
     internal DocumentNode SelectedDocument()
     {
         var selection = _state.Selection;
+
+        // Cutting the range a rectangle bounds would take every cell between its first and its
+        // last, which for a column selection is the whole table. The cells are rebuilt instead.
+        if (selection is CellSelection rectangle)
+        {
+            return CellDocument(rectangle);
+        }
+
         var slice = Slice.Cut(_state.Doc, selection.From, selection.To);
 
         return new DocumentNode(slice.Content.OfType<BlockNode>());
@@ -282,7 +295,7 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(doc);
 
-        if (doc.Blocks.IsEmpty)
+        if (doc.Blocks.IsEmpty || Rectangle is not null)
         {
             return false;
         }
@@ -349,7 +362,7 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        if (text.Length == 0)
+        if (text.Length == 0 || Rectangle is not null)
         {
             return false;
         }
@@ -418,6 +431,13 @@ public partial class RichTextView
         if (selection.IsEmpty)
         {
             return false;
+        }
+
+        // Emptying the cells, not removing them: deleting the range a rectangle bounds takes
+        // whole cells out of their rows, and for a column selection takes cells beside it too.
+        if (selection is CellSelection rectangle)
+        {
+            return ClearCells(rectangle);
         }
 
         var transaction = _state.Transaction().As(TransactionKind.Structure);

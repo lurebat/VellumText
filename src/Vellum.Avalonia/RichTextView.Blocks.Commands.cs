@@ -111,6 +111,14 @@ public partial class RichTextView
         // otherwise get a silent no-op.
         EnsureSlots();
 
+        // A rectangle of cells is not a run of blocks. Its From..To covers the whole table, so
+        // a heading or an indent asked for it would land on the table rather than on anything
+        // the reader selected — and there is no one block for it to land on instead.
+        if (_state.Selection is CellSelection)
+        {
+            yield break;
+        }
+
         var from = _state.Selection.From;
         var to = _state.Selection.To;
 
