@@ -278,6 +278,73 @@ public class DocumentTextMapTests
     }
 
     [Fact]
+    public void ARangeWithAnEmbedInItIsFlaggedBeforeItThrows()
+    {
+        // Slice.OfText refuses text carrying a placeholder with no embed behind it - correctly,
+        // but from a long way from here. The failing pattern is the obvious one: slice the text,
+        // transform it, put it back. Upper-casing does not remove a placeholder, so the text comes
+        // back still carrying one and the replace throws.
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.Create(
+                $"a{InlineContent.Placeholder}b", [], [new ImageEmbed("x.png", altText: "P")])),
+        ]);
+
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(0, 3);
+
+        Assert.True(map.ContainsEmbeds(from, to));
+        Assert.Throws<ArgumentException>(() => Slice.OfText(map.Slice(from, to).ToUpperInvariant()));
+
+        // A range beside the embed is clean, so a caller can still transform that.
+        var (safeFrom, safeTo) = map.ToPositions(2, 1);
+
+        Assert.False(map.ContainsEmbeds(safeFrom, safeTo));
+        Assert.Equal("b", map.Slice(safeFrom, safeTo));
+    }
+
+    [Fact]
+    public void ReplacingARangeWithAnEmbedDiscardsTheEmbed()
+    {
+        // The other honest answer, and it works: replacing with text that carries no placeholder
+        // removes the image along with the characters. Pinned so it cannot change silently.
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.Create(
+                $"a{InlineContent.Placeholder}b", [], [new ImageEmbed("x.png", altText: "P")])),
+        ]);
+
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(0, 3);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfText("Z")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Equal("Z", DocumentText.Of(edited));
+        Assert.Empty(((ParagraphNode)edited.Blocks[0]).Content.Embeds);
+    }
+
+    [Fact]
+    public void ReplacingAcrossBlocksLeavesOneBlock()
+    {
+        // Replacing the boundary is what joins the blocks, so this is inherent rather than a
+        // defect - but a caller transforming a multi-paragraph selection needs to expect it.
+        var doc = DocumentNode.FromParagraphs("one", "two", "three");
+        var map = DocumentTextMap.Of(doc);
+        var (from, to) = map.ToPositions(2, 6);
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        transaction.Step(new ReplaceStep(from, to, Slice.OfText("X")));
+
+        var edited = state.Apply(transaction).Doc;
+
+        Assert.Single(edited.Blocks);
+        Assert.Equal("onXthree", DocumentText.Of(edited));
+    }
+
+    [Fact]
     public void TheArgumentsAreChecked()
     {
         var map = DocumentTextMap.Of(DocumentNode.FromParagraphs("abc"));

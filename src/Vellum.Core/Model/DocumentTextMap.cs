@@ -181,6 +181,13 @@ public sealed class DocumentTextMap
     /// is the reason to go through positions at all rather than splicing
     /// <see cref="Text"/> and rebuilding — a splice flattens the whole document to save one word.
     /// </para>
+    /// <para>
+    /// Two things the range can do that plain text cannot, both worth deciding about rather than
+    /// discovering. A range containing an embed cannot be replaced with text that still carries
+    /// its placeholder — see <see cref="ContainsEmbeds"/>. And a range spanning a block boundary
+    /// replaced by one run of text leaves <em>one</em> block, since that is what replacing the
+    /// boundary means; replacing across three paragraphs with <c>"X"</c> yields a single paragraph.
+    /// </para>
     /// </remarks>
     public (int From, int To) ToPositions(int offset, int length)
     {
@@ -208,11 +215,43 @@ public sealed class DocumentTextMap
     /// <param name="to">Where it ends.</param>
     /// <returns>The text.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="to"/> is before <paramref name="from"/>.</exception>
+    /// <remarks>
+    /// An embed inside the range appears as one <see cref="InlineContent.Placeholder"/>. If the
+    /// text is going to be transformed and put back, check <see cref="ContainsEmbeds"/> first —
+    /// see its remarks for why.
+    /// </remarks>
     public string Slice(int from, int to)
     {
         var (offset, length) = ToOffsets(from, to);
 
         return Text.Substring(offset, length);
+    }
+
+    /// <summary>Whether a document range contains an embed.</summary>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    /// <returns><see langword="true"/> if any embed falls inside it.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="to"/> is before <paramref name="from"/>.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Check this before round-tripping text through anything.</b> A transformation takes text
+    /// and returns text, and an embed reaches it as a bare
+    /// <see cref="InlineContent.Placeholder"/> standing for something the transformation knows
+    /// nothing about — so it comes back still carrying that placeholder, with no embed attached to
+    /// it. <see cref="Slice.OfText(string)"/> refuses such text, correctly and loudly, but it does
+    /// so from well away from here.
+    /// </para>
+    /// <para>
+    /// The two honest answers are to leave a range with an embed in it alone, or to accept that
+    /// replacing it discards the embed. Which one is right belongs to the application, not to this
+    /// type — so it is asked rather than assumed.
+    /// </para>
+    /// </remarks>
+    public bool ContainsEmbeds(int from, int to)
+    {
+        var (offset, length) = ToOffsets(from, to);
+
+        return Text.AsSpan(offset, length).Contains(InlineContent.Placeholder);
     }
 
     /// <summary>One paragraph's text, and where it sits in both coordinate systems.</summary>

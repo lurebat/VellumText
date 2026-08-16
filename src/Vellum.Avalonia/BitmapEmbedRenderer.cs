@@ -115,7 +115,31 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 {
     private readonly ConcurrentDictionary<string, Bitmap?> _cache = new(StringComparer.Ordinal);
     private readonly IEmbedRenderer _fallback = new PlaceholderEmbedRenderer();
+    private readonly bool _shared;
     private bool _disposed;
+
+    /// <summary>Creates a renderer with its own cache.</summary>
+    public BitmapEmbedRenderer()
+    {
+    }
+
+    private BitmapEmbedRenderer(bool shared) => _shared = shared;
+
+    /// <summary>The renderer every presenter uses unless it is given another.</summary>
+    /// <remarks>
+    /// <para>
+    /// Shared because the cache is the expensive part and a control is not the right thing to
+    /// scope it to. A history list showing two hundred documents is two hundred presenters, and
+    /// giving each its own cache means holding the same image two hundred times over while
+    /// decoding it two hundred times.
+    /// </para>
+    /// <para>
+    /// Its <see cref="Dispose"/> does nothing. A host that replaces
+    /// <see cref="DocumentPresenter.Embeds"/> and disposes what was there would otherwise
+    /// permanently disable image rendering for every other control in the process.
+    /// </para>
+    /// </remarks>
+    public static BitmapEmbedRenderer Shared { get; } = new(shared: true);
 
     /// <summary>How many distinct sources to keep decoded.</summary>
     /// <remarks>
