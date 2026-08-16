@@ -73,6 +73,41 @@ public class ClipboardHtmlTests
     }
 
     [Fact]
+    public void The_fragment_comments_are_believed_over_the_header_offsets()
+    {
+        // The offsets are a claim about where the fragment is; the comments are the fragment's
+        // own boundary and so cannot disagree with themselves. Several widely used applications
+        // emit offsets that are out by a few bytes, which is why the order matters.
+        //
+        // Written deliberately so the two disagree. Every other test here builds a payload where
+        // they agree, which is the natural thing to write and pins nothing about the ordering -
+        // a consumer hit exactly that: ten tests, full line coverage, not one able to tell the
+        // two orderings apart.
+        const string body = "<html><body><nav>menu</nav><!--StartFragment-->copied<!--EndFragment--></body></html>";
+
+        var header = Header("0000000000", "0000000000", "0000000000", "0000000000");
+        var honest = Encoding.UTF8.GetByteCount(
+            header + "<html><body><nav>menu</nav><!--StartFragment-->");
+
+        // Three bytes early, which slices into the middle of the preceding tag.
+        var skewed = honest - 3;
+        var payload = Header(
+            "0000000000",
+            "0000000000",
+            $"{skewed:D10}",
+            $"{skewed + Encoding.UTF8.GetByteCount("copied"):D10}") + body;
+
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        var byOffsets = Encoding.UTF8.GetString(bytes, skewed, Encoding.UTF8.GetByteCount("copied"));
+
+        // Anti-vacuity: the skewed offsets really do select something else, so this cannot pass by
+        // the two happening to agree.
+        Assert.NotEqual("copied", byOffsets);
+
+        Assert.Equal("copied", ClipboardHtml.ExtractFragment(payload, out _));
+    }
+
+    [Fact]
     public void The_byte_offsets_are_used_when_the_comments_are_missing()
     {
         const string body = "<html><body>MENUcopiedFOOT</body></html>";
