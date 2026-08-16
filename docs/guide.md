@@ -328,6 +328,18 @@ it names is an address chosen by that content. Fetching `http:` would make the m
 request to an address the document picked; opening `file:` or a path would read a local file the
 user never pointed at and put it on screen.
 
+Concretely, from a clipboard manager built on this:
+
+> Previewing an HTML clip fetches whatever the document names. Copy a marketing email, click it in
+> your history, and its tracking pixels fire — the sender learns when you looked at your own
+> clipboard, from a tool whose entire job is holding things you copied.
+
+**Note the shape of the guarantee, because it is the design and not just the default: there is no
+setting that turns network fetching on.** `AllowLocalSources` turns on *local* resolution —
+`avares:`, `file:` and paths — for hosts whose documents come from somewhere they trust. Network
+sources are refused at every setting. A knob that could be flipped would eventually be flipped by
+someone who just needed one image, and the guarantee would be gone for every document afterwards.
+
 ```csharp
 // For documents from somewhere you trust - your own store, your own assets.
 view.Embeds = new BitmapEmbedRenderer { AllowLocalSources = true };

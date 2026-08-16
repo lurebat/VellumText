@@ -1104,8 +1104,7 @@ visible from inside the project. **Four of these were defects in code that had p
 |---|---|
 | `RichTextClipboard` made public | The format descriptors, and the rule that a native format is read as **bytes and never as a string**, were `internal`. The API is now shaped so the mojibake bug cannot be written through it — there is no overload anywhere taking a payload as a `string`. |
 | `Vellum.Interop.Json` | HTML and RTF are *interchange* and both lose something. An application that **stores** documents needed one that loses nothing, and a schema version so a file from a newer build is refused rather than silently partly read. |
-| `BitmapEmbedRenderer` | Vellum could lay an image out and never draw one — the only renderer in the box was the placeholder. **`data:` only by default**, because a pasted document is untrusted input and every source it names is an address that content chose. |
-| Image paste and drop, `IImageStore` | `DragDrop` appeared nowhere in the assembly, and a pasted screenshot arrived as whatever text flavour rode alongside it. |
+| `BitmapEmbedRenderer` | Vellum could lay an image out and never draw one — the only renderer in the box was the placeholder. **`data:` only by default**, because a pasted document is untrusted input and every source it names is an address that content chose. || Image paste and drop, `IImageStore` | `DragDrop` appeared nowhere in the assembly, and a pasted screenshot arrived as whatever text flavour rode alongside it. |
 | `DocumentPreview`, `DocumentTextMap`, `Slice.OfLines` | A list of documents needs grapheme-safe truncation; code working in text offsets needs a way back to the model. `DocumentText.Of` **cannot** serve the latter — it expands an embed to its alt text, so it is not invertible. |
 | `docs/guide.md` | The repository had an architecture document and no usage document. |
 
@@ -1120,6 +1119,18 @@ visible from inside the project. **Four of these were defects in code that had p
   owned and nothing disposed — in native memory, so not even managed pressure.
 - **`H1`/`Quote`/`Code` could not be turned off**, because `ToggleButton`s were bound to a command
   that only ever set.
+
+> **Why the image default is a design property rather than a setting.** The motivating case, from
+> the clipboard manager that drove this work: *previewing an HTML clip fetches whatever the
+> document names — copy a marketing email, click it in your history, and its tracking pixels fire,
+> so the sender learns when you looked at your own clipboard, from a tool whose entire job is
+> holding things you copied.*
+>
+> The guarantee holds because **there is no setting that turns network fetching on.**
+> `AllowLocalSources` turns on *local* resolution only; network sources are refused at every
+> setting. A knob that could be flipped would eventually be flipped by someone who just needed one
+> image, and the guarantee would then be gone for every document. If a path is ever found that
+> reaches the network, that is a defect and not a configuration question.
 
 **The lesson worth keeping** is not any one of those. It is that a library's defaults are wrong at
 the scale its consumers run it at, not at the scale its tests do — and that the questions which
