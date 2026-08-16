@@ -947,7 +947,7 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | # | Work | Evidence it is open | Size |
 |---|---|---|---|
 | **P8** | ~~**Cross-cell (rectangular) table selection.**~~ **Done.** See "As built" below. | — | — |
-| **P9** | **Packaging.** `PackageId`, `Description`, `PackageLicenseExpression`, tags, README-in-package, `GeneratePackageOnBuild`, and a versioning/release story. | `Directory.Build.props` carries only `VersionPrefix 0.1.0`, `Authors` and `RepositoryUrl`. **Nothing is publishable today.** | Small, and blocks every consumer |
+| **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. **Blocked on package identity:** `Vellum.Core` is taken on NuGet by an unrelated project. | `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Decision, then small |
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
@@ -955,6 +955,19 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 **Scope of v1, decided 2026-08-16.** P8–P11 are all required for v1.0. DOCX/XAML serialization and
 the spellcheck hook are explicitly **out** — they widen what the library can represent rather than
 closing the gap between the model and the control, which is the sequencing principle below.
+
+**P8, P10 and P11 are complete; P9 is complete except for a decision.** Two of the four rows
+turned out to be describing a repository that no longer existed — P11 was built during P4, and
+most of P9 was already in `Directory.Build.props`. That is the second time this table has drifted,
+and in both directions: it has claimed work was done that was not, and open that was not. **Check
+the tree, not the row.**
+
+**The one thing standing between Vellum and a release is its name.** `Vellum.Core` is already on
+nuget.org, and not by accident of squatting: it is the core of an actively published envelope
+encryption library, at 0.2.0 as of 2026-07-03. That project owns a whole `Vellum.*` family, so
+`Vellum.Avalonia` being free today is not much comfort — shipping into someone else's namespace
+would confuse both sets of users, and the ID cannot be changed after the first publish. This needs
+a naming decision before anything is pushed. Nothing else blocks v1.
 
 > **P8 as built — a rectangle is not a range.**
 >
@@ -1025,6 +1038,40 @@ closing the gap between the model and the control, which is the sequencing princ
 > neighbouring control instead. And a test helper that repeats one character at one position makes
 > the edits commute, which let a reversed-order trim survive undetected; distinct characters at
 > ascending positions are required.
+
+> **P9 as built — the row was describing a repository that no longer existed.**
+>
+> "Nothing is publishable today" was false. `Directory.Build.props` already carried descriptions,
+> tags, `PackageLicenseExpression`, the packed README, `snupkg` symbols, source link and
+> determinism, and `IsPackable=false` for everything outside `src/`. **Checked by packing and then
+> consuming**, not by reading: a scratch project built against the produced `.nupkg` files loads
+> the theme by `avares://Vellum.Avalonia/Themes/Vellum.axaml`, templates `RichTextEditor`, forwards
+> the P10 properties into the view, and imports RTF. The theme travels inside the assembly as
+> `!AvaloniaResources`, so no extra content files are needed. `PackageId` is left implicit because
+> the assembly names are already the package names.
+>
+> **What was genuinely missing was a release story.** `release.yml` triggers on a `v*` tag and
+> splits in two. `verify` refuses to continue if the tag disagrees with `VersionPrefix` — two
+> places hold the version, so two places can disagree, and a NuGet version can never be replaced
+> or withdrawn — then requires a `CHANGELOG` section for it, and builds, tests and packs.
+> `publish` sits behind a `nuget` environment so a required reviewer gates it, and pushes the
+> artifacts `verify` produced rather than a second build, so what ships is what was tested.
+>
+> The version reaches `grep` and `awk` through the environment rather than by `${{ }}`
+> interpolation: a tag is attacker-supplied on a public repository, so interpolating it into a
+> shell script is an injection, and its dots would be regex wildcards as well. Both shell steps
+> were run locally against a synthetic changelog before being committed.
+>
+> `GeneratePackageOnBuild` is deliberately **off**: it would move packing onto the inner loop to
+> catch mistakes the existing CI `pack` job already catches on every push.
+>
+> **What is not done: the package IDs.** The publish job asks nuget.org whether each version
+> already exists and stops if it does, rather than passing `--skip-duplicate` — that would accept
+> an existing version silently while the GitHub release was built from the *current* artifacts,
+> leaving the two disagreeing about what a version contains. Run against the live index today the
+> check blocks the first release, because `Vellum.Core` 0.1.0 is taken. So the automation is
+> finished and correct, and it is currently doing its job by refusing to release. A naming
+> decision unblocks it; no further workflow work is needed.
 
 **Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
 documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback
