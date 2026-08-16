@@ -107,6 +107,32 @@ public class RichTextViewTableTests
         Assert.Equal(4, view.State.Selection.Head - view.BlockStart);
     }
 
+    /// <summary>
+    /// A paragraph inside a table cell is not a top-level block, so reading the shared formatting
+    /// off the top-level blocks alone finds no characters and falls back to the formatting at the
+    /// selection's start — reporting a half-bold cell as bold, and making Ctrl+B unbold it.
+    /// </summary>
+    [AvaloniaFact]
+    public void AHalfBoldSelectionInsideOneCellReportsNotBold()
+    {
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                new TableCellNode([new ParagraphNode(InlineContent.Create(
+                    "abcd",
+                    [new ValueSpan<MarkSet>(0, 2, new MarkSet { Style = TextStyle.Bold })],
+                    []))]),
+            ])]),
+        ]);
+
+        var (_, view) = Shown(doc);
+        var start = StartOf(doc, "abcd");
+
+        view.MoveTo(start, extend: false);
+        view.MoveTo(start + 4, extend: true);
+
+        Assert.False(view.IsActive(TextStyle.Bold));
+    }
+
     private static void Press(RichTextView view, Key key) =>
         view.RaiseEvent(new KeyEventArgs
         {
