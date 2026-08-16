@@ -7,6 +7,7 @@ it is.
 - [Packages](#packages)
 - [Quick start](#quick-start)
 - [The document model](#the-document-model)
+  - [Text offsets](#text-offsets)
 - [Editing](#editing)
 - [The toolbar](#the-toolbar)
 - [A read-only viewer](#a-read-only-viewer)
@@ -234,6 +235,16 @@ editor's cost, which matters when a list shows many of them.
 <v:RichTextViewer Document="{Binding Doc}" />
 ```
 
+Measured at roughly **0.6 ms per row** for a short document — not meaningfully worse than a
+`TextBlock` — so a virtualised list of them is fine. Two things matter more than the control
+choice:
+
+- **Truncate before binding.** The cost is per *paragraph laid out*, so a hundred-page document in
+  a two-line row costs a hundred pages. `DocumentPreview.Truncate(doc, 200)` is the fix.
+- Every presenter shares `BitmapEmbedRenderer.Shared` by default, so a list of two hundred
+  documents decodes each image once between them. Only override `Embeds` per control if you mean
+  to.
+
 ## Import and export
 
 Register the formats you want, and copy and paste start carrying them:
@@ -335,7 +346,14 @@ view.InsertImage(bytes, "image/png");
 ```
 
 A store that refuses an image leaves the document unchanged rather than inserting one that cannot
-be drawn. Users can select an image by clicking it and resize it by dragging a corner.
+be drawn, and raises `ImageRefused` so you can say so — a pasted screenshot vanishing with no
+message is indistinguishable from an editor that ignores Ctrl+V:
+
+```csharp
+view.ImageRefused += (_, e) => Toast($"That image is too large ({e.ByteCount / 1024} KB).");
+```
+
+Users can select an image by clicking it and resize it by dragging a corner.
 
 ## Find and replace
 
@@ -376,6 +394,13 @@ Editor.CanUndo;
 ```
 
 `History` and `UndoLimit` are two views of one value and stay in step.
+
+**Loading a different document discards the history automatically.** It has to: the undo stack
+describes edits to a document that is no longer there, so replaying it against the new one at best
+restores text from somewhere else and at worst throws, because the positions it recorded need not
+exist. An application that arrows through a list of documents would otherwise reach that by
+pressing one key. Assigning a state that carries the *same* document — which is how selection is
+set from outside — keeps the history, and so does editing.
 
 ## Options
 
@@ -461,3 +486,33 @@ await RichTextClipboard.WriteAsync(
 
 Deduplicating is `Equals`, because nodes have value equality — two captures of the same snippet
 compare equal and hash the same, so a `HashSet<DocumentNode>` or a dictionary key works directly.
+
+**Plain text needs its own route.** `RichTextClipboard.ReadAsync`'s text fallback calls
+`ReplaceLineEndings("\n")`, which is right for pasting into an editor and wrong for an archive —
+CRLF is data. Split it yourself and keep the original bytes as the source of truth:
+
+```csharp
+var doc = DocumentNode.FromParagraphs(captured.Split('\n'));
+```
+
+That round-trips exactly through `DocumentText.Of`, including CRLF, tabs, blank runs and trailing
+newlines.
+
+**Applying a transformation to the selection** goes through `DocumentTextMap` — see
+[text offsets](#text-offsets). The short version:
+
+```csharp
+var map = DocumentTextMap.Of(view.State.Doc);
+var (offset, length) = map.ToOffsets(selection.From, selection.To);
+
+if (map.ContainsEmbeds(selection.From, selection.To))
+{
+    return;   // or accept that replacing this range drops the image
+}
+
+var (from, to) = map.ToPositions(offset, length);
+var transaction = view.State.Transaction();
+
+transaction.Step(new ReplaceStep(from, to, Slice.OfLines(Transform(map.Text.Substring(offset, length)))));
+view.Apply(transaction);
+```

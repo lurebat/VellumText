@@ -30,9 +30,23 @@ allowed to move.
 - **`RichTextClipboard`** — a public clipboard API with no way to read a native format as a string,
   because doing so silently destroys RTF.
 - **`DocumentPreview`** — grapheme-safe truncation, for lists of documents.
+- **`DocumentTextMap`** — a two-way map between document positions and plain-text offsets, for
+  code that transforms a selected range and has to get back to the document.
+  `DocumentText.Of` cannot serve this: it expands an embed to its alt text, so it is not
+  invertible. `Slice.OfLines` completes the projection in the other direction, turning newlines
+  in a replacement back into block boundaries.
 - Multi-block editing: cross-block caret movement and selection, Enter to
   split, Backspace and Delete to join, headings, blockquotes, code blocks,
   alignment, indent, and bulleted and numbered lists.
+
+### Fixed
+
+- Loading a different document into a view no longer leaves the previous document's undo stack
+  live. Pressing Ctrl+Z after swapping threw `Range [3, 4) is not inside the document`.
+- Every presenter shared no image cache, so a list of two hundred documents held two hundred
+  caches and decoded each image once per row. They now share `BitmapEmbedRenderer.Shared`.
+- An image refused by `IImageStore` — too large, wrong type — raised nothing, so a pasted
+  screenshot vanished silently. `RichTextView.ImageRefused` now says so.
 
 ### Notes
 

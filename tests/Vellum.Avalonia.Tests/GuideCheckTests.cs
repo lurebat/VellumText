@@ -31,10 +31,14 @@ public class GuideCheckTests
         ("view", typeof(RichTextView)),
         ("editor", typeof(RichTextEditor)),
         ("Editor", typeof(RichTextEditor)),
+        ("map", typeof(DocumentTextMap)),
+        ("Slice", typeof(Slice)),
         ("RichTextClipboard", typeof(RichTextClipboard)),
         ("DocumentPreview", typeof(DocumentPreview)),
         ("DocumentText", typeof(DocumentText)),
+        ("DocumentTextMap", typeof(DocumentTextMap)),
         ("DocumentSearch", typeof(DocumentSearch)),
+        ("BitmapEmbedRenderer", typeof(BitmapEmbedRenderer)),
         ("RichTextToolbar", typeof(RichTextToolbar)),
     ];
 
