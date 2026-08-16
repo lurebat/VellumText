@@ -107,6 +107,41 @@ jobs:
           name: packages
           path: artifacts
 
+      # A published NuGet version can never be replaced or withdrawn, so a
+      # version that already exists is a stop, not something to skip past.
+      # --skip-duplicate would accept it silently and then the GitHub release
+      # below would be built from *these* binaries, leaving NuGet and GitHub
+      # disagreeing about what this version is - exactly the divergence the
+      # tag check in `verify` exists to prevent.
+      - name: Check these versions are not already on NuGet
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for pkg in artifacts/*.nupkg; do
+            id=$(basename "$pkg" ".$VERSION.nupkg")
+            lower=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+            code=$(curl -sS --retry 3 -o versions.json \
+              -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/$lower/index.json" || echo 000)
+            case "$code" in
+              404) echo "$id: not on NuGet yet."; continue ;;
+              200) ;;
+              # Fail closed. Not knowing whether a version exists is not the
+              # same as knowing it does not.
+              *) echo "::error::Could not check $id on NuGet (HTTP $code)."; fail=1; continue ;;
+            esac
+            if jq -e --arg v "$VERSION" '.versions | index($v)' versions.json > /dev/null; then
+              echo "::error::$id $VERSION is already on NuGet. Published versions cannot be" \
+                   "replaced - bump VersionPrefix, add a CHANGELOG section and tag again."
+              fail=1
+            else
+              echo "$id: $VERSION is free."
+            fi
+          done
+          rm -f versions.json
+          exit $fail
+
       - name: Push to NuGet
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -116,10 +151,12 @@ jobs:
             echo "::error::The NUGET_API_KEY secret is not set on the nuget environment."
             exit 1
           fi
+          # No --skip-duplicate: the check above already established that none
+          # of these versions exist, so a duplicate here means something
+          # changed underneath the release and is worth stopping for.
           dotnet nuget push "artifacts/*.nupkg" \
             --source https://api.nuget.org/v3/index.json \
-            --api-key "$NUGET_API_KEY" \
-            --skip-duplicate
+            --api-key "$NUGET_API_KEY"
 
       - name: Create the GitHub release
         env:
