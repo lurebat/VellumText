@@ -504,6 +504,156 @@ public class DocumentTextMapTests
         Assert.Throws<ArgumentOutOfRangeException>(() => map.ContainsEmbeds(0, 9999));
     }
 
+    [Theory]
+    [MemberData(nameof(Documents))]
+    public void TheSearchAgreesWithTheWalkItReplaced(string name, DocumentNode doc)
+    {
+        // A "same answer, less work" change, so the old implementation is a valid oracle: the
+        // contract is equivalence. Both directions, every offset and every position.
+        var map = DocumentTextMap.Of(doc);
+
+        for (var offset = 0; offset <= map.Text.Length; offset++)
+        {
+            Assert.Equal(WalkToPosition(doc, offset), map.ToPosition(offset));
+        }
+
+        for (var position = 0; position <= doc.ContentSize; position++)
+        {
+            Assert.Equal(WalkToOffset(doc, position), map.ToOffset(position));
+        }
+
+        Assert.True(true, name);
+    }
+
+    /// <summary>The linear walk <see cref="DocumentTextMap.ToPosition"/> used to do.</summary>
+    private static int WalkToPosition(DocumentNode doc, int offset)
+    {
+        var spans = Spans(doc);
+
+        if (spans.Count == 0)
+        {
+            return 0;
+        }
+
+        var last = spans[0].Position;
+
+        foreach (var span in spans)
+        {
+            if (offset < span.Offset)
+            {
+                return last;
+            }
+
+            if (offset <= span.Offset + span.Length)
+            {
+                return span.Position + (offset - span.Offset);
+            }
+
+            last = span.Position + span.Length;
+        }
+
+        return last;
+    }
+
+    /// <summary>The linear walk <see cref="DocumentTextMap.ToOffset"/> used to do.</summary>
+    private static int WalkToOffset(DocumentNode doc, int position)
+    {
+        var spans = Spans(doc);
+
+        if (spans.Count == 0)
+        {
+            return 0;
+        }
+
+        var last = 0;
+
+        foreach (var span in spans)
+        {
+            if (position < span.Position)
+            {
+                return last;
+            }
+
+            if (position <= span.Position + span.Length)
+            {
+                return span.Offset + (position - span.Position);
+            }
+
+            last = span.Offset + span.Length;
+        }
+
+        return last;
+    }
+
+    /// <summary>Rebuilds the span table the map builds, independently.</summary>
+    private static List<(int Offset, int Length, int Position)> Spans(DocumentNode doc)
+    {
+        var spans = new List<(int Offset, int Length, int Position)>();
+        var offset = 0;
+
+        void Walk(IEnumerable<Node> nodes, int start)
+        {
+            var position = start;
+
+            foreach (var node in nodes)
+            {
+                if (node is ParagraphNode paragraph)
+                {
+                    if (spans.Count > 0)
+                    {
+                        offset++;
+                    }
+
+                    spans.Add((offset, paragraph.Content.Length, position + 1));
+                    offset += paragraph.Content.Length;
+                }
+                else if (!node.IsLeaf)
+                {
+                    Walk(node.Children, position + 1);
+                }
+
+                position += node.NodeSize;
+            }
+        }
+
+        Walk(doc.Blocks, 0);
+
+        return spans;
+    }
+
+    [Fact]
+    public void ABase64SizedLineWithAnEmbedInItStaysExact()
+    {
+        // The adversarial case a clipboard actually holds: one enormous unbreakable run, with an
+        // embed in the middle and nothing around it to anchor the arithmetic to.
+        const int half = 50_000;
+
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.Create(
+                new string('A', half) + InlineContent.Placeholder + new string('B', half),
+                [],
+                [new ImageEmbed("x.png", altText: "PHOTO")])),
+        ]);
+
+        var map = DocumentTextMap.Of(doc);
+
+        // One character for the embed, whatever its alt text says - which is what makes the map
+        // invertible where DocumentText is not.
+        Assert.Equal(InlineContent.Placeholder, map.Text[half]);
+        Assert.Equal(half * 2 + 1, map.Text.Length);
+        Assert.Equal(half * 2 + 5, DocumentText.Of(doc).Length);
+
+        foreach (var position in new[] { 1, half, half + 1, half + 2, half * 2, doc.ContentSize - 1 })
+        {
+            Assert.Equal(position, map.ToPosition(map.ToOffset(position)));
+        }
+
+        var (from, to) = map.ToPositions(half - 2, 5);
+
+        Assert.True(map.ContainsEmbeds(from, to));
+        Assert.Equal(5, map.Slice(from, to).Length);
+    }
+
     [Fact]
     public void TheArgumentsAreChecked()
     {

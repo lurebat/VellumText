@@ -116,24 +116,20 @@ public sealed class DocumentTextMap
             return 0;
         }
 
-        var last = 0;
+        var index = Search(position, static span => span.Position);
+        var span = _spans[index];
 
-        foreach (var span in _spans)
+        // Before this span, which happens only for a position in the gap between blocks: the
+        // answer is the end of the text before it, since that is where a selection reaching there
+        // has reached.
+        if (position < span.Position)
         {
-            if (position < span.Position)
-            {
-                return last;
-            }
-
-            if (position <= span.Position + span.Length)
-            {
-                return span.Offset + (position - span.Position);
-            }
-
-            last = span.Offset + span.Length;
+            return index == 0 ? 0 : _spans[index - 1].Offset + _spans[index - 1].Length;
         }
 
-        return last;
+        return position <= span.Position + span.Length
+            ? span.Offset + (position - span.Position)
+            : span.Offset + span.Length;
     }
 
     /// <summary>The document position a text offset falls at.</summary>
@@ -150,24 +146,53 @@ public sealed class DocumentTextMap
             return 0;
         }
 
-        var last = _spans[0].Position;
+        var index = Search(offset, static span => span.Offset);
+        var span = _spans[index];
 
-        foreach (var span in _spans)
+        if (offset < span.Offset)
         {
-            if (offset < span.Offset)
-            {
-                return last;
-            }
-
-            if (offset <= span.Offset + span.Length)
-            {
-                return span.Position + (offset - span.Offset);
-            }
-
-            last = span.Position + span.Length;
+            return index == 0
+                ? _spans[0].Position
+                : _spans[index - 1].Position + _spans[index - 1].Length;
         }
 
-        return last;
+        return offset <= span.Offset + span.Length
+            ? span.Position + (offset - span.Offset)
+            : span.Position + span.Length;
+    }
+
+    /// <summary>
+    /// The last span starting at or before <paramref name="value"/>, or the first span when none
+    /// does.
+    /// </summary>
+    /// <remarks>
+    /// A binary search rather than a walk, because the caller is usually mapping many positions
+    /// across one document — a transformation applied down a long file — and a walk makes that
+    /// quadratic in the number of blocks. Both keys are non-decreasing across the spans, so the
+    /// same search serves either direction.
+    /// </remarks>
+    private int Search(int value, Func<Span, int> key)
+    {
+        var low = 0;
+        var high = _spans.Length - 1;
+        var found = 0;
+
+        while (low <= high)
+        {
+            var middle = low + ((high - low) / 2);
+
+            if (key(_spans[middle]) <= value)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found;
     }
 
     /// <summary>The document range a run of text covers.</summary>
