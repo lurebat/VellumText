@@ -33,6 +33,12 @@
     Only the shipping libraries are packed. Without this the test projects
     produce packages too, which is noise at best and published by accident at
     worst.
+
+    GeneratePackageOnBuild is deliberately *not* set. It would put packing on
+    the inner development loop, where it is pure cost, to catch metadata
+    mistakes that CI already catches on every push: the `pack` job in ci.yml
+    packs each change, so a missing Description or a broken README path fails
+    there rather than at release time.
   -->
   <PropertyGroup Condition="!$(MSBuildProjectDirectory.Contains('$(MSBuildThisFileDirectory)src'))">
     <IsPackable>false</IsPackable>

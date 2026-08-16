@@ -61,6 +61,34 @@ it by offset is not usable at all. Those numbers came from a spike, not from
 reasoning, and the same standard applies to new ones. If you change something
 for speed, measure it, and put the numbers in the pull request.
 
+## Releasing
+
+Releases are cut from a tag. The version lives in one place, `VersionPrefix` in
+`Directory.Build.props`, and `.github/workflows/release.yml` refuses to publish
+if the tag disagrees with it — tagging `v0.2.0` while the props file still says
+`0.1.0` would otherwise ship `0.1.0` under a `0.2.0` release, and a NuGet
+version can never be replaced or withdrawn.
+
+To release:
+
+1. Bump `VersionPrefix` in `Directory.Build.props`.
+2. Turn the `## [Unreleased]` heading in `CHANGELOG.md` into `## [x.y.z] - date`
+   and start a fresh `Unreleased` above it. The workflow fails if there is no
+   section for the version being released, so this is not optional.
+3. Commit, then tag: `git tag vx.y.z && git push origin vx.y.z`.
+4. The `verify` job builds, tests and packs. The `publish` job then waits on the
+   `nuget` environment, which should have a required reviewer configured — that
+   approval is the only real protection against publishing the wrong thing.
+5. On approval it pushes to NuGet and opens a GitHub release whose notes are the
+   changelog section for that version.
+
+Publishing needs a `NUGET_API_KEY` secret on the `nuget` environment. The
+packages that get pushed are the artifacts the `verify` job built, not a second
+build, so what ships is what was tested.
+
+Vellum is pre-1.0, so the public API is still allowed to move; once 1.0 is out,
+semantic versioning applies in the usual way.
+
 ## Reporting a bug
 
 The most useful report is a failing test. Second most useful is the smallest
