@@ -948,8 +948,8 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 |---|---|---|---|
 | **P8** | ~~**Cross-cell (rectangular) table selection.**~~ **Done.** See "As built" below. | — | — |
 | **P9** | **Packaging.** `PackageId`, `Description`, `PackageLicenseExpression`, tags, README-in-package, `GeneratePackageOnBuild`, and a versioning/release story. | `Directory.Build.props` carries only `VersionPrefix 0.1.0`, `Authors` and `RepositoryUrl`. **Nothing is publishable today.** | Small, and blocks every consumer |
-| **P10** | **The four control properties.** `IsReadOnly`, `UndoLimit`, `AcceptsReturn`, `AcceptsTab`. | Absent from `src/`; the only `IsReadOnly` is the automation peer's. Partly moot for read-only by §10.2's viewer decision. | Small |
-| **P11** | **Selection flyout** — the floating toolbar over a selection. | `RichTextView.ContextMenu.cs` builds a right-click `MenuFlyout` only. | Small, on top of P4's toolbar |
+| **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
+| **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
 
 **Scope of v1, decided 2026-08-16.** P8–P11 are all required for v1.0. DOCX/XAML serialization and
@@ -989,6 +989,42 @@ closing the gap between the model and the control, which is the sequencing princ
 > refuses to replace, so destructive commands appear safe there whether or not they check
 > anything. Refusal tests must use a rectangle **within a single row**, whose bounds are
 > replaceable. Making that change alone took the mutation score from 10/28 to 12/28.
+
+> **P10 as built — one choke point, and defaults that were measured.**
+>
+> `IsReadOnly` is enforced in exactly **one** place, `RichTextView.Apply`, plus `Replay` for
+> undo/redo. `Apply` is the only route by which a transaction becomes state, so one check covers
+> typing, paste, drop, delete, IME, every toolbar command, image resize, and anything added later.
+> A flag tested at each of the twenty-odd commands is a flag the twenty-first will miss, silently.
+> Setting `State` directly still works — that is how a host loads a document into a read-only view.
+> The caret stays visible, matching `TextBox`. `CanUndo`/`CanRedo` gate on it too, so a bound
+> button greys out rather than appearing live and doing nothing.
+>
+> **Defaults were read out of Avalonia 12.1.1 by reflection, not assumed.** `TextBox` is
+> `IsReadOnly=false`, `AcceptsReturn=false`, `AcceptsTab=false`, `UndoLimit=10`. Vellum matches
+> only the first and diverges deliberately on the other three: a document editor that rejects
+> Enter is absurd, Tab indenting is what already shipped, and a finite default `UndoLimit` would
+> start silently discarding history that callers keep today. Each divergence preserves existing
+> behaviour rather than changing it underneath users.
+>
+> **`History` and `UndoLimit` are two names for one value**, reconciled last-writer-wins at both
+> the view and the shell. Assigning a `History` adopts its policy's `Limit` into the property via
+> `SetCurrentValue`, so a binding still owns it; setting the property rewrites the `History` in
+> place. `OnUndoLimitChanged` returns early when the limit already matches — without it, every
+> `History` assignment would hand the caller back a rebuilt copy of what it just passed in.
+>
+> `HistoryPolicy.Limit` (`Unlimited = -1`) trims in `Record`; `WithPolicy` trims **immediately**,
+> both stacks, because a limit that only takes effect on the next edit lies about the state it was
+> applied to. `ImmutableStack` cannot drop its bottom, so the trim rebuilds. Measured in Release,
+> median of 7 × 200 records over a 400-char paragraph: 1.6 µs untrimmed, 3.8 µs at limit 10,
+> 8.3 µs at 100, 38.7 µs at 1000 — negligible against milliseconds of layout.
+>
+> **Verification.** 51 tests; 27 mutants, 27 killed, none failing to compile. Two traps worth
+> recording: asserting `e.Handled` for Tab proves nothing, because the event bubbles to the window
+> where keyboard navigation handles it *after* the view declines — assert that focus moves to a
+> neighbouring control instead. And a test helper that repeats one character at one position makes
+> the edits commute, which let a reversed-order trim survive undetected; distinct characters at
+> ascending positions are required.
 
 **Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
 documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback
