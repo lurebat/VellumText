@@ -95,7 +95,7 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
     private ITextStyleResolver? _styles;
     private IParagraphStyleResolver _paragraphStyles = new ParagraphStyleResolver();
-    private IEmbedRenderer _embeds = new BitmapEmbedRenderer();
+    private IEmbedRenderer _embeds = BitmapEmbedRenderer.Shared;
     private bool _derivedStyles = true;
     private protected double _width = DefaultWidth;
 
@@ -134,10 +134,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
     /// <summary>Measures and draws inline embeds.</summary>
     /// <remarks>
-    /// Defaults to a <see cref="BitmapEmbedRenderer"/>, so images in a pasted or loaded document
-    /// appear without the host arranging anything. Replace it to resolve sources against an
-    /// application's own asset store, or with a <see cref="PlaceholderEmbedRenderer"/> to lay
-    /// images out without decoding any.
+    /// Defaults to <see cref="BitmapEmbedRenderer.Shared"/>, so images in a pasted or loaded
+    /// document appear without the host arranging anything, and a list of two hundred documents
+    /// decodes each image once between them rather than once each. Replace it to resolve sources
+    /// against an application's own asset store, or with a <see cref="PlaceholderEmbedRenderer"/>
+    /// to lay images out without decoding any.
     /// </remarks>
     public IEmbedRenderer Embeds
     {

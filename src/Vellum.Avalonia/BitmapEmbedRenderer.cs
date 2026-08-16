@@ -246,7 +246,9 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_disposed)
+        // The shared instance outlives every control that uses it. A host replacing Embeds and
+        // disposing what was there would otherwise turn images off for the whole process.
+        if (_disposed || _shared)
         {
             return;
         }

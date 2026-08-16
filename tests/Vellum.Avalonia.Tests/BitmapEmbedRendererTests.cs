@@ -270,6 +270,28 @@ public class BitmapEmbedRendererTests
         Assert.IsType<BitmapEmbedRenderer>(new RichTextViewer().Embeds);
     }
 
+    [AvaloniaFact]
+    public void EveryPresenterSharesOneCacheByDefault()
+    {
+        // A history list showing two hundred documents is two hundred presenters. Giving each its
+        // own cache holds the same image two hundred times and decodes it two hundred times, which
+        // is what a per-instance default quietly did.
+        Assert.Same(new RichTextView().Embeds, new RichTextViewer().Embeds);
+        Assert.Same(BitmapEmbedRenderer.Shared, new RichTextView().Embeds);
+    }
+
+    [AvaloniaFact]
+    public void TheSharedRendererCannotBeDisposedOutFromUnderEveryoneElse()
+    {
+        // A host that replaces Embeds and disposes what was there would otherwise turn images off
+        // for every other control in the process, permanently.
+        BitmapEmbedRenderer.Shared.Dispose();
+
+        Assert.Equal(
+            new global::Avalonia.Size(2, 1),
+            BitmapEmbedRenderer.Shared.Measure(new ImageEmbed(Png(2, 1)), Properties()));
+    }
+
     // ---- the image store ----------------------------------------------------------------------
 
     [AvaloniaFact]
