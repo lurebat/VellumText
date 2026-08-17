@@ -22,10 +22,19 @@ namespace VellumText.Avalonia;
 /// scrollbar — unavoidable with estimates, and the reason
 /// <see cref="Measured"/> is exposed so a caller can tell a real answer from a guess.
 /// </para>
+/// <para>
+/// <b>The estimate is never stored.</b> An earlier version wrote the current estimate into every
+/// unmeasured block whenever it moved, so that one tree of heights answered everything — correct,
+/// and linear in the document on the operation that happens most. Instead there are two trees
+/// over the same indices: measured heights, and the number of unmeasured blocks. A prefix sum is
+/// then <c>measured + unmeasured × estimate</c>, so the estimate moving costs nothing at all and
+/// a measurement costs one logarithmic update to each tree.
+/// </para>
 /// </remarks>
 public sealed class BlockHeightIndex
 {
     private double[] _tree = [];
+    private int[] _pending = [];
     private double[] _height = [];
     private bool[] _measured = [];
     private int _count;
@@ -76,12 +85,13 @@ public sealed class BlockHeightIndex
 
     /// <summary>The height of one block.</summary>
     /// <param name="index">The block's index.</param>
+    /// <remarks>The measured height, or the current estimate for a block nobody has measured.</remarks>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="index"/> is not a block.</exception>
     public double HeightOf(int index)
     {
         CheckIndex(index);
 
-        return _height[index];
+        return _measured[index] ? _height[index] : Estimate;
     }
 
     /// <summary>The distance from the top of the document to the top of a block.</summary>
@@ -122,17 +132,29 @@ public sealed class BlockHeightIndex
         // Fenwick descent: walk the tree from its highest power of two down, taking a branch
         // whenever the prefix sum there still fits under y. What is left is the count of whole
         // blocks that end at or before y, which is the index of the one covering it.
+        //
+        // Both trees are descended together, because a node's real contribution is its measured
+        // height plus its unmeasured blocks at the current estimate. They have identical shape,
+        // so this is one descent reading two arrays rather than two descents.
         var index = 0;
         var remaining = y;
+        var estimate = Estimate;
 
         for (var step = HighestPowerOfTwo(_tree.Length); step > 0; step >>= 1)
         {
             var next = index + step;
 
-            if (next < _tree.Length && _tree[next] <= remaining)
+            if (next >= _tree.Length)
+            {
+                continue;
+            }
+
+            var covered = _tree[next] + (_pending[next] * estimate);
+
+            if (covered <= remaining)
             {
                 index = next;
-                remaining -= _tree[next];
+                remaining -= covered;
             }
         }
 
@@ -160,21 +182,24 @@ public sealed class BlockHeightIndex
         if (_measured[index])
         {
             _measuredTotal -= _height[index];
+            AddMeasured(index, height - _height[index]);
         }
         else
         {
             _measuredCount++;
             _measured[index] = true;
+
+            // The block stops being counted as unmeasured and starts contributing its height.
+            AddPending(index, -1);
+            AddMeasured(index, height);
         }
 
         _measuredTotal += height;
+        _height[index] = height;
 
-        Assign(index, height);
-
-        // The estimate has moved, so every block still carrying one is now wrong. Rewriting
-        // them here keeps the invariant that a stored height is always the current best answer,
-        // which is what lets OffsetOf and IndexAt be simple prefix sums.
-        Reestimate();
+        // No rewrite of the other blocks. They never held the estimate, so the estimate moving
+        // is already reflected everywhere it is used - which is what makes this logarithmic
+        // rather than linear in the document.
     }
 
     /// <summary>Inserts blocks before an index, all of them unmeasured.</summary>
@@ -275,49 +300,40 @@ public sealed class BlockHeightIndex
         Rebuild(heights, measured);
     }
 
-    private void Reestimate()
-    {
-        var estimate = Estimate;
-
-        for (var i = 0; i < _count; i++)
-        {
-            if (!_measured[i] && _height[i] != estimate)
-            {
-                Assign(i, estimate);
-            }
-        }
-    }
-
     private void Rebuild(double[] heights, bool[] measured)
     {
         _height = heights;
         _measured = measured;
         _count = heights.Length;
         _tree = new double[_count + 1];
+        _pending = new int[_count + 1];
 
         // Building in place: each node adds itself to its parent, which is linear rather than
-        // the n log n of inserting one at a time.
+        // the n log n of inserting one at a time. A block contributes to exactly one of the two
+        // trees - its height if it has been measured, otherwise a count of one.
         for (var i = 0; i < _count; i++)
         {
-            _tree[i + 1] += heights[i];
+            if (measured[i])
+            {
+                _tree[i + 1] += heights[i];
+            }
+            else
+            {
+                _pending[i + 1] += 1;
+            }
 
             var parent = i + 1 + ((i + 1) & -(i + 1));
 
             if (parent <= _count)
             {
                 _tree[parent] += _tree[i + 1];
+                _pending[parent] += _pending[i + 1];
             }
         }
-
-        Reestimate();
     }
 
-    private void Assign(int index, double height)
+    private void AddMeasured(int index, double delta)
     {
-        var delta = height - _height[index];
-
-        _height[index] = height;
-
         if (delta == 0)
         {
             return;
@@ -329,16 +345,31 @@ public sealed class BlockHeightIndex
         }
     }
 
+    private void AddPending(int index, int delta)
+    {
+        for (var i = index + 1; i <= _count; i += i & -i)
+        {
+            _pending[i] += delta;
+        }
+    }
+
+    /// <summary>The height of the first <paramref name="count"/> blocks.</summary>
+    /// <remarks>
+    /// Measured heights are summed; unmeasured blocks are counted and priced at the current
+    /// estimate. Keeping the two apart is what lets the estimate move without touching anything.
+    /// </remarks>
     private double SumTo(int count)
     {
         var sum = 0d;
+        var unmeasured = 0;
 
         for (var i = count; i > 0; i -= i & -i)
         {
             sum += _tree[i];
+            unmeasured += _pending[i];
         }
 
-        return sum;
+        return sum + (unmeasured * Estimate);
     }
 
     private void CheckIndex(int index)

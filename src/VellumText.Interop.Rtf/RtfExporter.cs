@@ -87,6 +87,12 @@ public sealed class RtfExporter : IDocumentExporter
     {
         private readonly List<string> _fonts = ["Segoe UI"];
 
+        // The list defines the order the table is written in; the dictionary answers "have we
+        // seen this one". Searching the list instead made a run's font cost a scan of every
+        // distinct font before it, which is quadratic in a document that uses many.
+        private readonly Dictionary<string, int> _index =
+            new(StringComparer.Ordinal) { ["Segoe UI"] = 0 };
+
         internal int IndexOf(string? family)
         {
             if (string.IsNullOrWhiteSpace(family))
@@ -94,14 +100,13 @@ public sealed class RtfExporter : IDocumentExporter
                 return 0;
             }
 
-            var index = _fonts.IndexOf(family);
-
-            if (index >= 0)
+            if (_index.TryGetValue(family, out var index))
             {
                 return index;
             }
 
             _fonts.Add(family);
+            _index[family] = _fonts.Count - 1;
 
             return _fonts.Count - 1;
         }
@@ -137,6 +142,10 @@ public sealed class RtfExporter : IDocumentExporter
     {
         private readonly List<Rgba> _colours = [];
 
+        // As with the fonts: the list is the written order, the dictionary is the lookup. A
+        // document that colours every run its own shade was scanning the whole table per run.
+        private readonly Dictionary<Rgba, int> _index = [];
+
         internal int IndexOf(Rgba? colour)
         {
             if (colour is not { } value)
@@ -144,12 +153,11 @@ public sealed class RtfExporter : IDocumentExporter
                 return 0;
             }
 
-            var index = _colours.IndexOf(value);
-
-            if (index < 0)
+            if (!_index.TryGetValue(value, out var index))
             {
                 _colours.Add(value);
                 index = _colours.Count - 1;
+                _index[value] = index;
             }
 
             // Offset by the auto entry, which occupies index 0 without appearing in the list.

@@ -40,6 +40,87 @@ public class InlineTextSourceTests
         return runs;
     }
 
+    /// <summary>
+    /// The run boundaries must be exactly what the scan they replaced would have produced.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RunEnd</c> was a linear walk over the mark spans and is now a binary search over them.
+    /// The contract of that change is equivalence — same answers, less work — so the old
+    /// implementation is the specification, and it is reproduced here as the oracle. This is the
+    /// one situation where testing against a copy of the previous code is right rather than
+    /// circular: the property under test *is* that the two agree.
+    /// </para>
+    /// <para>
+    /// The cases below deliberately include the shapes a binary search gets wrong when it is
+    /// written carelessly: a span starting at zero, adjacent spans with no gap, a gap between
+    /// spans, a zero-length span, a span reaching the very end, and a span list whose length is
+    /// not a power of two.
+    /// </para>
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Run_boundaries_match_the_scan_they_replaced(int shape)
+    {
+        var text = new string('x', 40);
+
+        var spans = shape switch
+        {
+            0 => new List<ValueSpan<MarkSet>> { new(0, 5, Bold) },
+            1 => [new ValueSpan<MarkSet>(0, 5, Bold), new ValueSpan<MarkSet>(5, 5, Italic)],
+            2 => [new ValueSpan<MarkSet>(3, 4, Bold), new ValueSpan<MarkSet>(11, 6, Italic)],
+            3 => [new ValueSpan<MarkSet>(7, 0, Bold), new ValueSpan<MarkSet>(9, 3, Italic)],
+            4 => [new ValueSpan<MarkSet>(35, 5, Bold)],
+            _ =>
+            [
+                new ValueSpan<MarkSet>(1, 2, Bold),
+                new ValueSpan<MarkSet>(4, 2, Italic),
+                new ValueSpan<MarkSet>(9, 1, Bold),
+                new ValueSpan<MarkSet>(20, 8, Italic),
+                new ValueSpan<MarkSet>(30, 2, Bold),
+            ],
+        };
+
+        var content = InlineContent.Create(text, spans, []);
+        var source = Source(content);
+
+        for (var start = 0; start < content.Length; start++)
+        {
+            var run = source.GetTextRun(start);
+
+            Assert.NotNull(run);
+            Assert.Equal(ScanForRunEnd(content, start) - start, run.Length);
+        }
+    }
+
+    /// <summary>The mark-boundary half of <c>RunEnd</c> exactly as it was written before.</summary>
+    private static int ScanForRunEnd(InlineContent content, int start)
+    {
+        var end = content.Length;
+
+        foreach (var span in content.Marks)
+        {
+            if (span.Start > start)
+            {
+                end = Math.Min(end, span.Start);
+                break;
+            }
+
+            if (span.End > start)
+            {
+                end = Math.Min(end, span.End);
+                break;
+            }
+        }
+
+        return end;
+    }
+
     [AvaloniaFact]
     public void UnformattedTextIsOneRun()
     {

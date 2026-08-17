@@ -135,22 +135,36 @@ public sealed class InlineTextSource : ITextSource
         var end = _content.Length;
         var marks = _content.Marks;
 
-        foreach (var span in marks)
-        {
-            // Spans are sorted and non-overlapping, so the first boundary strictly after the
-            // start is the one that ends this run. A gap between spans is unformatted text
-            // and its own run, which is why both edges of a span count as boundaries.
-            if (span.Start > start)
-            {
-                end = Math.Min(end, span.Start);
-                break;
-            }
+        // Spans are sorted and non-overlapping, so the run ends at the first boundary strictly
+        // after start - and the first span that has not already finished is the one that carries
+        // it. Binary search rather than a scan: the formatter asks once per run and there are as
+        // many runs as spans, so scanning made laying out one paragraph quadratic in the number
+        // of spans on it. That is the same shape as the placeholder lookup below, which was
+        // already fixed for exactly this reason a few lines further down.
+        var low = 0;
+        var high = marks.Length;
 
-            if (span.End > start)
+        while (low < high)
+        {
+            var middle = low + ((high - low) / 2);
+
+            if (marks[middle].End > start)
             {
-                end = Math.Min(end, span.End);
-                break;
+                high = middle;
             }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+
+        if (low < marks.Length)
+        {
+            var span = marks[low];
+
+            // A gap between spans is unformatted text and its own run, which is why both edges
+            // of a span count as boundaries.
+            end = Math.Min(end, span.Start > start ? span.Start : span.End);
         }
 
         // An embed must be alone in its run, so the run before it stops at its placeholder. Found
