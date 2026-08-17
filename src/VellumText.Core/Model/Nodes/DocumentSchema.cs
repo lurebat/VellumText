@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 
 namespace VellumText;
 
@@ -40,56 +41,102 @@ public static class DocumentSchema
         ArgumentNullException.ThrowIfNull(node);
 
         var violations = ImmutableArray.CreateBuilder<SchemaViolation>();
-        Visit(node, node.TypeName, violations);
+
+        Visit(node, node.TypeName, [], violations);
 
         return violations.ToImmutable();
     }
 
+    /// <summary>
+    /// Walks the tree, recording where each node sits without writing it down.
+    /// </summary>
+    /// <param name="node">The node being checked.</param>
+    /// <param name="root">The root node's type name, the first component of every path.</param>
+    /// <param name="trail">
+    /// The descent so far, as (child index, type name) pairs. Pushed and popped rather than
+    /// concatenated: a path is only ever read when a violation is found, which on a valid
+    /// document is never, and building one per node made validation - which runs after every
+    /// step - spend about half its time formatting strings it then discarded.
+    /// </param>
+    /// <param name="violations">Where to record what is wrong.</param>
     private static void Visit(
-        Node node, string path, ImmutableArray<SchemaViolation>.Builder violations)
+        Node node,
+        string root,
+        List<(int Index, string TypeName)> trail,
+        ImmutableArray<SchemaViolation>.Builder violations)
     {
         switch (node)
         {
             case DocumentNode doc:
                 // Without a block there is nowhere for the caret to be, and an editor with
                 // no valid caret position has no coherent behaviour to fall back on.
-                RequireNonEmpty(doc.Blocks.Length, path, "block", violations);
+                RequireNonEmpty(doc.Blocks.Length, root, trail, "block", violations);
                 break;
 
             case ListNode list:
-                RequireNonEmpty(list.Items.Length, path, "item", violations);
+                RequireNonEmpty(list.Items.Length, root, trail, "item", violations);
                 break;
 
             case ListItemNode item:
-                RequireNonEmpty(item.Blocks.Length, path, "block", violations);
+                RequireNonEmpty(item.Blocks.Length, root, trail, "block", violations);
                 break;
 
             case TableNode table:
-                RequireNonEmpty(table.Rows.Length, path, "row", violations);
-                ValidateTable(table, path, violations);
+                RequireNonEmpty(table.Rows.Length, root, trail, "row", violations);
+                ValidateTable(table, root, trail, violations);
                 break;
 
             case TableRowNode row:
-                RequireNonEmpty(row.Cells.Length, path, "cell", violations);
+                RequireNonEmpty(row.Cells.Length, root, trail, "cell", violations);
                 break;
 
             case TableCellNode cell:
-                RequireNonEmpty(cell.Blocks.Length, path, "block", violations);
+                RequireNonEmpty(cell.Blocks.Length, root, trail, "block", violations);
                 break;
 
             default:
                 break;
         }
 
-        for (var i = 0; i < node.Children.Count; i++)
+        // Read once. The property is declared as IReadOnlyList<Node> and implemented by an
+        // ImmutableArray, so every read boxes - and in the loop condition that was one box per
+        // child rather than one per node.
+        var children = node.Children;
+
+        for (var i = 0; i < children.Count; i++)
         {
-            var child = node.Children[i];
-            Visit(child, $"{path}/{i}:{child.TypeName}", violations);
+            var child = children[i];
+
+            trail.Add((i, child.TypeName));
+            Visit(child, root, trail, violations);
+            trail.RemoveAt(trail.Count - 1);
         }
     }
 
+    /// <summary>Materialises the path to the node currently being visited.</summary>
+    /// <remarks>Called only when a violation is being recorded, which is the whole point.</remarks>
+    private static string PathOf(string root, List<(int Index, string TypeName)> trail)
+    {
+        if (trail.Count == 0)
+        {
+            return root;
+        }
+
+        var path = new StringBuilder(root);
+
+        foreach (var (index, typeName) in trail)
+        {
+            path.Append('/').Append(index).Append(':').Append(typeName);
+        }
+
+        return path.ToString();
+    }
+
     private static void ValidateTable(
-        TableNode table, string path, ImmutableArray<SchemaViolation>.Builder violations)
+        TableNode table,
+        string root,
+        List<(int Index, string TypeName)> trail,
+        ImmutableArray<SchemaViolation>.Builder violations)
     {
         if (table.Rows.IsEmpty)
         {
@@ -109,7 +156,7 @@ public static class DocumentSchema
             if (placement.Bottom > height)
             {
                 violations.Add(new SchemaViolation(
-                    $"{path}/{placement.Top}:table-row",
+                    $"{PathOf(root, trail)}/{placement.Top}:table-row",
                     $"A cell spans rows {placement.Top} to {placement.Bottom - 1} but the "
                     + $"table has only {height} row(s)."));
             }
@@ -130,7 +177,7 @@ public static class DocumentSchema
                 if (!covered[r, c])
                 {
                     violations.Add(new SchemaViolation(
-                        $"{path}/{r}:table-row",
+                        $"{PathOf(root, trail)}/{r}:table-row",
                         $"No cell covers column {c}, but the table is {width} column(s) wide."));
                 }
             }
@@ -139,17 +186,22 @@ public static class DocumentSchema
         if (!table.ColumnWidths.IsEmpty && table.ColumnWidths.Length != width)
         {
             violations.Add(new SchemaViolation(
-                path,
+                PathOf(root, trail),
                 $"{table.ColumnWidths.Length} column width(s) supplied for {width} column(s)."));
         }
     }
 
     private static void RequireNonEmpty(
-        int count, string path, string childName, ImmutableArray<SchemaViolation>.Builder violations)
+        int count,
+        string root,
+        List<(int Index, string TypeName)> trail,
+        string childName,
+        ImmutableArray<SchemaViolation>.Builder violations)
     {
         if (count == 0)
         {
-            violations.Add(new SchemaViolation(path, $"Must contain at least one {childName}."));
+            violations.Add(new SchemaViolation(
+                PathOf(root, trail), $"Must contain at least one {childName}."));
         }
     }
 }
