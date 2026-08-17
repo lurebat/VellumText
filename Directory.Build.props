@@ -14,8 +14,8 @@
     <Authors>VellumText contributors</Authors>
     <Product>VellumText</Product>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/AsafMah/VellumText</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/AsafMah/VellumText</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/lurebat/VellumText</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/lurebat/VellumText</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>avalonia;richtext;editor;wysiwyg;text</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

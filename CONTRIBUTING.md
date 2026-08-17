@@ -9,7 +9,7 @@ being built out.
 You need the .NET SDK named in [`global.json`](global.json). Nothing else:
 
 ```
-git clone https://github.com/AsafMah/VellumText.git
+git clone https://github.com/lurebat/VellumText.git
 cd VellumText
 dotnet build
 dotnet test

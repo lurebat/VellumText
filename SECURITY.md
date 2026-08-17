@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately, through GitHub's
-[private vulnerability reporting](https://github.com/AsafMah/VellumText/security/advisories/new)
+[private vulnerability reporting](https://github.com/lurebat/VellumText/security/advisories/new)
 rather than as a public issue.
 
 Include what you can reproduce with: the input, what happened, and what you
