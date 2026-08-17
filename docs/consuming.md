@@ -50,9 +50,13 @@ vendoring the source.
 Then reference the packages normally:
 
 ```xml
-<PackageReference Include="VellumText.Avalonia" Version="0.4.0" />
-<PackageReference Include="VellumText.Interop.Html" Version="0.4.0" />
+<PackageReference Include="VellumText.Avalonia" Version="0.4.1" />
+<PackageReference Include="VellumText.Interop.Html" Version="0.4.1" />
 ```
+
+Pin an exact version rather than a range. Every package here moves together — they share one
+`VersionPrefix` and are always published as a set — so a range that resolves them to different
+versions is never what you want.
 
 ### Two things worth knowing
 
