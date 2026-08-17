@@ -303,6 +303,51 @@ internal static class Scenarios
                 $"| {name,-26} | {budget,6:F0} ms | {measured,7:F2} ms | {(measured <= budget ? "PASS" : "FAIL"),7} |");
     }
 
+    /// <summary>A one-character model edit, with no view involved at all.</summary>
+    /// <remarks>
+    /// <para>
+    /// Separated from the keystroke scenario because measuring them together hid where the cost
+    /// was. With the block list cached, laying out after an edit allocates 32 bytes; the edit
+    /// itself allocates megabytes. The remaining linearity in a keystroke is here, in Core, and
+    /// not in the view.
+    /// </para>
+    /// <para>
+    /// Measured at 109 bytes per block, against 16 bytes per block for a single
+    /// <c>WithChildren</c> — so a one-character insertion copies the document's child array
+    /// about seven times. Reducing that is a change to <c>ReplaceStep</c>'s cut-and-splice, not
+    /// a local tidy-up.
+    /// </para>
+    /// </remarks>
+    internal static void ModelEdit()
+    {
+        var points = DocumentSizes
+            .Select(n =>
+            {
+                var doc = Document(n);
+                var state = EditorState.Create(doc);
+
+                return Measure.Run(
+                    () => state,
+                    s =>
+                    {
+                        var transaction = s.Transaction();
+
+                        transaction.InsertText(1, "x");
+                        s.Apply(transaction);
+                    },
+                    n,
+                    rounds: 7,
+                    warmup: 2);
+            })
+            .ToList();
+
+        Measure.Report(
+            "Model edit — insert one character, no view",
+            "paragraphs",
+            points,
+            "About 109 bytes per block: the document's child array copied roughly seven times.");
+    }
+
     private static DocumentNode Document(int paragraphs) =>
         new(Enumerable
             .Range(0, paragraphs)

@@ -30,6 +30,7 @@ internal static class Program
         ("rtf", Scenarios.RtfColours),
         ("heights", Scenarios.HeightIndex),
         ("ac12", Scenarios.Ac12),
+        ("model", Scenarios.ModelEdit),
     ];
 
     private static int Main(string[] args)

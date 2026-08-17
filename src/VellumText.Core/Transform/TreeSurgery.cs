@@ -44,7 +44,7 @@ internal static class TreeSurgery
         {
             return node is ParagraphNode paragraph
                 ? paragraph.WithContent(paragraph.Content.Substring(0, at.ParentOffset))
-                : node.WithChildren([.. node.Children.Take(at.ParentIndex)]);
+                : node.WithChildren(Slice(node.Children, 0, at.ParentIndex));
         }
 
         var index = at.IndexAt(depth);
@@ -76,7 +76,7 @@ internal static class TreeSurgery
                     paragraph.Content.Substring(
                         at.ParentOffset,
                         paragraph.Content.Length - at.ParentOffset))
-                : node.WithChildren([.. node.Children.Skip(at.ParentIndex)]);
+                : node.WithChildren(Slice(node.Children, at.ParentIndex, node.Children.Count - at.ParentIndex));
         }
 
         var index = at.IndexAt(depth);
@@ -105,7 +105,7 @@ internal static class TreeSurgery
 
         if (depth <= 0 || leftChildren.Count == 0 || rightChildren.Count == 0)
         {
-            return left.WithChildren([.. leftChildren, .. rightChildren]);
+            return left.WithChildren(Concat(leftChildren, rightChildren));
         }
 
         var seamLeft = leftChildren[^1];
@@ -194,9 +194,16 @@ internal static class TreeSurgery
         List<Node>? children = null;
         var pos = contentStart;
 
-        for (var i = 0; i < node.Children.Count; i++)
+        // Hoisted, and this is the whole cost of walking a large document. Children is declared
+        // as IReadOnlyList<Node> and implemented by an ImmutableArray, so every read of the
+        // property boxes the struct — and it was read three times per child, once in the loop
+        // condition and twice in the body. On a 50,000-block document that is 150,000 boxes for
+        // a walk that is otherwise almost free.
+        var all = node.Children;
+
+        for (var i = 0; i < all.Count; i++)
         {
-            var child = node.Children[i];
+            var child = all[i];
             var childContentStart = pos + 1;
             var childContentEnd = childContentStart + child.ContentSize;
 
@@ -208,7 +215,7 @@ internal static class TreeSurgery
 
                 if (!ReferenceEquals(replacement, child))
                 {
-                    children ??= [.. node.Children];
+                    children ??= [.. all];
                     children[i] = replacement;
                 }
             }
@@ -237,5 +244,43 @@ internal static class TreeSurgery
         }
 
         return (DocumentNode)rebuilt;
+    }
+
+    /// <summary>A run of children, copied into an array of exactly the right size.</summary>
+    /// <remarks>
+    /// These replaced <c>[.. children.Take(n)]</c> and <c>[.. children.Skip(n)]</c>. A collection
+    /// expression over a LINQ sequence cannot know how many items are coming, so it grows a
+    /// buffer by doubling and copies as it goes — roughly twice the final size in allocation, on
+    /// a list that is the whole document. Splitting a 50,000-block document happens on every
+    /// keystroke, and the count is known before the copy starts.
+    /// </remarks>
+    private static Node[] Slice(IReadOnlyList<Node> children, int start, int count)
+    {
+        var slice = new Node[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            slice[i] = children[start + i];
+        }
+
+        return slice;
+    }
+
+    /// <summary>Two runs of children, joined into an array of exactly the right size.</summary>
+    private static Node[] Concat(IReadOnlyList<Node> left, IReadOnlyList<Node> right)
+    {
+        var joined = new Node[left.Count + right.Count];
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            joined[i] = left[i];
+        }
+
+        for (var i = 0; i < right.Count; i++)
+        {
+            joined[left.Count + i] = right[i];
+        }
+
+        return joined;
     }
 }
