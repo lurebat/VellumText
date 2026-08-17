@@ -30,6 +30,17 @@ public abstract partial class DocumentPresenter
     private protected readonly List<BlockView> _views = [];
     private protected ImmutableArray<BlockSlot> _slots = [];
 
+    /// <summary>The document <see cref="_flattened"/> was built from.</summary>
+    /// <remarks>
+    /// Flattening walks every block and allocates a slot for each - measured at 64 bytes per
+    /// block - and it ran on every state change, including a caret move, which cannot have
+    /// changed a single block. Documents are immutable, so the same object is the same block
+    /// list: reference identity is an exact cache key here rather than an approximation of one.
+    /// </remarks>
+    private DocumentNode? _flattenedFor;
+
+    private ImmutableArray<BlockSlot> _flattened = [];
+
     private DocumentNode? _leavesFor;
     private ImmutableArray<BlockSlot> _leaves = [];
 
@@ -400,7 +411,7 @@ public abstract partial class DocumentPresenter
     {
         if (_slots.IsEmpty)
         {
-            Reconcile(DocumentBlocks.Flatten(PresentedDocument));
+            Reconcile(FlattenedSlots());
         }
     }
 
@@ -424,7 +435,7 @@ public abstract partial class DocumentPresenter
     /// <returns>The space the view asks for.</returns>
     private protected Size Realize()
     {
-        Reconcile(DocumentBlocks.Flatten(PresentedDocument));
+        Reconcile(FlattenedSlots());
 
         if (_views.Count == 0)
         {
@@ -574,6 +585,20 @@ public abstract partial class DocumentPresenter
         }
 
         return _views[index];
+    }
+
+    /// <summary>The document as a flat block list, rebuilt only when the document changes.</summary>
+    private ImmutableArray<BlockSlot> FlattenedSlots()
+    {
+        var document = PresentedDocument;
+
+        if (!ReferenceEquals(document, _flattenedFor))
+        {
+            _flattened = DocumentBlocks.Flatten(document);
+            _flattenedFor = document;
+        }
+
+        return _flattened;
     }
 
     private void Reconcile(ImmutableArray<BlockSlot> slots)

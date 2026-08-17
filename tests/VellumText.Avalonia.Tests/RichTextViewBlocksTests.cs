@@ -29,6 +29,73 @@ public class RichTextViewBlocksTests
         }
     }
 
+    /// <summary>
+    /// The cached block list must be rebuilt whenever the document changes, including when the
+    /// change leaves the number of blocks alone.
+    /// </summary>
+    /// <remarks>
+    /// The slots are flattened once per document and reused while the document object stays the
+    /// same, which is what stops a caret move rebuilding a list of every block in the document.
+    /// The risk a cache brings is staleness, and the case that catches a careless key is this
+    /// one: replacing a paragraph's text changes no count and no structure, so a cache keyed on
+    /// the block count — or on nothing at all — keeps serving the old nodes and every geometry
+    /// answer silently describes the document as it was.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheBlockListFollowsAnEditThatKeepsTheSameNumberOfBlocks()
+    {
+        var view = Shown(new DocumentNode(
+        [
+            ParagraphNode.FromText("first"),
+            ParagraphNode.FromText("second"),
+        ]));
+
+        var before = view.Slots;
+
+        Assert.Equal(2, before.Length);
+
+        view.State = EditorState.Create(new DocumentNode(
+        [
+            ParagraphNode.FromText("first"),
+            ParagraphNode.FromText("a much longer second paragraph"),
+        ]));
+
+        view.Measure(new Size(400, 300));
+        view.Arrange(new Rect(0, 0, 400, 300));
+
+        Assert.Equal(2, view.Slots.Length);
+
+        // The node itself, not just the geometry: a stale list would hold the old paragraph and
+        // still report two blocks of plausible-looking sizes.
+        var second = Assert.IsType<ParagraphNode>(view.Slots[1].Node);
+
+        Assert.Equal("a much longer second paragraph", second.Content.Text);
+        Assert.NotEqual(before[1].End, view.Slots[1].End);
+    }
+
+    /// <summary>A caret move must not disturb the block list it reuses.</summary>
+    [AvaloniaFact]
+    public void MovingTheCaretLeavesTheBlockListIntact()
+    {
+        var view = Shown(new DocumentNode(
+        [
+            ParagraphNode.FromText("first"),
+            ParagraphNode.FromText("second"),
+        ]));
+
+        var before = view.Slots;
+
+        view.MoveTo(view.Slots[1].Start + 2, extend: false);
+
+        Assert.Equal(before.Length, view.Slots.Length);
+
+        for (var i = 0; i < before.Length; i++)
+        {
+            Assert.Same(before[i].Node, view.Slots[i].Node);
+            Assert.Equal(before[i].Start, view.Slots[i].Start);
+        }
+    }
+
     [AvaloniaFact]
     public void TheControlAsksForRoomForEveryBlock()
     {
