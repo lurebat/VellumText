@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+
+    <!-- Scenario names are the documentation here, as in the test projects. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      Tiered compilation promotes a method partway through a run, which shows up as a curve that
+      bends for reasons unrelated to the code under test. The warmup would usually cover it;
+      turning it off means the warmup does not have to be guessed at.
+    -->
+    <TieredCompilation>false</TieredCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same headless stack as the Avalonia tests. UseHeadlessDrawing=false is what makes
+         layout exercise the real Skia text stack rather than a stub that invents metrics. -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VellumText.Avalonia\VellumText.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Rtf\VellumText.Interop.Rtf.csproj" />
+  </ItemGroup>
+
+</Project>
