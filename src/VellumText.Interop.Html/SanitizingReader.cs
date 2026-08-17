@@ -50,6 +50,21 @@ internal sealed class SanitizingReader
         "figure", "figcaption", "dl", "dt", "dd", "center", "address",
     ];
 
+    /// <summary>
+    /// Elements whose text is never rendered, and so is never content.
+    /// </summary>
+    /// <remarks>
+    /// These are removed with their subtrees before the sanitizer runs, because
+    /// <see cref="HtmlSanitizer.KeepChildNodes"/> is deliberately on and would otherwise promote
+    /// their bodies to visible text. The setting is right for an unrecognised wrapper — a fragment
+    /// inside a <c>&lt;div&gt;</c> is still a fragment — and wrong here, where the children are
+    /// program text rather than something the user copied. A browser renders none of these.
+    /// </remarks>
+    private static readonly string[] NonContentElements =
+    [
+        "script", "style", "template", "noscript", "noframes", "noembed", "title",
+    ];
+
     private static readonly string[] Attributes =
     [
         "href", "src", "alt", "title", "style", "dir", "lang",
@@ -144,6 +159,20 @@ internal sealed class SanitizingReader
             e.Style.Name.ToLowerInvariant());
 
         sanitizer.FilterUrl += OnFilterUrl;
+
+        // Before the sanitizer, not through it. The sanitizer would remove these tags and - because
+        // KeepChildNodes is on - hand their bodies back as text, so a stylesheet becomes the first
+        // paragraph of a Word paste and a script becomes prose. Removing the subtree first is the
+        // only order that keeps KeepChildNodes doing the job it is there for.
+        foreach (var element in document.QuerySelectorAll(string.Join(',', NonContentElements)).ToArray())
+        {
+            ReportOnce(
+                DiagnosticSeverity.Dropped,
+                "Removed an element whose contents are code rather than text.",
+                element.NodeName.ToLowerInvariant());
+
+            element.Remove();
+        }
 
         // The base address has to reach the sanitizer, not just the walker: it resolves relative
         // URLs before it checks their scheme, so without it a relative address is judged on its

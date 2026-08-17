@@ -234,6 +234,59 @@ public class HtmlSecurityTests
         Assert.Equal(new Rgba(255, 0, 0, 255), paragraph.Content.MarkAt(0).Foreground);
     }
 
+    /// <summary>
+    /// The bodies of code-bearing elements must not become document text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every input here is wrapped in a <c>&lt;div&gt;</c>, and that is the entire point. A bare
+    /// <c>&lt;script&gt;</c> is parked in <c>&lt;head&gt;</c> by the parser, and the importer walks
+    /// <c>&lt;body&gt;</c> — so the sibling theory above, which feeds bare fragments, passes
+    /// whether or not the contents leak. Wrapping puts them in the body, where a real paste puts
+    /// them.
+    /// </para>
+    /// <para>
+    /// This is not script execution; nothing here runs. It is a stylesheet arriving as the first
+    /// paragraph of a Word paste, which is what the leak actually looked like.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("<div><script>alert(1)</script>hello</div>", "alert")]
+    [InlineData("<div><SCRIPT>alert(1)</SCRIPT>hello</div>", "alert")]
+    [InlineData("<div><style>p.MsoNormal {margin:0cm;}</style>text</div>", "margin")]
+    [InlineData("<div><section><style>a{b:c}</style></section>x</div>", "b:c")]
+    [InlineData("<div><noscript>fallback</noscript>ok</div>", "fallback")]
+    [InlineData("<div><template><p>inert</p></template>ok</div>", "inert")]
+    [InlineData("<body><title>Doc Title</title><p>body text</p></body>", "Doc Title")]
+    public void Code_bearing_elements_do_not_leak_their_bodies_as_text(string html, string forbidden)
+    {
+        var text = PlainText(Import(html));
+
+        Assert.DoesNotContain(forbidden, text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Removing code-bearing elements must not disturb the surrounding content.
+    /// </summary>
+    /// <remarks>
+    /// The companion to the theory above, and the reason it is not enough on its own: dropping
+    /// every unrecognised element wholesale would pass all seven of those cases and quietly throw
+    /// away the text inside an unknown wrapper, which is exactly what <c>KeepChildNodes</c> exists
+    /// to preserve.
+    /// </remarks>
+    [Theory]
+    [InlineData("<div><script>alert(1)</script>hello</div>", "hello")]
+    [InlineData("<div><style>a{b:c}</style>text</div>", "text")]
+    [InlineData("<foo>kept text</foo>", "kept text")]
+    [InlineData("<bar><baz>deep text</baz></bar>", "deep text")]
+    [InlineData("<div><p>para</p></div>", "para")]
+    public void Surrounding_content_survives_the_removal(string html, string expected)
+    {
+        var text = PlainText(Import(html));
+
+        Assert.Contains(expected, text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Relative_urls_are_dropped_when_there_is_nothing_to_resolve_them_against()
     {
