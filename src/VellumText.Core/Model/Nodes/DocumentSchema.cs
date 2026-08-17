@@ -42,7 +42,43 @@ public static class DocumentSchema
 
         var violations = ImmutableArray.CreateBuilder<SchemaViolation>();
 
-        Visit(node, node.TypeName, [], violations);
+        Visit(node, null, node.TypeName, [], violations);
+
+        return violations.ToImmutable();
+    }
+
+    /// <summary>
+    /// Finds everything wrong with <paramref name="node"/>, checking only what changed since
+    /// <paramref name="previous"/>.
+    /// </summary>
+    /// <param name="node">The node to check.</param>
+    /// <param name="previous">
+    /// What it was before. <b>Must already be valid</b> — this is the precondition the whole
+    /// shortcut rests on, and it holds for the caller that matters because a step only ever
+    /// starts from a document the editor has already accepted.
+    /// </param>
+    /// <returns>The violations, empty when the node is valid.</returns>
+    /// <remarks>
+    /// <para>
+    /// The nodes are immutable and edits share structure, so a subtree that came through an edit
+    /// untouched is the very same object — and it was valid a moment ago, so it is valid now.
+    /// Reference equality therefore prunes the walk, and what is left is the spine from the root
+    /// to the edit plus whatever the edit produced: a handful of nodes rather than the document.
+    /// </para>
+    /// <para>
+    /// When children have been inserted or removed the pairing by index goes out of step, and
+    /// then this simply validates more than it strictly needs to. That direction is the safe one:
+    /// the worst case is the cost of <see cref="Validate(Node)"/>, never a violation missed.
+    /// </para>
+    /// </remarks>
+    public static ImmutableArray<SchemaViolation> Validate(Node node, Node previous)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(previous);
+
+        var violations = ImmutableArray.CreateBuilder<SchemaViolation>();
+
+        Visit(node, previous, node.TypeName, [], violations);
 
         return violations.ToImmutable();
     }
@@ -51,6 +87,10 @@ public static class DocumentSchema
     /// Walks the tree, recording where each node sits without writing it down.
     /// </summary>
     /// <param name="node">The node being checked.</param>
+    /// <param name="previous">
+    /// What this node was before the edit, when that is known and known to have been valid.
+    /// <see langword="null"/> means check it from scratch.
+    /// </param>
     /// <param name="root">The root node's type name, the first component of every path.</param>
     /// <param name="trail">
     /// The descent so far, as (child index, type name) pairs. Pushed and popped rather than
@@ -61,10 +101,17 @@ public static class DocumentSchema
     /// <param name="violations">Where to record what is wrong.</param>
     private static void Visit(
         Node node,
+        Node? previous,
         string root,
         List<(int Index, string TypeName)> trail,
         ImmutableArray<SchemaViolation>.Builder violations)
     {
+        // The same object as before the edit, and it was valid before the edit.
+        if (ReferenceEquals(node, previous))
+        {
+            return;
+        }
+
         switch (node)
         {
             case DocumentNode doc:
@@ -102,13 +149,14 @@ public static class DocumentSchema
         // ImmutableArray, so every read boxes - and in the loop condition that was one box per
         // child rather than one per node.
         var children = node.Children;
+        var before = previous?.Children;
 
         for (var i = 0; i < children.Count; i++)
         {
             var child = children[i];
 
             trail.Add((i, child.TypeName));
-            Visit(child, root, trail, violations);
+            Visit(child, i < before?.Count ? before[i] : null, root, trail, violations);
             trail.RemoveAt(trail.Count - 1);
         }
     }

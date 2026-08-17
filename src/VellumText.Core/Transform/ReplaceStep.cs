@@ -179,7 +179,11 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
             return StepResult.Failed("The slice cannot be joined to the content after it.");
         }
 
-        var violations = DocumentSchema.Validate(result);
+        // Only what the step touched. The document it started from was valid - the editor never
+        // holds one that is not - and the nodes it did not rewrite are the same objects, so the
+        // walk prunes to the spine plus the new content. Validating the whole document after
+        // every keystroke was the largest single cost on the edit path.
+        var violations = DocumentSchema.Validate(result, doc);
 
         if (!violations.IsEmpty)
         {

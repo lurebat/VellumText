@@ -408,6 +408,113 @@ public class DocumentSchemaTests
         Assert.Equal(2, DocumentSchema.Validate(doc).Length);
     }
 
+    /// <summary>
+    /// Validating against a known-good previous document must agree with validating from scratch.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The incremental overload prunes any subtree that is reference-identical to the one it
+    /// replaced, on the grounds that it was valid a moment ago and has not been touched. That is
+    /// a shortcut through a <em>safety</em> check, so the only acceptable evidence is that it
+    /// answers exactly what the exhaustive walk answers. The full walk is therefore the oracle,
+    /// which is legitimate here for the same reason it is legitimate for a cache: the contract
+    /// is equivalence.
+    /// </para>
+    /// <para>
+    /// The cases deliberately include the ones where pruning could go wrong: an edit that leaves
+    /// most of the tree shared, an edit that introduces a violation, an edit that shifts sibling
+    /// indices so the pairing goes out of step, and an edit that breaks a rule spanning several
+    /// nodes rather than one node's own cardinality.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Incremental_validation_agrees_with_the_full_walk(int shape)
+    {
+        var previous = new DocumentNode(
+        [
+            ParagraphNode.FromText("first"),
+            new ListNode([new ListItemNode([ParagraphNode.FromText("item")])], ListKind.Unordered),
+            new TableNode(
+            [
+                new TableRowNode([TableCellNode.FromText("a"), TableCellNode.FromText("b")]),
+            ]),
+            ParagraphNode.FromText("last"),
+        ]);
+
+        // Every previous document here must itself be valid, or the precondition does not hold
+        // and the comparison would be meaningless rather than merely failing.
+        Assert.Empty(DocumentSchema.Validate(previous));
+
+        var blocks = previous.Blocks;
+
+        var updated = shape switch
+        {
+            // An ordinary text edit: everything but one paragraph stays shared.
+            0 => previous.WithChildren([ParagraphNode.FromText("first!"), blocks[1], blocks[2], blocks[3]]),
+
+            // An edit that empties a list, which is a violation the pruned walk must still find.
+            1 => previous.WithChildren([blocks[0], new ListNode([], ListKind.Unordered), blocks[2], blocks[3]]),
+
+            // A block removed, so every later sibling shifts and the index pairing goes out of step.
+            2 => previous.WithChildren([blocks[0], blocks[2], blocks[3]]),
+
+            // A block inserted, shifting the other way.
+            3 => previous.WithChildren([blocks[0], ParagraphNode.FromText("new"), blocks[1], blocks[2], blocks[3]]),
+
+            // A rule that spans nodes rather than one node's own cardinality: the second row is
+            // narrower than the first, so the grid no longer tiles.
+            4 => previous.WithChildren(
+            [
+                blocks[0],
+                blocks[1],
+                new TableNode(
+                [
+                    new TableRowNode([TableCellNode.FromText("a"), TableCellNode.FromText("b")]),
+                    new TableRowNode([TableCellNode.FromText("c")]),
+                ]),
+                blocks[3],
+            ]),
+
+            // Nothing changed at all: the whole document is shared and nothing should be walked.
+            _ => previous,
+        };
+
+        // Compared as sequences, deliberately. ImmutableArray<T>.Equals is reference equality on
+        // the underlying array, so Assert.Equal on the arrays themselves compares identity: the
+        // empty cases would pass because ImmutableArray<T>.Empty is a singleton, and every case
+        // that actually found a violation would fail however right the answer was.
+        Assert.Equal(
+            DocumentSchema.Validate(updated).AsEnumerable(),
+            DocumentSchema.Validate(updated, previous).AsEnumerable());
+    }
+
+    /// <summary>A step still refuses to produce an invalid document.</summary>
+    /// <remarks>
+    /// The end-to-end statement of the guarantee the incremental walk must not weaken. Emptying
+    /// a list through a step has to fail, however little of the document the step examined.
+    /// </remarks>
+    [Fact]
+    public void A_step_that_would_empty_a_list_still_fails()
+    {
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("before"),
+            new ListNode([new ListItemNode([ParagraphNode.FromText("only")])], ListKind.Unordered),
+        ]);
+
+        Assert.Empty(DocumentSchema.Validate(doc));
+
+        var emptied = doc.WithChildren([doc.Blocks[0], new ListNode([], ListKind.Unordered)]);
+
+        Assert.NotEmpty(DocumentSchema.Validate(emptied, doc));
+    }
+
     [Fact]
     public void A_rectangular_table_is_valid()
     {
