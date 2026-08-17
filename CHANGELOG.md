@@ -10,6 +10,10 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.1] - 2026-08-17
+
 ### Fixed
 
 - **The `CF_HTML` envelope is no longer written on macOS and Linux.** `HtmlFormat.Export` wrapped
