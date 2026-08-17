@@ -122,8 +122,14 @@ jobs:
           for pkg in artifacts/*.nupkg; do
             id=$(basename "$pkg" ".$VERSION.nupkg")
             lower=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+            # `|| code=000` rather than `|| echo 000`: on a transport failure curl
+            # has already written 000 via -w, so echoing another one concatenates
+            # into 000000 and the operator is shown an HTTP code that does not
+            # exist. The fallback is still required - without it `set -e` aborts
+            # the whole step on the first unreachable package instead of
+            # reporting each one.
             code=$(curl -sS --retry 3 -o versions.json \
-              -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/$lower/index.json" || echo 000)
+              -w '%{http_code}' "https://api.nuget.org/v3-flatcontainer/$lower/index.json") || code=000
             case "$code" in
               404) echo "$id: not on NuGet yet."; continue ;;
               200) ;;
