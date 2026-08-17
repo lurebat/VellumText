@@ -74,6 +74,9 @@ internal sealed class SanitizingReader
 
     private static readonly string[] Schemes = ["http", "https", "mailto", "tel"];
 
+    private static readonly HashSet<string> SchemeSet =
+        new(Schemes, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Media types an inline <c>data:</c> image may declare.
     /// </summary>
@@ -192,7 +195,15 @@ internal sealed class SanitizingReader
             // The sanitizer resolves relative addresses against the base the caller gave it. If
             // one is still relative afterwards there was no base, and keeping it would leave the
             // address to be resolved against whatever the host happens to be showing later.
-            if (!Uri.TryCreate(e.SanitizedUrl, UriKind.Absolute, out _))
+            //
+            // The test is the scheme, not UriKind.Absolute. "Absolute" is not the same question:
+            // System.Uri reads a scheme-less address as a *file path* whenever the platform has
+            // one that fits, so "//host/path" and "\\host\share" parse absolute with scheme file
+            // on Windows, and "/etc/passwd" does the same on Unix. All three are relative
+            // addresses that would have been kept. Requiring an allowed scheme asks the question
+            // that was meant, and asks it the same way on every platform.
+            if (!Uri.TryCreate(e.SanitizedUrl, UriKind.Absolute, out var resolved)
+                || !SchemeSet.Contains(resolved.Scheme))
             {
                 e.SanitizedUrl = null;
 

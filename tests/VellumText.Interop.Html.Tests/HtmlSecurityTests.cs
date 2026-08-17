@@ -243,6 +243,80 @@ public class HtmlSecurityTests
         Assert.Null(paragraph.Content.MarkAt(0).Link);
     }
 
+    /// <summary>
+    /// A scheme-less address must be dropped even when <see cref="Uri"/> is willing to read it as
+    /// a file path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These are the cases the sibling test above cannot reach. It uses <c>/somewhere</c>, which
+    /// <see cref="Uri"/> rejects as absolute on Windows and accepts as a file path on Unix — so on
+    /// the developer's machine it passed for the right reason, and on Linux it failed, and no
+    /// Windows run could tell you the check was asking the wrong question.
+    /// </para>
+    /// <para>
+    /// These inputs fail on <em>every</em> platform, because Windows reads both of them as UNC
+    /// paths. That matters beyond tidiness: a host that opens a link with the shell would have
+    /// made an outbound SMB connection to a host the document chose, which on Windows hands over
+    /// an NTLM handshake before anything asks the user.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("//evil.test/steal")]
+    [InlineData(@"\\evil.test\share\payload")]
+    [InlineData("/etc/passwd")]
+    [InlineData("relative/path")]
+    public void Scheme_less_addresses_are_dropped_however_the_platform_reads_them(string href)
+    {
+        var result = Import($"<a href='{href}'>click</a>");
+        var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+
+        Assert.Null(paragraph.Content.MarkAt(0).Link);
+    }
+
+    /// <summary>Only the four allowed schemes survive, whatever else parses as absolute.</summary>
+    [Theory]
+    [InlineData("https://ok.test/", true)]
+    [InlineData("http://ok.test/", true)]
+    [InlineData("mailto:someone@ok.test", true)]
+    [InlineData("tel:+123456", true)]
+    [InlineData("file:///etc/passwd", false)]
+    [InlineData("C:/Windows/win.ini", false)]
+    public void Only_allowed_schemes_survive(string href, bool kept)
+    {
+        var result = Import($"<a href='{href}'>click</a>");
+        var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+        var link = paragraph.Content.MarkAt(0).Link;
+
+        if (kept)
+        {
+            Assert.NotNull(link);
+        }
+        else
+        {
+            Assert.Null(link);
+        }
+    }
+
+    /// <summary>
+    /// A protocol-relative address is still relative, so a base resolves it rather than dropping it.
+    /// </summary>
+    /// <remarks>
+    /// The companion to the drop tests above. Without this, a fix that simply refused everything
+    /// scheme-less would pass every one of them and quietly break the case the feature exists for.
+    /// </remarks>
+    [Fact]
+    public void A_protocol_relative_address_resolves_against_a_base()
+    {
+        var result = Import(
+            "<a href='//other.test/p'>click</a>",
+            new HtmlImportOptions { BaseUri = new Uri("https://example.test/page") });
+
+        var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+
+        Assert.Equal("https://other.test/p", paragraph.Content.MarkAt(0).Link?.Href);
+    }
+
     [Fact]
     public void Relative_urls_resolve_against_a_base_the_caller_supplies()
     {
