@@ -10,7 +10,14 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The `CF_HTML` envelope is no longer written on macOS and Linux.** `HtmlFormat.Export` wrapped
+  every payload in the Windows `CF_HTML` preamble regardless of platform, so a copy on macOS or
+  Linux put `Version:0.9` and a block of byte offsets under `public.html` and `text/html` — targets
+  that carry bare markup — and a receiving application would have rendered the preamble as content.
+  Windows is unchanged. Import already accepted both shapes on every platform, which is why no
+  round-trip test could see it.
 
 ## [0.4.0] - 2026-08-17
 

@@ -341,6 +341,42 @@ public class HtmlExportTests
         Assert.Equal(doc, HtmlImporter.Import(ClipboardHtml.ExtractFragment(payload, out _)).Doc);
     }
 
+    /// <summary>The <c>CF_HTML</c> envelope is a Windows convention, so only Windows gets it.</summary>
+    /// <remarks>
+    /// <para>
+    /// Both branches are asserted and CI runs this on Windows, Linux and macOS, so the branch a
+    /// given developer's machine never takes is still exercised somewhere. That matters more than
+    /// usual here: the clipboard format <em>name</em> is chosen per platform, and writing a
+    /// Windows preamble under <c>public.html</c> or <c>text/html</c> puts <c>Version:0.9</c> into
+    /// what a receiving application reads as markup.
+    /// </para>
+    /// <para>
+    /// The final assertion is the reason this went unnoticed. Import tolerates the envelope on
+    /// every platform, so a round trip succeeds either way and no round-trip test can distinguish
+    /// the two. Only an assertion about the payload itself can.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_envelope_is_windows_only()
+    {
+        var doc = DocumentNode.FromParagraphs("hello");
+        var payload = HtmlFormat.Instance.Export(doc);
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(ClipboardHtml.IsClipboardHtml(payload));
+            Assert.Equal(HtmlExporter.Instance.ExportForClipboard(doc), payload);
+        }
+        else
+        {
+            Assert.False(ClipboardHtml.IsClipboardHtml(payload));
+            Assert.Equal(HtmlExporter.Instance.Export(doc), payload);
+            Assert.StartsWith("<", payload, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(doc, HtmlFormat.Instance.Import(payload).Doc);
+    }
+
     [Fact]
     public void The_exporter_advertises_itself()
     {

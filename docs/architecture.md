@@ -686,6 +686,10 @@ Two things changed against the sketch above, both forced by decision 3 in §12.1
 
 Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
 
+**The envelope is Windows-only, and for a while it was not.** `HtmlFormat.Export` wrapped every payload in `CF_HTML` regardless of platform, so a copy on Linux or macOS put `Version:0.9` and a block of byte offsets under `text/html` and `public.html` — targets that are defined to carry bare markup. A receiving application would have rendered the preamble as content. The format *name* was already chosen per platform by the `Platform` helper above; only the payload was not, and this paragraph's own sentence about `HTML Format` being a Windows requirement was the specification the code had drifted from.
+
+It survived because **nothing could see it**. `ClipboardHtml.ExtractFragment` returns non-`CF_HTML` input unchanged, so import accepts both shapes on every platform and a round trip succeeds either way — no round-trip test can distinguish them, and every clipboard test is a round trip. Only an assertion about the payload itself can, and the branch was on a platform that no developer here runs. The fix is one conditional; the test asserts both branches so CI's three-OS matrix exercises the one the author's machine never takes.
+
 **What a round trip actually costs**, measured rather than assumed:
 
 | | HTML | RTF |
