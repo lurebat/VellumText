@@ -353,9 +353,12 @@ internal sealed class SanitizingReader
 
         if (!header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
         {
-            // A payload that is not base64 is percent-encoded text. It carries at most one byte per
-            // character, so its length is a sound upper bound and no decode is needed.
-            return payload.Length > maxBytes ? DataImageVerdict.TooLarge : DataImageVerdict.Usable;
+            // Refused rather than measured. A percent-encoded payload is a legal data URL, but
+            // every renderer in this repository requires ";base64" and returns nothing without
+            // it, so accepting one here puts an embed in the document that can only ever draw as
+            // a missing-image box. Importer and renderer each used to check their own assumption,
+            // and nothing checked the contract between them.
+            return DataImageVerdict.Undecodable;
         }
 
         // Four characters become three bytes, so the decoded size is at least this, less padding.

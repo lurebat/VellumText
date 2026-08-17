@@ -287,6 +287,66 @@ public class HtmlSecurityTests
         Assert.Contains(expected, text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// An attribute the model cannot represent must not cost the whole document.
+    /// </summary>
+    /// <remarks>
+    /// A negative <c>start</c> is valid HTML and <see cref="ListNode"/> refuses it, so passing it
+    /// through threw — and the importer's outer catch turns any throw into an empty document.
+    /// One attribute nobody looks at discarded every paragraph in the paste. The assertion is on
+    /// the surrounding content rather than on the list, because the failure was never about
+    /// numbering.
+    /// </remarks>
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("-2147483648")]
+    public void A_negative_list_start_does_not_discard_the_document(string start)
+    {
+        var result = Import($"<p>before</p><ol start='{start}'><li>x</li></ol><p>after</p>");
+
+        var text = string.Join(
+            " ",
+            result.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
+
+        Assert.Contains("before", text, StringComparison.Ordinal);
+        Assert.Contains("after", text, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded);
+    }
+
+    /// <summary>A positive start is still honoured, so the guard has not swallowed the feature.</summary>
+    [Fact]
+    public void A_positive_list_start_is_still_kept()
+    {
+        var result = Import("<ol start='5'><li>x</li></ol>");
+        var list = Assert.IsType<ListNode>(result.Doc.Blocks[0]);
+
+        Assert.Equal(5, list.Start);
+    }
+
+    /// <summary>
+    /// An inline image the renderer could never decode is refused at the door.
+    /// </summary>
+    /// <remarks>
+    /// A percent-encoded <c>data:</c> payload is a legal data URL that every renderer here
+    /// rejects, because they all require <c>;base64</c>. Accepting it put an embed in the
+    /// document that could only ever draw as a missing-image box, with no diagnostic to say why.
+    /// Importer and renderer each tested their own assumption and nothing tested the contract
+    /// between them.
+    /// </remarks>
+    [Fact]
+    public void A_data_image_that_is_not_base64_is_refused()
+    {
+        var bytes = Convert.FromBase64String(Png["data:image/png;base64,".Length..]);
+        var percent = string.Concat(bytes.Select(b => "%" + b.ToString("X2")));
+
+        var result = Import(
+            $"<img src='data:image/png,{percent}'>",
+            new HtmlImportOptions { AllowDataImages = true });
+
+        Assert.Empty(Images(result));
+        Assert.NotEmpty(result.Diagnostics);
+    }
+
     [Fact]
     public void Relative_urls_are_dropped_when_there_is_nothing_to_resolve_them_against()
     {

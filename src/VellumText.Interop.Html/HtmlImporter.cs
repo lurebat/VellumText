@@ -490,7 +490,23 @@ public static class HtmlImporter
                     CultureInfo.InvariantCulture,
                     out var declared))
             {
-                start = declared;
+                // Clamped, not passed through. A negative start is valid HTML and the model
+                // cannot hold one, so handing it over throws - and the importer's outer catch
+                // turns any throw into an empty document. One attribute nobody looks at would
+                // otherwise discard the whole paste.
+                if (declared < 0)
+                {
+                    Report(
+                        DiagnosticSeverity.Downgraded,
+                        "A list numbered from a negative value starts from zero instead.",
+                        declared.ToString(CultureInfo.InvariantCulture));
+
+                    start = 0;
+                }
+                else
+                {
+                    start = declared;
+                }
             }
 
             sink.AddBlock(

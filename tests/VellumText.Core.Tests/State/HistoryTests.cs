@@ -3,6 +3,66 @@ namespace VellumText.Tests.State;
 /// <summary>Recording, grouping, undoing and redoing edits.</summary>
 public class HistoryTests
 {
+    /// <summary>
+    /// Two deliberate commands are two undos, even when they touch the same range in quick
+    /// succession.
+    /// </summary>
+    /// <remarks>
+    /// Coalescing used to be a block-list — everything folded together except structure and
+    /// paste — so bolding a word and then italicising it became a single history event and one
+    /// undo removed both. Typing is the case the feature exists for, because a burst of
+    /// keystrokes is one action in the user's head; a command they issued twice is two.
+    /// </remarks>
+    [Fact]
+    public void TwoFormattingCommandsAreTwoUndos()
+    {
+        var state = EditorState.Create(new DocumentNode([ParagraphNode.FromText("hello")]));
+        var history = History.Empty;
+        var at = DateTime.UtcNow;
+
+        var bold = state.Transaction().As(TransactionKind.Format).At(at)
+            .Step(new AddMarkStep(1, 4, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold));
+
+        history = history.Record(bold);
+        state = state.Apply(bold);
+
+        // Well inside the coalescing window, which is what made them fold together before.
+        var italic = state.Transaction().As(TransactionKind.Format).At(at.AddMilliseconds(100))
+            .Step(new AddMarkStep(1, 4, new MarkSet { Style = TextStyle.Italic }, MarkFields.Italic));
+
+        history = history.Record(italic);
+        state = state.Apply(italic);
+
+        Assert.Equal(2, history.UndoDepth);
+
+        var (undone, _) = history.Undo(state);
+        var mark = ((ParagraphNode)undone.Doc.Blocks[0]).Content.MarkAt(1);
+
+        // The italic goes and the bold stays. Asserting the style rather than the depth alone,
+        // because a depth of two with the wrong content undone would be just as broken.
+        Assert.Equal(TextStyle.Bold, mark.Style);
+    }
+
+    /// <summary>Typing still coalesces, which is the behaviour the feature exists for.</summary>
+    [Fact]
+    public void TypingStillCoalesces()
+    {
+        var state = EditorState.Create(new DocumentNode([ParagraphNode.FromText("")]));
+        var history = History.Empty;
+        var at = DateTime.UtcNow;
+
+        for (var i = 0; i < 3; i++)
+        {
+            var tr = state.Transaction().As(TransactionKind.Typing).At(at.AddMilliseconds(i * 50));
+
+            tr.InsertText(1 + i, "x");
+            history = history.Record(tr);
+            state = state.Apply(tr);
+        }
+
+        Assert.Equal(1, history.UndoDepth);
+    }
+
     private static readonly DateTimeOffset T0 = new(2024, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>"hello" at 1..6, "world" at 8..13.</summary>

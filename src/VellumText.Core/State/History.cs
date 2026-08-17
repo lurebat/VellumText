@@ -100,9 +100,13 @@ public readonly record struct HistoryPolicy(
             return false;
         }
 
-        // Reshaping the document, and bringing content in from outside, are landmarks. A reader
-        // undoing past one expects to arrive exactly there, and not somewhere inside it.
-        if (tr.Kind is TransactionKind.Structure or TransactionKind.Paste)
+        // An allow-list, not a block-list. Coalescing exists so that a burst of keystrokes undoes
+        // as the one action the user thought they were performing; typing and deleting arrive a
+        // character at a time and nobody means each one separately. Everything else arrives one
+        // command at a time and is already the unit the user has in mind - so bolding a word and
+        // then italicising it used to disappear together on a single undo, which is not a
+        // grouping anyone asked for.
+        if (tr.Kind is not (TransactionKind.Typing or TransactionKind.Delete))
         {
             return false;
         }
