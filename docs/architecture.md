@@ -802,7 +802,7 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 
 | Concern | Rule |
 |---|---|
-| Schema validity | `Step.Apply` returns `StepResult.Failed` rather than producing an invalid document. The editor drops the transaction and logs; it never applies a partially-valid tree. |
+| Schema validity | `Step.Apply` returns `StepResult.Failed` rather than producing an invalid document. A failed step is **skipped and recorded in `Transaction.Failures`**; the remaining steps still apply. Every step that does apply produces a schema-valid tree, so the document is never invalid — but a transaction is **best-effort, not atomic**, and a host that needs all-or-nothing must check `Failures` before committing. See "Why not atomic" below. |
 | Import robustness | Importers return `ImportResult(Document, IReadOnlyList<Diagnostic>)`. Never throw into the UI. Unsupported constructs downgrade to the nearest supported node; each downgrade is a diagnostic. |
 | HTML paste | Strict allow-list of elements/attributes/CSS properties. Script, event handlers, embedded objects, and `javascript:`/`data:` URLs removed. Remote images off by default. |
 | Image size | Configurable cap (default 16 MB decoded) — reject with a diagnostic rather than OOM. |
@@ -811,6 +811,32 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 | Undo integrity | Property test: for any random transaction sequence, `undo*` returns to the exact initial document; `redo*` returns to the exact final document. |
 | IME | Preedit never reaches the model or history. |
 | Read-only | Enforced at the single `RichTextEditor.Dispatch(Transaction)` chokepoint, not per-command. |
+
+### Why a transaction is not atomic
+
+An earlier draft of the table above promised that "the editor drops the transaction and logs;
+it never applies a partially-valid tree". The implementation never did that, and the code was
+right: a command that composes several steps should be able to try one and carry on. Lifting a
+list item out of a list, for example, emits steps that are individually optional depending on
+what surrounds the item, and a strict transaction would force every command to pre-compute
+exactly which of its steps will succeed — which is the work the step is doing.
+
+So the guarantee is narrower than "atomic" and worth stating exactly:
+
+- **The document is never invalid.** Every step that applies produces a schema-valid tree; that
+  part of the original promise holds unconditionally.
+- **A transaction may apply partially.** A failed step is skipped, recorded in
+  `Transaction.Failures`, and later steps still apply against the document as it then stands.
+- **One transaction is still one undo entry**, whether it applied fully or partially.
+
+The consequence for a host is that `Failures` is not diagnostic noise: it is the only signal
+that an operation did less than it was asked to. A host that needs all-or-nothing should build
+the transaction, inspect `Failures`, and discard it rather than calling `Apply` — the check is
+cheap because steps are pre-applied as they are added.
+
+**This is a deliberate decision, taken 2026-08-17**, when a review found the document and the
+implementation disagreeing. Best-effort was kept and the document corrected, rather than the
+reverse.
 
 ---
 
