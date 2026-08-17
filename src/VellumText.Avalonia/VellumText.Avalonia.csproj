@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>VellumText.Avalonia</RootNamespace>
+    <Description>Avalonia rich text editor control built on the headless VellumText document model.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VellumText.Core\VellumText.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The context menu's enabled state is real logic, and a headless test platform cannot open a
+         popup to observe it through the UI. -->
+    <InternalsVisibleTo Include="VellumText.Avalonia.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately, through GitHub's
-[private vulnerability reporting](https://github.com/AsafMah/Vellum/security/advisories/new)
+[private vulnerability reporting](https://github.com/AsafMah/VellumText/security/advisories/new)
 rather than as a public issue.
 
 Include what you can reproduce with: the input, what happened, and what you
@@ -11,7 +11,7 @@ expected. A failing test is ideal.
 
 ## What counts as a vulnerability here
 
-Vellum is a UI library, not a service, so the threat model is narrower than it
+VellumText is a UI library, not a service, so the threat model is narrower than it
 looks — but it is not empty, because **import runs on untrusted input by
 definition.** Anything arriving from the clipboard, a drop, or a file came from
 somewhere else, and a document is a rich, attacker-shaped thing.
@@ -41,5 +41,5 @@ vulnerability.
 
 ## Supported versions
 
-Vellum is pre-1.0. Fixes go onto `main` and into the next release; there are no
+VellumText is pre-1.0. Fixes go onto `main` and into the next release; there are no
 maintained release branches yet.

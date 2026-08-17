@@ -4,7 +4,7 @@
 **Date:** 2026-08-11
 **Target:** Avalonia 12.1.1 (current stable), .NET 8/9
 **Proposed license:** MIT
-**Name:** Vellum (packages `Vellum.Core`, `Vellum.Avalonia`, `Vellum.Interop.*`)
+**Name:** VellumText (packages `VellumText.Core`, `VellumText.Avalonia`, `VellumText.Interop.*`)
 
 > Deliberately not named `Avalonia.*` — this is an independent community project and must not read as first-party.
 
@@ -15,7 +15,7 @@
 A drop-in Avalonia control:
 
 ```xml
-<vellum:RichTextEditor Document="{Binding Doc}" />
+<VellumText:RichTextEditor Document="{Binding Doc}" />
 ```
 
 …that a developer can put in an app and get a WYSIWYG editor comparable to the commercial Avalonia Accelerate Rich Text Editor, under a permissive license.
@@ -82,7 +82,7 @@ Avalonia already provides the hardest infrastructure, MIT-licensed. This is the 
 
 ### 2.3 Assumptions (to validate in Increment 0)
 
-- **A1** — ~~`TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph edits.~~ **Partly invalidated (Increment 0 — see [`increment-0-findings.md`](increment-0-findings.md) §2).** `InvalidateFrom(k>0)` returns a stale, *pre-edit* layout: invalidation is entry-granular and a paragraph is a single entry keyed 0. The correct usages (`InvalidateFrom(0)` / `Invalidate()`) measure **1.00×** against no cache, so R3's fallback — wholesale paragraph rebuild — is adopted **for edits**. **However**, reusing a persistent cache across a *wrap-width* change with unchanged text is correct and **≈3.5× faster** (median of 7 reps, range 2.9–5.2×), which matters because a resize rewraps every paragraph at once. Vellum therefore keeps a per-paragraph `TextRunCache` and drives it by **lifetime, not offset**: `Invalidate()` on a text edit, reuse untouched on width-only relayout.
+- **A1** — ~~`TextRunCache.InvalidateFrom` gives usable incremental reshaping for single-paragraph edits.~~ **Partly invalidated (Increment 0 — see [`increment-0-findings.md`](increment-0-findings.md) §2).** `InvalidateFrom(k>0)` returns a stale, *pre-edit* layout: invalidation is entry-granular and a paragraph is a single entry keyed 0. The correct usages (`InvalidateFrom(0)` / `Invalidate()`) measure **1.00×** against no cache, so R3's fallback — wholesale paragraph rebuild — is adopted **for edits**. **However**, reusing a persistent cache across a *wrap-width* change with unchanged text is correct and **≈3.5× faster** (median of 7 reps, range 2.9–5.2×), which matters because a resize rewraps every paragraph at once. VellumText therefore keeps a per-paragraph `TextRunCache` and drives it by **lifetime, not offset**: `Invalidate()` on a text edit, reuse untouched on width-only relayout.
 - **A2** — ~~`DrawableTextRun` inside a custom `ITextSource` correctly participates in line breaking, baseline alignment, and `GetTextBounds`.~~ **Validated (Increment 0).** Three traps are documented in the findings: `Properties` must be overridden (§4.7), `TextEndOfParagraph.Length == 1`, and `Top`/`TextTop` are offset by Avalonia's baseline formula.
 - **A3** — X11/Wayland compositors in practice honour `text/html` and `text/rtf` targets. *API-level support is confirmed; real-world behaviour varies by compositor.*
 - **A4** — Per-paragraph `TextLayout` construction is cheap enough that a 50k-paragraph document can be virtualized with measure-on-demand plus estimated heights.
@@ -116,7 +116,7 @@ What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ Vellum.Avalonia                   (Avalonia dependency)        │
+│ VellumText.Avalonia                   (Avalonia dependency)        │
 │   RichTextEditor (TemplatedControl)                            │
 │   RichTextView (Control, ILogicalScrollable)  ← block host     │
 │   BlockView / ParagraphView / TableView / ImageView            │
@@ -126,7 +126,7 @@ What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as
 └───────────────┬────────────────────────────────────────────────┘
                 │ depends on
 ┌───────────────▼────────────────────────────────────────────────┐
-│ Vellum.Core                       (zero dependencies)          │
+│ VellumText.Core                       (zero dependencies)          │
 │   Model:  DocumentNode, BlockNode, InlineContent, marks        │
 │   State:  EditorState, Selection, Transaction, Step, Mapping   │
 │   Ops:    typing, formatting, list/indent, table ops           │
@@ -135,22 +135,22 @@ What we must *not* do is reuse `Avalonia.Controls.Documents.InlineCollection` as
 └───────────────┬────────────────────────────────────────────────┘
                 │ used by
 ┌───────────────▼────────────────────────────────────────────────┐
-│ Vellum.Interop.Html                 (AngleSharp, MIT)          │
-│ Vellum.Interop.Markdown             (Markdig, BSD-2)           │
-│ Vellum.Interop.Rtf                  (no dependency, own code)  │
-│ Vellum.Interop.Docx                 (DocumentFormat.OpenXml,   │
+│ VellumText.Interop.Html                 (AngleSharp, MIT)          │
+│ VellumText.Interop.Markdown             (Markdig, BSD-2)           │
+│ VellumText.Interop.Rtf                  (no dependency, own code)  │
+│ VellumText.Interop.Docx                 (DocumentFormat.OpenXml,   │
 │                                      MIT, 3.5.1)               │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 **Why the core has no dependencies at all:** the model, transactions, undo, and all interop are testable headlessly, in a plain `dotnet test`, with no windowing system — and, as decided on 2026-08-11, without even `Avalonia.Base`. That is the difference between a project that survives and one that doesn't. Interop packages are separate so an app that only needs Markdown does not drag in the Open XML SDK.
 
-The cost of a zero-dependency core is two small primitives Avalonia would otherwise have supplied, which `Vellum.Core` therefore owns:
+The cost of a zero-dependency core is two small primitives Avalonia would otherwise have supplied, which `VellumText.Core` therefore owns:
 
 - **`Rgba` colour** — a `readonly record struct` of four bytes, replacing `Avalonia.Media.Color` in `MarkSet`.
 - **`ValueSpan<T>`** — `(int Start, int Length, T Value)`, replacing `Avalonia.Utilities.ValueSpan<T>` in `InlineContent.Marks`.
 
-`Vellum.Avalonia` owns the conversions in both directions. This is a deliberate trade: a few dozen lines of duplication in exchange for a core that is consumable from a server, a CLI, a source generator, or a test harness with no UI stack present.
+`VellumText.Avalonia` owns the conversions in both directions. This is a deliberate trade: a few dozen lines of duplication in exchange for a core that is consumable from a server, a CLI, a source generator, or a test harness with no UI stack present.
 
 ### 4.2 Document model — hybrid tree + flat inline runs
 
@@ -180,7 +180,7 @@ public sealed class BlockImageNode : BlockNode   // block-level image (leaf)
 public sealed class InlineContent
 {
     public string Text { get; }                                   // '\uFFFC' placeholder per embed
-    public ImmutableArray<ValueSpan<MarkSet>> Marks { get; }      // sorted, non-overlapping, normalized; Vellum's own ValueSpan
+    public ImmutableArray<ValueSpan<MarkSet>> Marks { get; }      // sorted, non-overlapping, normalized; VellumText's own ValueSpan
     public ImmutableArray<InlineEmbed> Embeds { get; }            // aligned to placeholder offsets
 }
 
@@ -190,7 +190,7 @@ public readonly record struct MarkSet(
     TextStyle Style,
     string? FontFamily,
     double? FontSize,
-    Rgba? Foreground,          // Vellum's own colour type — the core takes no Avalonia dependency
+    Rgba? Foreground,          // VellumText's own colour type — the core takes no Avalonia dependency
     Rgba? Highlight,
     LinkMark? Link);
 ```
@@ -335,9 +335,9 @@ internal sealed class ParagraphView : BlockView
 > rectangle.
 
 > **As built (P4).** `RichTextToolbar` is a `TemplatedControl` bound to an editor, with a default
-> theme in `Themes/RichTextToolbar.axaml` and a light/dark palette in `Themes/Vellum.axaml`. The
+> theme in `Themes/RichTextToolbar.axaml` and a light/dark palette in `Themes/VellumText.axaml`. The
 > same control serves twice: `RichTextEditor`'s template puts a second instance in an overlay
-> panel above the scroll viewer, and a `vellum-selection` class swaps in a compact nine-button
+> panel above the scroll viewer, and a `VellumText-selection` class swaps in a compact nine-button
 > template. A `Style` setter outranks a `ControlTheme` setter, which is the mechanism that lets one
 > control have two arrangements.
 >
@@ -463,13 +463,13 @@ internal sealed class ParagraphView : BlockView
 >   field, and an editor that refused it could not be driven by one. The viewer throws
 >   `ElementNotEnabledException`.
 >
-> **`DocumentText.Of` in `Vellum.Core` is now the single plain-text projection**, shared by the peer
+> **`DocumentText.Of` in `VellumText.Core` is now the single plain-text projection**, shared by the peer
 > and by the clipboard's plain-text flavour. Unifying them fixed a defect nobody had noticed: copying
 > a selection containing an image put a raw `U+FFFC` on the clipboard instead of the image's alt
 > text. An embed contributes its `PlainTextFallback`; blocks are separated by one newline and
 > nothing else, because a list marker is drawn by the view and is not in the model.
 
-> **As built (P7, find and replace).** `DocumentSearch` in `Vellum.Core` walks the tree and returns
+> **As built (P7, find and replace).** `DocumentSearch` in `VellumText.Core` walks the tree and returns
 > `ImmutableArray<SearchMatch>`; `RichTextView` owns the open search, paints the matches, and
 > `RichTextEditor` exposes `Find`/`FindNext`/`FindPrevious`/`ReplaceCurrent`/`ReplaceAll` plus
 > observable `MatchCount` and `CurrentMatchNumber`. Four decisions are load-bearing and each was
@@ -668,7 +668,7 @@ internal static class RichTextClipboardFormats
 
     // Lossless internal copy/paste — survives what HTML/RTF cannot express.
     public static readonly DataFormat<byte[]> NativeSlice =
-        DataFormat.CreateBytesApplicationFormat("vellum-slice+json");
+        DataFormat.CreateBytesApplicationFormat("VellumText-slice+json");
 }
 ```
 
@@ -681,7 +681,7 @@ Windows `HTML Format` requires the CF_HTML preamble (`Version:0.9`, `StartHTML`/
 
 Two things changed against the sketch above, both forced by decision 3 in §12.1:
 
-- **`Vellum.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
+- **`VellumText.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
 - **`NativeSlice` is not built.** It exists to carry what HTML cannot, and HTML currently carries everything the model can hold. It is worth adding when that stops being true, and not before.
 
 Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
@@ -832,7 +832,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | ~~High~~ **Medium — being lifted upstream** | Ship `IValueProvider` + `AutomationProperties` in v1 (done, P7). **[2026-08-16]** The upstream gap is closing without us: [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is open and adds platform-agnostic `ITextProvider`/`ITextRangeProvider` plus a `TextBox` peer and Win32 UIA glue. So the mitigation is no longer "propose it" but **watch it and implement the contracts on `DocumentPresenterAutomationPeer` once they land** — a rich text editor is the strongest case for that API, and Vellum can be an early consumer rather than the petitioner. Document the limitation honestly in the README until then. |
+| **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | ~~High~~ **Medium — being lifted upstream** | Ship `IValueProvider` + `AutomationProperties` in v1 (done, P7). **[2026-08-16]** The upstream gap is closing without us: [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is open and adds platform-agnostic `ITextProvider`/`ITextRangeProvider` plus a `TextBox` peer and Win32 UIA glue. So the mitigation is no longer "propose it" but **watch it and implement the contracts on `DocumentPresenterAutomationPeer` once they land** — a rich text editor is the strongest case for that API, and VellumText can be an early consumer rather than the petitioner. Document the limitation honestly in the README until then. |
 | **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
 | **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. |
 | **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
@@ -875,16 +875,16 @@ remaining plan (§10.3) only makes sense against what is genuinely done.
 | 4 | Marks & embeds | **Partly, and late.** The model carried every mark from Increment 1, but the control could not reach any of them until the parity pass below. |
 
 Pulling Increment 5 in front of 4 was the right call for the use case and the wrong call for
-coherence: for several increments Vellum could *import* bold, coloured, hyperlinked text and
+coherence: for several increments VellumText could *import* bold, coloured, hyperlinked text and
 then offer the user no way to produce or change any of it.
 
 ### 10.2 Parity gap against the commercial control
 
 Avalonia sells a closed-source `RichTextEditor` in Accelerate. Its **feature list** is public
 (§11: feature sets are not protected; expression is) and is the obvious yardstick for "is this
-worth using". Comparing it against what Vellum actually had:
+worth using". Comparing it against what VellumText actually had:
 
-| Capability | Their control | Vellum's model | Vellum's control |
+| Capability | Their control | VellumText's model | VellumText's control |
 |---|---|---|---|
 | Character formatting (17+ controls) | ✅ | ✅ every mark | ❌ → ✅ **closed** |
 | Headings, alignment, indent | ✅ | ✅ | ✅ |
@@ -903,7 +903,7 @@ worth using". Comparing it against what Vellum actually had:
 > **Verified against the tree at P7 (2026-08-16), not from memory.** This table had gone stale: P2–P6
 > closed seven of its rows while it still read `❌`. Each row above was re-checked against the code —
 > `RichTextView.Lists.Commands.cs`, `TableBlockView`, `RichTextToolbar`, `RichTextViewer`,
-> `Html`/`RtfExporter`, `Themes/Vellum.axaml` — and the four that remain open were confirmed absent by
+> `Html`/`RtfExporter`, `Themes/VellumText.axaml` — and the four that remain open were confirmed absent by
 > search. `IsReadOnly` exists **only** as `IValueProvider.IsReadOnly` on the automation peer, derived
 > from `SupportsTextInput`; it is not a settable control property. Note the read-only *flag* is partly
 > moot by the decision below that a viewer is a distinct control.
@@ -916,8 +916,8 @@ could make a paragraph a heading but could not make one word bold.
 Two structural things are worth copying from their design rather than inventing:
 
 - **One serializer interface, one package per format.** They have `IDocumentSerializer` with
-  Rtf/Docx/Xaml in separate packages. Vellum's importers are already separate assemblies
-  (`Vellum.Interop.Html`, `Vellum.Interop.Rtf`); exporters should join them behind a single
+  Rtf/Docx/Xaml in separate packages. VellumText's importers are already separate assemblies
+  (`VellumText.Interop.Html`, `VellumText.Interop.Rtf`); exporters should join them behind a single
   interface rather than growing as loose static classes.
 - **A read-only viewer is a distinct control, not a flag.** For a clipboard manager showing a
   history of pasted items, a viewer with no caret, no input and no history is the common case
@@ -937,7 +937,7 @@ Two structural things are worth copying from their design rather than inventing:
 
 **Sequencing principle, stated because it was violated once already:** close the gap between
 what the model can represent and what the control can do, before widening what the model can
-represent. Vellum spent several increments able to import formatting it could not produce.
+represent. VellumText spent several increments able to import formatting it could not produce.
 
 ### 10.4 Open after P7
 
@@ -947,7 +947,7 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | # | Work | Evidence it is open | Size |
 |---|---|---|---|
 | **P8** | ~~**Cross-cell (rectangular) table selection.**~~ **Done.** See "As built" below. | — | — |
-| **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. **Blocked on package identity, deliberately deferred:** `Vellum.Core` is taken on NuGet by an unrelated project. | `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Decision, then small |
+| **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. ~~**Blocked on package identity**~~ **Resolved 2026-08-17 by renaming to `VellumText.*`.** | The old name collided: `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Done |
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
@@ -962,27 +962,35 @@ most of P9 was already in `Directory.Build.props`. That is the second time this 
 and in both directions: it has claimed work was done that was not, and open that was not. **Check
 the tree, not the row.**
 
-**The one thing standing between Vellum and a release is its name.** `Vellum.Core` is already on
-nuget.org, and not by accident of squatting: it is the core of an actively published envelope
-encryption library, at 0.2.0 as of 2026-07-03. That project owns a whole `Vellum.*` family, so
-`Vellum.Avalonia` being free today is not much comfort — shipping into someone else's namespace
-would confuse both sets of users, and the ID cannot be changed after the first publish. This needs
-a naming decision before anything is pushed. Nothing else blocks v1.
+**The one thing that stood between this library and a release was its name, and it is now settled.**
+The project was called `Vellum` until 2026-08-17, and `Vellum.Core` is already on nuget.org — not
+by accident of squatting, but as the core of an actively published envelope encryption library, at
+0.2.0 as of 2026-07-03. That project owns a whole `Vellum.*` family, so `Vellum.Avalonia` being
+free was not much comfort: shipping into someone else's namespace would have confused both sets of
+users, and an ID cannot be changed after the first publish. Renamed throughout to `VellumText`.
+Nothing else blocks v1.
 
-> **Naming decision: deferred, not settled** (2026-08-16). The name stays **Vellum** for now; the
-> alternatives were surveyed and are recorded here so the work is not repeated. `Affluent.Core`,
-> `Affluent.Avalonia` and `Affluent.Interop.*` are all free, with only an abandoned placeholder at
-> the `Affluent` root; `VellumText.*`, `Vellum.RichText.*` and `Vellum.Text.*` are free as well.
+> **Naming decision: settled** (2026-08-17). Renamed to **`VellumText`** throughout — packages,
+> assemblies, namespaces, directories and the solution. The old `Vellum.*` prefix was not merely
+> squatted: `Vellum.Core` is an actively published envelope-encryption library that ships the
+> *same version numbers* this project does, so a version pin was no defence and the symptom was a
+> missing-type compile error long after the bad restore.
+>
+> A `PackageId`-only rename was tested and works — a package id may differ from the assembly it
+> contains, verified by consuming one — but was rejected: a package named one thing containing a
+> namespace named another is a papercut on every consumer for ever, and the full rename is a
+> mechanical change with 4,036 tests as its oracle.
+>
+> Alternatives surveyed, all free and unreserved at the time: `Scrivenly`, `Inkwell`,
+> `Palimpsest`, `Codex`, `Marginalia`. `Foliant` was taken; `Quill` was rejected because a
+> well-known JavaScript editor owns the name and `Quill.Delta` on NuGet is its data format.
 > **`Avalonia.*` is prefix-reserved**, so `Avalonia.RichText` would be rejected at push time even
 > though the ID is free — worth knowing before anyone proposes it again.
 >
-> Only `PackageId` has to change, so this decision costs one commit whenever it is taken:
-> assembly names, namespaces, the `avares://` theme URIs and all 3,786 tests are unaffected.
->
 > **Nothing may be published to NuGet without the maintainer's explicit confirmation** (standing
-> instruction). Four independent things currently prevent it: the release workflow fires only on a
-> `v*` tag and none exists, `publish` sits behind the `nuget` environment, `NUGET_API_KEY` is
-> unset, and the preflight check would refuse `Vellum.Core 0.1.0` anyway.
+> instruction). Three independent things still prevent it: the release workflow fires only on a
+> `v*` tag and none exists, `publish` sits behind the `nuget` environment, and
+> `NUGET_API_KEY` is unset.
 
 
 > **P8 as built — a rectangle is not a range.**
@@ -1030,7 +1038,7 @@ a naming decision before anything is pushed. Nothing else blocks v1.
 > button greys out rather than appearing live and doing nothing.
 >
 > **Defaults were read out of Avalonia 12.1.1 by reflection, not assumed.** `TextBox` is
-> `IsReadOnly=false`, `AcceptsReturn=false`, `AcceptsTab=false`, `UndoLimit=10`. Vellum matches
+> `IsReadOnly=false`, `AcceptsReturn=false`, `AcceptsTab=false`, `UndoLimit=10`. VellumText matches
 > only the first and diverges deliberately on the other three: a document editor that rejects
 > Enter is absurd, Tab indenting is what already shipped, and a finite default `UndoLimit` would
 > start silently discarding history that callers keep today. Each divergence preserves existing
@@ -1061,7 +1069,7 @@ a naming decision before anything is pushed. Nothing else blocks v1.
 > tags, `PackageLicenseExpression`, the packed README, `snupkg` symbols, source link and
 > determinism, and `IsPackable=false` for everything outside `src/`. **Checked by packing and then
 > consuming**, not by reading: a scratch project built against the produced `.nupkg` files loads
-> the theme by `avares://Vellum.Avalonia/Themes/Vellum.axaml`, templates `RichTextEditor`, forwards
+> the theme by `avares://VellumText.Avalonia/Themes/VellumText.axaml`, templates `RichTextEditor`, forwards
 > the P10 properties into the view, and imports RTF. The theme travels inside the assembly as
 > `!AvaloniaResources`, so no extra content files are needed. `PackageId` is left implicit because
 > the assembly names are already the package names.
@@ -1084,10 +1092,11 @@ a naming decision before anything is pushed. Nothing else blocks v1.
 > **What is not done: the package IDs.** The publish job asks nuget.org whether each version
 > already exists and stops if it does, rather than passing `--skip-duplicate` — that would accept
 > an existing version silently while the GitHub release was built from the *current* artifacts,
-> leaving the two disagreeing about what a version contains. Run against the live index today the
-> check blocks the first release, because `Vellum.Core` 0.1.0 is taken. So the automation is
-> finished and correct, and it is currently doing its job by refusing to release. A naming
-> decision unblocks it; no further workflow work is needed.
+> leaving the two disagreeing about what a version contains. Run against the live index when this
+> was written the check blocked the first release, because the then-current `Vellum.Core` 0.1.0 was
+> taken by an unrelated package. So the automation was finished and correct, and was doing its job
+> by refusing to release. **The 2026-08-17 rename to `VellumText.*` resolved it**; no further
+> workflow work is needed.
 
 **Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
 documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback
@@ -1103,8 +1112,8 @@ visible from inside the project. **Four of these were defects in code that had p
 | Work | Why it existed |
 |---|---|
 | `RichTextClipboard` made public | The format descriptors, and the rule that a native format is read as **bytes and never as a string**, were `internal`. The API is now shaped so the mojibake bug cannot be written through it — there is no overload anywhere taking a payload as a `string`. |
-| `Vellum.Interop.Json` | HTML and RTF are *interchange* and both lose something. An application that **stores** documents needed one that loses nothing, and a schema version so a file from a newer build is refused rather than silently partly read. |
-| `BitmapEmbedRenderer` | Vellum could lay an image out and never draw one — the only renderer in the box was the placeholder. **`data:` only by default**, because a pasted document is untrusted input and every source it names is an address that content chose. || Image paste and drop, `IImageStore` | `DragDrop` appeared nowhere in the assembly, and a pasted screenshot arrived as whatever text flavour rode alongside it. |
+| `VellumText.Interop.Json` | HTML and RTF are *interchange* and both lose something. An application that **stores** documents needed one that loses nothing, and a schema version so a file from a newer build is refused rather than silently partly read. |
+| `BitmapEmbedRenderer` | VellumText could lay an image out and never draw one — the only renderer in the box was the placeholder. **`data:` only by default**, because a pasted document is untrusted input and every source it names is an address that content chose. || Image paste and drop, `IImageStore` | `DragDrop` appeared nowhere in the assembly, and a pasted screenshot arrived as whatever text flavour rode alongside it. |
 | `DocumentPreview`, `DocumentTextMap`, `Slice.OfLines` | A list of documents needs grapheme-safe truncation; code working in text offsets needs a way back to the model. `DocumentText.Of` **cannot** serve the latter — it expands an embed to its alt text, so it is not invertible. |
 | `docs/guide.md` | The repository had an architecture document and no usage document. |
 
@@ -1139,7 +1148,7 @@ companion: *check it against a consumer*.
 
 ### 10.5 Candidate upstream Avalonia reports
 
-Findings from this project that belong to the framework, not to Vellum. **Searched against the
+Findings from this project that belong to the framework, not to VellumText. **Searched against the
 upstream tracker on 2026-08-16; two of the four dissolved on contact.** Nothing has been filed.
 
 | Claim | Upstream state | Verdict |
@@ -1162,7 +1171,7 @@ agent, please stop right there. We want a human to read and respond to the vario
 comments."* It requires that a human has fully read and understood the change and its description,
 demands succinct prose over LLM verbosity, and states that AI-assisted PRs which ignore this **will
 be closed**. Issues are further constrained by `blank_issues_enabled: false` — the `bug_report` form
-requires a description, reproduction steps and an Avalonia version. **The consequence for Vellum:
+requires a description, reproduction steps and an Avalonia version. **The consequence for VellumText:
 an agent must not file or open PRs here.** Drafting is fine; a human has to read, own and submit
 them, and to answer review comments afterwards.
 
@@ -1170,7 +1179,7 @@ them, and to answer review comments afterwards.
 
 | Draft | Verified how |
 |---|---|
-| [`drawabletextrun-baseline.md`](upstream/drawabletextrun-baseline.md) | Reproduced in a **clean 12.1.1 project containing no Vellum code**, and the repro printed in the report is the exact program that was run. Cause pinned to `TextLineImpl.cs:128`, where `textRun.Properties?.BaselineAlignment` makes null reachable by design and the `switch` then has no `null` arm, so it reaches `default:` and throws. The suggested one-line fix and the "override `Properties`" workaround were both run. |
+| [`drawabletextrun-baseline.md`](upstream/drawabletextrun-baseline.md) | Reproduced in a **clean 12.1.1 project containing no VellumText code**, and the repro printed in the report is the exact program that was run. Cause pinned to `TextLineImpl.cs:128`, where `textRun.Properties?.BaselineAlignment` makes null reachable by design and the `switch` then has no `null` arm, so it reaches `default:` and throws. The suggested one-line fix and the "override `Properties`" workaround were both run. |
 | [`headless-touch.md`](upstream/headless-touch.md) | Input surface enumerated from `Avalonia.Headless.dll` 12.1.1 by metadata reader: `IHeadlessWindow` exposes keyboard, mouse, wheel and drag-drop only, and **no member anywhere in the assembly** matches `Touch`, `Pointer`, `Pen` or `Gesture`. |
 
 Tracker re-searched immediately before drafting: neither is reported.
@@ -1179,7 +1188,7 @@ and is a different defect; [#17403](https://github.com/AvaloniaUI/Avalonia/issue
 `BaselineAlignment` being applied wrongly, not a crash when it is absent.
 
 
-**Checked, and Vellum is not exposed:** [#21902](https://github.com/AvaloniaUI/Avalonia/issues/21902)
+**Checked, and VellumText is not exposed:** [#21902](https://github.com/AvaloniaUI/Avalonia/issues/21902)
 reports a `TextRunCache` poisoned by a `TextLayout` built outside measure, affecting 12.1.0–12.1.1.
 `ParagraphView` builds its layout at exactly one site, inside `Measure`, and replaces `_runCache`
 outright whenever the content, kind or preedit changes — so a stale entry cannot outlive the text it
@@ -1202,13 +1211,13 @@ was shaped from.
 
 | Decision | Outcome | Date |
 |---|---|---|
-| **Project name** | **Vellum.** Deliberately not `Avalonia.*`, so it never reads as first-party. Packages: `Vellum.Core`, `Vellum.Avalonia`, `Vellum.Interop.*`. | 2026-08-11 |
+| **Project name** | **VellumText.** Deliberately not `Avalonia.*`, so it never reads as first-party. Packages: `VellumText.Core`, `VellumText.Avalonia`, `VellumText.Interop.*`. | 2026-08-11 |
 | **Tables (AC5) in v1.0?** | **Yes — firm.** Tables are a hard requirement, not negotiable scope. This makes R2 the project's defining risk and Increment 6 the critical path. See §12.3. | 2026-08-11 |
 | **License** | MIT. | 2026-08-11 |
 | **OD1 — Avalonia version** | **Avalonia 12 only** for v1. No 11.3 LTS multi-targeting. It can be added later behind a build constant if demand appears; carrying it from day one taxes every increment. | 2026-08-11 |
 | **Target framework** | **`net10.0`**, single-target. Avalonia 12.1.1 ships `net10.0` assemblies, so nothing is given up on the UI side. Consumers must be on .NET 10 — accepted deliberately for a new library rather than carrying a `net8.0` floor. | 2026-08-11 |
-| **`Vellum.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `Vellum.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
-| **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `Vellum.Interop.Rtf` on RtfPipe. | user decision |
+| **`VellumText.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `VellumText.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
+| **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf` on RtfPipe. | user decision |
 | **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
 
@@ -1221,7 +1230,7 @@ was shaped from.
 
 Tables being firm changes three things in this design, and they should be treated as binding on Increments 1–3, long before any table code is written:
 
-- **The model must be a tree (§5.1 A3), not a linear buffer.** Any temptation to simplify `Vellum.Core` to a flat Delta-style model in early increments is now foreclosed. `TableNode`/`TableRowNode`/`TableCellNode` must exist in the schema from Increment 1, even while unreachable from the UI, so positions and steps are exercised against nested structure from day one.
+- **The model must be a tree (§5.1 A3), not a linear buffer.** Any temptation to simplify `VellumText.Core` to a flat Delta-style model in early increments is now foreclosed. `TableNode`/`TableRowNode`/`TableCellNode` must exist in the schema from Increment 1, even while unreachable from the UI, so positions and steps are exercised against nested structure from day one.
 - **`BlockView` must be genuinely recursive from Increment 3.** A table cell is a block host containing blocks. If the block host in Increment 3 assumes a flat top-level list of blocks, Increment 6 becomes a rewrite. Validate recursion early by nesting a blockquote inside a list item.
 - **`CellSelection` must be in the `Selection` hierarchy from Increment 1.** Retrofitting a third selection kind through every command is the expensive path.
 

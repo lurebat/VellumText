@@ -62,18 +62,18 @@ Where the two differ is only in timing noise, discussed in §2.
 
 ```
 spike/
-  Vellum.Spike.sln
+  VellumText.Spike.sln
   Directory.Build.props        common TFM / Avalonia version
   Shared/                      SpikeTextSource, BoxRun, ImageRun, properties subclasses
-  Vellum.Spike.Probe/          console; deterministic assertion probes + benchmarks
-  Vellum.Spike.App/            Avalonia window; live interaction + PNG capture
+  VellumText.Spike.Probe/          console; deterministic assertion probes + benchmarks
+  VellumText.Spike.App/            Avalonia window; live interaction + PNG capture
   results/                     committed evidence: 8 markdown reports + 29 PNGs
 ```
 
 Reproduce (after `git checkout 766c3ef -- spike`):
 
 ```
-cd spike/Vellum.Spike.Probe
+cd spike/VellumText.Spike.Probe
 dotnet run -c Release -- a2       # A2 probes
 dotnet run -c Release -- c1       # C1 probes
 dotnet run -c Release -- bidi     # bidi/grapheme probes
@@ -83,7 +83,7 @@ dotnet run -c Release -- a1width  # A1 width-only relayout
 dotnet run -c Release -- review   # re-tests of the three challenged claims
 dotnet run -c Release -- bench    # A1 BenchmarkDotNet
 
-cd ../Vellum.Spike.App
+cd ../VellumText.Spike.App
 dotnet run -c Debug               # the interactive window
 ```
 
@@ -143,7 +143,7 @@ break ([`increment-0-evidence/a2-wrapped.png`](increment-0-evidence/a2-wrapped.p
 
 One boundary case worth recording: **an embed wider than the entire wrap width overflows.** A
 500px embed in a 300px wrap produced a 500px-wide line. It is not clipped, not scaled, and no text
-positions are lost — but it *does* escape the wrap width. Vellum will need its own policy for
+positions are lost — but it *does* escape the wrap width. VellumText will need its own policy for
 oversized inline images (scale to fit the content width, most likely) because the formatter will
 not impose one.
 
@@ -208,7 +208,7 @@ so this is worth encoding as a requirement — see §6.
 
 The synthesized paragraph terminator occupies a text-source position of its own, so **the sum of
 `TextLine.Length` over a layout equals the source text length + 1** (149 versus 148). Anything in
-Vellum that reconciles line lengths against model offsets must account for it. This bit the A1
+VellumText that reconciles line lengths against model offsets must account for it. This bit the A1
 harness first — the tell that the cached layout was stale was a length sum of 101 rather than 102.
 
 ### (c) `GetTextBounds` across the embed — correct
@@ -477,7 +477,7 @@ paragraph's `TextLayout` wholesale on edit. Concretely:
 - a full rebuild of an 800-char paragraph costs roughly **0.35–0.6 ms** (the spread across runs on
   a noisy VM; ~0.05 ms at 100 chars), leaving at least ~25× headroom inside a 16 ms frame budget,
   which is why B2's paragraph granularity was the right choice;
-- **[revised] Vellum should keep a per-paragraph `TextRunCache` after all** — but drive it by
+- **[revised] VellumText should keep a per-paragraph `TextRunCache` after all** — but drive it by
   *lifetime*, not by offset. The rule that matches the measurements is:
   - **on a text edit**, call `Invalidate()` (or equivalently discard the cache). Never
     `InvalidateFrom(k>0)` — it silently returns the pre-edit layout.
@@ -670,7 +670,7 @@ cleanly to 7.
 
 But §8 scenario 3 currently reads: *"arrow keys and Backspace across '👨‍👩‍👧‍👦' … never split a
 cluster. Uses `GetBackspaceCaretCharacterHit`."* **As written, that test would fail** — and it
-would fail because the assertion is wrong, not because Avalonia is. Vellum must consciously choose
+would fail because the assertion is wrong, not because Avalonia is. VellumText must consciously choose
 a policy:
 
 - **(i) component-peel** — pass `GetBackspaceCaretCharacterHit` through as-is. Matches Word,
@@ -678,7 +678,7 @@ a policy:
 - **(ii) whole-cluster delete** — snap the result back to the enclosing `StringInfo` boundary.
   Simpler to explain; diverges from platform convention.
 
-> **DECIDED (2026-08-11): (i) component-peel.** Vellum passes
+> **DECIDED (2026-08-11): (i) component-peel.** VellumText passes
 > `GetBackspaceCaretCharacterHit` through unmodified. Backspace on 👨‍👩‍👧‍👦 removes the boy and
 > leaves 👨‍👩‍👧; Backspace on `é` (combining) removes the acute and leaves `e`.
 >
@@ -777,7 +777,7 @@ Applied:
 > usages (`InvalidateFrom(0)` / `Invalidate()`) measure 1.00× against no cache. R3's fallback,
 > wholesale paragraph rebuild, is adopted **for edits**.
 > **However**, a persistent `TextRunCache` reused across a *width* change with unchanged text is
-> correct and ~3.5× faster, so Vellum keeps one per paragraph and drives it by lifetime rather than
+> correct and ~3.5× faster, so VellumText keeps one per paragraph and drives it by lifetime rather than
 > by offset.
 
 R3's severity could reasonably drop from Medium to Low: the risk has been realised, the fallback

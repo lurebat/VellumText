@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Something Vellum should be able to do and cannot
+about: Something VellumText should be able to do and cannot
 labels: enhancement
 ---
 

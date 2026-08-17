@@ -4,7 +4,7 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-Vellum is pre-1.0, so the public API is still allowed to move. Nothing is on
+VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
@@ -12,6 +12,22 @@ NuGet; packages are published to a local feed, and
 
 Nothing yet.
 
+## [0.4.0] - 2026-08-17
+
+### Changed
+
+- **Renamed to `VellumText` throughout — this is a breaking change.** Package ids, assembly names,
+  namespaces, directories, the solution and the theme URI all moved from `Vellum.*` to
+  `VellumText.*`. Consumers must update `PackageReference` ids, `using` directives, and the
+  theme include to `avares://VellumText.Avalonia/Themes/VellumText.axaml`.
+
+  The old name was not available: `Vellum.Core` is an actively published envelope-encryption
+  library shipping the *same version numbers*, so a version pin was no defence and the failure
+  surfaced as a missing-type compile error long after a clean restore. `VellumText.*` is free and
+  unreserved.
+
+  Nothing else changed — no behaviour, no API shape, and the full suite passes unmodified apart
+  from its own namespaces.
 ## [0.3.0] - 2026-08-16
 
 ### Fixed
@@ -32,21 +48,21 @@ this is effectively the initial version.
 
 ### Added
 
-- **`Vellum.Core`** — the headless document model. An immutable node tree with
+- **`VellumText.Core`** — the headless document model. An immutable node tree with
   paragraphs, lists, rules, embeds and tables; a flat integer position scheme;
   replace, mark and block-attribute steps that map positions through an edit;
   text, node and cell selections; transactions; and undo history with
   coalescing. No dependencies at all, enforced by a build target.
-- **`Vellum.Avalonia`** — the editing surface. A `RichTextEditor` control over
+- **`VellumText.Avalonia`** — the editing surface. A `RichTextEditor` control over
   a block-reconciling view, built on Avalonia's own text stack: bidi-aware
   selection geometry, grapheme-correct caret movement, inline embeds via
   `DrawableTextRun`, and IME composition.
 - Multi-block editing: cross-block caret movement and selection, Enter to
   split, Backspace and Delete to join, headings, blockquotes, code blocks,
   alignment, indent, and bulleted and numbered lists.
-- **`Vellum.Interop.Html`** and **`Vellum.Interop.Rtf`** — import and export both ways. HTML import
+- **`VellumText.Interop.Html`** and **`VellumText.Interop.Rtf`** — import and export both ways. HTML import
   sanitizes; both report what they could not keep rather than dropping it silently.
-- **`Vellum.Interop.Json`** — lossless, schema-versioned JSON, for storing documents rather
+- **`VellumText.Interop.Json`** — lossless, schema-versioned JSON, for storing documents rather
   than exchanging them. A document written and read back is equal to the one written, and a file
   from a newer schema is refused rather than partly read.
 - **`RichTextClipboard`** — a public clipboard API with no way to read a native format as a string,

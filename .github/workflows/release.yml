@@ -173,6 +173,6 @@ jobs:
           awk -v ver="$VERSION" \
             '$0 ~ "^## \\["ver"\\]"{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > "$notes"
           gh release create "$TAG" \
-            --title "Vellum $VERSION" \
+            --title "VellumText $VERSION" \
             --notes-file "$notes" \
             artifacts/*.nupkg artifacts/*.snupkg

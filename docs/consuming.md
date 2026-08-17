@@ -1,13 +1,13 @@
-# Consuming Vellum before it is on NuGet
+# Consuming VellumText before it is on NuGet
 
-Vellum is not published. Until it is, the supported way to consume it is a **local package feed** —
+VellumText is not published. Until it is, the supported way to consume it is a **local package feed** —
 a folder of `.nupkg` files that NuGet treats as a source. This gives you versioned, immutable
 packages without forking the source, and switching to a real feed later changes one line.
 
 ## Publishing
 
 ```powershell
-dotnet pack -c Release -o G:\packages\vellum-local
+dotnet pack -c Release -o G:\packages\VellumText-local
 ```
 
 Five packages plus symbols. The folder is the feed; nothing else is needed.
@@ -25,11 +25,11 @@ Add this `nuget.config` beside the consuming solution:
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
-    <add key="vellum-local" value="external/vellum-packages" />
+    <add key="VellumText-local" value="external/VellumText-packages" />
   </packageSources>
   <packageSourceMapping>
-    <packageSource key="vellum-local">
-      <package pattern="Vellum.*" />
+    <packageSource key="VellumText-local">
+      <package pattern="VellumText.*" />
     </packageSource>
     <!--
       List every feed name your machines might use. A mapping naming a source that is
@@ -50,35 +50,33 @@ vendoring the source.
 Then reference the packages normally:
 
 ```xml
-<PackageReference Include="Vellum.Avalonia" Version="0.3.0" />
-<PackageReference Include="Vellum.Interop.Html" Version="0.3.0" />
+<PackageReference Include="VellumText.Avalonia" Version="0.4.0" />
+<PackageReference Include="VellumText.Interop.Html" Version="0.4.0" />
 ```
 
-### Two things that will bite you
+### Two things worth knowing
 
-**1. The mapping is mandatory, because the name is taken and the collision is live.** `Vellum.Core`
-**0.1.0** already exists and is an unrelated envelope-encryption library — same id, same version.
-Verified on a developer machine here: with no local feed configured,
+**1. Map the source anyway, even though the name is now clear.** `VellumText.*` is free and
+unreserved on nuget.org, so nothing will impersonate it — but without a mapping, resolution of a
+package that exists in a local folder *and* could one day exist on a remote feed is a race between
+a fast folder and a slow HTTP source. Mapping makes it a rule instead of a race.
+
+> **Why this section used to be a warning.** The project was called `Vellum` until 2026-08-17, and
+> `Vellum.Core` is an actively published envelope-encryption library shipping the *same version
+> numbers* — so `dotnet add package Vellum.Core --version 0.1.0` restored successfully and yielded
+> `DekManager` and `PayloadEncryptor`, with a `net10.0` target so nothing failed until compile
+> time. A version pin was no defence, because the impostor occupied the same coordinates. That is
+> what the rename fixed, and it is why the identity check below is still worth running.
+
+**Verify what you actually resolved**, on every upgrade rather than once:
 
 ```powershell
-dotnet add package Vellum.Core --version 0.1.0
+# Should print the VellumText assembly, and find no crypto types.
+dotnet build && dotnet list package
 ```
 
-restores successfully and yields `DekManager`, `PayloadEncryptor` and
-`DefaultRandomBytesProvider` — a crypto library, with a `net10.0` target, so nothing fails at
-restore time. You find out at compile time when `DocumentNode` does not exist, and the error names
-a type rather than a package.
-
-**Pinning a version does not help, which is the non-obvious part.** The impostor publishes both
-`0.1.0` and `0.2.0` — the same coordinates Vellum is built at — so an exact version reference
-names a package that exists in two places and says nothing about which one you want. Its own
-description reads *"PLACEHOLDER: This package name is reserved… Do not install"*, which is no help
-at all once NuGet has already installed it.
-
-Source mapping is what makes resolution deterministic instead of a race between a fast local folder
-and a slow remote feed. Do not skip it. See §10.4 of [`architecture.md`](architecture.md) for the
-naming decision this is waiting on — until it is taken, `Vellum.*` **must** be pinned.
-
+A mapping that silently stops applying fails in exactly one way — the wrong package restores
+cleanly and the first symptom is a missing type, long after the restore that caused it.
 **2. `packageSourceMapping` is all-or-nothing, but one committed file still works everywhere.**
 The moment the element is present, *every* package must match some mapping, including ones you
 never thought about, and a package matching none fails with `NU1100` — which helpfully lists the

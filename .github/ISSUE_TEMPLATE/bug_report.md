@@ -19,7 +19,7 @@ starting document and the exact sequence of keystrokes or API calls.
 
 **Environment**
 
-- Vellum version:
+- VellumText version:
 - Avalonia version:
 - .NET version:
 - OS (and, on Linux, X11 or Wayland and which desktop):

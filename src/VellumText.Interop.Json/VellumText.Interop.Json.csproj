@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>VellumText.Interop.Json</RootNamespace>
+    <Description>Lossless JSON serialization for the VellumText document model.</Description>
+    <PackageTags>$(PackageTags);json;serialization</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VellumText.Core\VellumText.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-# Vellum user guide
+# VellumText user guide
 
 A rich text editor control for [Avalonia](https://avaloniaui.net), and the document model behind
 it. This guide covers using it; [`architecture.md`](architecture.md) covers why it is built the way
@@ -26,13 +26,13 @@ it is.
 
 | Package | What it is | Depends on |
 |---|---|---|
-| `Vellum.Core` | The document model. Nodes, positions, selections, transactions, history. Headless. | Nothing at all |
-| `Vellum.Avalonia` | The editor and viewer controls. | Avalonia, `Vellum.Core` |
-| `Vellum.Interop.Html` | HTML import and export, with a sanitizer. | `Vellum.Core` |
-| `Vellum.Interop.Rtf` | RTF import and export. | `Vellum.Interop.Html` |
-| `Vellum.Interop.Json` | Lossless JSON, for storing documents. | `Vellum.Core` |
+| `VellumText.Core` | The document model. Nodes, positions, selections, transactions, history. Headless. | Nothing at all |
+| `VellumText.Avalonia` | The editor and viewer controls. | Avalonia, `VellumText.Core` |
+| `VellumText.Interop.Html` | HTML import and export, with a sanitizer. | `VellumText.Core` |
+| `VellumText.Interop.Rtf` | RTF import and export. | `VellumText.Interop.Html` |
+| `VellumText.Interop.Json` | Lossless JSON, for storing documents. | `VellumText.Core` |
 
-`Vellum.Avalonia` deliberately does not reference the interop packages, so an application that
+`VellumText.Avalonia` deliberately does not reference the interop packages, so an application that
 wants a text editor does not acquire an HTML parser to get one. You add the formats you want; see
 [import and export](#import-and-export).
 
@@ -46,7 +46,7 @@ Add the theme to `App.axaml`:
 <Application xmlns="https://github.com/avaloniaui" ...>
   <Application.Styles>
     <FluentTheme />
-    <StyleInclude Source="avares://Vellum.Avalonia/Themes/Vellum.axaml" />
+    <StyleInclude Source="avares://VellumText.Avalonia/Themes/VellumText.axaml" />
   </Application.Styles>
 </Application>
 ```
@@ -55,7 +55,7 @@ Then put an editor in a window:
 
 ```xml
 <Window xmlns="https://github.com/avaloniaui"
-        xmlns:v="clr-namespace:Vellum.Avalonia;assembly=Vellum.Avalonia">
+        xmlns:v="clr-namespace:VellumText.Avalonia;assembly=VellumText.Avalonia">
   <v:RichTextEditor x:Name="Editor" />
 </Window>
 ```
@@ -491,12 +491,12 @@ The toolbar reads its colours from resources you can override:
 
 ```xml
 <Application.Resources>
-  <SolidColorBrush x:Key="VellumToolbarAccent" Color="#3060C0" />
+  <SolidColorBrush x:Key="VellumTextToolbarAccent" Color="#3060C0" />
 </Application.Resources>
 ```
 
-The others are `VellumToolbarBackground`, `VellumToolbarForeground`, `VellumToolbarBorderBrush`,
-`VellumToolbarHover` and `VellumToolbarAccentForeground`.
+The others are `VellumTextToolbarBackground`, `VellumTextToolbarForeground`, `VellumTextToolbarBorderBrush`,
+`VellumTextToolbarHover` and `VellumTextToolbarAccentForeground`.
 
 `RichTextEditor` and `RichTextToolbar` are templated controls; replace their `ControlTemplate` to
 rearrange them entirely. Block-level presentation is a `IParagraphStyleResolver`
@@ -506,7 +506,7 @@ panel picks up that theme's font.
 
 ## Recipe: a clipboard manager
 
-The case Vellum was shaped around. Capture whatever the clipboard holds, show a list of previews,
+The case VellumText was shaped around. Capture whatever the clipboard holds, show a list of previews,
 restore one on demand.
 
 ```csharp

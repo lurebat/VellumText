@@ -1,6 +1,6 @@
-# Contributing to Vellum
+# Contributing to VellumText
 
-Thanks for looking. Vellum is a rich text editor control for Avalonia, and it
+Thanks for looking. VellumText is a rich text editor control for Avalonia, and it
 is early — the model and the editing surface exist, the interop packages are
 being built out.
 
@@ -9,8 +9,8 @@ being built out.
 You need the .NET SDK named in [`global.json`](global.json). Nothing else:
 
 ```
-git clone https://github.com/AsafMah/Vellum.git
-cd Vellum
+git clone https://github.com/AsafMah/VellumText.git
+cd VellumText
 dotnet build
 dotnet test
 ```
@@ -21,7 +21,7 @@ and they work the same on Linux, macOS and Windows.
 To run one project's tests, or one test:
 
 ```
-dotnet test tests/Vellum.Avalonia.Tests
+dotnet test tests/VellumText.Avalonia.Tests
 dotnet test --filter FullyQualifiedName~AQuoteIsDrawnWithABar
 ```
 
@@ -29,9 +29,9 @@ dotnet test --filter FullyQualifiedName~AQuoteIsDrawnWithABar
 
 | Path | What lives there |
 |---|---|
-| `src/Vellum.Core` | The document model, positions, steps, transactions, history. **No dependencies at all**, not even `Avalonia.Base` — a build target enforces this. |
-| `src/Vellum.Avalonia` | The `RichTextEditor` control, block views, caret and selection, IME. |
-| `src/Vellum.Interop.*` | Import and export for one interchange format each. Separate packages so an app that only wants Markdown does not drag in an HTML parser. |
+| `src/VellumText.Core` | The document model, positions, steps, transactions, history. **No dependencies at all**, not even `Avalonia.Base` — a build target enforces this. |
+| `src/VellumText.Avalonia` | The `RichTextEditor` control, block views, caret and selection, IME. |
+| `src/VellumText.Interop.*` | Import and export for one interchange format each. Separate packages so an app that only wants Markdown does not drag in an HTML parser. |
 | `tests/` | One test project per source project. |
 | `docs/architecture.md` | The design. It is detailed, it is verified against the Avalonia source, and it is the thing to read first. |
 
@@ -55,7 +55,7 @@ than quietly working around it.
 
 ## Performance claims
 
-Vellum's design contains measured claims — for instance that reusing a shaped
+VellumText's design contains measured claims — for instance that reusing a shaped
 run cache across a width change is worth roughly 3.5×, and that invalidating
 it by offset is not usable at all. Those numbers came from a spike, not from
 reasoning, and the same standard applies to new ones. If you change something
@@ -86,7 +86,7 @@ Publishing needs a `NUGET_API_KEY` secret on the `nuget` environment. The
 packages that get pushed are the artifacts the `verify` job built, not a second
 build, so what ships is what was tested.
 
-Vellum is pre-1.0, so the public API is still allowed to move; once 1.0 is out,
+VellumText is pre-1.0, so the public API is still allowed to move; once 1.0 is out,
 semantic versioning applies in the usual way.
 
 ## Reporting a bug
