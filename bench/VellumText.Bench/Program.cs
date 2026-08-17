@@ -29,6 +29,7 @@ internal static class Program
         ("marks", Scenarios.MarkSpans),
         ("rtf", Scenarios.RtfColours),
         ("heights", Scenarios.HeightIndex),
+        ("ac12", Scenarios.Ac12),
     ];
 
     private static int Main(string[] args)

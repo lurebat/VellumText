@@ -226,6 +226,83 @@ internal static class Scenarios
         Measure.Report("BlockHeightIndex.SetHeight — one call", "blocks", points);
     }
 
+    /// <summary>
+    /// AC12 as written: 50,000 paragraphs, first render under 500 ms, keystroke under 16 ms.
+    /// </summary>
+    /// <remarks>
+    /// One size, because this is not asking about shape — the other scenarios do that. It is
+    /// asking the single question <c>architecture.md</c> §8 actually commits to, at the size it
+    /// commits to, so the answer is yes or no rather than an extrapolation.
+    /// </remarks>
+    internal static void Ac12()
+    {
+        const int Paragraphs = 50_000;
+
+        var doc = Document(Paragraphs);
+
+        var render = Measure.Run(
+            () => new RichTextView { State = EditorState.Create(doc) },
+            view =>
+            {
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+            },
+            Paragraphs,
+            rounds: 5,
+            warmup: 2);
+
+        var keystroke = Measure.Run(
+            () => Shown(doc),
+            view =>
+            {
+                view.MoveTo(1, false);
+                view.InsertText("x");
+                view.Measure(new Size(Width, Height));
+                view.Arrange(new Rect(0, 0, Width, Height));
+            },
+            Paragraphs,
+            rounds: 7,
+            warmup: 2);
+
+        var caret = Measure.Run(
+            () =>
+            {
+                var view = Shown(doc);
+
+                view.MoveTo(1, false);
+
+                return view;
+            },
+            view => view.RaiseEvent(new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Right,
+            }),
+            Paragraphs,
+            rounds: 7,
+            warmup: 2);
+
+        Console.WriteLine();
+        Console.WriteLine("## AC12 — architecture.md §8, at 50,000 paragraphs");
+        Console.WriteLine();
+        Console.WriteLine($"| {"criterion",-26} | {"budget",8} | {"measured",10} | {"result",7} |");
+        Console.WriteLine($"|{new string('-', 28)}|{new string('-', 10)}|{new string('-', 12)}|{new string('-', 9)}|");
+
+        Verdict("first render", 500, render.Milliseconds);
+        Verdict("keystroke to frame", 16, keystroke.Milliseconds);
+        Verdict("caret move", 16, caret.Milliseconds);
+
+        Console.WriteLine();
+        Console.WriteLine($"   allocated: render {render.Bytes:N0} B, keystroke {keystroke.Bytes:N0} B, caret {caret.Bytes:N0} B");
+
+        static void Verdict(string name, double budget, double measured) =>
+            Console.WriteLine(
+                $"| {name,-26} | {budget,6:F0} ms | {measured,7:F2} ms | {(measured <= budget ? "PASS" : "FAIL"),7} |");
+    }
+
     private static DocumentNode Document(int paragraphs) =>
         new(Enumerable
             .Range(0, paragraphs)

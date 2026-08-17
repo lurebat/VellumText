@@ -852,6 +852,18 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 6. **Clipboard round-trip** — copy → paste in-app is byte-identical; HTML/RTF/DOCX exports validated (OOXML schema validation via the SDK; RTF parsed by a reference parser in tests).
 7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
 8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
+
+   **Measured 2026-08-17 — all three pass.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
+
+   | | budget | measured |
+   |---|---|---|
+   | first render | 500 ms | **18.28 ms** |
+   | keystroke to frame | 16 ms | **13.00 ms** |
+   | caret move | 16 ms | **1.03 ms** |
+
+   This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
+   
+   **The keystroke is still linear in document size.** It passes at 50,000 and would not at 200,000, because an edit legitimately rebuilds the block list. The caret move, by contrast, is now flat — 2,056 bytes whatever the document size.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
