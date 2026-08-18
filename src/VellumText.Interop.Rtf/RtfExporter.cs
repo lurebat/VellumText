@@ -22,10 +22,15 @@ namespace VellumText.Interop.Rtf;
 /// which is why lists carry a <c>\pntext</c> group as well as their numbering definition.
 /// </para>
 /// <para>
-/// RTF has no heading. A heading is written as its visual consequence — bold, larger, and
-/// carrying <c>\outlinelevel</c> so that an application which does understand outlines can
-/// recover it. Reading such a paragraph back gives body text that looks like a heading rather
-/// than a heading, and the round-trip tests say so rather than pretending otherwise.
+/// RTF has no heading, so one is written as its visual consequence — bold and larger — plus
+/// <c>\outlinelevel</c>, which is the one part of a heading RTF can state outright. That is
+/// enough for the level to come back: a heading exported and re-imported is a heading again,
+/// not body text that resembles one. The size and weight travel separately, as appearance.
+/// </para>
+/// <para>
+/// Round-tripping the <em>kind</em> is proved for every heading level, <c>Heading1</c> through
+/// <c>Heading6</c>. The theory covered only the first three until the rest were added and
+/// passed; the levels worked, nothing had asserted it.
 /// </para>
 /// </remarks>
 public sealed class RtfExporter : IDocumentExporter

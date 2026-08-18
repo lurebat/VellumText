@@ -277,6 +277,9 @@ public class RtfExportTests
     [InlineData(ParagraphKind.Heading1)]
     [InlineData(ParagraphKind.Heading2)]
     [InlineData(ParagraphKind.Heading3)]
+    [InlineData(ParagraphKind.Heading4)]
+    [InlineData(ParagraphKind.Heading5)]
+    [InlineData(ParagraphKind.Heading6)]
     public void A_heading_survives_as_a_heading(ParagraphKind kind)
     {
         // \outlinelevel is the one part of a heading RTF can state outright, and it is enough for
