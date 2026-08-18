@@ -473,7 +473,12 @@ public partial class RichTextView
         // Nowhere left to go inside this block, so leave it. Aiming one position outside the
         // block and searching from there is what makes rules and nesting depth irrelevant here:
         // whatever lies between, the caret lands on the next place text actually is.
-        var slot = _slots[_caretBlock];
+        //
+        // The leaf, not the drawn block. A table is one drawn block holding every cell, so taking
+        // the drawn extent stepped from inside a cell straight past the whole table - Right from
+        // the end of any interior cell landed in the paragraph after the table instead of in the
+        // next cell. Vertical movement already searched the leaves for this reason.
+        var slot = LeafContaining(_state.Selection.Head);
 
         MoveTo(TextPositionToward(forward ? slot.End + 1 : slot.Start - 1, forward), extend);
     }

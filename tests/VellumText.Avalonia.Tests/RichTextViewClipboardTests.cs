@@ -361,6 +361,25 @@ public class RichTextViewClipboardTests
         Assert.Equal("xhello world", Text(view));
     }
 
+    /// <summary>
+    /// Plain text containing the reserved embed placeholder still pastes.
+    /// </summary>
+    /// <remarks>
+    /// U+FFFC marks where an embed sits, and <c>InlineContent.FromText</c> throws for text that
+    /// carries one without matching embeds. Plain text from outside can perfectly well contain it
+    /// — Word writes it for objects it cannot otherwise express — and the throw was caught by the
+    /// broad handler in the paste, so the whole clip silently pasted nothing. The HTML importer
+    /// already removed it on the way in for exactly this reason.
+    /// </remarks>
+    [AvaloniaFact]
+    public void PlainTextCarryingTheEmbedPlaceholderStillPastes()
+    {
+        var view = Realized(DocumentNode.FromParagraphs(string.Empty));
+
+        Assert.True(view.PasteText("before\uFFFCafter"));
+        Assert.Equal("beforeafter", Text(view));
+    }
+
     private static string Text(RichTextView view) =>
         string.Join('\n', view.State.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
 

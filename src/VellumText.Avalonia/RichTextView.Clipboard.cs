@@ -241,6 +241,21 @@ public partial class RichTextView
         && _state.Selection.From == origin.From
         && _state.Selection.To == origin.To;
 
+    /// <summary>Plain text with the model's embed placeholder taken out.</summary>
+    /// <remarks>
+    /// U+FFFC is reserved: it marks where an embed sits, and <c>InlineContent.FromText</c> throws
+    /// for text carrying one without matching embeds. Plain text from outside can perfectly well
+    /// contain it — Word writes it for objects it cannot otherwise express, and anything that has
+    /// already been through a rich text model carries it — and the throw was caught by the broad
+    /// handler in <see cref="PasteAsync"/>, so a clip containing one silently pasted nothing at
+    /// all rather than pasting imperfectly. The HTML importer has removed it on the way in for
+    /// exactly this reason; the plain-text path simply never applied the same policy.
+    /// </remarks>
+    private static string WithoutPlaceholder(string line) =>
+        line.Contains(InlineContent.Placeholder, StringComparison.Ordinal)
+            ? line.Replace(InlineContent.Placeholder.ToString(), string.Empty, StringComparison.Ordinal)
+            : line;
+
     /// <summary>Replaces the selection with the clipboard's richest readable flavour.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <remarks>
@@ -411,7 +426,9 @@ public partial class RichTextView
         // line reads more simply and is wrong: it leaves the user pressing Ctrl+Z once per line.
         // Open on both ends is what makes the first and last pasted paragraphs merge into the
         // paragraph the caret was sitting in, rather than pushing it apart.
-        var content = lines.Select(line => (Node)new ParagraphNode(InlineContent.FromText(line))).ToArray();
+        var content = lines
+            .Select(line => (Node)new ParagraphNode(InlineContent.FromText(WithoutPlaceholder(line))))
+            .ToArray();
 
         return PasteSlice(new Slice(content, 1, 1));
     }

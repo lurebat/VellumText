@@ -189,6 +189,39 @@ public abstract partial class DocumentPresenter
     /// <param name="y">The offset from the top of the viewport.</param>
     public int BlockIndexAt(double y) => _views.Count == 0 ? 0 : _heights.IndexAt(y + _offset.Y);
 
+    /// <summary>The leaf block a document position sits in.</summary>
+    /// <param name="position">The document position.</param>
+    /// <remarks>
+    /// The <em>leaf</em>, not the drawn block. A table is one drawn block holding many
+    /// paragraphs, so anything that reasons about "the block the caret is in" and reads the drawn
+    /// list treats the whole table as the caret's block — and stepping out of it steps over every
+    /// cell at once. Leaves are in document order, so this is a binary search.
+    /// </remarks>
+    private protected BlockSlot LeafContaining(int position)
+    {
+        var leaves = Leaves;
+        var found = 0;
+        var low = 0;
+        var high = leaves.Length - 1;
+
+        while (low <= high)
+        {
+            var mid = low + ((high - low) / 2);
+
+            if (leaves[mid].Start <= position)
+            {
+                found = mid;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return leaves[found];
+    }
+
     /// <summary>
     /// The paragraph a vertical move from a line should land in, or null if there is none.
     /// </summary>

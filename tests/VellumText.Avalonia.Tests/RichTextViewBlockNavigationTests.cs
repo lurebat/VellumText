@@ -249,6 +249,52 @@ public class RichTextViewBlockNavigationTests
     private const string WrappingText =
         "a paragraph long enough that it has to wrap onto more than a single line at this width";
 
+    /// <summary>
+    /// Left and Right cross cell boundaries instead of escaping the whole table.
+    /// </summary>
+    /// <remarks>
+    /// Horizontal movement used the <em>drawn</em> block to decide where "this block" ends, and a
+    /// table is one drawn block holding every cell — so Right from the end of any interior cell
+    /// left the entire table and landed in the paragraph after it. Vertical movement already
+    /// searched the leaves for exactly this reason; horizontal did not.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ArrowKeysMoveBetweenCellsRatherThanOverTheTable()
+    {
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("before"),
+            new TableNode(
+            [
+                new TableRowNode([TableCellNode.FromText("aa"), TableCellNode.FromText("bb")]),
+                new TableRowNode([TableCellNode.FromText("cc"), TableCellNode.FromText("dd")]),
+            ]),
+            ParagraphNode.FromText("after"),
+        ]);
+
+        var view = Shown(doc);
+        var afterTable = doc.ContentSize - "after".Length;
+
+        // From the end of the first cell's text, Right must reach the second cell — somewhere
+        // still inside the table — rather than the paragraph past it.
+        view.MoveTo(14, extend: false);
+        Press(view, Key.Right);
+
+        Assert.InRange(view.State.Selection.Head, 15, afterTable - 1);
+
+        // And from the last cell it must still leave, or the caret is trapped in the table.
+        view.MoveTo(afterTable - 3, extend: false);
+
+        for (var i = 0; i < 6 && view.State.Selection.Head < afterTable; i++)
+        {
+            Press(view, Key.Right);
+        }
+
+        Assert.True(
+            view.State.Selection.Head >= afterTable,
+            "the caret never escaped the table going forward");
+    }
+
     private static void Press(RichTextView view, Key key, KeyModifiers modifiers = KeyModifiers.None) =>
         view.RaiseEvent(new KeyEventArgs
         {
