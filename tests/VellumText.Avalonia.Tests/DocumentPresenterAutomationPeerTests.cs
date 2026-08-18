@@ -63,14 +63,17 @@ public class DocumentPresenterAutomationPeerTests
     }
 
     /// <remarks>
-    /// Telling a screen reader that a viewer can take focus sends the user's focus somewhere it
-    /// cannot go, and they cannot get back.
+    /// Both are focusable now that the viewer takes the keyboard to be copied from. The earlier
+    /// version of this test asserted the viewer was not, which was correct while it refused focus
+    /// outright: telling a screen reader focus can go somewhere it cannot is a trap. The trap is
+    /// gone, and the peer must not now lie in the other direction — a reader who cannot find the
+    /// viewer cannot select or copy from it either.
     /// </remarks>
     [AvaloniaFact]
-    public void OnlyTheEditorIsOfferedKeyboardFocus()
+    public void BothPresentersAreOfferedKeyboardFocus()
     {
         Assert.True(Peer(Editor(DocumentNode.FromParagraphs("hello"))).IsKeyboardFocusable());
-        Assert.False(Peer(Viewer(DocumentNode.FromParagraphs("hello"))).IsKeyboardFocusable());
+        Assert.True(Peer(Viewer(DocumentNode.FromParagraphs("hello"))).IsKeyboardFocusable());
     }
 
     [AvaloniaFact]

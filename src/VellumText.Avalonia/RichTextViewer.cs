@@ -23,13 +23,12 @@ namespace VellumText.Avalonia;
 /// smaller thing to hold: nothing on this control can change the document.
 /// </para>
 /// <para>
-/// Text is not selectable yet. A reader who cannot copy out of a viewer will paste the whole
-/// entry and delete the rest, so this is a real gap; it is recorded here rather than hidden
-/// because closing it means sharing the editor's pointer handling and clipboard write, which is
-/// a larger change than this control.
+/// Text is selectable and copyable, and nothing more: pointer and keyboard selection, Ctrl+A,
+/// Ctrl+C. Read-only here is structural rather than a flag — there is no transaction, no history
+/// and no editing method on this control at all, so there is no edit path to switch off.
 /// </para>
 /// </remarks>
-public class RichTextViewer : DocumentPresenter
+public partial class RichTextViewer : DocumentPresenter
 {
     /// <summary>Defines the <see cref="Document"/> property.</summary>
     public static readonly StyledProperty<DocumentNode> DocumentProperty =
@@ -39,14 +38,17 @@ public class RichTextViewer : DocumentPresenter
     /// <summary>Creates the viewer.</summary>
     public RichTextViewer()
     {
-        // Not focusable, and this is the whole point: a viewer that takes the keyboard puts a
-        // tab stop in front of the reader that leads nowhere and does nothing.
-        Focusable = false;
+        // Focusable so that Ctrl+C reaches the control at all. It is still not a tab stop: a
+        // viewer that took the keyboard on Tab would put a stop in front of the reader that
+        // leads nowhere, which is what the original comment here was defending.
+        Focusable = true;
+        IsTabStop = false;
 
-        // Arrow, not I-beam. The editor switches to an I-beam over text because a click there
-        // places a caret; nothing here does, so an I-beam would promise an insertion point that
-        // does not exist.
+        // The starting shape only. Unlike before, this now follows the pointer: an I-beam over
+        // text says a drag there selects, which it does.
         Cursor = ArrowCursor;
+
+        ResetSelection();
     }
 
     /// <summary>The document to present.</summary>
@@ -73,6 +75,14 @@ public class RichTextViewer : DocumentPresenter
 
         if (change.Property == DocumentProperty)
         {
+            // The selection is positions in the document that was there before, so keeping it
+            // would highlight a range of the new one that nobody selected. Snapped through
+            // TextSelection rather than set to a literal 0: position 0 is outside the first
+            // paragraph's text, so a caret left there would step from the wrong place.
+            _anchor = 0;
+            _head = 0;
+            ResetSelection();
+
             // Realized eagerly, for the same reason the editor does it: a geometry question
             // asked between the assignment and the next layout pass would otherwise be answered
             // about the document that was there before.

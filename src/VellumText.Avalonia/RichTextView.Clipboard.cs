@@ -30,28 +30,6 @@ namespace VellumText.Avalonia;
 /// </remarks>
 public partial class RichTextView
 {
-    /// <summary>
-    /// Refuses a format object that can neither be read nor written, at the point of registration
-    /// rather than silently doing nothing at the point of use.
-    /// </summary>
-    private sealed class DocumentFormats : System.Collections.ObjectModel.Collection<IDocumentFormat>
-    {
-        protected override void InsertItem(int index, IDocumentFormat item)
-        {
-            ArgumentNullException.ThrowIfNull(item);
-
-            if (item is not (IDocumentImporter or IDocumentExporter))
-            {
-                throw new ArgumentException(
-                    $"'{item.Format}' can neither be read nor written: it implements neither " +
-                    $"{nameof(IDocumentImporter)} nor {nameof(IDocumentExporter)}.",
-                    nameof(item));
-            }
-
-            base.InsertItem(index, item);
-        }
-    }
-
     /// <summary>The interchange formats copy writes and paste reads, beyond plain text.</summary>
     /// <remarks>
     /// A format object usually implements both <see cref="IDocumentImporter"/> and
@@ -383,6 +361,45 @@ public partial class RichTextView
         {
             // A clipboard owned by another process can fail for reasons none of which are this
             // control's business. Losing a paste is bad; taking the application down is worse.
+            return false;
+        }
+    }
+
+    /// <summary>Replaces the selection with the clipboard's plain text, ignoring richer flavours.</summary>
+    /// <returns><see langword="true"/> if the document changed.</returns>
+    /// <remarks>
+    /// Ctrl+Shift+V. Not <see cref="PasteAsync"/> with the importers skipped: the point of the
+    /// gesture is that the text arrives with the formatting of where it lands, so it goes through
+    /// <see cref="PasteText"/>, which is the same path a plain-text-only clipboard already takes
+    /// and which normalizes line endings and removes the reserved embed placeholder. Reported as
+    /// an import for the same reason that path is — it is still content from outside.
+    /// </remarks>
+    public async Task<bool> PasteTextAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            return false;
+        }
+
+        var origin = CurrentOrigin();
+
+        try
+        {
+            using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
+
+            if (data is null)
+            {
+                return false;
+            }
+
+            var text = await data.TryGetTextAsync().ConfigureAwait(true);
+
+            return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text);
+        }
+        catch (Exception)
+        {
+            // Same reasoning as PasteAsync: a clipboard owned by another process can fail for
+            // reasons that are not this control's business.
             return false;
         }
     }

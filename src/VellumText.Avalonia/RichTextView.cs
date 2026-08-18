@@ -542,51 +542,9 @@ public partial class RichTextView : DocumentPresenter
 
     /// <summary>Walks the rectangles a document range covers, in view coordinates.</summary>
     /// <remarks>
-    /// Shared by the selection, by <see cref="SelectionBounds"/> and by the find highlight, so
-    /// that none of them can disagree about where a range is — a toolbar floating beside a
-    /// highlight that is somewhere else is worse than no toolbar.
+    /// The implementation moved to <see cref="DocumentPresenter.EnumerateRange"/> when the viewer
+    /// gained a selection, since both controls highlight a range with the same geometry.
     /// </remarks>
-    private void EnumerateRange(int from, int to, Action<Rect> onRect)
-    {
-        for (var i = _first; i <= _last; i++)
-        {
-            var slot = _slots[i];
-            var origin = BlockOrigin(i);
-
-            if (slot.Node.IsLeaf)
-            {
-                // A leaf has no inside, so there is no part of it to select: either the
-                // selection reaches across it and it is covered whole, or it is not touched.
-                // The host answers this because only the host can see that the selection
-                // reaches past the block on both sides.
-                if (from <= slot.Start && to >= slot.Start + slot.Node.NodeSize)
-                {
-                    onRect(new Rect(origin, _views[i].Size));
-                }
-
-                continue;
-            }
-
-            // Blocks the range does not reach into at all. The comparisons are strict at
-            // both ends so that a range merely touching a boundary is skipped here rather
-            // than asked for a zero-length range; GetSelectionRects answers that with nothing,
-            // so this is a short-circuit, not the thing that keeps an empty sliver off screen.
-            if (to <= slot.Start || from >= slot.End)
-            {
-                continue;
-            }
-
-            var view = _views[i];
-
-            foreach (var rect in view.GetSelectionRects(
-                Math.Max(0, from - slot.Start),
-                Math.Min(view.ContentSize, to - slot.Start)))
-            {
-                onRect(rect.Translate(origin));
-            }
-        }
-    }
-
     private void RenderCaret(DrawingContext context)
     {
         if (!_caretVisible || _views.Count == 0)

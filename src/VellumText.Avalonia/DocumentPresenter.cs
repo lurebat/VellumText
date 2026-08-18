@@ -93,6 +93,10 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     internal static readonly global::Avalonia.Input.Cursor ArrowCursor =
         new(global::Avalonia.Input.StandardCursorType.Arrow);
 
+    /// <summary>The pointer shown over a link a click would follow.</summary>
+    internal static readonly global::Avalonia.Input.Cursor HandCursor =
+        new(global::Avalonia.Input.StandardCursorType.Hand);
+
     private ITextStyleResolver? _styles;
     private IParagraphStyleResolver _paragraphStyles = new ParagraphStyleResolver();
     private IEmbedRenderer _embeds = BitmapEmbedRenderer.Shared;
@@ -301,6 +305,59 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     /// </remarks>
     /// <param name="context">The surface to draw on.</param>
     private protected virtual void RenderContent(DrawingContext context) => RenderBlocks(context);
+
+    /// <summary>Walks the rectangles a document range covers, in this control's coordinates.</summary>
+    /// <remarks>
+    /// Lives here rather than in the editor because the viewer highlights a selection with the
+    /// same geometry, and two copies of this would drift: the leaf rule below is subtle and a
+    /// viewer that got it wrong would highlight a rule the selection merely reached across, or
+    /// fail to highlight one it covered.
+    /// </remarks>
+    /// <param name="from">The start of the range.</param>
+    /// <param name="to">The end of the range.</param>
+    /// <param name="onRect">Called once per rectangle.</param>
+    private protected void EnumerateRange(int from, int to, Action<Rect> onRect)
+    {
+        ArgumentNullException.ThrowIfNull(onRect);
+
+        for (var i = _first; i <= _last; i++)
+        {
+            var slot = _slots[i];
+            var origin = BlockOrigin(i);
+
+            if (slot.Node.IsLeaf)
+            {
+                // A leaf has no inside, so there is no part of it to select: either the
+                // selection reaches across it and it is covered whole, or it is not touched.
+                // The host answers this because only the host can see that the selection
+                // reaches past the block on both sides.
+                if (from <= slot.Start && to >= slot.Start + slot.Node.NodeSize)
+                {
+                    onRect(new Rect(origin, _views[i].Size));
+                }
+
+                continue;
+            }
+
+            // Blocks the range does not reach into at all. The comparisons are strict at
+            // both ends so that a range merely touching a boundary is skipped here rather
+            // than asked for a zero-length range; GetSelectionRects answers that with nothing,
+            // so this is a short-circuit, not the thing that keeps an empty sliver off screen.
+            if (to <= slot.Start || from >= slot.End)
+            {
+                continue;
+            }
+
+            var view = _views[i];
+
+            foreach (var rect in view.GetSelectionRects(
+                Math.Max(0, from - slot.Start),
+                Math.Min(view.ContentSize, to - slot.Start)))
+            {
+                onRect(rect.Translate(origin));
+            }
+        }
+    }
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

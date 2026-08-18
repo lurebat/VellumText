@@ -45,28 +45,39 @@ public class RichTextViewerTests
     }
 
     [AvaloniaFact]
-    public void ItRefusesTheKeyboard()
+    public void ItTakesTheKeyboardWithoutBecomingATabStop()
     {
         var viewer = Shown(Document(), out _);
 
-        Assert.False(viewer.Focusable);
+        // Focusable now, because Ctrl+C has to reach the control to copy at all. Still not a tab
+        // stop, which is what the original version of this test was really defending: tabbing
+        // into a viewer lands the reader somewhere that leads nowhere.
+        Assert.True(viewer.Focusable);
+        Assert.False(viewer.IsTabStop);
+
         viewer.Focus();
 
-        Assert.False(viewer.IsFocused);
+        Assert.True(viewer.IsFocused);
     }
 
     /// <remarks>
-    /// The pointer says what a click will do. An I-beam over a viewer promises an insertion
-    /// point that does not exist, and — unlike the editor — no pointer movement can ever change
-    /// it, so it is enough to check the one it is created with.
+    /// The pointer says what a drag will do. Over text a drag now selects, so the I-beam is
+    /// honest; off the content there is nothing to select and it goes back to the arrow. The
+    /// earlier version of this test asserted the opposite and was right at the time — the viewer
+    /// had no selection then, so an I-beam promised an insertion point that did not exist.
     /// </remarks>
     [AvaloniaFact]
-    public void ItNeverShowsATextCursor()
+    public void ItShowsATextCursorOnlyOverText()
     {
-        var viewer = Shown(Document(), out _);
+        var viewer = Shown(Document(), out var window);
 
         Assert.Same(DocumentPresenter.ArrowCursor, viewer.Cursor);
-        Assert.NotSame(DocumentPresenter.TextCursor, viewer.Cursor);
+
+        window.MouseMove(new Point(4, viewer.Blocks[0].Size.Height / 2));
+        Assert.Same(DocumentPresenter.TextCursor, viewer.Cursor);
+
+        window.MouseMove(new Point(viewer.Bounds.Width - 1, viewer.Bounds.Height - 1));
+        Assert.Same(DocumentPresenter.ArrowCursor, viewer.Cursor);
     }
 
     /// <remarks>
