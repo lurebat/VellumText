@@ -410,6 +410,30 @@ internal sealed class ParagraphView : BlockView
 >   handling and clipboard write, which is larger than the control itself, so it is recorded as a
 >   known gap rather than quietly omitted.
 
+> **Correction (2026-08-18, viewer selection).** The sentence above — *"Text is not selectable in the
+> viewer yet"* — is no longer true. The viewer now supports pointer selection (drag, double-click
+> word, triple-click paragraph), keyboard selection (Shift+arrows, Shift+Home/End, Ctrl+A) and
+> copy (Ctrl+C / Ctrl+Insert), and takes focus (`Focusable = true`) while staying out of the tab
+> order (`IsTabStop = false`) so a viewer embedded in a list does not become a tab stop.
+>
+> The estimate that closing it "is larger than the control itself" was wrong, and the reason is
+> the `DocumentPresenter` split described above: hit-testing, `Resolve`, `ScrollAnchorIntoView`
+> and the range enumeration were already shared, so what the viewer needed was a selection pair,
+> a renderer pass and a clipboard *write*. The clipboard formats guard was the only real
+> duplication and was lifted into a shared `DocumentFormats`.
+>
+> **The read-only guarantee is structural, not a flag.** The viewer has no `Apply`, no
+> transaction, no history and no `TextInputMethodClient`, so there is no edit path to reach —
+> unlike `RichTextView`, where `IsReadOnly` is a single check inside `Apply`. Copy is a pure read:
+> it exports the cut document, it never mutates one. Cut and paste are absent by construction
+> rather than by rejection.
+>
+> One bug fell out of writing the tests, and is worth recording because it would have been
+> invisible to a reviewer: the caret initialised to raw position `0`, which is *outside* the first
+> paragraph's text, so the first Shift+Right selected the second character and `SelectAll` covered
+> nothing. Selection endpoints are now snapped through a `NearestText(position, forward)` helper
+> mirroring the editor's `NearestTextPosition`.
+
 > **As built (P6).** A table is drawn as a real grid by **`TableBlockView`** — the only `BlockView`
 > that hosts other block views. It is named for the collision: Avalonia 12 ships its own
 > `Avalonia.Controls.TableView`, and a consumer with both usings should never have to disambiguate.
@@ -1250,6 +1274,40 @@ worth using". Comparing it against what VellumText actually had:
 > search. `IsReadOnly` exists **only** as `IValueProvider.IsReadOnly` on the automation peer, derived
 > from `SupportsTextInput`; it is not a settable control property. Note the read-only *flag* is partly
 > moot by the decision below that a viewer is a distinct control.
+
+> **Correction (2026-08-18, hyperlinks and viewer selection).** Two rows above were wrong.
+>
+> *"Hyperlinks | ✅ **closed**"* described the **model and the importers**, not the control. The
+> model had `LinkMark` and both importers produced links, but `RichTextView` offered no way to
+> create, edit, remove or activate one — a link was a blue underline that did nothing. That is now
+> closed for real: Ctrl+K raises `LinkRequested` (carrying the link under the selection, if any) so
+> the host can show its own dialog and call `ApplyLink`; Ctrl+Shift+K removes; Ctrl+click raises
+> `LinkActivated`; and hovering a link shows a hand cursor and a tooltip with the href.
+>
+> **The library deliberately does not open the URL.** `LinkActivated` follows the shape of the
+> existing `ContentImported` and `ImageRefused` events precisely so that the decision stays with
+> the host. A control that silently launches a browser on click is an attack surface, not a
+> feature — the document may have been pasted from anywhere, and in the driving consumer (a
+> clipboard manager) it certainly was.
+>
+> *"Read-only viewer … ✅ **closed** (P5)"* remains true, and now includes selection and copy; see
+> the correction in §4.6.
+>
+> Also closed in the same pass: double-click selects a word, triple-click a paragraph,
+> drag-selecting past an edge auto-scrolls, Shift+Enter inserts a soft break, and Ctrl+Shift+V
+> pastes as plain text.
+>
+> **Word and paragraph selection use `WordBreakEnumerator` (UAX #29), not `char.IsLetterOrDigit`.**
+> Avalonia 12.1.1 exposes it publicly, and the difference is not academic: the naive form splits a
+> four-person ZWJ family emoji into four selections and cuts combining marks off their base — the
+> same class of mid-cluster error Increment 0 established the caret must never make. Mutation-
+> testing this is what proved the tests: swapping `TextBoundaries.WordAt` for the naive predicate
+> turned five tests red, the emoji one among them.
+>
+> **`Ctrl+Arrow` was deliberately left on its existing non-UAX approximation.** UAX #29 places a
+> boundary at every punctuation mark, so migrating it would stop `Ctrl+Right` inside `foo.bar()`
+> four times. That is a behaviour change dressed as a correctness fix, and word *selection* — where
+> the user has pointed at a specific cluster — is a different question from word *traversal*.
 
 **The finding that matters:** the document model was never the gap. It is competitive already —
 it has tables with row and column spans, nested lists, links, embeds and every mark, all

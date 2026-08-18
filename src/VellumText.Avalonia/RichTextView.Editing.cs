@@ -158,6 +158,27 @@ public partial class RichTextView
         return Apply(transaction);
     }
 
+    /// <summary>Inserts a line break inside the paragraph, without splitting it.</summary>
+    /// <remarks>
+    /// <para>
+    /// A newline in a paragraph's own text, which is what the model has always meant by a soft
+    /// break: the HTML importer turns <c>&lt;br&gt;</c> into one and the exporter turns it back,
+    /// <c>&lt;pre&gt;</c> produces them, and Avalonia's formatter already breaks a line on one.
+    /// So there is no new node kind here and nothing in the model changed — measured with the
+    /// text formatter directly, "one\ntwo" lays out as two lines with the newline counted as the
+    /// first line's terminator rather than drawn.
+    /// </para>
+    /// <para>
+    /// Deliberately routed through <see cref="InsertText"/> rather than built as its own step, so
+    /// that a soft break replaces a selection, carries the marks at the caret and joins the
+    /// typing transaction exactly as a typed character does. <see cref="AcceptsReturn"/> governs
+    /// it for the same reason it governs <see cref="Split"/>: a single-line field should not gain
+    /// a second line by a different route.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether anything changed.</returns>
+    public bool InsertLineBreak() => AcceptsReturn && InsertText("\n");
+
     /// <inheritdoc/>
     protected override void OnTextInput(TextInputEventArgs e)
     {

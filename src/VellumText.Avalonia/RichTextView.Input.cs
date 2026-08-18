@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Input;
+using Avalonia.Threading;
 
 namespace VellumText.Avalonia;
 
@@ -26,6 +27,9 @@ public partial class RichTextView
     private bool _dragging;
     private double? _goalX;
     private int _cellOrigin;
+    private DispatcherTimer? _autoScroll;
+    private int _autoScrollDirection;
+    private Point _autoScrollPoint;
 
     /// <summary>
     /// The horizontal offset a vertical move is trying to keep, if one is in progress.
@@ -236,8 +240,96 @@ public partial class RichTextView
         // the case capture exists for.
         e.Pointer.Capture(this);
 
+        // Ctrl+click activates a link and does nothing else: it must not also move the caret,
+        // or the click that follows a link lands the user somewhere they did not aim at. Checked
+        // after capture so the release still arrives here and ends the gesture cleanly.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && TryActivateLink(PositionAt(point)))
+        {
+            e.Handled = true;
+
+            return;
+        }
+
+        // A second or third click on the same spot widens what the first one selected, which is
+        // why these are not separate gestures: the click count arrives on the same press, and
+        // the caret has already been placed by the click before it.
+        if (e.ClickCount >= 2 && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            // Modulo three, so a fourth click starts again at a word rather than leaving the
+            // paragraph selected for every click after the third.
+            if (e.ClickCount % 3 == 0 ? SelectParagraphAt(PositionAt(point)) : SelectWordAt(PositionAt(point)))
+            {
+                e.Handled = true;
+
+                return;
+            }
+        }
+
         MoveTo(PositionAt(point), e.KeyModifiers.HasFlag(KeyModifiers.Shift));
         e.Handled = true;
+    }
+
+    /// <summary>Selects the word around a document position.</summary>
+    /// <remarks>
+    /// Word boundaries come from UAX #29 by way of <see cref="TextBoundaries"/> rather than from
+    /// <see cref="WordBoundary"/>; the two answer different questions and the difference is
+    /// documented there.
+    /// </remarks>
+    /// <param name="position">A position inside the word.</param>
+    /// <returns>Whether a word was found and selected.</returns>
+    public bool SelectWordAt(int position)
+    {
+        if (ParagraphAt(position) is not { } at)
+        {
+            return false;
+        }
+
+        var (start, end) = TextBoundaries.WordAt(
+            at.View.Paragraph.Content.Text,
+            Math.Clamp(position - at.Start, 0, at.View.ContentSize));
+
+        if (start == end)
+        {
+            return false;
+        }
+
+        return SelectRange(at.Start + start, at.Start + end);
+    }
+
+    /// <summary>Selects the whole paragraph around a document position.</summary>
+    /// <param name="position">A position inside the paragraph.</param>
+    /// <returns>Whether a paragraph was found and selected.</returns>
+    public bool SelectParagraphAt(int position)
+    {
+        if (ParagraphAt(position) is not { } at || at.View.ContentSize == 0)
+        {
+            return false;
+        }
+
+        return SelectRange(at.Start, at.Start + at.View.ContentSize);
+    }
+
+    /// <summary>Selects a document range outright, discarding any anchor.</summary>
+    /// <remarks>
+    /// Deliberately not two <see cref="MoveTo"/> calls. The second would be an extending move,
+    /// and an extending move across two cells of a table builds a <see cref="CellSelection"/> —
+    /// so double-clicking a word in a cell would have selected the cell.
+    /// </remarks>
+    private bool SelectRange(int from, int to)
+    {
+        var selection = TextSelection.Create(_state.Doc, from, to);
+
+        if (selection.IsEmpty)
+        {
+            return false;
+        }
+
+        _goalX = null;
+        _cellOrigin = selection.Anchor;
+        State = EditorState.Create(_state.Doc, selection);
+        ResetCaretBlink();
+
+        return true;
     }
 
     /// <inheritdoc/>
@@ -267,12 +359,14 @@ public partial class RichTextView
 
         if (!_dragging)
         {
+            UpdateLinkAffordance(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
+
             // An I-beam everywhere says every part of the control is text, which is wrong for
             // the space below the last block and to the right of a short line. Only recomputed
             // when it changes: assigning Cursor raises a property change and re-reads the
             // pointer on every move otherwise.
             var wanted = ResizeCursor(point)
-                ?? (IsOverContent(point) ? TextCursor : ArrowCursor);
+                ?? (_linkCursor ? HandCursor : IsOverContent(point) ? TextCursor : ArrowCursor);
 
             if (!ReferenceEquals(Cursor, wanted))
             {
@@ -285,7 +379,98 @@ public partial class RichTextView
         // extend: true unconditionally. Once a drag has started the anchor is where it went
         // down, whether or not Shift is still held.
         MoveTo(PositionAt(point), extend: true);
+        UpdateAutoScroll(point);
         e.Handled = true;
+    }
+
+    /// <summary>How fast the view scrolls when a drag leaves it, in pixels per tick.</summary>
+    /// <remarks>
+    /// Fixed rather than proportional to how far outside the pointer is. Proportional feels
+    /// better in a list of rows and worse in text, where the pointer usually ends up far outside
+    /// the control and any proportional rate then runs away past what the user can read.
+    /// </remarks>
+    private const double AutoScrollStep = 24;
+
+    /// <summary>
+    /// Starts, steers or stops the scroll that runs while a drag is held outside the viewport.
+    /// </summary>
+    /// <remarks>
+    /// A timer rather than scrolling from the move handler: once the pointer stops moving no more
+    /// move events arrive, and a drag held still just past the bottom edge must keep scrolling
+    /// rather than stall one line short of the text the user is reaching for.
+    /// </remarks>
+    /// <param name="point">Where the pointer is, in this control's coordinates.</param>
+    private void UpdateAutoScroll(Point point)
+    {
+        _autoScrollDirection = point.Y < 0 ? -1 : point.Y > Bounds.Height ? 1 : 0;
+
+        if (_autoScrollDirection == 0)
+        {
+            _autoScroll?.Stop();
+
+            return;
+        }
+
+        _autoScrollPoint = point;
+
+        if (_autoScroll is null)
+        {
+            _autoScroll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            _autoScroll.Tick += (_, _) => AutoScrollTick();
+        }
+
+        _autoScroll.Start();
+    }
+
+    /// <summary>Whether a drag past the edge has armed the auto-scroll timer.</summary>
+    /// <remarks>
+    /// Exposed for a test only. Without it the wiring is untestable headlessly and can be removed
+    /// entirely without any test noticing — which a mutation run confirmed.
+    /// </remarks>
+    internal bool AutoScrolling => _autoScroll?.IsEnabled == true;
+
+    /// <summary>Scrolls one step and drags the selection with it.</summary>
+    /// <remarks>
+    /// The selection is extended to the edge the pointer is past, not to where the pointer is:
+    /// the pointer is outside the control, so hit-testing it would clamp to the same position on
+    /// every tick and the selection would stop growing the moment the scroll started.
+    ///
+    /// Internal rather than private so a test can drive one step directly. A
+    /// <see cref="DispatcherTimer"/> does not fire under the headless dispatcher's job pump, so a
+    /// test that only pumped would pass whether this ran or not — it did, which is how this was
+    /// found. What the timer adds over the pointer move is *continuing* while the pointer is held
+    /// still outside the viewport, and that is what stepping directly exercises.
+    /// </remarks>
+    internal void AutoScrollTick()
+    {
+        if (!_dragging)
+        {
+            _autoScroll?.Stop();
+
+            return;
+        }
+
+        var before = _offset;
+
+        ApplyOffset(_offset + new Vector(0, _autoScrollDirection * AutoScrollStep), relayout: true);
+
+        if (_offset == before)
+        {
+            // Already at the end of the document. Stopping keeps a timer from repainting for
+            // nothing for as long as the button is held.
+            _autoScroll?.Stop();
+
+            return;
+        }
+
+        // The layout the new offset needs has not happened yet, and PositionAt reads the realized
+        // window. Measuring here is what makes the extension land in text that has just scrolled
+        // into view rather than in whatever was there before.
+        Measure(new Size(Bounds.Width, Bounds.Height));
+
+        var edge = _autoScrollDirection < 0 ? 0 : Bounds.Height - 1;
+
+        MoveTo(PositionAt(new Point(_autoScrollPoint.X, edge)), extend: true);
     }
 
     /// <inheritdoc/>
@@ -300,6 +485,10 @@ public partial class RichTextView
         IsDragging = false;
         EndResize();
         EndTouchDrag();
+
+        // The drag is what the autoscroll exists to serve, so it ends with it. A timer left
+        // running after the button came up keeps scrolling the document under a still pointer.
+        _autoScroll?.Stop();
     }
 
     /// <inheritdoc/>
@@ -352,7 +541,7 @@ public partial class RichTextView
                 break;
 
             case Key.Enter:
-                if (!Split())
+                if (!(extend ? InsertLineBreak() : Split()))
                 {
                     return;
                 }
@@ -407,6 +596,10 @@ public partial class RichTextView
             // ignored the modifier would swallow the chord and destroy the selection instead.
             case Key.X when word && !extend:
                 _ = CutAsync();
+                break;
+
+            case Key.V when word && extend:
+                _ = PasteTextAsync();
                 break;
 
             case Key.V when word:

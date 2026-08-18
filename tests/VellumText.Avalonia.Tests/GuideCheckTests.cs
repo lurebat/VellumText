@@ -29,6 +29,7 @@ public class GuideCheckTests
     private static readonly (string Receiver, Type Type)[] Receivers =
     [
         ("view", typeof(RichTextView)),
+        ("viewer", typeof(RichTextViewer)),
         ("editor", typeof(RichTextEditor)),
         ("Editor", typeof(RichTextEditor)),
         ("map", typeof(DocumentTextMap)),

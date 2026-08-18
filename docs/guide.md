@@ -206,6 +206,55 @@ super/subscript, Ctrl+0–6 for paragraph kinds, Ctrl+L/E/R/J for alignment, Ctr
 lists, Tab and Shift+Tab for indent, list nesting and moving between table cells, Ctrl+Z/Y,
 Ctrl+F.
 
+Selection and entry follow the conventions people bring with them: double-click selects a word,
+triple-click selects a paragraph, dragging past the top or bottom edge keeps scrolling, Shift+Enter
+inserts a soft break inside the paragraph rather than starting a new one, and Ctrl+Shift+V pastes
+as plain text.
+
+Word and paragraph selection use Unicode segmentation (UAX #29), so double-clicking a family emoji
+or an accented letter selects the whole cluster rather than half of one.
+
+## Links
+
+The model has always had links and both importers produce them; these are the ways to make and
+follow one.
+
+```csharp
+view.ApplyLink(new LinkMark("https://example.com", "Example"));   // over the selection
+view.RemoveLink();                                                // Ctrl+Shift+K
+view.SelectionLink;                                               // the link under the selection, or null
+```
+
+Ctrl+K raises `LinkRequested` so you can show your own dialog — it carries the existing link when
+the caret is inside one, so the same dialog serves create and edit:
+
+```csharp
+view.LinkRequested += (_, e) =>
+{
+    var href = await AskUser(e.Link?.Href);   // e.Link is null when creating
+    if (href is not null)
+        view.ApplyLink(new LinkMark(href));
+};
+```
+
+Ctrl+clicking a link raises `LinkActivated`. **The library never opens the URL itself** — that is
+your decision, and a control that silently launches a browser on a document it was handed is a
+security problem rather than a convenience. Validate the scheme before you act on it:
+
+```csharp
+view.LinkActivated += (_, e) =>
+{
+    if (Uri.TryCreate(e.Link.Href, UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+    {
+        Process.Start(new ProcessStartInfo(uri.ToString()) { UseShellExecute = true });
+    }
+};
+```
+
+Hovering a link shows a hand cursor and a tooltip with its target, so it is discoverable without
+clicking.
+
 ## The toolbar
 
 `RichTextEditor` includes one. To place your own, bind a `RichTextToolbar` to the editor:
@@ -235,6 +284,21 @@ editor's cost, which matters when a list shows many of them.
 
 ```xml
 <v:RichTextViewer Document="{Binding Doc}" />
+```
+
+Text in it **is** selectable and copyable — drag, double-click a word, triple-click a paragraph,
+extend with Shift+arrows, select all with Ctrl+A, copy with Ctrl+C — because "look at this, but you
+may not take anything from it" is the wrong behaviour for a reader. It stays genuinely read-only:
+there is no edit path in the control at all, so copy is the only thing the clipboard sees.
+
+It takes keyboard focus when clicked but is not a tab stop, so a list of viewers does not become a
+long walk through the tab order.
+
+```csharp
+viewer.SelectedText();      // what is selected, as plain text
+await viewer.CopyAsync();   // same payload the editor writes: document, HTML, RTF and text
+viewer.SelectAll();
+viewer.ClearSelection();
 ```
 
 Measured at roughly **0.6 ms per row** for a short document — not meaningfully worse than a
