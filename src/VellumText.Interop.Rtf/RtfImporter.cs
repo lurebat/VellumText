@@ -74,7 +74,7 @@ public static class RtfImporter
     /// Never throws for bad input. What arrives on a clipboard is whatever the last application
     /// put there, including truncated payloads and things that are not RTF at all.
     /// </remarks>
-    public static ImportResult Import(string rtf, HtmlImportOptions? options = null)
+    public static ImportResult Import(string rtf, RtfImportOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(rtf);
 
@@ -112,7 +112,7 @@ public static class RtfImporter
                 ]);
         }
 
-        return HtmlImporter.Import(html, options);
+        return HtmlImporter.Import(html, (options ?? RtfImportOptions.Default).ToHtmlOptions());
     }
 
     /// <summary>

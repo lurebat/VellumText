@@ -222,7 +222,7 @@ public partial class RichTextView : DocumentPresenter
     /// Not the same thing as the block at <see cref="CaretBlockIndex"/>: a table is one block
     /// holding many paragraphs, and every editing command wants the paragraph.
     /// </remarks>
-    public ParagraphView? Block => CaretText?.View;
+    internal ParagraphView? Block => CaretText?.View;
 
     /// <summary>
     /// The document position at which the caret's paragraph starts.

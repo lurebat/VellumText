@@ -219,7 +219,15 @@ This is the pivotal choice. It gives:
 > 263,880** — a path 4.4x leaner, where a fixed cost is 4.4x more of the total — and it is still
 > exactly 8 bytes, on all four rows of `-- model`: insert at the start, insert at the end, delete,
 > and a paragraph join. It is the struct gaining one reference field, once per transaction, and
-> not a per-block cost. AC12 on the merged tree measures 8.85–9.45 ms against a 16 ms budget.
+> not a per-block cost. Confirmed at all five document sizes of each row, twenty measurements, all
+> +8; the arithmetic agrees, since a one-element `Mapping` array goes from 40 to 48 bytes when
+> `StepMap` grows from 12 to 24.
+>
+> **It costs no measurable time.** Against `origin/main` on one machine, five runs each, AC12's
+> keystroke at the document end is a median 9.32 ms here and 9.99 ms there, ranges 9.13–9.59 and
+> 9.24–10.33, no run over budget on either. This branch measuring lower is ordering and load, not
+> a speedup — the two are inside each other's spread. Re-run it rather than trusting these
+> numbers: the box is shared, and §8 records what the tail does on a loaded one.
 >
 > The single-range answer was available and is arithmetically sound — call the whole table one
 > replaced range — and it was rejected because of what it does to positions *inside* the table. All
@@ -271,7 +279,14 @@ Every mutation is a `Transaction`. Nothing mutates the document directly — not
 - **Undo is nearly free.** `history` stores `Invert(before)` per step, reversed. No snapshots, no diffing.
 - **Undo grouping is a policy, not a mechanism.** Coalesce adjacent `Typing` transactions within 500 ms *and* contiguous positions *and* no intervening selection jump; never coalesce across `Structure` or `Paste`.
 - **The view updates incrementally.** `Transaction.Mapping` tells `RichTextView` exactly which block range changed → invalidate only those `BlockView`s and only that `TextRunCache`.
-- **Collaboration is later, not never.** `Step.Map` is the rebase primitive OT needs. We ship no collab code, but we do not design it out.
+- **Collaboration is later, not never.** `Step.Map` is the rebase primitive OT needs. We ship no collab code, but we do not design it out. `Transaction.Steps` stays public for that reason and no other — nothing in this repository reads it outside its own tests.
+
+> **`Transaction.DocsBefore` removed** (2026-08-18). It exposed the per-step document snapshots the
+> undo bookkeeping keeps, had no caller anywhere — `Invert()` reads the field directly — and would
+> have frozen an internal representation into the public API at 1.0. `Steps` and `Failures` were
+> examined at the same time and both kept: `Steps` is the collaboration primitive above, and
+> `Failures` is what §7 tells a host to check, because a transaction is best-effort rather than
+> atomic.
 
 ### 4.5 Selection
 
@@ -288,6 +303,51 @@ public sealed record CellSelection(int AnchorCell, int HeadCell) : Selection; //
 ```
 
 Three selection kinds is not over-engineering — it is the minimum that makes "click an image and press Delete" and "drag across table cells and set a background" expressible without special-casing them in every command.
+
+> **Three, and exactly three** (2026-08-18). `Selection`'s constructor is `private protected`, so
+> the hierarchy is closed outside this assembly. Commands are written as "which of the three is
+> this, and can I serve it" — a fourth shape reaches them as something they do not recognise and is
+> refused or, worse, handled as if it were text. That is extensibility that fails in the host's
+> application at run time instead of in ours at compile time, which is strictly worse than none.
+> `Node`, `BlockNode` and `InlineEmbed` are closed for the same reason: `DocumentPresenter`'s block
+> factory, the HTML and RTF exporters and the JSON writer all switch and throw on the default.
+>
+> `Step` is deliberately **not** closed, and that is the contrast that makes the rule a rule rather
+> than a reflex. Nothing switches on which step it is; all four obligations are on the base, so a
+> step written elsewhere works everywhere a step is consumed. Open where the consumer is generic,
+> closed where it enumerates.
+>
+> One hole cannot be closed and is stated rather than hidden: a record's copy constructor must be
+> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed` or
+> `Selection` by declaring one that chains to it. It cannot happen by accident, which is what the
+> closure is for.
+
+> **No virtual "is this a rectangle" member, and closing the hierarchy is why** (2026-08-18).
+> `is CellSelection` is open-coded at 17 sites, with the private `RichTextView.Rectangle` covering
+> another 6 — 23 in all. That looks like an abstraction asking to be extracted. It is not, and the
+> reason is worth writing down because it will be filed again otherwise.
+>
+> The case *for* a member was that a type test is not exhaustive: a fourth shape would fall through
+> to the range path and be treated as text, which is the silently destructive outcome this section
+> exists to prevent. That case died when the constructor became `private protected`. Three shapes
+> are now the whole set, so the type test is exhaustive by construction. A virtual `bool` would have
+> made the fallthrough polite; closing the hierarchy makes it impossible. The weaker guarantee is
+> not worth a public member.
+>
+> What is left does not cohere. The 23 sites are 11 refusals, 7 dispatches to a cell-specific
+> implementation, 4 reads of `AnchorCell`/`HeadCell`, plus the property itself. The refusals share
+> an *answer*, not a *predicate*: there is no block for a heading to land on, no place for a typed
+> character, no caret for an IME composition, no ends for a touch handle to drag, no image at a cell
+> boundary, no enclosing list, no run of sibling blocks to wrap. One `CanReplaceRange` would name
+> none of those eleven reasons and would only be true because it means `is CellSelection` spelled
+> longer. The 7 dispatches need a transaction, the presenter's geometry and `Rect` — `VellumText.Core`
+> has no dependencies and an MSBuild target that fails the build if it acquires one, so they cannot
+> move. The 4 index reads want an `int?` that is null for two of the three shapes.
+>
+> The invariant they defend was audited rather than assumed: every read of `From`/`To` in
+> `VellumText.Avalonia` is downstream of one of the 23 guards, and there is no `switch` over the
+> three shapes anywhere. `Selection.Map` is the one place where behaviour genuinely varies by shape,
+> and it is already `abstract`. That is the member that earned its place; a second one would not.
 
 ### 4.6 View layer
 
@@ -326,6 +386,47 @@ internal sealed class ParagraphView : BlockView
 > - **`TextRunCache.InvalidateFrom(offset)` is not used for edits.** Increment 0 measured it
 >   returning stale runs for any `offset > 0`. Paragraph layouts are rebuilt wholesale on edit.
 >   The cache is kept only for width-only relayout, where it is correct and ≈3.5× faster.
+
+> **The sketch above says `internal` and the code finally agrees** (2026-08-18). `BlockView`,
+> `ParagraphView`, `RuleView`, `BlockImageView`, `TableBlockView`, `InlineTextSource` and `TextAt`
+> shipped `public`. They are layout objects: a `TextLayout`, a run cache, a measured size, all with
+> lifetimes the presenter owns and invalidation rules nothing outside it can honour. Freezing them
+> at 1.0 would have made the rendering machinery a contract by accident.
+>
+> `DocumentPresenter.Blocks` and `Slots` and `RichTextView.Block` went with them, since a property
+> is only as internal as its type. **`DocumentPresenter.BlockCount` replaces `Blocks.Count`** and is
+> the piece a host actually needed: `BlockOrigin`, `BlockIndexOf`, `BlockIndexAt` and
+> `CaretBlockIndex` all speak in block indices, so the range those indices live in is public and the
+> objects behind them are not. The demo's status bar was the only external caller and now reads
+> `BlockCount`.
+
+> **What deliberately stayed public.** A control library exposes things it never calls itself:
+> `IEmbedRenderer`, `IImageStore`, `ITextStyleResolver`, `IParagraphStyleResolver`, `ISyntaxTheme`
+> and their default implementations are extension points; `ToolbarConverters` is used from XAML;
+> the commands, geometry and events exist for a host. Nothing here was hidden merely because this
+> repository has no caller for it. `InternalsVisibleTo` covers the tests instead, which is why
+> `VellumText.Core` now grants it to `VellumText.Core.Tests` and `VellumText.Avalonia.Tests` — the
+> tests that prove a closed switch throws on an unknown node have to be able to write one, and that
+> is friendship, not API.
+
+> **The shell forwards setup, not commands** (2026-08-18). `RichTextEditor` forwarded five of the
+> view's surfaces, so every other one had to be reached through `Editor.View!` — a null-forgiving
+> operator on a property that genuinely is null until the template is applied. That is fine for a
+> command, which runs in response to a user action long after templating, and it is a race for
+> setup, where the losing side is silent: a format registered on a view that does not exist throws,
+> and an event subscribed on one is never heard from.
+>
+> So the split is by *when a host reaches it*, not by what it does. The shell forwards `Formats`,
+> `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`, `SyntaxHighlighter`, `SyntaxTheme`,
+> `ContentImported` and `ImageRefused` — everything configured before the control is on screen.
+> The forty-odd editing commands are not forwarded; duplicating them would double the shell's
+> surface for no benefit a host can name.
+>
+> `EnsureView()` is the escape hatch and is honest about its lifetime: it applies the template if
+> that has not happened and returns a view that is never null. That is safe because the default
+> template is registered as `TemplateProperty`'s default value rather than living in a theme
+> dictionary, so it resolves with no application styles loaded at all. `View` stays nullable and
+> answers the different question — has this been templated yet.
 
 **Virtualization:** `BlockHeightIndex` keeps a Fenwick/prefix-sum tree of block heights. Unmeasured blocks get an estimate (average measured height); measuring on realization corrects the estimate and adjusts scroll offset. This is the standard approach and it is why AC12 is achievable.
 
@@ -730,6 +831,61 @@ Two things changed against the sketch above, both forced by decision 3 in §12.1
 - **`VellumText.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
 - **`NativeSlice` is not built.** It exists to carry what HTML cannot, and HTML currently carries everything the model can hold. It is worth adding when that stops being true, and not before.
 
+#### Registration is the only seam, so options travel through it
+
+`HtmlFormat` and `RtfFormat` were constructor-less singletons. That made `HtmlImportOptions`
+unreachable from the path the bullet above tells a host to use: the control holds an
+`IDocumentImporter` and calls `Import`, so `HtmlImporter.Import(html, options)` — a static method on
+a type in a package the control cannot name — is not a seam an application using the control can
+reach at all. `AllowRemoteImages` is a privacy control and `BaseUri` decides whether a relative
+image URL resolves or is dropped, and neither did anything for anyone using the editor.
+
+`With(options)` returns a configured instance and leaves the singleton alone:
+
+```csharp
+view.Formats.Add(HtmlFormat.Instance.With(new HtmlImportOptions { BaseUri = source }));
+```
+
+An instance rather than mutable state on the singleton, because two views in one application can
+legitimately trust different sources, and a shared mutable `Instance` would make the last
+registration win for everything.
+
+#### The format contract is bytes, with strings on top
+
+The contract was string-only until it was noticed that this *structurally* excludes DOCX and ODT — both are ZIP containers, both are on the roadmap in §10, and a format that cannot be expressed is worse than one that is merely unimplemented. Streams are the primitive now:
+
+```csharp
+public interface IDocumentFormat
+{
+    string Format { get; }
+    string MediaType { get; }
+    Encoding? TextEncoding { get; }   // null ⇒ this format is bytes, not text
+}
+
+public interface IDocumentImporter : IDocumentFormat
+{
+    ImportResult Import(Stream source);            // every format implements this
+    ImportResult Import(string text) => …;         // default: encode, then defer
+}
+
+public interface IDocumentExporter : IDocumentFormat
+{
+    void Export(Stream destination, DocumentNode doc);   // every format implements this
+    string Export(DocumentNode doc) => …;                // default: write, then decode
+}
+```
+
+Four decisions in that shape:
+
+- **Streams are required and strings are derived**, not the other way round. A DOCX importer must not be made to write a nonsense `Import(string)` to satisfy the interface, whereas a text format's `Export(Stream, doc)` is one line over its existing writer. The string members stay because HTML and RTF genuinely are text and forcing a caller holding a string to wrap it in a `MemoryStream` would be pure ceremony.
+- **The string members are default interface members**, so exactly one member of each pair is mandatory and the text formats override both, each calling its parser directly. The hazard is writing `Import(Stream)` in terms of `Import(string)` without declaring the latter — that recurses forever, and it is called out on both members.
+- **`TextEncoding` is required, not defaulted.** It is not derivable from `MediaType`: `text/rtf` is Latin1 by construction while `text/html` on the clipboard is UTF-8 by definition, and a wrong default is silent mojibake rather than a compile error. It is also the honest place for a format to say it has no text form at all.
+- **A binary format's string members fail loudly and asymmetrically.** `Import(string)` returns an empty result with a `Malformed` diagnostic, because an importer that throws is what `ImportResult` exists to avoid; `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest string and `""` would be a document silently lost on the way to a file.
+
+`DocumentPayload.ReadAllText`/`WriteAllText` are the two-line bridge every text format's stream members use. They are public because the formats that need them are separate assemblies that cannot see each other, and so is any format a host writes. `WriteAllText` emits no BOM — `CF_HTML`'s byte offsets are computed over a payload without one and an RTF reader rejects a document preceded by `EF BB BF` — and `ReadAllText` leaves the stream open, because the caller owns it.
+
+The clipboard carries bytes end to end as a result: `RichTextClipboard.Encode` asks the exporter to write into a `MemoryStream` and `Decode` hands the payload straight back as one, so a registered binary format survives copy and paste unchanged. `ClipboardFlavor` no longer carries an `Encoding` — `IDocumentFormat.TextEncoding` is the single source of truth, and a flavour minted with a hard-coded UTF-8 would be a lie for a format that is not text.
+
 Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
 
 **The envelope is Windows-only, and for a while it was not.** `HtmlFormat.Export` wrapped every payload in `CF_HTML` regardless of platform, so a copy on Linux or macOS put `Version:0.9` and a block of byte offsets under `text/html` and `public.html` — targets that are defined to carry bare markup. A receiving application would have rendered the preamble as content. The format *name* was already chosen per platform by the `Platform` helper above; only the payload was not, and this paragraph's own sentence about `HTML Format` being a Windows requirement was the specification the code had drifted from.
@@ -824,6 +980,16 @@ time anything of ours sees it, and it follows the theme. Recovering the distinct
 reading `\colortbl` and `\cf` ourselves — the hand-written RTF reader this section exists to
 avoid — so the behaviour is pinned by a test rather than worked around. `\highlight` and every
 non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_all`.
+
+**The HTML stage is internal, and the public API says so.** `RtfImporter.Import` took an
+`HtmlImportOptions`, which put HTML's type in the RTF package's public surface: a consumer who
+wanted only RTF had to reference the HTML package to configure it, and the choice above — that RTF
+is read by way of HTML — was frozen where a later rewrite of the RTF reader could not have changed
+it. `RtfImportOptions` is the RTF package's own type, mapped to HTML's internally. It is
+deliberately smaller: `MaxDepth` and `PreserveIdentifiers` are absent because the HTML they would
+apply to is generated here rather than authored, so there are no `class` or `id` attributes to keep
+and no reason for a host to loosen a stack-overflow bound on markup it did not write. The project
+reference stays; only the leak is closed.
 
 **Rejected:** `NPOI` — Apache-2.0 source but 2.8.0 binaries impose a maintenance-fee EULA on revenue-generating users; a legal hazard for a "free" library. `DocX`/Xceed — Xceed Community License, non-commercial. `OpenXML-Office` — AGPL-3.0/commercial. `ShapeCrawler` — PPTX only.
 
@@ -1353,6 +1519,8 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
 
+**DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
+
 **Scope of v1, decided 2026-08-16.** P8–P11 are all required for v1.0. DOCX/XAML serialization and
 the spellcheck hook are explicitly **out** — they widen what the library can represent rather than
 closing the gap between the model and the control, which is the sequencing principle below.
@@ -1672,6 +1840,7 @@ was shaped from.
 | **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf` on RtfPipe. | user decision |
 | **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
+| **A `Selection` member for "is this a rectangle"?** | **No — the type test stays, and closing the hierarchy is why.** 23 sites ask it, but they are 11 refusals with 11 different reasons, 7 dispatches that need a transaction and the presenter's geometry, and 4 reads of a cell index meaningless on the other two shapes. Once the constructor became `private protected` the type test is exhaustive by construction, which is a stronger guarantee than any virtual `bool` could give. `Selection.Map` remains the only member that varies by shape. See §4.5. | 2026-08-18 |
 
 ### 12.2 Still open
 

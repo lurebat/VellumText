@@ -369,7 +369,7 @@ public partial class MainWindow : Window
         // the pair read as an index out of range.
         Status($"Caret {state.Selection.From}"
             + (state.Selection.From == state.Selection.To ? "" : $"\u2013{state.Selection.To}")
-            + (view is null ? "" : $"   |   block {view.CaretBlockIndex + 1} of {view.Blocks.Count}"));
+            + (view is null ? "" : $"   |   block {view.CaretBlockIndex + 1} of {view.BlockCount}"));
     }
 
     /// <summary>A 1x1 transparent PNG, so the sample can carry an image without a file beside it.</summary>
