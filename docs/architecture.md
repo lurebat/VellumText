@@ -214,6 +214,13 @@ This is the pivotal choice. It gives:
 > document size. Several ranges are what a table edit needs: inserting a column adds a cell to
 > every row, and merging cells takes content out of several and puts it in one.
 >
+> That 8 bytes was first measured against an edit that allocated 1,160,848 bytes, where anything
+> would have looked free. It was **re-measured after the `ReplaceStep` pivot cut the same edit to
+> 263,880** — a path 4.4x leaner, where a fixed cost is 4.4x more of the total — and it is still
+> exactly 8 bytes, on all four rows of `-- model`: insert at the start, insert at the end, delete,
+> and a paragraph join. It is the struct gaining one reference field, once per transaction, and
+> not a per-block cost. AC12 on the merged tree measures 8.85–9.45 ms against a 16 ms budget.
+>
 > The single-range answer was available and is arithmetically sound — call the whole table one
 > replaced range — and it was rejected because of what it does to positions *inside* the table. All
 > of them collapse onto the table's edge, including in rows the edit never touched, so a caret
