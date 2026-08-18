@@ -702,6 +702,32 @@ It survived because **nothing could see it**. `ClipboardHtml.ExtractFragment` re
 
 The RTF losses are in the **reader** — RTF itself keeps all of it, and a word processor opening the file sees it — so the exporter's tests assert on the bytes emitted, not only on what survives a round trip.
 
+#### Telling the application what an import cost
+
+The table above is the point: **an import is lossy and the losses are known item by item.** Every importer already returns an `ImportResult` carrying `ImportDiagnostic`s — a `<blink>` dropped, a colour that could not be represented, an image over the store's limit, a table flattened — and paste and drop both computed that list and then took `.Doc` and threw the rest away. The content changed on the way in and no application could know, let alone say so.
+
+`RichTextView.ContentImported` carries them out:
+
+```csharp
+public event EventHandler<ContentImportedEventArgs>? ContentImported;
+
+public sealed class ContentImportedEventArgs : EventArgs
+{
+    public ImmutableArray<ImportDiagnostic> Diagnostics { get; }
+    public bool AnythingDropped { get; }   // something removed, not merely downgraded
+}
+```
+
+Three decisions in it:
+
+- **A notification, not a veto.** The content is in the document by the time it is raised; there is nothing to cancel. Interception *before* the fact is a separate piece of work and is deliberately not this — a cancellable event here would be a lie, because the undo entry already exists.
+- **Raised for a clean import too**, with an empty list. A host that puts up "2 things were changed" after one paste needs the next, clean paste to take that notice down, and it can only do that if the clean paste tells it something.
+- **One seam, not three.** Paste, drop and a host's own file import all go through `PasteImport(ImportResult)`, which pastes and then raises. Wiring the event at each of the three call sites is exactly how this defect happens again the next time a fourth is added; the public `PasteImport` is also the programmatic import path an application needs to open a file with the same reporting the clipboard gets.
+
+Plain text is the one path that does not go through it. `PasteText` normalizes line endings and strips the reserved U+FFFC placeholder, and routing it through `DocumentNode.FromParagraphs` instead would throw on that placeholder into a broad `catch` — a bug already fixed once, where a whole clip pasted nothing. It reports the same way with an empty list, having lost nothing worth naming.
+
+It follows `ImageRefused` (§4.6) rather than inventing a second convention: a host that does not subscribe gets exactly the old behavior.
+
 ---
 
 ## 5. Alternatives considered

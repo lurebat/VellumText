@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -60,6 +61,68 @@ public partial class RichTextView
     /// point of registration rather than silently doing nothing at the point of use.
     /// </remarks>
     public ICollection<IDocumentFormat> Formats { get; } = new DocumentFormats();
+
+    /// <summary>What an import had to compromise on, on its way into the document.</summary>
+    /// <param name="diagnostics">Everything the importer could not do faithfully.</param>
+    public sealed class ContentImportedEventArgs(ImmutableArray<ImportDiagnostic> diagnostics)
+        : EventArgs
+    {
+        /// <summary>Everything the importer could not do faithfully, in the order it happened.</summary>
+        public ImmutableArray<ImportDiagnostic> Diagnostics { get; } = diagnostics;
+
+        /// <summary>Whether anything was removed for safety rather than merely downgraded.</summary>
+        public bool AnythingDropped =>
+            Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Dropped);
+    }
+
+    /// <summary>Raised once content from outside has been imported into the document.</summary>
+    /// <remarks>
+    /// <para>
+    /// Every importer already says, item by item, where it gave ground — a <c>&lt;blink&gt;</c>
+    /// dropped, a colour that could not be represented, an image over the store's limit, a table
+    /// flattened. Every paste and every drop computed that list and discarded it, so the content
+    /// changed on the way in and the application had no way to know, let alone say so. This is the
+    /// same bargain <see cref="ImageRefused"/> makes: a host that does not subscribe gets exactly
+    /// the old behaviour.
+    /// </para>
+    /// <para>
+    /// <b>A notification, not a veto.</b> The content is in the document by the time this is
+    /// raised and there is nothing here to cancel; interception before the fact is a separate
+    /// thing and is deliberately not this. It is also raised for an import that had nothing to
+    /// report, with an empty list — a host that puts up "2 things were changed" after one paste
+    /// needs the next, clean paste to take that notice down, and it can only do that if the clean
+    /// paste tells it anything at all.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<ContentImportedEventArgs>? ContentImported;
+
+    /// <summary>Replaces the selection with an imported document, and says what the import cost.</summary>
+    /// <param name="result">What an importer produced, diagnostics and all.</param>
+    /// <returns><see langword="true"/> if the document changed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    /// The single seam every import goes through — paste, drop, and a host importing a file of its
+    /// own — so that <see cref="ContentImported"/> cannot be raised by two of the three and
+    /// forgotten by the last. Nothing is reported when the paste was refused, because then nothing
+    /// arrived to explain.
+    /// </remarks>
+    public bool PasteImport(ImportResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (!PasteDocument(result.Doc))
+        {
+            return false;
+        }
+
+        RaiseContentImported(result.Diagnostics);
+
+        return true;
+    }
+
+    /// <summary>Tells the host what an import that has already landed had to give up.</summary>
+    private void RaiseContentImported(ImmutableArray<ImportDiagnostic> diagnostics) =>
+        ContentImported?.Invoke(this, new ContentImportedEventArgs(diagnostics));
 
     /// <summary>Selects the whole document.</summary>
     /// <returns><see langword="true"/> if the selection changed.</returns>
@@ -296,11 +359,11 @@ public partial class RichTextView
                     continue;
                 }
 
-                var doc = importer.Import(flavour.Encoding.GetString(bytes)).Doc;
+                var result = importer.Import(flavour.Encoding.GetString(bytes));
 
-                if (!doc.Blocks.IsEmpty)
+                if (!result.Doc.Blocks.IsEmpty)
                 {
-                    return StillAt(origin) && PasteDocument(doc);
+                    return StillAt(origin) && PasteImport(result);
                 }
             }
 
@@ -314,7 +377,7 @@ public partial class RichTextView
 
             var text = await data.TryGetTextAsync().ConfigureAwait(true);
 
-            return text is { Length: > 0 } && StillAt(origin) && PasteText(text);
+            return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text);
         }
         catch (Exception)
         {
@@ -332,6 +395,27 @@ public partial class RichTextView
     /// </remarks>
     internal IEnumerable<IDocumentImporter> ReadableFormats() =>
         RichTextClipboard.InPreferenceOrder(Formats.OfType<IDocumentImporter>());
+
+    /// <summary>Pastes plain text that arrived from outside, and reports it as an import.</summary>
+    /// <remarks>
+    /// Not routed through <see cref="PasteImport"/>, which would have to build a document out of
+    /// the lines first: <see cref="PasteText"/> normalizes the line breaks and takes out the
+    /// reserved embed placeholder, and <c>DocumentNode.FromParagraphs</c> does neither — it throws
+    /// on the placeholder, into the broad handler above, which is how a whole clip once pasted
+    /// nothing. There are no diagnostics because there is no importer; plain text is still content
+    /// from outside, and a host clearing a previous notice needs to hear about it.
+    /// </remarks>
+    private bool PasteImportedText(string text)
+    {
+        if (!PasteText(text))
+        {
+            return false;
+        }
+
+        RaiseContentImported([]);
+
+        return true;
+    }
 
     /// <summary>Replaces the selection with <paramref name="doc"/>'s blocks.</summary>
     /// <param name="doc">The document to insert.</param>

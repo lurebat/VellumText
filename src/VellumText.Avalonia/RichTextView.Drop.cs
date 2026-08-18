@@ -247,7 +247,7 @@ public partial class RichTextView
                 && RichTextClipboard.Read(e.DataTransfer, ReadableFormats())
                     is { Doc.Blocks.IsEmpty: false } result)
             {
-                PasteDocument(result.Doc);
+                PasteImport(result);
             }
         }
         catch (Exception)
