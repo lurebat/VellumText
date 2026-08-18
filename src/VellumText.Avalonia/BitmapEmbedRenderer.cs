@@ -407,7 +407,15 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
         return Accept(new Bitmap(stream));
     }
 
-    private bool IsOversizedPng(ReadOnlySpan<byte> payload)
+    /// <summary>Whether a payload is a PNG whose header alone says it is too large to show.</summary>
+    /// <remarks>
+    /// Internal because it is the only observable difference between refusing a decompression bomb
+    /// from its header and refusing it from the bitmap it was designed to make you allocate:
+    /// both end at the same fallback size, so an end-to-end measurement cannot tell them apart.
+    /// </remarks>
+    /// <param name="payload">The undecoded image bytes.</param>
+    /// <returns>Whether the payload is a PNG claiming more pixels than <see cref="MaximumPixels"/>.</returns>
+    internal bool IsOversizedPng(ReadOnlySpan<byte> payload)
     {
         ReadOnlySpan<byte> signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 

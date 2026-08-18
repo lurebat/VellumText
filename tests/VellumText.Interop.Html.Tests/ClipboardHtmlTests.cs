@@ -205,7 +205,7 @@ public class ClipboardHtmlTests
         var payload = ClipboardHtml.Wrap(fragment);
 
         Assert.Equal(fragment, ClipboardHtml.ExtractFragment(payload, out _));
-        AssertOffsetsAreTrue(payload);
+        AssertOffsetsAreTrue(payload, fragment);
     }
 
     [Theory]
@@ -213,7 +213,7 @@ public class ClipboardHtmlTests
     [InlineData("caf\u00e9 \u05e9\u05dc\u05d5\u05dd \ud83d\ude00 \u4e2d\u6587")]
     public void The_offsets_written_into_the_header_point_where_they_claim_to(string fragment)
     {
-        AssertOffsetsAreTrue(ClipboardHtml.Wrap(fragment, new Uri("https://example.com/\u00e9")));
+        AssertOffsetsAreTrue(ClipboardHtml.Wrap(fragment, new Uri("https://example.com/\u00e9")), fragment);
     }
 
     [Fact]
@@ -236,7 +236,8 @@ public class ClipboardHtmlTests
     /// Reads the header's own offsets and checks that the bytes they select are the fragment.
     /// </summary>
     /// <param name="payload">A payload produced by <see cref="ClipboardHtml.Wrap"/>.</param>
-    private static void AssertOffsetsAreTrue(string payload)
+    /// <param name="fragment">The fragment that was wrapped.</param>
+    private static void AssertOffsetsAreTrue(string payload, string fragment)
     {
         var bytes = Encoding.UTF8.GetBytes(payload);
 
@@ -255,12 +256,10 @@ public class ClipboardHtmlTests
         Assert.StartsWith("<html>", html, StringComparison.Ordinal);
         Assert.EndsWith("</html>", html, StringComparison.Ordinal);
 
-        var fragment = Encoding.UTF8.GetString(bytes, startFragment, endFragment - startFragment);
-
-        Assert.Equal(
-            Encoding.UTF8.GetString(bytes, startFragment, endFragment - startFragment),
-            fragment);
-
+        // The caller's own fragment, not the payload's idea of it: comparing the byte range to a
+        // string cut from the same byte range with the same offsets is true whatever the offsets
+        // are, and was.
+        Assert.Equal(fragment, Encoding.UTF8.GetString(bytes, startFragment, endFragment - startFragment));
         // The bytes immediately before and after the fragment must be the marker comments, which
         // is what proves the offsets are not merely self-consistent but actually aimed correctly.
         var before = Encoding.UTF8.GetString(bytes, 0, startFragment);

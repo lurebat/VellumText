@@ -118,11 +118,44 @@ public sealed class HostileValueTests
     {
         // The bound has to be applied before room is allocated for the result, or a hostile paste
         // buys a large allocation for the price of a string.
-        var url = "data:image/png;base64," + new string('A', 4 * 1024 * 1024);
+        //
+        // The verdict alone cannot see that: the payload is valid base64, so decoding it and then
+        // measuring what came out reaches exactly the same "too large" answer by exactly the route
+        // this is supposed to rule out. What separates the two is the three megabytes, so the two
+        // imports below are chosen to drop the same image on the same document by two routes that
+        // differ in nothing else, and the allocation between them is the assertion.
+        var html = $"<img src='data:image/png;base64,{new string('A', PayloadChars)}'>";
 
-        var result = HtmlImporter.Import($"<img src='{url}'>", new HtmlImportOptions { MaxDataImageBytes = 1024 });
+        var refusedOutright = new HtmlImportOptions { AllowDataImages = false };
+        var refusedForSize = new HtmlImportOptions { MaxDataImageBytes = 1024 };
 
-        Assert.Equal(0, EmbedsOf(result.Doc));
+        // Parsing four megabytes of HTML allocates far more than the buffer does, but it allocates
+        // the same amount both times and cancels. The warm-up keeps first-call JIT out of the
+        // measurements, where it would otherwise land entirely on whichever ran first.
+        HtmlImporter.Import(html, refusedOutright);
+        HtmlImporter.Import(html, refusedForSize);
+
+        var baseline = Allocated(() => HtmlImporter.Import(html, refusedOutright));
+        var measured = Allocated(() => HtmlImporter.Import(html, refusedForSize));
+
+        Assert.Equal(0, EmbedsOf(HtmlImporter.Import(html, refusedForSize).Doc));
+        Assert.True(
+            measured - baseline < DecodedBytes / 2,
+            $"deciding the payload was too large cost {measured - baseline} bytes more than "
+            + $"refusing it outright, so it was decoded on the way to that decision");
+    }
+
+    // Four megabytes of base64 decode to three, which is the allocation the guard exists to avoid.
+    private const int PayloadChars = 4 * 1024 * 1024;
+
+    private const long DecodedBytes = PayloadChars / 4L * 3L;
+
+    private static long Allocated(Action action)
+    {
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        action();
+
+        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     [Theory]

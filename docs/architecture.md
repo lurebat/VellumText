@@ -1095,6 +1095,47 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
     The scenario stays in the harness. It is the evidence, and it is what would catch this
     changing — a re-find on every keystroke sitting inside a frame is a property of the current
     constant, not a guarantee.
+13. **Vacuous-test audit** — the suite is searched, on purpose, for tests that cannot fail.
+
+    **Done 2026-08-20 over all 4,397 tests. Five found, five proven, five fixed.** The reason to
+    do it was that the five vacuous tests found before this were all found by accident, which says
+    nothing about how many there are and everything about how hard anyone had looked.
+
+    A finding counts only if breaking the production code the test names leaves the whole suite
+    green. Nothing here is an opinion about a weak-looking assertion; each row below was produced
+    by a mutant that survived, and each fix was confirmed by re-running the same mutant and
+    watching the fixed test go red.
+
+    | test | the mutant it did not notice |
+    |---|---|
+    | `HtmlSecurityTests.A_span_of_a_thousand_columns_is_not_a_table` | The 1,000-column clamp removed. Its only assertion was `Assert.NotNull(result.Doc)`, and `ImportResult.Doc` is non-nullable and throws in its own constructor — true before the importer ran. |
+    | `RichTextViewImageInsertTests.ADropIsRefusedWhenTheViewIsReadOnlyOrOptedOut` | `CanAcceptDrop() => true`. It never raised a drop and never set `AcceptsDrop`; it called `InsertImage` on a read-only view, which is the check inside `Apply` and the test directly above it. A view that had opted out of drops would have accepted them. |
+    | `HostileValueTests.A_vast_base64_payload_is_rejected_without_being_decoded` | The pre-decode length bound removed. The payload is valid base64, so decoding it and measuring the result reaches the same "too large" verdict by exactly the route the bound exists to avoid. |
+    | `BitmapEmbedRendererTests.APngClaimingMorePixelsThanAllowedIsRefusedFromItsHeader` | The IHDR dimension check removed. `Accept` re-reads the pixel count after decoding and returns the same fallback size, so nothing downstream can tell which one refused it. |
+    | `HtmlSecurityTests.A_data_image_that_is_not_base64_is_refused` | The `;base64` requirement removed. Degenerate input: the percent-encoded payload is also invalid base64, so it is refused either way and the requirement itself was never reached. |
+
+    Two of the five could not be fixed by assertion alone, because the property is not visible in
+    the result. The size bound is now checked by allocation — the same document dropped by two
+    routes that differ in nothing but which check refuses it, and the megabytes between them. The
+    PNG header check is asked directly, which is what `IsOversizedPng` is internal for.
+
+    One more, separately: `ClipboardHtmlTests.AssertOffsetsAreTrue` compared a byte range against
+    the identical expression over the identical bytes — `Assert.Equal(x, x)`, no production change
+    can fail it. It is listed apart from the five because the assertions beside it already pin the
+    same offsets against the fragment markers, so it was a false signal rather than an uncovered
+    defect. It now takes the caller's own fragment.
+
+    **The other half of the result, which is the more useful half.** These shapes were looked for
+    across the whole suite and found already sound: `Assert.Equal` on two `ImmutableArray<T>`
+    (reference comparison — zero unfixed instances, and the hazard is commented at the three sites
+    that hit it); the overflow-guard tests in `MappingTests`, which already carry an explicit
+    "neither range runs off the end on its own" anti-degeneracy note; round-trip tests without an
+    independent anchor (three round-trip sites, all anchored on a literal); and the stored-marks,
+    JSON version and link-sanitisation guards, each of which has a mutant that a test catches.
+    Several surviving mutants were examined and deliberately **not** counted: `File.Exists` on an
+    `http://` source, `Convert.FromBase64String` inside a broad catch, and the negative-start
+    clause in `StepMap.Check` are redundant defence-in-depth on paths that are already closed, not
+    tests that cannot fail.
 
 ---
 

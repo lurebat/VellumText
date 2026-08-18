@@ -125,16 +125,69 @@ public class RichTextViewImageInsertTests
         Assert.True(DragDrop.GetAllowDrop(View()));
     }
 
-    [AvaloniaFact]
-    public void ADropIsRefusedWhenTheViewIsReadOnlyOrOptedOut()
+    /// <summary>
+    /// A view that has opted out of drops, or is read-only, refuses one.
+    /// </summary>
+    /// <remarks>
+    /// It has to raise the drop to mean anything. Setting the properties and then calling
+    /// <see cref="RichTextView.InsertImage(byte[], string)"/> exercises the read-only check inside
+    /// <c>Apply</c> and never reaches the drop guard at all, so the guard could be deleted and this
+    /// stayed green — which is how a drop-refusing view was left able to accept drops.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void ADropIsRefusedWhenTheViewIsReadOnlyOrOptedOut(bool readOnly, bool optedOut)
     {
         var view = View();
+        var before = view.State.Doc;
 
         Assert.True(view.AcceptsDrop);
 
-        view.IsReadOnly = true;
+        view.IsReadOnly = readOnly;
+        view.AcceptsDrop = !optedOut;
 
-        Assert.False(view.InsertImage(Png(2, 2), "image/png"));
+        var drop = Drop(view, TextTransfer("dropped"));
+
+        view.RaiseEvent(drop);
+
+        Assert.Same(before, view.State.Doc);
+
+        // Left unhandled and advertising nothing, so the host can offer the drop to something that
+        // will take it instead of swallowing it into an editor that then ignores it.
+        Assert.False(drop.Handled);
+        Assert.Equal(DragDropEffects.None, drop.DragEffects);
+    }
+
+    [AvaloniaFact]
+    public void AWillingViewTakesTheSameDrop()
+    {
+        // The companion the refusals need: without it they would all still pass if drops never
+        // worked at all.
+        var view = View();
+        var drop = Drop(view, TextTransfer("dropped"));
+
+        view.RaiseEvent(drop);
+
+        Assert.Contains("dropped", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+        Assert.True(drop.Handled);
+    }
+
+    private static DragEventArgs Drop(RichTextView view, DataTransfer data) =>
+        new(DragDrop.DropEvent, data, view, new global::Avalonia.Point(4, 4), KeyModifiers.None);
+
+    private static DataTransfer TextTransfer(string text)
+    {
+        var item = new DataTransferItem();
+
+        item.SetText(text);
+
+        var data = new DataTransfer();
+
+        data.Add(item);
+
+        return data;
     }
 
     [AvaloniaFact]

@@ -1,3 +1,4 @@
+using System.Globalization;
 using VellumText.Interop.Html;
 
 namespace VellumText.Tests.Interop.Html;
@@ -333,14 +334,26 @@ public class HtmlSecurityTests
     /// Importer and renderer each tested their own assumption and nothing tested the contract
     /// between them.
     /// </remarks>
-    [Fact]
-    public void A_data_image_that_is_not_base64_is_refused()
+    /// <remarks>
+    /// The payload has to be one the importer could otherwise have used, or the test proves
+    /// nothing: a percent-encoded payload is also invalid base64, so dropping the <c>;base64</c>
+    /// requirement altogether still refuses it and the requirement itself goes unmeasured. The
+    /// second case is a real PNG's base64 with the marker taken off, which the importer would
+    /// happily decode if it did not insist on being told.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_data_image_that_is_not_base64_is_refused(bool decodable)
     {
-        var bytes = Convert.FromBase64String(Png["data:image/png;base64,".Length..]);
-        var percent = string.Concat(bytes.Select(b => "%" + b.ToString("X2")));
+        var encoded = Png["data:image/png;base64,".Length..];
+        var payload = decodable
+            ? encoded
+            : string.Concat(
+                Convert.FromBase64String(encoded).Select(b => "%" + b.ToString("X2", CultureInfo.InvariantCulture)));
 
         var result = Import(
-            $"<img src='data:image/png,{percent}'>",
+            $"<img src='data:image/png,{payload}'>",
             new HtmlImportOptions { AllowDataImages = true });
 
         Assert.Empty(Images(result));
@@ -457,12 +470,29 @@ public class HtmlSecurityTests
         Assert.Contains(result.Diagnostics, d => d.Context == "nesting");
     }
 
-    [Fact]
-    public void A_span_of_a_thousand_columns_is_not_a_table()
+    /// <summary>
+    /// A cell may not claim more columns than a table could plausibly have.
+    /// </summary>
+    /// <remarks>
+    /// The span is what has to be pinned, not the fact that something came back: a document
+    /// holding one paragraph is a perfectly well-formed import, so asserting only that the
+    /// importer returned a document leaves every clamp it applies unchecked.
+    /// </remarks>
+    [Theory]
+    [InlineData("2000000", 1000)]
+    [InlineData("1001", 1000)]
+    [InlineData("0", 1)]
+    [InlineData("-5", 1)]
+    [InlineData("three", 1)]
+    public void A_span_of_a_thousand_columns_is_not_a_table(string attribute, int expected)
     {
-        var result = Import("<table><tr><td colspan='2000000'>x</td></tr></table>");
+        var result = Import($"<table><tr><td colspan='{attribute}'>x</td></tr></table>");
+        var table = Assert.IsType<TableNode>(result.Doc.Blocks[0]);
 
-        Assert.NotNull(result.Doc);
+        TableGeometry.Place(table, out var width);
+
+        Assert.Equal(expected, table.Rows[0].Cells[0].ColumnSpan);
+        Assert.Equal(expected, width);
     }
 
     [Theory]

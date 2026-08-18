@@ -167,6 +167,28 @@ public class BitmapEmbedRendererTests
         Assert.Equal(
             new global::Avalonia.Size(8, 8),
             generous.Measure(new ImageEmbed(Png(8, 8)), Properties()));
+
+        // Measuring cannot see which check refused it: Accept re-reads the pixel count after
+        // decoding and reaches the same fallback size, so the header check could be deleted
+        // outright and everything above would still pass. Asking it directly is what pins it.
+        var payload = Convert.FromBase64String(Png(8, 8).Split(',')[1]);
+
+        Assert.True(renderer.IsOversizedPng(payload));
+        Assert.False(generous.IsOversizedPng(payload));
+    }
+
+    [AvaloniaFact]
+    public void ThePngHeaderCheckOnlyJudgesPngs()
+    {
+        // It runs over every payload before decoding, so a false positive here would refuse a
+        // perfectly good JPEG for whatever its bytes happened to hold at offset 16.
+        using var renderer = new BitmapEmbedRenderer { MaximumPixels = 1 };
+
+        Assert.False(renderer.IsOversizedPng([]));
+        Assert.False(renderer.IsOversizedPng([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));
+
+        // A genuine PNG signature truncated before the IHDR dimensions it would be read from.
+        Assert.False(renderer.IsOversizedPng([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
     }
 
     [AvaloniaFact]
