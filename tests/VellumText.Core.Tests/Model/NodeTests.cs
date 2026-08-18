@@ -360,8 +360,12 @@ public class DocumentSchemaTests
         Assert.False(DocumentSchema.IsValid(new ListNode([])));
         Assert.False(DocumentSchema.IsValid(new ListItemNode([])));
         Assert.False(DocumentSchema.IsValid(new TableNode([])));
-        Assert.False(DocumentSchema.IsValid(new TableRowNode([])));
         Assert.False(DocumentSchema.IsValid(new TableCellNode([])));
+
+        // A row is the exception, and only when it is inside a table: whether an empty row is
+        // legal depends on whether the table's other rows cover it, which a row on its own has
+        // no way to ask.
+        Assert.False(DocumentSchema.IsValid(new TableRowNode([])));
     }
 
     [Fact]
@@ -513,6 +517,51 @@ public class DocumentSchemaTests
         var emptied = doc.WithChildren([doc.Blocks[0], new ListNode([], ListKind.Unordered)]);
 
         Assert.NotEmpty(DocumentSchema.Validate(emptied, doc));
+    }
+
+    [Fact]
+    public void A_row_whose_every_column_is_covered_from_elsewhere_may_be_empty()
+    {
+        // What merging a whole rectangle produces, and what Word produces for the same gesture:
+        // one cell covering both rows, and a second row that carries nothing of its own. Counting
+        // cells calls this broken; only occupancy sees that every slot is filled.
+        var table = new TableNode(
+        [
+            new TableRowNode(
+                [new TableCellNode([ParagraphNode.FromText("merged")], rowSpan: 2, columnSpan: 2)]),
+            new TableRowNode([]),
+        ]);
+
+        Assert.True(
+            DocumentSchema.IsValid(table),
+            string.Join("; ", DocumentSchema.Validate(table)));
+    }
+
+    [Fact]
+    public void A_row_left_empty_with_nothing_covering_it_is_still_invalid()
+    {
+        var table = new TableNode(
+        [
+            new TableRowNode([TableCellNode.FromText("a")]),
+            new TableRowNode([]),
+        ]);
+
+        var violations = DocumentSchema.Validate(table);
+
+        Assert.Single(violations);
+        Assert.Contains("No cell covers column 0", violations[0].Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_table_of_nothing_but_empty_rows_is_invalid()
+    {
+        // Every row is empty, so there is no cell to derive a width from and the coverage check
+        // has nothing to walk. Without a rule of its own this would pass by vacancy.
+        var violations = DocumentSchema.Validate(
+            new TableNode([new TableRowNode([]), new TableRowNode([])]));
+
+        Assert.Single(violations);
+        Assert.Contains("at least one cell", violations[0].Message, StringComparison.Ordinal);
     }
 
     [Fact]

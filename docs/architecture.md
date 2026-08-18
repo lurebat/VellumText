@@ -791,10 +791,24 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 ### 6.3 Merging table cells
 
 1. Selection must be `CellSelection`; otherwise command `CanExecute` is false.
-2. Compute the covering rectangle; reject with a status message if it is ragged (partially-overlapping existing spans).
+2. Take the cells the selection covers. **No raggedness check** — see the correction below.
 3. `TableStructureStep`: target cell gets `RowSpan`/`ColSpan`; absorbed cells' block content is appended to the target; absorbed cells removed.
 4. `Kind = Structure` → never coalesced with neighbours in history.
 5. `TableView` re-measures; column widths preserved; selection becomes a `TextSelection` at the end of the merged cell.
+
+> **Step 2 corrected 2026-08-18.** It used to read "compute the covering rectangle; reject with
+> a status message if it is ragged (partially-overlapping existing spans)". That sentence was
+> written before `CellSelection` existed, and P8 built the selection so that the situation it
+> guards against cannot arise: `TableGrid.Rectangle` grows the rectangle until it is *closed*
+> under every cell it touches, so a merged cell hanging over the edge widens the selection
+> instead of making it ragged. The cells it returns therefore tile their bounding box exactly.
+>
+> Rejecting is not merely unnecessary now, it would be wrong: the view draws its selection
+> highlight from the same `Cells(doc)` call, so the grown rectangle is what the reader can see
+> selected. A merge that refused it would be refusing exactly what is on screen.
+>
+> The check to keep is therefore in `TableEdits`, and it is a different one: **fewer than two
+> cells is not a merge.** That is the only way the command declines.
 
 ---
 

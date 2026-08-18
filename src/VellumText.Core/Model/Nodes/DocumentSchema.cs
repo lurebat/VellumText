@@ -42,7 +42,7 @@ public static class DocumentSchema
 
         var violations = ImmutableArray.CreateBuilder<SchemaViolation>();
 
-        Visit(node, null, node.TypeName, [], violations);
+        Visit(node, null, null, node.TypeName, [], violations);
 
         return violations.ToImmutable();
     }
@@ -78,7 +78,7 @@ public static class DocumentSchema
 
         var violations = ImmutableArray.CreateBuilder<SchemaViolation>();
 
-        Visit(node, previous, node.TypeName, [], violations);
+        Visit(node, previous, null, node.TypeName, [], violations);
 
         return violations.ToImmutable();
     }
@@ -91,6 +91,10 @@ public static class DocumentSchema
     /// What this node was before the edit, when that is known and known to have been valid.
     /// <see langword="null"/> means check it from scratch.
     /// </param>
+    /// <param name="parent">
+    /// The node this one is a child of, or <see langword="null"/> at the root. Only one rule
+    /// needs it, and needs it because the rule genuinely differs — see the row case below.
+    /// </param>
     /// <param name="root">The root node's type name, the first component of every path.</param>
     /// <param name="trail">
     /// The descent so far, as (child index, type name) pairs. Pushed and popped rather than
@@ -102,6 +106,7 @@ public static class DocumentSchema
     private static void Visit(
         Node node,
         Node? previous,
+        Node? parent,
         string root,
         List<(int Index, string TypeName)> trail,
         ImmutableArray<SchemaViolation>.Builder violations)
@@ -133,7 +138,12 @@ public static class DocumentSchema
                 ValidateTable(table, root, trail, violations);
                 break;
 
-            case TableRowNode row:
+            // A row inside a table may legitimately carry no cells: merging a whole rectangle
+            // leaves one cell covering several rows, and the rows underneath it hold nothing of
+            // their own. Whether that is a hole or a merge is a question about the *table*, and
+            // ValidateTable's occupancy check already answers it. A row reached on its own has no
+            // table to ask, so there the old rule stands.
+            case TableRowNode row when parent is not TableNode:
                 RequireNonEmpty(row.Cells.Length, root, trail, "cell", violations);
                 break;
 
@@ -156,7 +166,7 @@ public static class DocumentSchema
             var child = children[i];
 
             trail.Add((i, child.TypeName));
-            Visit(child, i < before.Length ? before[i] : null, root, trail, violations);
+            Visit(child, i < before.Length ? before[i] : null, node, root, trail, violations);
             trail.RemoveAt(trail.Count - 1);
         }
     }
@@ -192,12 +202,23 @@ public static class DocumentSchema
         }
 
         // Occupancy, not cell counts: a cell spanning rows fills slots in the rows below it,
-        // so those rows legitimately carry fewer cells. What must hold is that the placements
-        // tile the grid exactly - no hole a renderer would have to invent a cell for, and no
-        // span hanging off the bottom.
+        // so those rows legitimately carry fewer cells - or none at all. What must hold is that
+        // the placements tile the grid exactly - no hole a renderer would have to invent a cell
+        // for, and no span hanging off the bottom.
         var placements = TableGeometry.Place(table, out var width);
         var height = table.Rows.Length;
-        var covered = new bool[height, Math.Max(width, 1)];
+
+        if (width == 0)
+        {
+            // Every row is empty, so there is no cell to derive a width from and the coverage
+            // loop below has nothing to walk. Without this the table would pass by vacancy.
+            violations.Add(new SchemaViolation(
+                PathOf(root, trail), "Must contain at least one cell."));
+
+            return;
+        }
+
+        var covered = new bool[height, width];
 
         foreach (var placement in placements)
         {
