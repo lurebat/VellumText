@@ -921,12 +921,28 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
    |---|---|---|---|
    | insert at the start | 774,672 B / 2.007 ms | **261,672 B / 0.715 ms** | 48.4 → 16.4 B per block |
    | insert at the end | 1,160,848 B / 2.947 ms | **263,872 B / 0.720 ms** | 72.6 → 16.5 B per block |
+   | delete at the end | 1,160,848 B / 2.862 ms | **263,872 B / 0.732 ms** | 72.6 → 16.5 B per block |
+   | join two blocks | 1,158,832 B / 2.909 ms | 774,744 B / 2.651 ms | 72.4 → 48.4 B per block |
 
-   Both are still linear in document size and always will be: the document's child array is one
-   array and replacing one element of it copies the rest. What changed is the constant, and that
-   the two rows now agree — the cost of an edit no longer depends on where in the document it
-   happens, which was the last of the position-dependent costs. Two arrays per block remain:
-   the one `SetItem` returns and the one the node's constructor keeps.
+   The first three rows now agree with each other, which is the result: an edit costs the same
+   wherever it happens and whether it inserts or deletes, and the position-dependent costs are
+   gone. Backspace was worth measuring separately rather than assuming — it is the same
+   replacement with an empty slice, but "the same code path" is a claim about the code and the
+   table is evidence about the behaviour.
+
+   **The fourth row is the case the pivot cannot help, and it is correct that it cannot.**
+   Joining two blocks — backspace at the start of a line — replaces two of the document's
+   children with one, so no ancestor's child list survives unchanged, `PivotDepth` returns -1
+   and the whole-document route runs. It still improved by a third, because `MoveToImmutable`
+   applies to every rebuild, but it stays at three times the cost of typing and extrapolates to
+   roughly 8 ms at 50,000 blocks: inside the budget, and one keypress rather than a held key.
+   A "two children become one" route would close it and was not written, on the same reasoning
+   as `WithChildReplaced` below — a third route through the primitive every edit goes through,
+   to speed up a keystroke that already passes.
+
+   Every row is still linear in document size and always will be: the document's child array is
+   one array and replacing one element of it copies the rest. What changed is the constant. Two
+   arrays per block remain: the one `SetItem` returns and the one the node's constructor keeps.
 
    **Not done, and why.** Giving each node type a `WithChildReplaced` override would drop those
    two arrays to one, but the model edit is now ~800 KB of a 4.4 MB keystroke at 50,000 blocks,

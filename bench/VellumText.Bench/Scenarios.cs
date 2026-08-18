@@ -359,6 +359,21 @@ internal static class Scenarios
             DocumentSizes.Select(n => ModelInsert(n, atEnd: true)).ToList(),
             "Same work as the table above, in the place people actually type. Any gap is "
             + "position-dependent cost.");
+
+        Measure.Report(
+            "Model edit — delete one character at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(ModelDelete).ToList(),
+            "Backspace is as common as typing and costs the same, because it is the same "
+            + "replacement with an empty slice.");
+
+        Measure.Report(
+            "Model edit — join two paragraphs at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(ModelJoin).ToList(),
+            "The case that cannot take the cheap route: two blocks become one, so the "
+            + "document's child list is genuinely a different length and gets rebuilt. One "
+            + "keypress, not a held key.");
     }
 
     /// <summary>Resolving a position, which every edit and every caret move begins with.</summary>
@@ -456,6 +471,59 @@ internal static class Scenarios
                 var transaction = s.Transaction();
 
                 transaction.InsertText(at, "x");
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
+    }
+
+    /// <summary>Deleting one character at the end of the document, the backspace case.</summary>
+    /// <param name="paragraphs">How many blocks the document holds.</param>
+    private static Point ModelDelete(int paragraphs)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var at = doc.ContentSize - 2;
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.DeleteRange(at - 1, at);
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
+    }
+
+    /// <summary>
+    /// Joining the last two blocks, which is backspace at the start of a line.
+    /// </summary>
+    /// <param name="paragraphs">How many blocks the document holds.</param>
+    /// <remarks>
+    /// Deliberately the unflattering case. The two positions are in different children of the
+    /// document, so closing the range up leaves it one child shorter and there is no ancestor
+    /// whose child list survives — the replacement has to rebuild the document's array however
+    /// it is written. Measured so that the cost is known rather than assumed, and separated
+    /// from the tables above so it cannot quietly flatter them.
+    /// </remarks>
+    private static Point ModelJoin(int paragraphs)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var boundary = doc.Resolve(doc.ContentSize - 2).Before(1);
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.DeleteRange(boundary - 1, boundary + 1);
                 s.Apply(transaction);
             },
             paragraphs,
