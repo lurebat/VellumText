@@ -32,6 +32,9 @@ public interface IImageStore
     /// <returns>
     /// The source to record, or <see langword="null"/> to refuse the image — which is how a host
     /// rejects one that is too large, of the wrong type, or arriving faster than it can store.
+    /// A blank source is treated as a refusal too, rather than trusted: it is outside this
+    /// contract, and <see cref="ImageEmbed"/> rejects one, so trusting it would write the image
+    /// and then throw out of the insert.
     /// </returns>
     string? Save(ReadOnlySpan<byte> bytes, string mediaType);
 }

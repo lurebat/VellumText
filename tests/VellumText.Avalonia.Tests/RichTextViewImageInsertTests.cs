@@ -215,6 +215,61 @@ public class RichTextViewImageInsertTests
         }
     }
 
+    /// <summary>An <see cref="IImageStore"/> that returns a source outside its own contract.</summary>
+    /// <remarks>
+    /// <see cref="IImageStore.Save"/> documents two answers: a source, or <see langword="null"/> to
+    /// refuse. Blank is neither, and a host can return one — from a path builder that produced an
+    /// empty string, or a trim of a value that was only whitespace.
+    /// </remarks>
+    private sealed class BlankSourceStore(string source) : IImageStore
+    {
+        public List<int> Saved { get; } = [];
+
+        public string? Save(ReadOnlySpan<byte> bytes, string mediaType)
+        {
+            Saved.Add(bytes.Length);
+
+            return source;
+        }
+    }
+
+    /// <summary>
+    /// A store answering outside its contract is refused, not thrown out of.
+    /// </summary>
+    /// <remarks>
+    /// The null check let a blank through, and <see cref="ImageEmbed"/> rejects a blank source in
+    /// its constructor — so the image was written to the store and then an
+    /// <see cref="ArgumentException"/> left <see cref="RichTextView.InsertImage"/>, which returns
+    /// a bool and documents no throw.
+    /// <para>
+    /// The store is deliberately still written here, and the assertions say so. It has to be asked
+    /// before its answer is known, so this cannot be turned into the read-only case where nothing
+    /// is saved at all. What the fix buys is a clean refusal instead of an exception through a
+    /// public method, on a value the host supplied.
+    /// </para>
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void AStoreThatAnswersOutsideItsContractIsRefused(string source)
+    {
+        var view = View();
+        var store = new BlankSourceStore(source);
+        var refused = 0;
+
+        view.ImageStore = store;
+        view.ImageRefused += (_, _) => refused++;
+
+        var before = view.State.Doc;
+
+        Assert.False(view.InsertImage(Png(2, 2), "image/png"));
+        Assert.Same(before, view.State.Doc);
+        Assert.Equal(1, refused);
+
+        // Not Assert.Empty: the store was asked, which is the only way to learn the answer.
+        Assert.Single(store.Saved);
+    }
+
     [AvaloniaFact]
     public void AReadOnlyViewLeavesNothingBehindInTheStore()
     {

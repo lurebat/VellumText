@@ -103,7 +103,16 @@ public partial class RichTextView
             return false;
         }
 
-        if (ImageStore.Save(bytes, mediaType) is not { } source)
+        // Treated as a refusal rather than trusted: Save documents a source or null, and a blank
+        // is neither. It used to pass the null check and reach ImageEmbed, which rejects a blank
+        // source in its constructor, so a store answering "" wrote the image and then threw
+        // ArgumentException out of a method that returns a bool and documents no throw.
+        //
+        // This stops the exception, not the orphan. The store has to be asked before its answer
+        // is known, so a host that records the bytes and then answers blank has orphaned its own
+        // file - which is why the answer is outside the contract in the first place. ImageRefused
+        // at least tells it that the image did not land.
+        if (ImageStore.Save(bytes, mediaType) is not { } source || string.IsNullOrWhiteSpace(source))
         {
             ImageRefused?.Invoke(this, new ImageRefusedEventArgs(bytes.Length, mediaType));
 
