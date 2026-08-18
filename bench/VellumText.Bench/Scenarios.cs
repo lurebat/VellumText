@@ -267,6 +267,22 @@ internal static class Scenarios
             rounds: 7,
             warmup: 2);
 
+        // The same keystroke at the far end of the document, which is where people actually
+        // type. Resolving a position walks the children to find it, so the start of a document
+        // is the cheapest place in it and a benchmark that only types there flatters itself.
+        var atEnd = Measure.Run(
+            () => Shown(doc),
+            view =>
+            {
+                view.MoveTo(doc.ContentSize - 2, false);
+                view.InsertText("x");
+                view.Measure(new Size(Width, Height));
+                view.Arrange(new Rect(0, 0, Width, Height));
+            },
+            Paragraphs,
+            rounds: 7,
+            warmup: 2);
+
         var caret = Measure.Run(
             () =>
             {
@@ -293,10 +309,11 @@ internal static class Scenarios
 
         Verdict("first render", 500, render.Milliseconds);
         Verdict("keystroke to frame", 16, keystroke.Milliseconds);
+        Verdict("keystroke at document end", 16, atEnd.Milliseconds);
         Verdict("caret move", 16, caret.Milliseconds);
 
         Console.WriteLine();
-        Console.WriteLine($"   allocated: render {render.Bytes:N0} B, keystroke {keystroke.Bytes:N0} B, caret {caret.Bytes:N0} B");
+        Console.WriteLine($"   allocated: render {render.Bytes:N0} B, keystroke {keystroke.Bytes:N0} B, at end {atEnd.Bytes:N0} B, caret {caret.Bytes:N0} B");
 
         static void Verdict(string name, double budget, double measured) =>
             Console.WriteLine(

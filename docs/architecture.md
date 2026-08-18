@@ -853,17 +853,24 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
 8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
 
-   **Measured 2026-08-17 — all three pass.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
+   **Measured 2026-08-17, corrected 2026-08-18 — one of the four FAILS.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
 
-   | | budget | measured |
-   |---|---|---|
-   | first render | 500 ms | **18.28 ms** |
-   | keystroke to frame | 16 ms | **13.00 ms** |
-   | caret move | 16 ms | **1.03 ms** |
+   | | budget | measured | |
+   |---|---|---|---|
+   | first render | 500 ms | **20.85 ms** | pass |
+   | keystroke, caret at the start | 16 ms | **9.81 ms** | pass |
+   | keystroke, caret at the end | 16 ms | **24.55 ms** | **FAIL** |
+   | caret move | 16 ms | **1.05 ms** | pass |
+
+   The last three lines are the point. The first keystroke figure was the only one measured
+   until 2026-08-18, and it types at position 1 — the cheapest position in a document, because
+   resolving a position walks the parent's children to find it and position 1 stops at the first
+   one. Typing at the end walks all 50,000. A benchmark that only ever typed at the start
+   flattered the result by 2.5x and reported a pass where there is a failure.
 
    This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
    
-   **The keystroke is still linear in document size.** It passes at 50,000 and would not at 200,000, because an edit legitimately rebuilds the block list. The caret move, by contrast, is now flat — 2,056 bytes whatever the document size.
+   **Two linear costs remain, and they compound.** An edit rebuilds the root's child array, and ResolvedPos walks a parent's children to locate a position — so the cost of a keystroke depends on *where in the document it happens*. Measured at 32,000 blocks: resolving at the end takes 0.349 ms against 0.0001 ms at the start, doubling with the document. Fixing this needs a prefix-sum index over child sizes, the same shape as BlockHeightIndex, so a position can be located in O(log n) instead of O(children). The caret move is already flat — 1,768 bytes whatever the document size.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
