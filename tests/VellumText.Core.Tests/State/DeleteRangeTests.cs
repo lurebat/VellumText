@@ -37,6 +37,51 @@ public class DeleteRangeTests
         return state.Apply(transaction).Doc;
     }
 
+    /// <summary>
+    /// A cross-depth range ending inside a surrogate pair records a failure rather than throwing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other way of asking for an impossible edit returns a failure: that is the contract
+    /// steps are built on, and it is why a command can try something and carry on.
+    /// <c>DeleteRange</c> took a different route for a range whose ends sit at different depths —
+    /// it cut the tail with <c>Substring</c>, which throws when the offset splits a surrogate.
+    /// </para>
+    /// <para>
+    /// Reachable from ordinary public API rather than only from a fuzzer: <c>MoveTo</c> and the
+    /// IME's selection setter both accept a mid-surrogate position, and backspacing over a
+    /// selection arrives here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void ACrossDepthRangeThatSplitsASurrogateFailsInsteadOfThrowing()
+    {
+        // One astral character is two UTF-16 units, so there is a position between them.
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("before"),
+            new ListNode(
+                [new ListItemNode([ParagraphNode.FromText("\U0001F600 tail")])],
+                ListKind.Unordered),
+        ]);
+
+        var state = EditorState.Create(doc);
+        var transaction = state.Transaction();
+
+        // "before" occupies 1..7, the list opens at 8, the item at 9, its paragraph at 10, so the
+        // emoji's two units are 11 and 12. Asserted rather than assumed, because a wrong position
+        // here would make the test pass by never reaching the code under test.
+        const int MidSurrogate = 12;
+
+        var nested = (ParagraphNode)((ListNode)doc.Blocks[1]).Items[0].Blocks[0];
+
+        Assert.True(char.IsLowSurrogate(nested.Content.Text[MidSurrogate - 11]));
+
+        var exception = Record.Exception(() => transaction.DeleteRange(3, MidSurrogate));
+
+        Assert.Null(exception);
+    }
+
     [Fact]
     public void ARangeRunningOutOfAListIntoAParagraphIsRemoved()
     {

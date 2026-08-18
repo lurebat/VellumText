@@ -228,6 +228,19 @@ public sealed class Transaction
             return Delete(from, to);
         }
 
+        // A range whose end splits a surrogate pair cannot be cut here without Substring
+        // throwing, and throwing is the wrong answer: every other impossible edit is reported as
+        // a failure so that a command composing several steps can try one and carry on. Delete
+        // does exactly that for the same range, so hand it over rather than inventing a second
+        // way to say no.
+        if (end.Paragraph is { } tailParagraph
+            && end.ParentOffset > 0
+            && end.ParentOffset < tailParagraph.Content.Length
+            && char.IsLowSurrogate(tailParagraph.Content.Text[end.ParentOffset]))
+        {
+            return Delete(from, to);
+        }
+
         var tail = end.Paragraph is { } paragraph
             ? paragraph.Content.Substring(end.ParentOffset, paragraph.Content.Length - end.ParentOffset)
             : InlineContent.Empty;
