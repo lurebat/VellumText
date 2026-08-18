@@ -197,6 +197,55 @@ public class JsonFormatTests
 
     // ---- the compatibility contract -----------------------------------------------------------
 
+    /// <summary>
+    /// Schema version 1 is pinned to a fixed payload, in both directions.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other test here is a round trip: export, import, compare. That proves the writer and
+    /// the reader agree with each other, which they will continue to do if both are changed
+    /// together — and the on-disk format will have become incompatible with every file already
+    /// written, silently, with the whole suite green. The payload declares
+    /// <c>"VellumText": 1</c>, and until now nothing said what 1 <em>is</em>.
+    /// </para>
+    /// <para>
+    /// So the oracle is a literal neither side produces. Reading it proves a stored document
+    /// still loads; writing it proves a stored document still round-trips through a future
+    /// reader. A deliberate format change should break this test and be answered by bumping
+    /// <see cref="JsonFormat.SchemaVersion"/> and adding a second fixture, not by editing this
+    /// one in place.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void SchemaVersionOneIsExactlyThisPayload()
+    {
+        const string Golden =
+            """
+            {"VellumText":1,"blocks":[{"type":"paragraph","content":{"text":"Hi \uD83D\uDE00","marks":[{"start":0,"length":2,"mark":{"style":"Bold"}}]}},{"type":"list","kind":"Ordered","start":3,"items":[{"blocks":[{"type":"paragraph","content":{"text":"one"}}]}]},{"type":"table","rows":[{"cells":[{"blocks":[{"type":"paragraph","content":{"text":"c"}}]}]}]},{"type":"rule"}]}
+            """;
+
+        var expected = new DocumentNode(
+        [
+            new ParagraphNode(InlineContent.Create(
+                "Hi \U0001F600",
+                [new ValueSpan<MarkSet>(0, 2, new MarkSet { Style = TextStyle.Bold })],
+                [])),
+            new ListNode([new ListItemNode([ParagraphNode.FromText("one")])], ListKind.Ordered, 3),
+            new TableNode([new TableRowNode([TableCellNode.FromText("c")])]),
+            RuleNode.Instance,
+        ]);
+
+        // The reader cannot drift: a file written by this version must still load as this.
+        var read = JsonFormat.Instance.Import(Golden);
+
+        Assert.Empty(read.Diagnostics);
+        Assert.Equal(expected, read.Doc);
+
+        // And the writer cannot drift: what this version writes must still be readable by anything
+        // that understands version 1.
+        Assert.Equal(Golden, JsonFormat.Instance.Export(expected));
+    }
+
     [Fact]
     public void ThePayloadDeclaresItsSchemaVersion()
     {
