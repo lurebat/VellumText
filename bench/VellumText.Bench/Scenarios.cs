@@ -329,16 +329,20 @@ internal static class Scenarios
     /// not in the view.
     /// </para>
     /// <para>
-    /// Measured at 48 bytes per block, against 16 bytes per block for a single
-    /// <c>WithChildren</c> — so a one-character insertion still rebuilds the document's child array
-    /// about three times. Reducing it further is a change to <c>ReplaceStep</c>'s cut-and-splice, not
-    /// a local tidy-up.
+    /// Measured at 16 bytes per block, which is two arrays: the one <c>SetItem</c> produces and
+    /// the one the node's constructor keeps. A one-character insertion now rebuilds the
+    /// document's child array once, where it used to rebuild it three times — twice to cut the
+    /// document in half and once to splice it back together, all to arrive at an array differing
+    /// from the original in a single place. Getting below this means a node knowing how to
+    /// replace one of its children without going through a builder.
     /// </para>
     /// <para>
     /// It is measured at both ends of the document, and that is the point of the second table.
-    /// The cut-and-splice touches the whole child array wherever the edit lands, so the two
+    /// The spine rebuild touches the same number of nodes wherever the edit lands, so the two
     /// tables should agree; a gap between them is position-dependent work, which is what
-    /// resolving a position used to be.
+    /// resolving a position used to be, and which the cut-and-splice used to add on top —
+    /// inserting at the end cost half again as much as inserting at the start, because the tail
+    /// it had to carry across was the whole document.
     /// </para>
     /// </remarks>
     internal static void ModelEdit()
@@ -347,7 +351,7 @@ internal static class Scenarios
             "Model edit — insert one character at the start, no view",
             "paragraphs",
             DocumentSizes.Select(n => ModelInsert(n, atEnd: false)).ToList(),
-            "About 48 bytes per block: the document's child array still rebuilt, minus the boxing.");
+            "About 16 bytes per block: the document's child array rebuilt once, not three times.");
 
         Measure.Report(
             "Model edit — insert one character at the end, no view",

@@ -853,51 +853,94 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
 8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
 
-   **Measured 2026-08-17, corrected 2026-08-18, re-measured 2026-08-19 after the resolve index — one of the four still FAILS, narrowly.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
+   **Measured 2026-08-17, corrected 2026-08-18, re-measured 2026-08-19 after the resolve index, and again 2026-08-19 after the edit pivot — all four now PASS.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
 
-   | | budget | before the index | after the index | |
-   |---|---|---|---|---|
-   | first render | 500 ms | 20.85 ms | **19.7–20.0 ms** | pass |
-   | keystroke, caret at the start | 16 ms | 9.81 ms | **10.0–12.4 ms** | pass |
-   | keystroke, caret at the end | 16 ms | 24.55 ms | **16.22 ms** | **FAIL** |
-   | caret move | 16 ms | 1.05 ms | **1.04 ms** | pass |
+   | | budget | before the index | after the index | after the pivot | |
+   |---|---|---|---|---|---|
+   | first render | 500 ms | 20.85 ms | 19.7–20.0 ms | **20.1–26.2 ms** | pass |
+   | keystroke, caret at the start | 16 ms | 9.81 ms | 10.0–12.4 ms | **7.0–10.5 ms** | pass |
+   | keystroke, caret at the end | 16 ms | 24.55 ms | 16.22 ms | **10.38 ms** | pass |
+   | caret move | 16 ms | 1.05 ms | 1.04 ms | **1.05–1.17 ms** | pass |
 
-   The last line of the table is a median of nine consecutive runs of the same build, one
-   scenario per process, spanning 15.60–17.09 ms — the budget runs through the middle of the
-   distribution. The same nine-run treatment of the code before the index gives 25.30 and
-   25.40 ms, tightly clustered. So the criterion went from failing by 9 ms to failing by 0.2,
-   and calling that a pass because five runs of nine came in under 16 would be the same mistake
-   as measuring only at position 1. Running several scenarios in one process measures higher
-   still (18.74 ms), which is why the numbers here come from `-- ac12` alone.
+   The keystroke-at-the-end figure is a median of nine consecutive runs of the same build,
+   `-- ac12` alone in its own process, which is the treatment the previous entry in this table
+   got and the only way to compare them. Nine runs of `c35be99` on the same machine at the same
+   hour gave 15.34–17.59 ms, median **15.99**, four of the nine over budget; nine runs of the
+   pivot gave 9.84–18.33 ms, median **10.38**, one of the nine over budget. That one run is not
+   dismissed but it is not the edit either — every line of that run was elevated together, first
+   render at 26.17 ms against a 20.13 ms best and a caret move that allocates 1,768 bytes
+   whatever happens. This is a shared machine and the tail is the machine.
 
-   The last three lines are the point. The first keystroke figure was the only one measured
-   until 2026-08-18, and it types at position 1 — the cheapest position in a document, because
+   So the honest claim is a median 35% under budget where it used to sit on top of it, not
+   an edit that can never miss a frame on a loaded box. The deterministic half of the measurement
+   is the stronger evidence and it is below.
+
+   The keystroke lines are the point of the table. The first was the only one measured until
+   2026-08-18, and it types at position 1 — the cheapest position in a document, because
    resolving a position walks the parent's children to find it and position 1 stops at the first
-   one. Typing at the end walks all 50,000. A benchmark that only ever typed at the start
-   flattered the result by 2.5x and reported a pass where there is a failure.
+   one. Typing at the end walked all 50,000. A benchmark that only ever typed at the start
+   flattered the result by 2.5x and reported a pass where there was a failure.
 
    This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
-   
-   **The position scan is gone; the remaining linear cost is the edit.** `Node.ChildIndexAt` now
-   scans at most 32 children and, past that, builds a prefix-sum array of cumulative child ends
-   and binary searches it — the same shape as `BlockHeightIndex` minus the Fenwick update path,
-   which children never need because a node with different children is a different node.
-   Isolated (`-- resolve`), 64 lookups at the end of a 16,000-block document went 20.956 ms to
-   0.147 ms; the same 64 lookups at the *start* are unchanged and still flat at 0.010 ms and
-   17,448 bytes. Keeping that flat is why the index waits for a scan to prove expensive rather
-   than building on first touch: indexing on the first lookup was measured at 0.140 ms and
-   81 KB for those start lookups, linear in document size, which is this defect again at the
-   cheap end. What is left is one O(n) build per *document version* — a keystroke at the end
-   allocates exactly one extra `int[50,000]`, 7,034,560 to 7,234,664 bytes.
 
-   **What still costs 16 ms is `ReplaceStep`, not the lookup.** Splitting a keystroke at the end
-   of a 50,000-paragraph document into stages: caret move 2.09 ms (0.90 of it scrolling the
-   view, the rest the first resolve of a document version), `InsertText` 12.90 ms (9.49 model,
-   3.41 view), measure and arrange 1.12 ms. The model half is the cut-and-splice rebuilding the
-   root's child array — inserting at the end allocates 1,160,848 bytes at 16,000 blocks against
-   774,672 at the start, both linear in document size. That is the next defect and it is a
-   change to the step machinery, not a lookup. The caret move is already flat — 1,768 bytes
-   whatever the document size.
+   **The position scan went first.** `Node.ChildIndexAt` scans at most 32 children and, past that,
+   builds a prefix-sum array of cumulative child ends and binary searches it — the same shape as
+   `BlockHeightIndex` minus the Fenwick update path, which children never need because a node
+   with different children is a different node. Isolated (`-- resolve`), 64 lookups at the end of
+   a 16,000-block document went 20.956 ms to 0.147 ms; the same 64 lookups at the *start* are
+   unchanged and still flat at 0.010 ms and 17,448 bytes. Keeping that flat is why the index
+   waits for a scan to prove expensive rather than building on first touch: indexing on the first
+   lookup was measured at 0.140 ms and 81 KB for those start lookups, linear in document size,
+   which is this defect again at the cheap end. What is left of it is one O(n) build per
+   *document version*.
+
+   **What cost the remaining 16 ms was `ReplaceStep`, not the lookup.** Splitting a keystroke at
+   the end of a 50,000-paragraph document into stages gave: caret move 2.09 ms, `InsertText`
+   12.90 ms of which 9.49 was the model, measure and arrange 1.12 ms. The model half was the
+   cut-and-splice: `CutBefore(start, 0)`, `CutAfter(end, 0)` and two `Splice` calls, each of
+   which rebuilt the *root's* child array. Three rebuilds of a 50,000-element array to arrive at
+   an array differing from the original in one place, because typing happens inside one
+   paragraph and touches one child of the document.
+
+   **A pivot depth replaces that with one spine rebuild.** `ReplaceStep.PivotDepth` finds the
+   deepest ancestor of the range whose child list survives the edit unchanged in length — the
+   shallower of `SharedDepth - 1` (above that the range's two ends are in different children, so
+   closing it up removes everything between them) and the depth the slice's own content arrives
+   at (a slice of one node replaces a child, a slice of two grows the list). At or above that
+   depth every level is its old children with one child replaced, so the cutting and splicing is
+   done inside the one child and `TreeSurgery.ReplaceChild` walks the spine with
+   `Children.SetItem`. When the pivot is -1 — Enter at the top level, a paste of several blocks —
+   nothing is claimed and the old whole-document route runs unchanged. `TreeSurgery.Merge`, the
+   seam decision, is shared by both routes rather than copied, because whether a seam joins is
+   what decides whether a step applies at all.
+
+   Measured with `-- model`, which isolates the edit with no view and where allocation is
+   deterministic, at 16,000 paragraphs:
+
+   | | before | after | |
+   |---|---|---|---|
+   | insert at the start | 774,672 B / 2.007 ms | **261,672 B / 0.715 ms** | 48.4 → 16.4 B per block |
+   | insert at the end | 1,160,848 B / 2.947 ms | **263,872 B / 0.720 ms** | 72.6 → 16.5 B per block |
+
+   Both are still linear in document size and always will be: the document's child array is one
+   array and replacing one element of it copies the rest. What changed is the constant, and that
+   the two rows now agree — the cost of an edit no longer depends on where in the document it
+   happens, which was the last of the position-dependent costs. Two arrays per block remain:
+   the one `SetItem` returns and the one the node's constructor keeps.
+
+   **Not done, and why.** Giving each node type a `WithChildReplaced` override would drop those
+   two arrays to one, but the model edit is now ~800 KB of a 4.4 MB keystroke at 50,000 blocks,
+   so halving it buys under 10% of the keystroke for six new overrides on the type every edit
+   goes through. Incrementally maintaining `DocumentNode`'s content size instead of re-summing
+   it per rebuild was rejected for the same reason — it is an O(n) scan that allocates nothing,
+   and it is now paid once per keystroke rather than three times.
+
+   Equivalence is tested rather than argued: `ReplaceStepEquivalenceTests` re-implements the old
+   cut-and-splice from the public model API and compares it against the pivot over every range of
+   thirteen document shapes crossed with seven slices, plus every range cut out and put back, plus
+   a second edit on top of the first. That test was mutation-checked — a pivot one level too deep,
+   a pivot that ignores the slice's length, a spine walk starting one level too high, and a seam
+   merged at the wrong depth each make it fail, in 13 to 95 cases.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
