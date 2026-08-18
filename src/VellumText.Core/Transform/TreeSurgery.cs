@@ -48,11 +48,15 @@ internal static class TreeSurgery
         }
 
         var index = at.IndexAt(depth);
+
+        // Hoisted: Children is IReadOnlyList<Node> over an ImmutableArray, so every read of the
+        // property boxes, and this loop read it once per child.
+        var children = node.Children;
         var kept = new List<Node>(index + 1);
 
         for (var i = 0; i < index; i++)
         {
-            kept.Add(node.Children[i]);
+            kept.Add(children[i]);
         }
 
         kept.Add(CutBefore(at, depth + 1));
@@ -80,11 +84,16 @@ internal static class TreeSurgery
         }
 
         var index = at.IndexAt(depth);
-        var kept = new List<Node> { CutAfter(at, depth + 1) };
 
-        for (var i = index + 1; i < node.Children.Count; i++)
+        // Hoisted for the same reason as CutBefore, and sized up front: this loop kept the tail
+        // of the document after an edit, so on a large document it was two boxed property reads
+        // per child and a list doubling its way up to the final count.
+        var children = node.Children;
+        var kept = new List<Node>(children.Count - index) { CutAfter(at, depth + 1) };
+
+        for (var i = index + 1; i < children.Count; i++)
         {
-            kept.Add(node.Children[i]);
+            kept.Add(children[i]);
         }
 
         return node.WithChildren(kept);
