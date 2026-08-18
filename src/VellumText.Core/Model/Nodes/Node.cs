@@ -274,6 +274,13 @@ public abstract class Node : IEquatable<Node>
     /// <param name="children">The children to check.</param>
     /// <param name="parameterName">The parameter to blame in the exception.</param>
     /// <exception cref="ArgumentException">A child is null or of the wrong type.</exception>
+    /// <remarks>
+    /// <c>MoveToImmutable</c> rather than <c>ToImmutable</c>: the builder is created at exactly
+    /// the final count and filled to it, so moving hands over the array it already has where
+    /// <c>ToImmutable</c> copies it into a second one. Every <see cref="WithChildren"/> goes
+    /// through here, and at 50,000 blocks that copy is a 400 KB large-object allocation per
+    /// rebuild, several of which happen on every keystroke.
+    /// </remarks>
     protected static ImmutableArray<T> RequireAll<T>(
         IReadOnlyList<Node> children, string parameterName)
         where T : Node
@@ -294,7 +301,7 @@ public abstract class Node : IEquatable<Node>
             builder.Add(typed);
         }
 
-        return builder.ToImmutable();
+        return builder.MoveToImmutable();
     }
 }
 
