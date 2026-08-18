@@ -853,14 +853,22 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
 8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
 
-   **Measured 2026-08-17, corrected 2026-08-18 — one of the four FAILS.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
+   **Measured 2026-08-17, corrected 2026-08-18, re-measured 2026-08-19 after the resolve index — one of the four still FAILS, narrowly.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
 
-   | | budget | measured | |
-   |---|---|---|---|
-   | first render | 500 ms | **20.85 ms** | pass |
-   | keystroke, caret at the start | 16 ms | **9.81 ms** | pass |
-   | keystroke, caret at the end | 16 ms | **24.55 ms** | **FAIL** |
-   | caret move | 16 ms | **1.05 ms** | pass |
+   | | budget | before the index | after the index | |
+   |---|---|---|---|---|
+   | first render | 500 ms | 20.85 ms | **19.7–20.0 ms** | pass |
+   | keystroke, caret at the start | 16 ms | 9.81 ms | **10.0–12.4 ms** | pass |
+   | keystroke, caret at the end | 16 ms | 24.55 ms | **16.22 ms** | **FAIL** |
+   | caret move | 16 ms | 1.05 ms | **1.04 ms** | pass |
+
+   The last line of the table is a median of nine consecutive runs of the same build, one
+   scenario per process, spanning 15.60–17.09 ms — the budget runs through the middle of the
+   distribution. The same nine-run treatment of the code before the index gives 25.30 and
+   25.40 ms, tightly clustered. So the criterion went from failing by 9 ms to failing by 0.2,
+   and calling that a pass because five runs of nine came in under 16 would be the same mistake
+   as measuring only at position 1. Running several scenarios in one process measures higher
+   still (18.74 ms), which is why the numbers here come from `-- ac12` alone.
 
    The last three lines are the point. The first keystroke figure was the only one measured
    until 2026-08-18, and it types at position 1 — the cheapest position in a document, because
@@ -870,7 +878,26 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 
    This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
    
-   **Two linear costs remain, and they compound.** An edit rebuilds the root's child array, and ResolvedPos walks a parent's children to locate a position — so the cost of a keystroke depends on *where in the document it happens*. Measured at 32,000 blocks: resolving at the end takes 0.349 ms against 0.0001 ms at the start, doubling with the document. Fixing this needs a prefix-sum index over child sizes, the same shape as BlockHeightIndex, so a position can be located in O(log n) instead of O(children). The caret move is already flat — 1,768 bytes whatever the document size.
+   **The position scan is gone; the remaining linear cost is the edit.** `Node.ChildIndexAt` now
+   scans at most 32 children and, past that, builds a prefix-sum array of cumulative child ends
+   and binary searches it — the same shape as `BlockHeightIndex` minus the Fenwick update path,
+   which children never need because a node with different children is a different node.
+   Isolated (`-- resolve`), 64 lookups at the end of a 16,000-block document went 20.956 ms to
+   0.147 ms; the same 64 lookups at the *start* are unchanged and still flat at 0.010 ms and
+   17,448 bytes. Keeping that flat is why the index waits for a scan to prove expensive rather
+   than building on first touch: indexing on the first lookup was measured at 0.140 ms and
+   81 KB for those start lookups, linear in document size, which is this defect again at the
+   cheap end. What is left is one O(n) build per *document version* — a keystroke at the end
+   allocates exactly one extra `int[50,000]`, 7,034,560 to 7,234,664 bytes.
+
+   **What still costs 16 ms is `ReplaceStep`, not the lookup.** Splitting a keystroke at the end
+   of a 50,000-paragraph document into stages: caret move 2.09 ms (0.90 of it scrolling the
+   view, the rest the first resolve of a document version), `InsertText` 12.90 ms (9.49 model,
+   3.41 view), measure and arrange 1.12 ms. The model half is the cut-and-splice rebuilding the
+   root's child array — inserting at the end allocates 1,160,848 bytes at 16,000 blocks against
+   774,672 at the start, both linear in document size. That is the next defect and it is a
+   change to the step machinery, not a lookup. The caret move is already flat — 1,768 bytes
+   whatever the document size.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
