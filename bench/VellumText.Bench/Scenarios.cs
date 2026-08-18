@@ -334,35 +334,129 @@ internal static class Scenarios
     /// about three times. Reducing it further is a change to <c>ReplaceStep</c>'s cut-and-splice, not
     /// a local tidy-up.
     /// </para>
+    /// <para>
+    /// It is measured at both ends of the document, and that is the point of the second table.
+    /// The cut-and-splice touches the whole child array wherever the edit lands, so the two
+    /// tables should agree; a gap between them is position-dependent work, which is what
+    /// resolving a position used to be.
+    /// </para>
     /// </remarks>
     internal static void ModelEdit()
     {
-        var points = DocumentSizes
-            .Select(n =>
-            {
-                var doc = Document(n);
-                var state = EditorState.Create(doc);
+        Measure.Report(
+            "Model edit — insert one character at the start, no view",
+            "paragraphs",
+            DocumentSizes.Select(n => ModelInsert(n, atEnd: false)).ToList(),
+            "About 48 bytes per block: the document's child array still rebuilt, minus the boxing.");
 
-                return Measure.Run(
-                    () => state,
-                    s =>
+        Measure.Report(
+            "Model edit — insert one character at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(n => ModelInsert(n, atEnd: true)).ToList(),
+            "Same work as the table above, in the place people actually type. Any gap is "
+            + "position-dependent cost.");
+    }
+
+    /// <summary>Resolving a position, which every edit and every caret move begins with.</summary>
+    /// <remarks>
+    /// <para>
+    /// The one scenario that isolates the lookup rather than an operation containing it. Three
+    /// tables, because the trade this makes is only visible across all three: a lookup near the
+    /// start of a document was always cheap and must stay cheap; a lookup near the end was linear
+    /// in the document; and the index that fixes the second is paid for once per document and
+    /// then amortized over every lookup after it.
+    /// </para>
+    /// <para>
+    /// The cold table is deliberately the unflattering one — one lookup into a document that
+    /// nothing has touched, which is the case where an index can only cost and never save.
+    /// </para>
+    /// </remarks>
+    internal static void ResolvePosition()
+    {
+        var start = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    for (var i = 0; i < Lookups; i++)
                     {
-                        var transaction = s.Transaction();
-
-                        transaction.InsertText(1, "x");
-                        s.Apply(transaction);
-                    },
-                    n,
-                    rounds: 7,
-                    warmup: 2);
-            })
+                        doc.Resolve(1);
+                    }
+                },
+                n,
+                rounds: 9,
+                warmup: 3))
             .ToList();
 
         Measure.Report(
-            "Model edit — insert one character, no view",
+            $"Resolve — {Lookups} lookups at the start of the document",
             "paragraphs",
-            points,
-            "About 48 bytes per block: the document's child array still rebuilt, minus the boxing.");
+            start,
+            "The cheapest position there is: the walk stops at the first block. Must stay flat.");
+
+        var end = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    for (var i = 0; i < Lookups; i++)
+                    {
+                        doc.Resolve(doc.ContentSize - 2);
+                    }
+                },
+                n,
+                rounds: 9,
+                warmup: 3))
+            .ToList();
+
+        Measure.Report(
+            $"Resolve — {Lookups} lookups at the end of the document",
+            "paragraphs",
+            end,
+            "Where writing happens. This is the line AC12's keystroke budget failed on.");
+
+        var cold = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => doc.Resolve(doc.ContentSize - 2),
+                n,
+                rounds: 9,
+                warmup: 3))
+            .ToList();
+
+        Measure.Report(
+            "Resolve — a single lookup at the end of an untouched document",
+            "paragraphs",
+            cold,
+            "One lookup per document version, which no index can improve. Linear here is "
+            + "expected; the question is whether it got worse.");
+    }
+
+    /// <summary>How many lookups the resolve scenario makes per measured round.</summary>
+    /// <remarks>
+    /// One is too few to time reliably at small sizes, and a keystroke resolves a position more
+    /// than a dozen times anyway — between the caret snap, the step, and the selection mapping.
+    /// </remarks>
+    private const int Lookups = 64;
+
+    private static Point ModelInsert(int paragraphs, bool atEnd)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var at = atEnd ? doc.ContentSize - 2 : 1;
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.InsertText(at, "x");
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
     }
 
     private static DocumentNode Document(int paragraphs) =>
