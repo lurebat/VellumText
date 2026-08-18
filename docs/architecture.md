@@ -717,6 +717,32 @@ It survived because **nothing could see it**. `ClipboardHtml.ExtractFragment` re
 
 The RTF losses are in the **reader** — RTF itself keeps all of it, and a word processor opening the file sees it — so the exporter's tests assert on the bytes emitted, not only on what survives a round trip.
 
+#### Telling the application what an import cost
+
+The table above is the point: **an import is lossy and the losses are known item by item.** Every importer already returns an `ImportResult` carrying `ImportDiagnostic`s — a `<blink>` dropped, a colour that could not be represented, an image over the store's limit, a table flattened — and paste and drop both computed that list and then took `.Doc` and threw the rest away. The content changed on the way in and no application could know, let alone say so.
+
+`RichTextView.ContentImported` carries them out:
+
+```csharp
+public event EventHandler<ContentImportedEventArgs>? ContentImported;
+
+public sealed class ContentImportedEventArgs : EventArgs
+{
+    public ImmutableArray<ImportDiagnostic> Diagnostics { get; }
+    public bool AnythingDropped { get; }   // something removed, not merely downgraded
+}
+```
+
+Three decisions in it:
+
+- **A notification, not a veto.** The content is in the document by the time it is raised; there is nothing to cancel. Interception *before* the fact is a separate piece of work and is deliberately not this — a cancellable event here would be a lie, because the undo entry already exists.
+- **Raised for a clean import too**, with an empty list. A host that puts up "2 things were changed" after one paste needs the next, clean paste to take that notice down, and it can only do that if the clean paste tells it something.
+- **One seam, not three.** Paste, drop and a host's own file import all go through `PasteImport(ImportResult)`, which pastes and then raises. Wiring the event at each of the three call sites is exactly how this defect happens again the next time a fourth is added; the public `PasteImport` is also the programmatic import path an application needs to open a file with the same reporting the clipboard gets.
+
+Plain text is the one path that does not go through it. `PasteText` normalizes line endings and strips the reserved U+FFFC placeholder, and routing it through `DocumentNode.FromParagraphs` instead would throw on that placeholder into a broad `catch` — a bug already fixed once, where a whole clip pasted nothing. It reports the same way with an empty list, having lost nothing worth naming.
+
+It follows `ImageRefused` (§4.6) rather than inventing a second convention: a host that does not subscribe gets exactly the old behavior.
+
 ---
 
 ## 5. Alternatives considered
@@ -840,6 +866,7 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 | Undo integrity | Property test: for any random transaction sequence, `undo*` returns to the exact initial document; `redo*` returns to the exact final document. |
 | IME | Preedit never reaches the model or history. |
 | Read-only | Enforced at the single `RichTextEditor.Dispatch(Transaction)` chokepoint, not per-command. |
+| External side effects | An irreversible side effect an edit needs — writing bytes to `IImageStore` — is arranged **after** the edit is known to be acceptable, never before. See "Ordering an edit against a side effect" below. |
 
 ### Why a transaction is not atomic
 
@@ -867,6 +894,36 @@ cheap because steps are pre-applied as they are added.
 implementation disagreeing. Best-effort was kept and the document corrected, rather than the
 reverse.
 
+### Ordering an edit against a side effect
+
+The row above exists because `InsertImage` had the order backwards. It wrote the bytes to
+`IImageStore` and *then* pasted the embed that names them, so every refusal — a read-only view, a
+rectangle of cells, a position the schema will not take an embed at — left the store holding a
+file nothing references. `IImageStore.Save` is the whole interface; there is no way to take one
+back, and a host implementing it against a directory or a blob container accumulates those
+forever.
+
+**An edit here fails by returning `false`, not by throwing**, which is why this survived: the
+`try`/`catch` reflex does not catch it and neither did the tests, which asserted only that the
+document was unchanged. Nothing asserted about the store, because the store was not the thing
+under test.
+
+The fix is the ordering, and it is available because **building a transaction is not applying
+one**. `Apply` is the only thing that installs state, so a caller can build the exact transaction
+it means to apply, ask whether it changed anything, and only then arrange the side effect:
+
+```csharp
+if (!WouldPaste(ImageDocument("probe:"))) return false;   // nothing written
+if (ImageStore.Save(bytes, mediaType) is not { } source) { /* refused */ }
+return PasteDocument(ImageDocument(source));
+```
+
+The probe carries a placeholder source because nothing about the paste depends on what a source
+says — only that it is not blank — and nothing can move between probe and paste, since none of
+this path awaits. The visible consequence is that an edit the *document* refuses no longer raises
+`ImageRefused`: the store refused nothing there, and had it been asked it would now be holding
+the orphan.
+
 ---
 
 ## 8. Verification scenarios
@@ -882,27 +939,155 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 7. **Manual interop matrix** — paste into and from Word (Win/Mac), Google Docs, LibreOffice, Chrome/Firefox, Slack. Tracked as a checklist per release; RTF fidelity in Google Docs is explicitly *expected-import, not guaranteed-fidelity*.
 8. **Perf** — 50k-paragraph document: first render < 500 ms, keystroke-to-frame < 16 ms, scroll 60 fps. Benchmarked with BenchmarkDotNet + a headless render loop.
 
-   **Measured 2026-08-17, corrected 2026-08-18 — one of the four FAILS.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
+   **Measured 2026-08-17, corrected 2026-08-18, re-measured 2026-08-19 after the resolve index, and again 2026-08-19 after the edit pivot — all four now PASS.** `bench/VellumText.Bench` is the harness (`dotnet run -c Release --project bench/VellumText.Bench -- ac12`), a headless Skia render loop rather than BenchmarkDotNet, because what these numbers need is a shape across doubling sizes rather than a distribution at one size.
 
-   | | budget | measured | |
-   |---|---|---|---|
-   | first render | 500 ms | **20.85 ms** | pass |
-   | keystroke, caret at the start | 16 ms | **9.81 ms** | pass |
-   | keystroke, caret at the end | 16 ms | **24.55 ms** | **FAIL** |
-   | caret move | 16 ms | **1.05 ms** | pass |
+   | | budget | before the index | after the index | after the pivot | |
+   |---|---|---|---|---|---|
+   | first render | 500 ms | 20.85 ms | 19.7–20.0 ms | **20.1–26.2 ms** | pass |
+   | keystroke, caret at the start | 16 ms | 9.81 ms | 10.0–12.4 ms | **7.0–10.5 ms** | pass |
+   | keystroke, caret at the end | 16 ms | 24.55 ms | 16.22 ms | **10.38 ms** | pass |
+   | caret move | 16 ms | 1.05 ms | 1.04 ms | **1.05–1.17 ms** | pass |
 
-   The last three lines are the point. The first keystroke figure was the only one measured
-   until 2026-08-18, and it types at position 1 — the cheapest position in a document, because
+   The keystroke-at-the-end figure is a median of nine consecutive runs of the same build,
+   `-- ac12` alone in its own process, which is the treatment the previous entry in this table
+   got and the only way to compare them. Nine runs of `c35be99` on the same machine at the same
+   hour gave 15.34–17.59 ms, median **15.99**, four of the nine over budget; nine runs of the
+   pivot gave 9.84–18.33 ms, median **10.38**, one of the nine over budget. That one run is not
+   dismissed but it is not the edit either — every line of that run was elevated together, first
+   render at 26.17 ms against a 20.13 ms best and a caret move that allocates 1,768 bytes
+   whatever happens. This is a shared machine and the tail is the machine.
+
+   So the honest claim is a median 35% under budget where it used to sit on top of it, not
+   an edit that can never miss a frame on a loaded box. The deterministic half of the measurement
+   is the stronger evidence and it is below.
+
+   The keystroke lines are the point of the table. The first was the only one measured until
+   2026-08-18, and it types at position 1 — the cheapest position in a document, because
    resolving a position walks the parent's children to find it and position 1 stops at the first
-   one. Typing at the end walks all 50,000. A benchmark that only ever typed at the start
-   flattered the result by 2.5x and reported a pass where there is a failure.
+   one. Typing at the end walked all 50,000. A benchmark that only ever typed at the start
+   flattered the result by 2.5x and reported a pass where there was a failure.
 
    This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
-   
-   **Two linear costs remain, and they compound.** An edit rebuilds the root's child array, and ResolvedPos walks a parent's children to locate a position — so the cost of a keystroke depends on *where in the document it happens*. Measured at 32,000 blocks: resolving at the end takes 0.349 ms against 0.0001 ms at the start, doubling with the document. Fixing this needs a prefix-sum index over child sizes, the same shape as BlockHeightIndex, so a position can be located in O(log n) instead of O(children). The caret move is already flat — 1,768 bytes whatever the document size.
+
+   **The position scan went first.** `Node.ChildIndexAt` scans at most 32 children and, past that,
+   builds a prefix-sum array of cumulative child ends and binary searches it — the same shape as
+   `BlockHeightIndex` minus the Fenwick update path, which children never need because a node
+   with different children is a different node. Isolated (`-- resolve`), 64 lookups at the end of
+   a 16,000-block document went 20.956 ms to 0.147 ms; the same 64 lookups at the *start* are
+   unchanged and still flat at 0.010 ms and 17,448 bytes. Keeping that flat is why the index
+   waits for a scan to prove expensive rather than building on first touch: indexing on the first
+   lookup was measured at 0.140 ms and 81 KB for those start lookups, linear in document size,
+   which is this defect again at the cheap end. What is left of it is one O(n) build per
+   *document version*.
+
+   **What cost the remaining 16 ms was `ReplaceStep`, not the lookup.** Splitting a keystroke at
+   the end of a 50,000-paragraph document into stages gave: caret move 2.09 ms, `InsertText`
+   12.90 ms of which 9.49 was the model, measure and arrange 1.12 ms. The model half was the
+   cut-and-splice: `CutBefore(start, 0)`, `CutAfter(end, 0)` and two `Splice` calls, each of
+   which rebuilt the *root's* child array. Three rebuilds of a 50,000-element array to arrive at
+   an array differing from the original in one place, because typing happens inside one
+   paragraph and touches one child of the document.
+
+   **A pivot depth replaces that with one spine rebuild.** `ReplaceStep.PivotDepth` finds the
+   deepest ancestor of the range whose child list survives the edit unchanged in length — the
+   shallower of `SharedDepth - 1` (above that the range's two ends are in different children, so
+   closing it up removes everything between them) and the depth the slice's own content arrives
+   at (a slice of one node replaces a child, a slice of two grows the list). At or above that
+   depth every level is its old children with one child replaced, so the cutting and splicing is
+   done inside the one child and `TreeSurgery.ReplaceChild` walks the spine with
+   `Children.SetItem`. When the pivot is -1 — Enter at the top level, a paste of several blocks —
+   nothing is claimed and the old whole-document route runs unchanged. `TreeSurgery.Merge`, the
+   seam decision, is shared by both routes rather than copied, because whether a seam joins is
+   what decides whether a step applies at all.
+
+   Measured with `-- model`, which isolates the edit with no view and where allocation is
+   deterministic, at 16,000 paragraphs:
+
+   | | before | after | |
+   |---|---|---|---|
+   | insert at the start | 774,672 B / 2.007 ms | **261,672 B / 0.715 ms** | 48.4 → 16.4 B per block |
+   | insert at the end | 1,160,848 B / 2.947 ms | **263,872 B / 0.720 ms** | 72.6 → 16.5 B per block |
+   | delete at the end | 1,160,848 B / 2.862 ms | **263,872 B / 0.732 ms** | 72.6 → 16.5 B per block |
+   | join two blocks | 1,158,832 B / 2.909 ms | 774,744 B / 2.651 ms | 72.4 → 48.4 B per block |
+
+   The first three rows now agree with each other, which is the result: an edit costs the same
+   wherever it happens and whether it inserts or deletes, and the position-dependent costs are
+   gone. Backspace was worth measuring separately rather than assuming — it is the same
+   replacement with an empty slice, but "the same code path" is a claim about the code and the
+   table is evidence about the behaviour.
+
+   **The fourth row is the case the pivot cannot help, and it is correct that it cannot.**
+   Joining two blocks — backspace at the start of a line — replaces two of the document's
+   children with one, so no ancestor's child list survives unchanged, `PivotDepth` returns -1
+   and the whole-document route runs. It still improved by a third, because `MoveToImmutable`
+   applies to every rebuild, but it stays at three times the cost of typing and extrapolates to
+   roughly 8 ms at 50,000 blocks: inside the budget, and one keypress rather than a held key.
+   A "two children become one" route would close it and was not written, on the same reasoning
+   as `WithChildReplaced` below — a third route through the primitive every edit goes through,
+   to speed up a keystroke that already passes.
+
+   Every row is still linear in document size and always will be: the document's child array is
+   one array and replacing one element of it copies the rest. What changed is the constant. Two
+   arrays per block remain: the one `SetItem` returns and the one the node's constructor keeps.
+
+   **Not done, and why.** Giving each node type a `WithChildReplaced` override would drop those
+   two arrays to one, but the model edit is now ~800 KB of a 4.4 MB keystroke at 50,000 blocks,
+   so halving it buys under 10% of the keystroke for six new overrides on the type every edit
+   goes through. Incrementally maintaining `DocumentNode`'s content size instead of re-summing
+   it per rebuild was rejected for the same reason — it is an O(n) scan that allocates nothing,
+   and it is now paid once per keystroke rather than three times.
+
+   Equivalence is tested rather than argued: `ReplaceStepEquivalenceTests` re-implements the old
+   cut-and-splice from the public model API and compares it against the pivot over every range of
+   thirteen document shapes crossed with seven slices, plus every range cut out and put back, plus
+   a second edit on top of the first. That test was mutation-checked — a pivot one level too deep,
+   a pivot that ignores the slice's length, a spine walk starting one level too high, and a seam
+   merged at the wrong depth each make it fail, in 13 to 95 cases.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries. **Covered 2026-08-18** by `RichTextViewTableCommandTests` for Tab and `RichTextViewBlockNavigationTests` for the arrows.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
+12. **Find bar** — `DocumentSearch.Find` is O(document) and the find bar calls it once per keystroke.
+
+    **Measured 2026-08-18 and left alone. This is a null result, recorded as one.** A review
+    finding called this a performance defect: typing a five-letter query into a large document
+    searches it five times. The description is accurate and the severity is not, and the
+    difference only shows up in numbers. `dotnet run -c Release --project bench/VellumText.Bench -- find`.
+
+    | shape, 16,000 paragraphs | ms | bytes | per doubling |
+    |---|---|---|---|
+    | one search, a word in every paragraph | 1.18 | 390,520 | 2.00× time, 2.00× bytes |
+    | one search, a word in no paragraph | 0.69 | 216 | 1.98× time, 1.00× bytes |
+    | typing `enoug`, 5 keystrokes, model only | 6.54 | 3,122,920 | 2.02× time, 2.00× bytes |
+    | typing `enoug`, 5 keystrokes, through the view | 6.97 | 3,123,560 | 2.02× time, 2.00× bytes |
+
+    Linear, exactly as the finding says. **The verdict has to be taken at 50,000 paragraphs**,
+    because that is the size AC12 states its 16 ms budget at and extrapolating from 16,000 is how
+    this table has been wrong before:
+
+    | one keystroke at 50,000 paragraphs | matches | ms | bytes | against 16 ms |
+    |---|---|---|---|---|
+    | first — `e` | 200,000 | 7.21 | 5,794,904 | pass |
+    | last — `enoug` | 50,000 | 3.54 | 1,449,128 | pass |
+
+    So the worst single keystroke a find bar can take — a one-character query matching 200,000
+    places in a 50,000-paragraph document — costs **7.21 ms against a 16 ms frame**, and it is the
+    only keystroke that does: every later one narrows. The find bar is inside budget at the size
+    the budget is stated at, with the same harness and machine every other number in this section
+    comes from.
+
+    **Two things a fix would have to face, on top of a payoff that is already inside budget.**
+    The first keystroke is the most expensive one and no incremental scheme can skip it — it is
+    the one with no previous result to narrow. And narrowing the *match list* is unsound, because
+    matches are non-overlapping: in `"aaab"`, `"aa"` matches at 0 and `"aab"` matches at 1, so the
+    longer query's matches are not a subset of the shorter query's. A sound version has to keep
+    every *overlapping* occurrence as a candidate list, which for a one-character query is larger
+    than the match list it replaces, and has to be thrown away on every edit, undo and paste
+    anyway. That is real complexity bought against a measurement that says there is nothing to
+    buy.
+
+    The scenario stays in the harness. It is the evidence, and it is what would catch this
+    changing — a re-find on every keystroke sitting inside a frame is a property of the current
+    constant, not a guarantee.
 
 ---
 

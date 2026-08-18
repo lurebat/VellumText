@@ -149,6 +149,84 @@ public class RichTextViewImageInsertTests
         Assert.Throws<ArgumentNullException>(() => View().InsertImage(Png(2, 2), null!));
     }
 
+    /// <summary>An <see cref="IImageStore"/> that remembers what it was asked to keep.</summary>
+    private sealed class RecordingStore : IImageStore
+    {
+        public List<int> Saved { get; } = [];
+
+        public string? Save(ReadOnlySpan<byte> bytes, string mediaType)
+        {
+            Saved.Add(bytes.Length);
+
+            return $"stored:{Saved.Count}";
+        }
+    }
+
+    [AvaloniaFact]
+    public void AReadOnlyViewLeavesNothingBehindInTheStore()
+    {
+        // The store was written first and the edit applied second, so an edit the document
+        // refused left a file nothing references - and IImageStore has no way to take one back.
+        var view = View();
+        var store = new RecordingStore();
+
+        view.ImageStore = store;
+        view.IsReadOnly = true;
+
+        Assert.False(view.InsertImage(Png(2, 2), "image/png"));
+        Assert.Empty(store.Saved);
+    }
+
+    [AvaloniaFact]
+    public void ARectangleOfCellsLeavesNothingBehindInTheStore()
+    {
+        // The same orphan by a different refusal: a rectangle spans whole cells, so there is no
+        // one place an image could go and the paste is refused before it starts.
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                new TableCellNode([ParagraphNode.FromText("a")]),
+                new TableCellNode([ParagraphNode.FromText("b")]),
+            ])]),
+        ]);
+
+        var view = new RichTextView { State = EditorState.Create(doc) };
+        var grid = TableGrid.Build(0, (TableNode)doc.Blocks[0]);
+        var store = new RecordingStore();
+
+        view.ImageStore = store;
+        view.State = EditorState.Create(
+            doc,
+            CellSelection.Create(doc, grid.At(0, 0)!.Value.Pos, grid.At(0, 1)!.Value.Pos)!);
+
+        Assert.False(view.InsertImage(Png(2, 2), "image/png"));
+        Assert.Empty(store.Saved);
+        Assert.Same(doc, view.State.Doc);
+    }
+
+    [AvaloniaFact]
+    public void AnEditThatGoesThroughStoresTheImageExactlyOnce()
+    {
+        // Trying the edit before the store is written must not turn into writing it twice, nor
+        // into pasting the probe's source instead of the one the store handed back.
+        var view = View();
+        var store = new RecordingStore();
+
+        view.ImageStore = store;
+
+        Assert.True(view.InsertImage(Png(2, 2), "image/png"));
+
+        var length = Assert.Single(store.Saved);
+
+        Assert.Equal(Png(2, 2).Length, length);
+
+        var embed = Assert.Single(
+            view.State.Doc.Blocks.OfType<ParagraphNode>()
+                .SelectMany(p => p.Content.Embeds)
+                .OfType<ImageEmbed>());
+
+        Assert.Equal("stored:1", embed.Source);
+    }
+
     [AvaloniaFact]
     public void OnlyImageFilesAreRecognised()
     {

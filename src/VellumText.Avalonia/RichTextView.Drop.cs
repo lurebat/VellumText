@@ -76,14 +76,32 @@ public partial class RichTextView
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="mediaType"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// <para>
     /// Leaves the document alone when <see cref="ImageStore"/> declines the bytes — too large,
     /// wrong type, a store that is full — and raises <see cref="ImageRefused"/> so the host can
     /// say so. That is a refusal rather than a failure: better a document without the image than
     /// one carrying an embed that resolves to nothing.
+    /// </para>
+    /// <para>
+    /// An edit the document itself refuses returns <see langword="false"/> without asking the
+    /// store at all, and so without raising <see cref="ImageRefused"/> — the store refused
+    /// nothing there, and had it been asked it would now be holding an orphan.
+    /// </para>
     /// </remarks>
     public bool InsertImage(ReadOnlySpan<byte> bytes, string mediaType)
     {
         ArgumentNullException.ThrowIfNull(mediaType);
+
+        // The edit is tried before the store is written, because the store cannot be untold.
+        // Saving first and pasting second left a file nothing references behind every refused
+        // edit — read-only, a rectangle of cells, a position the schema will not take an embed
+        // at — and IImageStore has no way to take one back. The probe's source stands in for the
+        // real one because nothing about the paste depends on what it says; only that it is not
+        // blank. Nothing can move in between, since none of this awaits.
+        if (!WouldPaste(ImageDocument("probe:")))
+        {
+            return false;
+        }
 
         if (ImageStore.Save(bytes, mediaType) is not { } source)
         {
@@ -92,10 +110,12 @@ public partial class RichTextView
             return false;
         }
 
-        return PasteDocument(new DocumentNode([
-            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source))),
-        ]));
+        return PasteDocument(ImageDocument(source));
     }
+
+    /// <summary>A one-paragraph document holding a single image.</summary>
+    private static DocumentNode ImageDocument(string source) =>
+        new([new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source)))]);
 
     /// <summary>Reads an image out of a transfer whose contents are already in hand.</summary>
     private async Task<bool> InsertImageFrom(IDataTransfer data, EditOrigin origin)
@@ -247,7 +267,7 @@ public partial class RichTextView
                 && RichTextClipboard.Read(e.DataTransfer, ReadableFormats())
                     is { Doc.Blocks.IsEmpty: false } result)
             {
-                PasteDocument(result.Doc);
+                PasteImport(result);
             }
         }
         catch (Exception)

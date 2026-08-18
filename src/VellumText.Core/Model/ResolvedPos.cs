@@ -95,21 +95,7 @@ public sealed class ResolvedPos
                 break;
             }
 
-            var index = 0;
-            var consumed = 0;
-
-            while (index < node.Children.Length)
-            {
-                var size = node.Children[index].NodeSize;
-
-                if (consumed + size > offset)
-                {
-                    break;
-                }
-
-                consumed += size;
-                index++;
-            }
+            var index = node.ChildIndexAt(offset, out var consumed);
 
             // Landing exactly on a child boundary - or past the last child - means the
             // position belongs to this node, not to any child of it.

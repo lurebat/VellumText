@@ -329,40 +329,327 @@ internal static class Scenarios
     /// not in the view.
     /// </para>
     /// <para>
-    /// Measured at 48 bytes per block, against 16 bytes per block for a single
-    /// <c>WithChildren</c> — so a one-character insertion still rebuilds the document's child array
-    /// about three times. Reducing it further is a change to <c>ReplaceStep</c>'s cut-and-splice, not
-    /// a local tidy-up.
+    /// Measured at 16 bytes per block, which is two arrays: the one <c>SetItem</c> produces and
+    /// the one the node's constructor keeps. A one-character insertion now rebuilds the
+    /// document's child array once, where it used to rebuild it three times — twice to cut the
+    /// document in half and once to splice it back together, all to arrive at an array differing
+    /// from the original in a single place. Getting below this means a node knowing how to
+    /// replace one of its children without going through a builder.
+    /// </para>
+    /// <para>
+    /// It is measured at both ends of the document, and that is the point of the second table.
+    /// The spine rebuild touches the same number of nodes wherever the edit lands, so the two
+    /// tables should agree; a gap between them is position-dependent work, which is what
+    /// resolving a position used to be, and which the cut-and-splice used to add on top —
+    /// inserting at the end cost half again as much as inserting at the start, because the tail
+    /// it had to carry across was the whole document.
     /// </para>
     /// </remarks>
     internal static void ModelEdit()
     {
-        var points = DocumentSizes
-            .Select(n =>
-            {
-                var doc = Document(n);
-                var state = EditorState.Create(doc);
+        Measure.Report(
+            "Model edit — insert one character at the start, no view",
+            "paragraphs",
+            DocumentSizes.Select(n => ModelInsert(n, atEnd: false)).ToList(),
+            "About 16 bytes per block: the document's child array rebuilt once, not three times.");
 
-                return Measure.Run(
-                    () => state,
-                    s =>
-                    {
-                        var transaction = s.Transaction();
+        Measure.Report(
+            "Model edit — insert one character at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(n => ModelInsert(n, atEnd: true)).ToList(),
+            "Same work as the table above, in the place people actually type. Any gap is "
+            + "position-dependent cost.");
 
-                        transaction.InsertText(1, "x");
-                        s.Apply(transaction);
-                    },
-                    n,
-                    rounds: 7,
-                    warmup: 2);
-            })
+        Measure.Report(
+            "Model edit — delete one character at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(ModelDelete).ToList(),
+            "Backspace is as common as typing and costs the same, because it is the same "
+            + "replacement with an empty slice.");
+
+        Measure.Report(
+            "Model edit — join two paragraphs at the end, no view",
+            "paragraphs",
+            DocumentSizes.Select(ModelJoin).ToList(),
+            "The case that cannot take the cheap route: two blocks become one, so the "
+            + "document's child list is genuinely a different length and gets rebuilt. One "
+            + "keypress, not a held key.");
+    }
+
+    /// <summary>The find bar, which searches the whole document on every keystroke.</summary>
+    /// <remarks>
+    /// <para>
+    /// A review finding claimed this is a performance defect: <c>DocumentSearch.Find</c> is
+    /// O(document) and the find bar calls it per keystroke, so a five-letter query searches the
+    /// document five times. The scenario exists to decide that with a number rather than an
+    /// argument, and it has to report three things a single measurement would hide.
+    /// </para>
+    /// <para>
+    /// <b>Match density is the confound.</b> A query matching nothing does no allocation and
+    /// exits each paragraph on the first <c>IndexOf</c>; a query matching every paragraph builds
+    /// a list as long as the document. Measuring only the first would report the cheapest input
+    /// there is, which is exactly the mistake this project has already made once.
+    /// </para>
+    /// <para>
+    /// <b>The first keystroke is the expensive one</b>, and no incremental scheme can avoid it —
+    /// a one-character query matches most of the document. Any narrowing scheme is also unsound
+    /// here, because matches are non-overlapping: in <c>"aaab"</c> the query <c>"aa"</c> matches
+    /// at 0 and <c>"aab"</c> matches at 1, so the longer query's matches are not a subset of the
+    /// shorter query's. Whatever the numbers say, that is the design constraint any fix faces.
+    /// </para>
+    /// </remarks>
+    internal static void FindQuery()
+    {
+        var typing = new[] { "e", "en", "eno", "enou", "enoug" };
+
+        var once = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => DocumentSearch.Find(doc, "enough"),
+                n))
             .ToList();
 
         Measure.Report(
-            "Model edit — insert one character, no view",
+            "Find — one search, a word in every paragraph",
             "paragraphs",
-            points,
-            "About 48 bytes per block: the document's child array still rebuilt, minus the boxing.");
+            once,
+            "One keystroke's worth of work. Linear is expected; the question is the constant.");
+
+        var absent = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => DocumentSearch.Find(doc, "zzzzzz"),
+                n))
+            .ToList();
+
+        Measure.Report(
+            "Find — one search, a word in no paragraph",
+            "paragraphs",
+            absent,
+            "The floor: the scan without the result list. The gap against the table above is "
+            + "what building the matches costs.");
+
+        var word = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    foreach (var prefix in typing)
+                    {
+                        DocumentSearch.Find(doc, prefix);
+                    }
+                },
+                n))
+            .ToList();
+
+        Measure.Report(
+            $"Find — typing \"{typing[^1]}\", {typing.Length} keystrokes",
+            "paragraphs",
+            word,
+            "The finding's actual claim. Compare against the single search above: the ratio is "
+            + "how much an incremental search could hope to save.");
+
+        var view = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Shown(Document(n)),
+                v =>
+                {
+                    foreach (var prefix in typing)
+                    {
+                        v.Find(prefix);
+                    }
+                },
+                n,
+                rounds: 7,
+                warmup: 2))
+            .ToList();
+
+        Measure.Report(
+            $"Find — typing \"{typing[^1]}\" through the view, {typing.Length} keystrokes",
+            "paragraphs",
+            view,
+            "What the find bar actually costs, highlights and property notifications included. "
+            + "Against AC12's 16 ms keystroke budget, per keystroke.");
+
+        // AC12 states its budget at 50,000 paragraphs, so the verdict is taken there rather than
+        // extrapolated from 16,000. Both ends of the query are measured: the first keystroke is
+        // one character and matches most of the document, which is the worst single keystroke
+        // there is and the one no incremental scheme could ever skip.
+        const int Budget = 50_000;
+
+        var big = Document(Budget);
+
+        var first = Measure.Run(() => Shown(big), v => v.Find(typing[0]), Budget, rounds: 5, warmup: 2);
+        var last = Measure.Run(() => Shown(big), v => v.Find(typing[^1]), Budget, rounds: 5, warmup: 2);
+
+        Console.WriteLine();
+        Console.WriteLine($"## Find — one keystroke at {Budget:N0} paragraphs, against AC12's 16 ms");
+        Console.WriteLine();
+        Console.WriteLine($"| {"keystroke",-22} | {"matches",9} | {"ms",8} | {"bytes",12} | {"result",7} |");
+        Console.WriteLine($"|{new string('-', 24)}|{new string('-', 11)}|{new string('-', 10)}|{new string('-', 14)}|{new string('-', 9)}|");
+
+        Line($"first — \"{typing[0]}\"", DocumentSearch.Find(big, typing[0]).Length, first);
+        Line($"last — \"{typing[^1]}\"", DocumentSearch.Find(big, typing[^1]).Length, last);
+
+        static void Line(string name, int matches, Point point) =>
+            Console.WriteLine(
+                $"| {name,-22} | {matches,9:N0} | {point.Milliseconds,5:F2} ms | {point.Bytes,12:N0} | "
+                + $"{(point.Milliseconds <= 16 ? "PASS" : "FAIL"),7} |");
+    }
+
+    /// <summary>Resolving a position, which every edit and every caret move begins with.</summary>
+    /// <remarks>
+    /// <para>
+    /// The one scenario that isolates the lookup rather than an operation containing it. Three
+    /// tables, because the trade this makes is only visible across all three: a lookup near the
+    /// start of a document was always cheap and must stay cheap; a lookup near the end was linear
+    /// in the document; and the index that fixes the second is paid for once per document and
+    /// then amortized over every lookup after it.
+    /// </para>
+    /// <para>
+    /// The cold table is deliberately the unflattering one — one lookup into a document that
+    /// nothing has touched, which is the case where an index can only cost and never save.
+    /// </para>
+    /// </remarks>
+    internal static void ResolvePosition()
+    {
+        var start = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    for (var i = 0; i < Lookups; i++)
+                    {
+                        doc.Resolve(1);
+                    }
+                },
+                n,
+                rounds: 9,
+                warmup: 3))
+            .ToList();
+
+        Measure.Report(
+            $"Resolve — {Lookups} lookups at the start of the document",
+            "paragraphs",
+            start,
+            "The cheapest position there is: the walk stops at the first block. Must stay flat.");
+
+        var end = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    for (var i = 0; i < Lookups; i++)
+                    {
+                        doc.Resolve(doc.ContentSize - 2);
+                    }
+                },
+                n,
+                rounds: 9,
+                warmup: 3))
+            .ToList();
+
+        Measure.Report(
+            $"Resolve — {Lookups} lookups at the end of the document",
+            "paragraphs",
+            end,
+            "Where writing happens. This is the line AC12's keystroke budget failed on.");
+
+        var cold = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => doc.Resolve(doc.ContentSize - 2),
+                n,
+                rounds: 9,
+                warmup: 3))
+            .ToList();
+
+        Measure.Report(
+            "Resolve — a single lookup at the end of an untouched document",
+            "paragraphs",
+            cold,
+            "One lookup per document version, which no index can improve. Linear here is "
+            + "expected; the question is whether it got worse.");
+    }
+
+    /// <summary>How many lookups the resolve scenario makes per measured round.</summary>
+    /// <remarks>
+    /// One is too few to time reliably at small sizes, and a keystroke resolves a position more
+    /// than a dozen times anyway — between the caret snap, the step, and the selection mapping.
+    /// </remarks>
+    private const int Lookups = 64;
+
+    private static Point ModelInsert(int paragraphs, bool atEnd)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var at = atEnd ? doc.ContentSize - 2 : 1;
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.InsertText(at, "x");
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
+    }
+
+    /// <summary>Deleting one character at the end of the document, the backspace case.</summary>
+    /// <param name="paragraphs">How many blocks the document holds.</param>
+    private static Point ModelDelete(int paragraphs)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var at = doc.ContentSize - 2;
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.DeleteRange(at - 1, at);
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
+    }
+
+    /// <summary>
+    /// Joining the last two blocks, which is backspace at the start of a line.
+    /// </summary>
+    /// <param name="paragraphs">How many blocks the document holds.</param>
+    /// <remarks>
+    /// Deliberately the unflattering case. The two positions are in different children of the
+    /// document, so closing the range up leaves it one child shorter and there is no ancestor
+    /// whose child list survives — the replacement has to rebuild the document's array however
+    /// it is written. Measured so that the cost is known rather than assumed, and separated
+    /// from the tables above so it cannot quietly flatter them.
+    /// </remarks>
+    private static Point ModelJoin(int paragraphs)
+    {
+        var doc = Document(paragraphs);
+        var state = EditorState.Create(doc);
+        var boundary = doc.Resolve(doc.ContentSize - 2).Before(1);
+
+        return Measure.Run(
+            () => state,
+            s =>
+            {
+                var transaction = s.Transaction();
+
+                transaction.DeleteRange(boundary - 1, boundary + 1);
+                s.Apply(transaction);
+            },
+            paragraphs,
+            rounds: 7,
+            warmup: 2);
     }
 
     private static DocumentNode Document(int paragraphs) =>

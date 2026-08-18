@@ -117,26 +117,7 @@ internal static class TreeSurgery
             return left.WithChildren(Concat(leftChildren, rightChildren));
         }
 
-        var seamLeft = leftChildren[^1];
-        var seamRight = rightChildren[0];
-        Node? merged;
-
-        if (seamLeft is ParagraphNode before && seamRight is ParagraphNode after)
-        {
-            // The deepest seam there is. The leading paragraph's own attributes win, which is
-            // what makes deleting from a heading into the paragraph below keep the heading.
-            merged = before.WithContent(before.Content.Concat(after.Content));
-        }
-        else if (seamLeft.GetType() == seamRight.GetType() && !seamLeft.IsLeaf)
-        {
-            merged = Splice(seamLeft, seamRight, depth - 1);
-        }
-        else
-        {
-            return null;
-        }
-
-        if (merged is null)
+        if (Merge(leftChildren[^1], rightChildren[0], depth) is not { } merged)
         {
             return null;
         }
@@ -156,6 +137,37 @@ internal static class TreeSurgery
         }
 
         return left.WithChildren(joined);
+    }
+
+    /// <summary>
+    /// Joins the two nodes that meet at a seam into the one node they were before the cut.
+    /// </summary>
+    /// <param name="left">The node the seam ends.</param>
+    /// <param name="right">The node it starts.</param>
+    /// <param name="depth">
+    /// How many levels remain to be merged, counted from the parent these two are children of.
+    /// </param>
+    /// <returns>The single node they become, or null if they cannot become one.</returns>
+    /// <remarks>
+    /// Lifted out of <see cref="Splice"/> so that a replacement confined to one child can join
+    /// its seam without rebuilding the parent's whole child list around it — the parent's list
+    /// is the document's, and rebuilding it is the entire cost of a keystroke at scale. There
+    /// must be exactly one copy of this decision: whether a seam joins is what decides whether a
+    /// step applies at all, so two copies would mean an edit that succeeds or fails depending on
+    /// which route it took.
+    /// </remarks>
+    public static Node? Merge(Node left, Node right, int depth)
+    {
+        if (left is ParagraphNode before && right is ParagraphNode after)
+        {
+            // The deepest seam there is. The leading paragraph's own attributes win, which is
+            // what makes deleting from a heading into the paragraph below keep the heading.
+            return before.WithContent(before.Content.Concat(after.Content));
+        }
+
+        return left.GetType() == right.GetType() && !left.IsLeaf
+            ? Splice(left, right, depth - 1)
+            : null;
     }
 
     /// <summary>
@@ -240,16 +252,30 @@ internal static class TreeSurgery
     /// </summary>
     /// <param name="at">A position directly before the node to replace.</param>
     /// <param name="replacement">What to put there.</param>
-    internal static DocumentNode ReplaceNodeAfter(ResolvedPos at, Node replacement)
+    internal static DocumentNode ReplaceNodeAfter(ResolvedPos at, Node replacement) =>
+        ReplaceChild(at, at.Depth, replacement);
+
+    /// <summary>
+    /// Replaces the child that a position descends into at some depth, rebuilding only the
+    /// ancestors above it.
+    /// </summary>
+    /// <param name="at">The position whose ancestors are rebuilt.</param>
+    /// <param name="depth">The depth of the node whose child is replaced.</param>
+    /// <param name="replacement">What to put at that child's index.</param>
+    /// <remarks>
+    /// One array copy per level, against the three a cut-and-splice of the same level costs.
+    /// Only the caller can know that one node is all that changed — it is a claim about the
+    /// edit, not about the tree — so this does not check it and could not.
+    /// </remarks>
+    internal static DocumentNode ReplaceChild(ResolvedPos at, int depth, Node replacement)
     {
         var rebuilt = replacement;
 
-        for (var depth = at.Depth; depth >= 0; depth--)
+        for (var level = depth; level >= 0; level--)
         {
-            var parent = at.NodeAt(depth);
-            var children = new List<Node>(parent.Children);
-            children[at.IndexAt(depth)] = rebuilt;
-            rebuilt = parent.WithChildren(children);
+            var parent = at.NodeAt(level);
+
+            rebuilt = parent.WithChildren(parent.Children.SetItem(at.IndexAt(level), rebuilt));
         }
 
         return (DocumentNode)rebuilt;

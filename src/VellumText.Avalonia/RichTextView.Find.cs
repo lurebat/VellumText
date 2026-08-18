@@ -21,6 +21,13 @@ namespace VellumText.Avalonia;
 /// drift. It is linear in the document per edit, which is the same order as the layout work an
 /// edit already causes, and it only happens while a search is actually open.
 /// </para>
+/// <para>
+/// The same goes for a keystroke in the find box, which starts the search again from nothing.
+/// That was measured rather than assumed: at 50,000 paragraphs the worst keystroke a find bar
+/// can take — a one-character query matching 200,000 places — costs 7.2 ms against a 16 ms
+/// frame, and every keystroke after it narrows. See <c>architecture.md</c> §8.12 for why an
+/// incremental search was not bought, and <c>bench/VellumText.Bench -- find</c> to re-measure.
+/// </para>
 /// </remarks>
 public partial class RichTextView
 {
