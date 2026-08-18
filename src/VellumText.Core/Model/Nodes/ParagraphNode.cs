@@ -70,7 +70,11 @@ public sealed class ParagraphNode : BlockNode
     /// <param name="kind">What kind of paragraph it is.</param>
     /// <param name="align">Horizontal alignment.</param>
     /// <param name="indentLevel">Indent depth, in steps. Must not be negative.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="indentLevel"/> is negative.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="content"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="indentLevel"/> is negative, or <paramref name="kind"/> or
+    /// <paramref name="align"/> is not a defined value.
+    /// </exception>
     public ParagraphNode(
         InlineContent content,
         ParagraphKind kind = ParagraphKind.Body,

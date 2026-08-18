@@ -356,6 +356,67 @@ public class ParagraphViewTests
         Assert.Equal(1, view.PreviousCaretPosition(3));
     }
 
+    /// <summary>
+    /// Every public geometry method rejects the two ways a host can ask a question the paragraph
+    /// cannot answer, so that the exception documentation is checked rather than asserted in prose.
+    /// </summary>
+    /// <remarks>
+    /// Written because the docs claimed neither. A host reading them would have believed these
+    /// methods total, and both failures are ones a host provokes by ordinary mistakes: forgetting
+    /// to measure, or holding a position from before an edit.
+    /// </remarks>
+    [AvaloniaFact]
+    public void GeometryRejectsAnUnmeasuredParagraphAndAnOutOfRangePosition()
+    {
+        var unmeasured = View(ParagraphNode.FromText("hello"));
+        var measured = Measured("hello");
+        var past = measured.ContentSize + 1;
+
+        var byPosition = new Action<ParagraphView, int>[]
+        {
+            (v, p) => _ = v.GetCaretRect(p),
+            (v, p) => _ = v.NextCaretPosition(p),
+            (v, p) => _ = v.PreviousCaretPosition(p),
+            (v, p) => _ = v.BackspacePosition(p),
+            (v, p) => _ = v.LineIndexAt(p, forward: true),
+        };
+
+        foreach (var call in byPosition)
+        {
+            Assert.Throws<InvalidOperationException>(() => call(unmeasured, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => call(measured, -1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => call(measured, past));
+        }
+
+        // GetSelectionRects checks both ends, but an empty range is answered with no rectangles
+        // before the layout is consulted at all — so it is only unmeasured-hostile when there is
+        // something to measure. Documented that way because a caller collapsing a selection to a
+        // caret legitimately asks this question before the first measure.
+        Assert.Throws<ArgumentOutOfRangeException>(() => measured.GetSelectionRects(-1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => measured.GetSelectionRects(0, past));
+        Assert.Empty(unmeasured.GetSelectionRects(0, 0));
+        Assert.Throws<InvalidOperationException>(() => unmeasured.GetSelectionRects(0, 1));
+
+        var byLine = new Action<ParagraphView, int>[]
+        {
+            (v, i) => _ = v.LineStart(i),
+            (v, i) => _ = v.LineEnd(i),
+            (v, i) => _ = v.PositionAtLineX(i, 0),
+        };
+
+        foreach (var call in byLine)
+        {
+            Assert.Throws<InvalidOperationException>(() => call(unmeasured, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => call(measured, -1));
+            Assert.Throws<ArgumentOutOfRangeException>(() => call(measured, measured.LineCount));
+        }
+
+        // Not in either table: these take no index, so only the unmeasured failure applies.
+        Assert.Throws<InvalidOperationException>(() => unmeasured.LineCount);
+        Assert.Throws<InvalidOperationException>(() => unmeasured.HitTest(default));
+        Assert.Throws<InvalidOperationException>(() => unmeasured.GetImageRect(0));
+    }
+
     [AvaloniaFact]
     public void CaretMovementIsClampedAtBothEnds()
     {

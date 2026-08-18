@@ -231,9 +231,10 @@ public sealed class InlineContent : IEquatable<InlineContent>
     /// </returns>
     /// <remarks>
     /// Internal rather than public because it is not a model concept a host needs: it exists for
-    /// the exporters, each of which has to write formatting as something that opens and closes
-    /// around a stretch of text, and each of which had written the same scan by hand. Runs are
-    /// maximal by construction, so a writer that opens a group per run cannot emit an empty one.
+    /// the two exporters that write formatting as markup, HTML and RTF, each of which had written
+    /// the same scan by hand. The JSON format does not use it — it persists the mark spans
+    /// themselves. Runs are maximal by construction, so a writer that opens a group per run cannot
+    /// emit an empty one.
     /// </remarks>
     internal IEnumerable<ValueSpan<MarkSet>> Runs()
     {
