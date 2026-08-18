@@ -230,7 +230,10 @@ public partial class RichTextView
         // cuts whatever the user happened to select in the meantime.
         var before = _state.Selection;
 
-        if (before.IsEmpty || !await CopyAsync().ConfigureAwait(true))
+        // Read-only is checked here and not only in the delete. The copy runs first, so gating
+        // the delete alone left a read-only cut writing the clipboard and leaving the document
+        // alone -- half of the operation, with nothing to tell the user which half.
+        if (IsReadOnly || before.IsEmpty || !await CopyAsync().ConfigureAwait(true))
         {
             return false;
         }

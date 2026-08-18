@@ -45,12 +45,25 @@ public partial class RichTextView
     /// Greys out what cannot work. Read when the menu opens, because the selection changes
     /// constantly and a menu that always offers everything informs nobody.
     /// </summary>
+    /// <remarks>
+    /// <b>Greying and hiding answer two different questions, and read-only is the second.</b>
+    /// Cut is greyed with no selection because it is always meaningful and only sometimes
+    /// possible — that tracks the caret, which moves constantly, so hiding it would flicker. A
+    /// read-only control refuses every edit for as long as the host says so, and that changes
+    /// only when the host decides, so hiding cannot flicker. A permanently greyed Cut on a
+    /// preview pane teaches the reader nothing except that the application looks broken.
+    ///
+    /// Copy and Select All stay: both are reads, and taking Copy away is what made a read-only
+    /// preview useless in the first place.
+    /// </remarks>
     internal void SyncContextFlyout()
     {
         var hasSelection = !_state.Selection.IsEmpty;
+        var editable = !IsReadOnly;
 
         if (_cutItem is not null)
         {
+            _cutItem.IsVisible = editable;
             _cutItem.IsEnabled = hasSelection;
         }
 
@@ -61,6 +74,7 @@ public partial class RichTextView
 
         if (_pasteItem is not null)
         {
+            _pasteItem.IsVisible = editable;
             _pasteItem.IsEnabled = TopLevel.GetTopLevel(this)?.Clipboard is not null;
         }
 
@@ -69,7 +83,7 @@ public partial class RichTextView
             // Hidden rather than disabled. Cut and Paste are always meaningful and only
             // sometimes possible, so greying them says something; a table submenu in a document
             // with no table in it says nothing at all, and its separator would leave a gap.
-            _tableItem.IsVisible = IsInTable;
+            _tableItem.IsVisible = IsInTable && editable;
         }
     }
 

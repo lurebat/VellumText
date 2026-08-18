@@ -578,6 +578,14 @@ public class RichTextEditor : TemplatedControl
             || change.Property == UndoLimitProperty)
         {
             PushOptions();
+
+            if (change.Property == IsReadOnlyProperty)
+            {
+                // The bar is gated on IsReadOnly, so pushing the option is not enough: a bar
+                // already floating over a selection would stay on screen offering edits the
+                // control had just stopped accepting.
+                UpdateSelectionToolbar();
+            }
         }
     }
 
@@ -614,6 +622,7 @@ public class RichTextEditor : TemplatedControl
         }
 
         if (!IsSelectionToolbarEnabled
+            || IsReadOnly
             || bar.Template is null
             || _view is not { } view
             || view.IsDragging
