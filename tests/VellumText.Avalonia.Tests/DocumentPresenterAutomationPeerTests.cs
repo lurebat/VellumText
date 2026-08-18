@@ -44,6 +44,106 @@ public class DocumentPresenterAutomationPeerTests
         Assert.True(Value(peer).IsReadOnly);
     }
 
+    /// <summary>
+    /// A locked editor tells a screen reader it is locked.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DocumentPresenter.SupportsTextInput"/> was written when the only thing it had to
+    /// separate was an editor from a viewer, and its remarks said that an editor which could be
+    /// locked was a feature nobody had asked for. <see cref="RichTextView.IsReadOnly"/> is that
+    /// feature, so the answer had to start depending on it: a read-only editor that reports itself
+    /// writable is the toolbar defect aimed at the one user who cannot see that nothing happened.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AReadOnlyEditorIsAReadOnlyDocument()
+    {
+        var editor = Editor(DocumentNode.FromParagraphs("hello"));
+
+        editor.IsReadOnly = true;
+
+        Assert.True(Value(Peer(editor)).IsReadOnly);
+    }
+
+    /// <summary>
+    /// Locking an editor that is already on screen changes the answer.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the test above because a peer built after the property was set can be right
+    /// for the wrong reason — reading the value once at construction would pass it and fail here.
+    /// </remarks>
+    [AvaloniaFact]
+    public void LockingAnEditorAlreadyShownChangesWhatAutomationReports()
+    {
+        var editor = Editor(DocumentNode.FromParagraphs("hello"));
+        var peer = Peer(editor);
+
+        Assert.False(Value(peer).IsReadOnly);
+
+        editor.IsReadOnly = true;
+
+        Assert.True(Value(peer).IsReadOnly);
+    }
+
+    /// <summary>
+    /// An automation client cannot write through a locked editor, or move its selection trying.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="IValueProvider.SetValue"/> is contractually required to throw
+    /// <see cref="ElementNotEnabledException"/> on a read-only element, and the peer already did —
+    /// but it asked <see cref="IValueProvider.IsReadOnly"/>, which asked
+    /// <c>SupportsTextInput</c>, which an editor answered <see langword="true"/> whatever its
+    /// state. The guard was correct and unreachable.
+    /// </para>
+    /// <para>
+    /// Both halves are asserted because they failed for different reasons. Before the fix the call
+    /// did not throw at all, and the <c>SelectAll</c> that runs before the paste moved the caret
+    /// over the whole document — the same shape as a read-only Cut writing the clipboard before
+    /// its delete declines. A refusal that still moves the user's selection is not a refusal.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void AutomationCannotWriteOrSelectThroughALockedEditor()
+    {
+        var editor = Editor(DocumentNode.FromParagraphs("hello"));
+
+        editor.IsReadOnly = true;
+
+        var before = editor.State.Doc;
+        var selection = editor.State.Selection;
+
+        Assert.Throws<ElementNotEnabledException>(() => Value(Peer(editor)).SetValue("replaced"));
+
+        Assert.Same(before, editor.State.Doc);
+        Assert.Equal(selection, editor.State.Selection);
+    }
+
+    /// <summary>
+    /// The guard inside the automation write, reached directly rather than through the peer.
+    /// </summary>
+    /// <remarks>
+    /// The peer refuses a locked editor before it calls this, so removing the guard leaves every
+    /// test above green — it was mutation-checked and the mutant survived. That makes this the
+    /// only test that defends it. It exists because <see cref="DocumentPresenter"/> is
+    /// deliberately derivable and <c>SupportsTextInput</c> is virtual, so a subclass answering
+    /// <see langword="true"/> while locked reaches the guard, as would a second internal caller.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheAutomationWriteRefusesALockedEditorOnItsOwn()
+    {
+        var editor = Editor(DocumentNode.FromParagraphs("hello"));
+
+        editor.IsReadOnly = true;
+
+        var before = editor.State.Doc;
+        var selection = editor.State.Selection;
+
+        editor.SetTextFromAutomation("replaced");
+
+        Assert.Same(before, editor.State.Doc);
+        Assert.Equal(selection, editor.State.Selection);
+    }
+
     [AvaloniaFact]
     public void TheValueIsTheDocumentsPlainText()
     {

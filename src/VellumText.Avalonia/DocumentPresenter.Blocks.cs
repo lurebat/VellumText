@@ -79,11 +79,20 @@ public abstract partial class DocumentPresenter
 
     /// <summary>Whether this presenter lets the user change the document.</summary>
     /// <remarks>
+    /// <para>
     /// Exists for accessibility, which has to answer "is this read-only?" before it has any other
-    /// reason to distinguish an editor from a viewer. Deliberately not a settable property: a
-    /// viewer that could be made writable, or an editor that could be locked, is a feature nobody
-    /// has asked for, and inventing it here would put a second, contradictory answer next to
-    /// <see cref="global::Avalonia.Input.InputElement.Focusable"/>.
+    /// reason to distinguish an editor from a viewer.
+    /// </para>
+    /// <para>
+    /// <b>Corrected 2026-08-18.</b> These remarks used to say the property was "deliberately not a
+    /// settable property: a viewer that could be made writable, or an editor that could be locked,
+    /// is a feature nobody has asked for". An editor that can be locked is
+    /// <see cref="RichTextView.IsReadOnly"/>, which by then existed, so the sentence described a
+    /// world the code had left. It is still not settable — a presenter answers for itself — but an
+    /// editor's answer now depends on whether it is locked, because a read-only editor reporting
+    /// itself writable is the selection-toolbar defect aimed at the one user who has no way to see
+    /// that nothing happened.
+    /// </para>
     /// </remarks>
     protected internal virtual bool SupportsTextInput => false;
 

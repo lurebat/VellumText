@@ -35,9 +35,18 @@ public partial class RichTextView
 
     /// <summary>Sets or clears the text being composed at the caret.</summary>
     /// <remarks>
+    /// <para>
     /// Anchored at the start of the selection rather than at its head, so composing over a
     /// selection draws the composed text where the replacement will land. The selection itself
     /// stays put: it is replaced by the commit, in that one transaction, not now.
+    /// </para>
+    /// <para>
+    /// A locked view refuses to start composing at all. The commit was always refused — it
+    /// arrives as ordinary text input and the edit path declines it — but refusing only at the
+    /// end meant the user watched composed characters appear underlined and then vanish, with the
+    /// input method's own candidate window still open over them. Clearing a composition is
+    /// allowed whatever the state, so a view locked mid-composition can still be tidied up.
+    /// </para>
     /// </remarks>
     /// <param name="text">The composed text, or null or empty to stop composing.</param>
     /// <param name="cursorPosition">Where the input method wants the caret within the text.</param>
@@ -45,6 +54,11 @@ public partial class RichTextView
     public bool SetPreedit(string? text, int? cursorPosition = null)
     {
         if (Block is not { } block)
+        {
+            return false;
+        }
+
+        if (IsReadOnly && !string.IsNullOrEmpty(text))
         {
             return false;
         }

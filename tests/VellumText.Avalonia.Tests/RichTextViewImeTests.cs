@@ -42,11 +42,56 @@ public class RichTextViewImeTests
         Assert.Equal(before.Doc, view.State.Doc);
     }
 
+    /// <summary>
+    /// A locked editor does not compose.
+    /// </summary>
+    /// <remarks>
+    /// The same family as a read-only Cut writing the clipboard and Ctrl+B arming a stored mark:
+    /// composition state is armed, drawn underlined on screen, and only refused at the very end —
+    /// the platform finalizes the composition as ordinary text input, which the edit path
+    /// declines. The user watches characters appear and then vanish. Nothing in this file
+    /// consulted <see cref="RichTextView.IsReadOnly"/> before this test.
+    /// </remarks>
     [AvaloniaFact]
-    public void ComposedTextIsDrawnAndTakesUpRoom()
+    public void ALockedEditorDoesNotCompose()
     {
         var view = Focused("hello");
 
+        Caret(view, 5);
+        view.IsReadOnly = true;
+
+        Assert.False(view.SetPreedit("にほ"));
+        Assert.False(view.IsComposing);
+        Assert.Null(view.Preedit);
+    }
+
+    /// <summary>
+    /// A view locked while composing can still be tidied up.
+    /// </summary>
+    /// <remarks>
+    /// The guard refuses to <em>start</em> a composition, not to end one. A host that sets
+    /// <see cref="RichTextView.IsReadOnly"/> while an input method is mid-composition would
+    /// otherwise strand the underlined text on screen with no way to clear it, which is a worse
+    /// outcome than the defect the guard exists for.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AViewLockedWhileComposingCanStillBeCleared()
+    {
+        var view = Focused("hello");
+
+        Caret(view, 5);
+
+        Assert.True(view.SetPreedit("にほ"));
+
+        view.IsReadOnly = true;
+
+        Assert.True(view.SetPreedit(null));
+        Assert.False(view.IsComposing);
+    }
+
+    [AvaloniaFact]
+    public void ComposedTextIsDrawnAndTakesUpRoom()
+    {        var view = Focused("hello");
         Caret(view, 5);
 
         var before = Measured(view);

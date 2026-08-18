@@ -271,7 +271,7 @@ public partial class RichTextView : DocumentPresenter
     protected internal override DocumentNode PresentedDocument => _state.Doc;
 
     /// <inheritdoc/>
-    protected internal override bool SupportsTextInput => true;
+    protected internal override bool SupportsTextInput => !IsReadOnly;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -282,6 +282,21 @@ public partial class RichTextView : DocumentPresenter
     protected internal override void SetTextFromAutomation(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
+
+        // Checked here and not only in the edit. SelectAll runs first, so gating the paste alone
+        // left an automation client unable to change a locked document but still able to move the
+        // user's selection to the whole of it - the same shape as a read-only Cut writing the
+        // clipboard before its delete declines.
+        //
+        // The peer refuses before it gets here, so this is unreachable through the only caller
+        // in this assembly. It stays because DocumentPresenter is deliberately derivable and
+        // SupportsTextInput is virtual: a subclass that answers true while locked reaches this,
+        // and a second internal caller would too. Tested directly rather than through the peer,
+        // because a guard nothing can turn red is a guard nobody can rely on.
+        if (IsReadOnly)
+        {
+            return;
+        }
 
         SelectAll();
 
