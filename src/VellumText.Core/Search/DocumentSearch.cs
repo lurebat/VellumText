@@ -133,7 +133,7 @@ public static class DocumentSearch
                 // pos is the paragraph's open token; its text begins one past it.
                 FindIn(paragraph.Content.Text, pos + 1, query, options, matches);
             }
-            else if (node.Children.Count > 0)
+            else if (node.Children.Length > 0)
             {
                 Walk(node.Children, pos + 1, query, options, matches);
             }

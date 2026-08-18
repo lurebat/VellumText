@@ -351,7 +351,7 @@ public class RichTextViewCellSelectionTests
                 return pos + 1;
             }
 
-            if (node.Children.Count > 0 && Find(node.Children, pos + 1, text) is { } found)
+            if (node.Children.Length > 0 && Find(node.Children, pos + 1, text) is { } found)
             {
                 return found;
             }

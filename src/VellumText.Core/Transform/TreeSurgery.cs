@@ -80,7 +80,7 @@ internal static class TreeSurgery
                     paragraph.Content.Substring(
                         at.ParentOffset,
                         paragraph.Content.Length - at.ParentOffset))
-                : node.WithChildren(Slice(node.Children, at.ParentIndex, node.Children.Count - at.ParentIndex));
+                : node.WithChildren(Slice(node.Children, at.ParentIndex, node.Children.Length - at.ParentIndex));
         }
 
         var index = at.IndexAt(depth);
@@ -89,9 +89,9 @@ internal static class TreeSurgery
         // of the document after an edit, so on a large document it was two boxed property reads
         // per child and a list doubling its way up to the final count.
         var children = node.Children;
-        var kept = new List<Node>(children.Count - index) { CutAfter(at, depth + 1) };
+        var kept = new List<Node>(children.Length - index) { CutAfter(at, depth + 1) };
 
-        for (var i = index + 1; i < children.Count; i++)
+        for (var i = index + 1; i < children.Length; i++)
         {
             kept.Add(children[i]);
         }
@@ -112,7 +112,7 @@ internal static class TreeSurgery
         var leftChildren = left.Children;
         var rightChildren = right.Children;
 
-        if (depth <= 0 || leftChildren.Count == 0 || rightChildren.Count == 0)
+        if (depth <= 0 || leftChildren.Length == 0 || rightChildren.Length == 0)
         {
             return left.WithChildren(Concat(leftChildren, rightChildren));
         }
@@ -141,16 +141,16 @@ internal static class TreeSurgery
             return null;
         }
 
-        var joined = new List<Node>(leftChildren.Count + rightChildren.Count - 1);
+        var joined = new List<Node>(leftChildren.Length + rightChildren.Length - 1);
 
-        for (var i = 0; i < leftChildren.Count - 1; i++)
+        for (var i = 0; i < leftChildren.Length - 1; i++)
         {
             joined.Add(leftChildren[i]);
         }
 
         joined.Add(merged);
 
-        for (var i = 1; i < rightChildren.Count; i++)
+        for (var i = 1; i < rightChildren.Length; i++)
         {
             joined.Add(rightChildren[i]);
         }
@@ -204,13 +204,13 @@ internal static class TreeSurgery
         var pos = contentStart;
 
         // Hoisted, and this is the whole cost of walking a large document. Children is declared
-        // as IReadOnlyList<Node> and implemented by an ImmutableArray, so every read of the
+        // as ImmutableArray<Node> now, but this was IReadOnlyList<Node> over one, so every read of the
         // property boxes the struct — and it was read three times per child, once in the loop
         // condition and twice in the body. On a 50,000-block document that is 150,000 boxes for
         // a walk that is otherwise almost free.
         var all = node.Children;
 
-        for (var i = 0; i < all.Count; i++)
+        for (var i = 0; i < all.Length; i++)
         {
             var child = all[i];
             var childContentStart = pos + 1;

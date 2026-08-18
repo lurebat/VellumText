@@ -250,7 +250,7 @@ public sealed class Transaction
         // not a document the schema will accept.
         var depth = end.Depth;
 
-        while (depth > 1 && end.NodeAt(depth - 1).Children.Count == 1)
+        while (depth > 1 && end.NodeAt(depth - 1).Children.Length == 1)
         {
             depth--;
         }

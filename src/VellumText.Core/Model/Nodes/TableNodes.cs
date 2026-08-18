@@ -62,7 +62,7 @@ public sealed class TableNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _rows;
+    public override ImmutableArray<Node> Children => _rows.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "table";
@@ -136,7 +136,7 @@ public sealed class TableRowNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _cells;
+    public override ImmutableArray<Node> Children => _cells.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "table-row";
@@ -226,7 +226,7 @@ public sealed class TableCellNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _blocks;
+    public override ImmutableArray<Node> Children => _blocks.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "table-cell";

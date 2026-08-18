@@ -136,7 +136,7 @@ public static class DocumentBlocks
             // A block with block children is structure, not content: it is descended through.
             // Anything else is somewhere a caret can be, including a paragraph, whose children
             // are empty because its content is inline rather than block.
-            if (node.Children.Count > 0 && node.Children[0] is BlockNode)
+            if (node.Children.Length > 0 && node.Children[0] is BlockNode)
             {
                 Descend(node.Children, pos + 1, slots);
             }

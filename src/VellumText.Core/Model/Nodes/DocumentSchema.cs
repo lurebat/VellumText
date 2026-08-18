@@ -149,14 +149,14 @@ public static class DocumentSchema
         // ImmutableArray, so every read boxes - and in the loop condition that was one box per
         // child rather than one per node.
         var children = node.Children;
-        var before = previous?.Children;
+        var before = previous is null ? ImmutableArray<Node>.Empty : previous.Children;
 
-        for (var i = 0; i < children.Count; i++)
+        for (var i = 0; i < children.Length; i++)
         {
             var child = children[i];
 
             trail.Add((i, child.TypeName));
-            Visit(child, i < before?.Count ? before[i] : null, root, trail, violations);
+            Visit(child, i < before.Length ? before[i] : null, root, trail, violations);
             trail.RemoveAt(trail.Count - 1);
         }
     }

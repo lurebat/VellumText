@@ -312,9 +312,9 @@ internal static class Scenarios
     /// not in the view.
     /// </para>
     /// <para>
-    /// Measured at 109 bytes per block, against 16 bytes per block for a single
-    /// <c>WithChildren</c> — so a one-character insertion copies the document's child array
-    /// about seven times. Reducing that is a change to <c>ReplaceStep</c>'s cut-and-splice, not
+    /// Measured at 48 bytes per block, against 16 bytes per block for a single
+    /// <c>WithChildren</c> — so a one-character insertion still rebuilds the document's child array
+    /// about three times. Reducing it further is a change to <c>ReplaceStep</c>'s cut-and-splice, not
     /// a local tidy-up.
     /// </para>
     /// </remarks>
@@ -345,7 +345,7 @@ internal static class Scenarios
             "Model edit — insert one character, no view",
             "paragraphs",
             points,
-            "About 109 bytes per block: the document's child array copied roughly seven times.");
+            "About 48 bytes per block: the document's child array still rebuilt, minus the boxing.");
     }
 
     private static DocumentNode Document(int paragraphs) =>

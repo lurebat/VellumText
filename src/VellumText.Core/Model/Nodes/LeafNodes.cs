@@ -19,7 +19,7 @@ public sealed class RuleNode : BlockNode
     public override bool IsLeaf => true;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => ImmutableArray<Node>.Empty;
+    public override ImmutableArray<Node> Children => ImmutableArray<Node>.Empty;
 
     /// <inheritdoc/>
     public override string TypeName => "rule";
@@ -69,7 +69,7 @@ public sealed class BlockImageNode : BlockNode
     public override bool IsLeaf => true;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => ImmutableArray<Node>.Empty;
+    public override ImmutableArray<Node> Children => ImmutableArray<Node>.Empty;
 
     /// <inheritdoc/>
     public override string TypeName => "block-image";

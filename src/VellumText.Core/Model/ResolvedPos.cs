@@ -67,7 +67,7 @@ public sealed class ResolvedPos
     /// text.
     /// </summary>
     public Node? NodeAfter =>
-        IsInText || ParentIndex >= Parent.Children.Count ? null : Parent.Children[ParentIndex];
+        IsInText || ParentIndex >= Parent.Children.Length ? null : Parent.Children[ParentIndex];
 
     /// <summary>Resolves a position in a document.</summary>
     /// <param name="doc">The document.</param>
@@ -98,7 +98,7 @@ public sealed class ResolvedPos
             var index = 0;
             var consumed = 0;
 
-            while (index < node.Children.Count)
+            while (index < node.Children.Length)
             {
                 var size = node.Children[index].NodeSize;
 
@@ -113,7 +113,7 @@ public sealed class ResolvedPos
 
             // Landing exactly on a child boundary - or past the last child - means the
             // position belongs to this node, not to any child of it.
-            if (index == node.Children.Count || consumed == offset)
+            if (index == node.Children.Length || consumed == offset)
             {
                 path.Add(new Level(node, index, start));
                 break;

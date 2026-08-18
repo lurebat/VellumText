@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -330,7 +331,7 @@ public class RichTextViewBlocksTests
 
         public override bool IsLeaf => true;
 
-        public override IReadOnlyList<Node> Children => [];
+        public override ImmutableArray<Node> Children => [];
 
         public override string TypeName => "unknown";
 

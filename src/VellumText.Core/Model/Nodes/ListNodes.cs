@@ -60,7 +60,7 @@ public sealed class ListNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _items;
+    public override ImmutableArray<Node> Children => _items.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "list";
@@ -134,7 +134,7 @@ public sealed class ListItemNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _blocks;
+    public override ImmutableArray<Node> Children => _blocks.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "list-item";

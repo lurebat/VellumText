@@ -267,7 +267,7 @@ public class ResolvedPosInvariantTests
         }
         else
         {
-            Assert.InRange(at.ParentIndex, 0, at.Parent.Children.Count);
+            Assert.InRange(at.ParentIndex, 0, at.Parent.Children.Length);
         }
     }
 }

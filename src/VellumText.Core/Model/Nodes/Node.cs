@@ -40,7 +40,7 @@ public abstract class Node : IEquatable<Node>
     public int NodeSize => IsLeaf ? 1 : ContentSize + 2;
 
     /// <summary>The child nodes, empty for paragraphs and leaves.</summary>
-    public abstract IReadOnlyList<Node> Children { get; }
+    public abstract ImmutableArray<Node> Children { get; }
 
     /// <summary>A short name used in diagnostics and validation messages.</summary>
     public abstract string TypeName { get; }
@@ -70,14 +70,15 @@ public abstract class Node : IEquatable<Node>
     /// <summary>Compares two child lists element by element.</summary>
     /// <param name="left">The first list.</param>
     /// <param name="right">The second list.</param>
-    protected static bool ChildrenEqual(IReadOnlyList<Node> left, IReadOnlyList<Node> right)
+    protected static bool ChildrenEqual<T>(ImmutableArray<T> left, ImmutableArray<T> right)
+        where T : Node
     {
-        if (left.Count != right.Count)
+        if (left.Length != right.Length)
         {
             return false;
         }
 
-        for (var i = 0; i < left.Count; i++)
+        for (var i = 0; i < left.Length; i++)
         {
             if (!left[i].Equals(right[i]))
             {
@@ -91,9 +92,10 @@ public abstract class Node : IEquatable<Node>
     /// <summary>Folds a child list into a hash.</summary>
     /// <param name="hash">The hash to add to.</param>
     /// <param name="children">The children to fold in.</param>
-    protected static void HashChildren(ref HashCode hash, IReadOnlyList<Node> children)
+    protected static void HashChildren<T>(ref HashCode hash, ImmutableArray<T> children)
+        where T : Node
     {
-        hash.Add(children.Count);
+        hash.Add(children.Length);
 
         foreach (var child in children)
         {
@@ -103,7 +105,8 @@ public abstract class Node : IEquatable<Node>
 
     /// <summary>Sums the sizes the children occupy in this node.</summary>
     /// <param name="children">The children to measure.</param>
-    protected static int SumOfNodeSizes(IReadOnlyList<Node> children)
+    protected static int SumOfNodeSizes<T>(ImmutableArray<T> children)
+        where T : Node
     {
         var total = 0;
 

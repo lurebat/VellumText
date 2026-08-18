@@ -54,7 +54,7 @@ public class RtfExportTests
                 paragraph.IndentLevel);
         }
 
-        return node.Children.Count == 0
+        return node.Children.Length == 0
             ? node
             : node.WithChildren([.. node.Children.Select(Rewrite)]);
     }

@@ -255,7 +255,7 @@ public class NodeSelectionTests
             .Apply(SelectionSample.WithRule);
 
         Assert.True(deleted.IsOk, deleted.Failure);
-        Assert.Equal(2, deleted.Doc!.Children.Count);
+        Assert.Equal(2, deleted.Doc!.Children.Length);
         Assert.DoesNotContain(deleted.Doc!.Children, child => child is RuleNode);
     }
 

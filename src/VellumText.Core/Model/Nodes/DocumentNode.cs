@@ -60,7 +60,7 @@ public sealed class DocumentNode : Node
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => _blocks;
+    public override ImmutableArray<Node> Children => _blocks.CastArray<Node>();
 
     /// <inheritdoc/>
     public override string TypeName => "doc";

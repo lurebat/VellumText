@@ -111,7 +111,7 @@ public sealed class ParagraphNode : BlockNode
     public override bool IsLeaf => false;
 
     /// <inheritdoc/>
-    public override IReadOnlyList<Node> Children => ImmutableArray<Node>.Empty;
+    public override ImmutableArray<Node> Children => ImmutableArray<Node>.Empty;
 
     /// <inheritdoc/>
     public override string TypeName => "paragraph";

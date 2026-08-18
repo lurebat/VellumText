@@ -204,7 +204,7 @@ public partial class RichTextView
             }
         }
 
-        if (range.Last + 1 < range.Parent.Children.Count
+        if (range.Last + 1 < range.Parent.Children.Length
             && range.Parent.Children[range.Last + 1] is ListNode below && below.Kind == kind)
         {
             items.AddRange(below.Items);
