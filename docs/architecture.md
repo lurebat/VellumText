@@ -1017,6 +1017,48 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
+12. **Find bar** — `DocumentSearch.Find` is O(document) and the find bar calls it once per keystroke.
+
+    **Measured 2026-08-18 and left alone. This is a null result, recorded as one.** A review
+    finding called this a performance defect: typing a five-letter query into a large document
+    searches it five times. The description is accurate and the severity is not, and the
+    difference only shows up in numbers. `dotnet run -c Release --project bench/VellumText.Bench -- find`.
+
+    | shape, 16,000 paragraphs | ms | bytes | per doubling |
+    |---|---|---|---|
+    | one search, a word in every paragraph | 1.18 | 390,520 | 2.00× time, 2.00× bytes |
+    | one search, a word in no paragraph | 0.69 | 216 | 1.98× time, 1.00× bytes |
+    | typing `enoug`, 5 keystrokes, model only | 6.54 | 3,122,920 | 2.02× time, 2.00× bytes |
+    | typing `enoug`, 5 keystrokes, through the view | 6.97 | 3,123,560 | 2.02× time, 2.00× bytes |
+
+    Linear, exactly as the finding says. **The verdict has to be taken at 50,000 paragraphs**,
+    because that is the size AC12 states its 16 ms budget at and extrapolating from 16,000 is how
+    this table has been wrong before:
+
+    | one keystroke at 50,000 paragraphs | matches | ms | bytes | against 16 ms |
+    |---|---|---|---|---|
+    | first — `e` | 200,000 | 7.21 | 5,794,904 | pass |
+    | last — `enoug` | 50,000 | 3.54 | 1,449,128 | pass |
+
+    So the worst single keystroke a find bar can take — a one-character query matching 200,000
+    places in a 50,000-paragraph document — costs **7.21 ms against a 16 ms frame**, and it is the
+    only keystroke that does: every later one narrows. The find bar is inside budget at the size
+    the budget is stated at, with the same harness and machine every other number in this section
+    comes from.
+
+    **Two things a fix would have to face, on top of a payoff that is already inside budget.**
+    The first keystroke is the most expensive one and no incremental scheme can skip it — it is
+    the one with no previous result to narrow. And narrowing the *match list* is unsound, because
+    matches are non-overlapping: in `"aaab"`, `"aa"` matches at 0 and `"aab"` matches at 1, so the
+    longer query's matches are not a subset of the shorter query's. A sound version has to keep
+    every *overlapping* occurrence as a candidate list, which for a one-character query is larger
+    than the match list it replaces, and has to be thrown away on every edit, undo and paste
+    anyway. That is real complexity bought against a measurement that says there is nothing to
+    buy.
+
+    The scenario stays in the harness. It is the evidence, and it is what would catch this
+    changing — a re-find on every keystroke sitting inside a frame is a property of the current
+    constant, not a guarantee.
 
 ---
 

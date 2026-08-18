@@ -376,6 +376,127 @@ internal static class Scenarios
             + "keypress, not a held key.");
     }
 
+    /// <summary>The find bar, which searches the whole document on every keystroke.</summary>
+    /// <remarks>
+    /// <para>
+    /// A review finding claimed this is a performance defect: <c>DocumentSearch.Find</c> is
+    /// O(document) and the find bar calls it per keystroke, so a five-letter query searches the
+    /// document five times. The scenario exists to decide that with a number rather than an
+    /// argument, and it has to report three things a single measurement would hide.
+    /// </para>
+    /// <para>
+    /// <b>Match density is the confound.</b> A query matching nothing does no allocation and
+    /// exits each paragraph on the first <c>IndexOf</c>; a query matching every paragraph builds
+    /// a list as long as the document. Measuring only the first would report the cheapest input
+    /// there is, which is exactly the mistake this project has already made once.
+    /// </para>
+    /// <para>
+    /// <b>The first keystroke is the expensive one</b>, and no incremental scheme can avoid it —
+    /// a one-character query matches most of the document. Any narrowing scheme is also unsound
+    /// here, because matches are non-overlapping: in <c>"aaab"</c> the query <c>"aa"</c> matches
+    /// at 0 and <c>"aab"</c> matches at 1, so the longer query's matches are not a subset of the
+    /// shorter query's. Whatever the numbers say, that is the design constraint any fix faces.
+    /// </para>
+    /// </remarks>
+    internal static void FindQuery()
+    {
+        var typing = new[] { "e", "en", "eno", "enou", "enoug" };
+
+        var once = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => DocumentSearch.Find(doc, "enough"),
+                n))
+            .ToList();
+
+        Measure.Report(
+            "Find — one search, a word in every paragraph",
+            "paragraphs",
+            once,
+            "One keystroke's worth of work. Linear is expected; the question is the constant.");
+
+        var absent = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc => DocumentSearch.Find(doc, "zzzzzz"),
+                n))
+            .ToList();
+
+        Measure.Report(
+            "Find — one search, a word in no paragraph",
+            "paragraphs",
+            absent,
+            "The floor: the scan without the result list. The gap against the table above is "
+            + "what building the matches costs.");
+
+        var word = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Document(n),
+                doc =>
+                {
+                    foreach (var prefix in typing)
+                    {
+                        DocumentSearch.Find(doc, prefix);
+                    }
+                },
+                n))
+            .ToList();
+
+        Measure.Report(
+            $"Find — typing \"{typing[^1]}\", {typing.Length} keystrokes",
+            "paragraphs",
+            word,
+            "The finding's actual claim. Compare against the single search above: the ratio is "
+            + "how much an incremental search could hope to save.");
+
+        var view = DocumentSizes
+            .Select(n => Measure.Run(
+                () => Shown(Document(n)),
+                v =>
+                {
+                    foreach (var prefix in typing)
+                    {
+                        v.Find(prefix);
+                    }
+                },
+                n,
+                rounds: 7,
+                warmup: 2))
+            .ToList();
+
+        Measure.Report(
+            $"Find — typing \"{typing[^1]}\" through the view, {typing.Length} keystrokes",
+            "paragraphs",
+            view,
+            "What the find bar actually costs, highlights and property notifications included. "
+            + "Against AC12's 16 ms keystroke budget, per keystroke.");
+
+        // AC12 states its budget at 50,000 paragraphs, so the verdict is taken there rather than
+        // extrapolated from 16,000. Both ends of the query are measured: the first keystroke is
+        // one character and matches most of the document, which is the worst single keystroke
+        // there is and the one no incremental scheme could ever skip.
+        const int Budget = 50_000;
+
+        var big = Document(Budget);
+
+        var first = Measure.Run(() => Shown(big), v => v.Find(typing[0]), Budget, rounds: 5, warmup: 2);
+        var last = Measure.Run(() => Shown(big), v => v.Find(typing[^1]), Budget, rounds: 5, warmup: 2);
+
+        Console.WriteLine();
+        Console.WriteLine($"## Find — one keystroke at {Budget:N0} paragraphs, against AC12's 16 ms");
+        Console.WriteLine();
+        Console.WriteLine($"| {"keystroke",-22} | {"matches",9} | {"ms",8} | {"bytes",12} | {"result",7} |");
+        Console.WriteLine($"|{new string('-', 24)}|{new string('-', 11)}|{new string('-', 10)}|{new string('-', 14)}|{new string('-', 9)}|");
+
+        Line($"first — \"{typing[0]}\"", DocumentSearch.Find(big, typing[0]).Length, first);
+        Line($"last — \"{typing[^1]}\"", DocumentSearch.Find(big, typing[^1]).Length, last);
+
+        static void Line(string name, int matches, Point point) =>
+            Console.WriteLine(
+                $"| {name,-22} | {matches,9:N0} | {point.Milliseconds,5:F2} ms | {point.Bytes,12:N0} | "
+                + $"{(point.Milliseconds <= 16 ? "PASS" : "FAIL"),7} |");
+    }
+
     /// <summary>Resolving a position, which every edit and every caret move begins with.</summary>
     /// <remarks>
     /// <para>

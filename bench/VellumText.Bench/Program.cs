@@ -30,6 +30,7 @@ internal static class Program
         ("rtf", Scenarios.RtfColours),
         ("heights", Scenarios.HeightIndex),
         ("resolve", Scenarios.ResolvePosition),
+        ("find", Scenarios.FindQuery),
         ("ac12", Scenarios.Ac12),
         ("model", Scenarios.ModelEdit),
     ];
