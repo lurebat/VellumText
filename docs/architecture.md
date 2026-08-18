@@ -219,7 +219,15 @@ This is the pivotal choice. It gives:
 > 263,880** — a path 4.4x leaner, where a fixed cost is 4.4x more of the total — and it is still
 > exactly 8 bytes, on all four rows of `-- model`: insert at the start, insert at the end, delete,
 > and a paragraph join. It is the struct gaining one reference field, once per transaction, and
-> not a per-block cost. AC12 on the merged tree measures 8.85–9.45 ms against a 16 ms budget.
+> not a per-block cost. Confirmed at all five document sizes of each row, twenty measurements, all
+> +8; the arithmetic agrees, since a one-element `Mapping` array goes from 40 to 48 bytes when
+> `StepMap` grows from 12 to 24.
+>
+> **It costs no measurable time.** Against `origin/main` on one machine, five runs each, AC12's
+> keystroke at the document end is a median 9.32 ms here and 9.99 ms there, ranges 9.13–9.59 and
+> 9.24–10.33, no run over budget on either. This branch measuring lower is ordering and load, not
+> a speedup — the two are inside each other's spread. Re-run it rather than trusting these
+> numbers: the box is shared, and §8 records what the tail does on a loaded one.
 >
 > The single-range answer was available and is arithmetically sound — call the whole table one
 > replaced range — and it was rejected because of what it does to positions *inside* the table. All
