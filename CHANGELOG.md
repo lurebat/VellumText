@@ -10,6 +10,30 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
+Every breaking change here is deliberate. VellumText is pre-1.0 with no public
+consumers, and the point of this release is that a 1.0 must not freeze an API
+that a real host cannot use. Each entry says what moved, why, and what to do
+about it; **migrating** below is the short version.
+
+### Migrating
+
+1. Formats you implement yourself: add `Import(Stream)`, `Export(Stream, DocumentNode)` and
+   `TextEncoding`. Keep the string bodies. Never implement a stream member by calling its string
+   counterpart.
+2. `RtfImporter.Import` now takes `RtfImportOptions`; the fields you were passing exist on it under
+   the same names, except `MaxDepth` and `PreserveIdentifiers`.
+3. `HtmlImportOptions.PreserveIdentifiers` is gone; delete the assignment. It never did anything.
+4. `Editor.View!.Formats` and its neighbours become `Editor.Formats`. Where the shell forwards
+   nothing, `Editor.EnsureView()` replaces `Editor.View!`.
+5. `presenter.Blocks.Count` becomes `presenter.BlockCount`.
+6. `Node.Children` is an `ImmutableArray<Node>`. `foreach` and LINQ are unchanged; comparing two
+   with `Assert.Equal` is not — that compares the underlying arrays by reference, so call
+   `.AsEnumerable()`.
+7. If you derived from `Node`, `BlockNode`, `InlineEmbed` or `Selection`, you cannot any more. See
+   below for why that is a fix and not a loss.
+8. A preview pane that used `RichTextViewer` and wanted selection or copy wants
+   `RichTextEditor { IsReadOnly = true }`. `docs/guide.md` said otherwise and was wrong.
+
 ### Changed
 
 - **`RtfImporter.Import` takes `RtfImportOptions` rather than `HtmlImportOptions` — this is a
@@ -17,8 +41,8 @@ NuGet; packages are published to a local feed, and
   package's public API: a consumer who wanted only RTF had to reference the HTML package to
   configure it, and an internal choice was frozen where a later rewrite of the RTF reader could not
   have changed it. `RtfImportOptions` carries `AllowRemoteImages`, `AllowDataImages`,
-  `MaxDataImageBytes` and `BaseUri`. It deliberately omits `MaxDepth` and `PreserveIdentifiers`,
-  which apply to authored HTML rather than the HTML this package generates for itself.
+  `MaxDataImageBytes` and `BaseUri`. It deliberately omits `MaxDepth`, which applies to authored
+  HTML rather than the HTML this package generates for itself.
 
 - **`RichTextEditor` forwards the whole setup surface, so `Editor.View!` is no longer the
   documented path.** `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
@@ -64,6 +88,12 @@ NuGet; packages are published to a local feed, and
   single source of truth, and a flavour minted with a hard-coded UTF-8 would have been a lie for a
   format that is not text. Read the encoding from the format instead.
 
+- **`Node.Children` is an `ImmutableArray<Node>` rather than an `IReadOnlyList<Node>`.** The
+  children of a node are already an immutable array in every implementation; the interface return
+  boxed the struct on every access, on the hottest walk in the library. Reading code is unchanged.
+  One thing to know when testing: `Assert.Equal` on two `ImmutableArray<T>` compares the underlying
+  arrays by reference and will fail on two equal arrays, so compare `.AsEnumerable()`.
+
 ### Removed from the public API
 
 None of the following was reachable in a way that would have survived contact with a real host; they
@@ -96,6 +126,11 @@ are listed because a 1.0 that shipped them would have frozen them.
   declaring a copy constructor that chains to the base. It cannot happen by accident, and anything
   that does it lands on a `default:` that throws.
 
+- **`HtmlImportOptions.PreserveIdentifiers` is gone.** It was declared, defaulted, documented and
+  never read: no code path in the importer consulted it, so setting it to `true` did not preserve
+  an identifier and setting it to `false` did not strip one. A host that set it got the same
+  document either way and had no way to find that out. Delete the assignment; nothing else changes.
+
 ### Added
 
 - **`HtmlFormat.With(options)` and `RtfFormat.With(options)`**, returning a configured instance and
@@ -120,6 +155,60 @@ are listed because a 1.0 that shipped them would have frozen them.
 - **Binary formats travel on the clipboard end to end.** `RichTextClipboard` asks the exporter to
   write its own bytes and hands a payload straight back to the importer, so a registered format that
   is not text survives a copy and a paste unchanged.
+
+- **`Document` and `Selection` are observable on both controls.** `RichTextView` and
+  `RichTextEditor` each gained `Document`, `Selection`, the `DocumentProperty` and
+  `SelectionProperty` behind them, and the `DocumentChanged` and `SelectionChanged` events. This is
+  the half of `AC13` that was missing: the commands existed and `IsReadOnly` was settable, but a
+  view model had no way to hear that the user had typed something.
+
+  **Binding is one-way, out of the control.** The direct properties are read-only and default to
+  `OneWayToSource`, so `{Binding Doc, Mode=OneWayToSource}` — or plain `{Binding Doc}` — keeps a
+  view model's copy current. Assigning a document from outside is deliberately not offered:
+  reconciling an incoming document against in-flight edits and the undo history is a design with
+  real hazards and nobody has asked for it. Load a document through `State` as before.
+
+  The events exist alongside the properties because `OneWayToSource` never pushes the value that is
+  already there, only subsequent changes, so a binding set up after a document was loaded would
+  leave a view model holding `null` until the first keystroke. Subscribe to `DocumentChanged` and
+  read `Document` once to prime.
+
+- **`RichTextView.ContentImporting` and `RichTextEditor.ContentImporting`**, raised with a
+  `ContentImportingEventArgs` before imported content is inserted, so a host can inspect what is
+  about to land and set `Cancel` to refuse it. `ContentImported` reports what an import cost after
+  the fact; this is the seam that comes first.
+
+  It carries the exact document that would be inserted, the importer's diagnostics, and whether
+  anything was dropped on the way in. It is raised only for content that would otherwise land — a
+  read-only control, a rectangle selection and an empty clip never reach it, so a host is not asked
+  about a paste that was never going to happen. A refusal is a paste that did not occur: no edit, no
+  undo entry, no `ContentImported`, and nothing added to the diagnostics channel. A handler that
+  throws costs the paste and nothing else; on the keyboard, menu and drop paths the existing handler
+  swallows it, and `PasteImport` called directly rethrows.
+
+  Images are deliberately not covered. `IImageStore.Save` returning `null` is already an
+  inspect-and-refuse seam, and `ImageRefused` already reports the outcome.
+
+- **`RichTextClipboard.Build` and `RichTextClipboard.WriteAsync` take an optional `text`.** The
+  plain text flavour comes from the caller when one is given, so a control stays the authority on
+  what it shows selected. Existing calls compile and behave unchanged.
+
+### Fixed
+
+- **Text carrying `U+FFFC` is no longer silently dropped.** The object replacement character is
+  what the model reserves for embeds, and building a paragraph from text containing one throws.
+  `RichTextClipboard`'s plain-text fallback did not know that, so dropping such text — which Word
+  writes for objects it cannot otherwise express, and which any text that has been through a rich
+  text model can carry — inserted nothing at all, while pasting the same text worked.
+
+- **A drop and a paste of one clip now produce the same paragraphs.** The two paths disagreed about
+  what a line break is: the drop normalized through `string.ReplaceLineEndings`, which takes the
+  form feed, NEL and the Unicode line and paragraph separators, and the paste normalized only CRLF
+  and CR. The same clip became seven paragraphs dropped and three pasted, with raw control
+  characters left inside them.
+
+- **A `LinkRequested` example in `docs/guide.md` did not compile**, awaiting inside a non-async
+  lambda.
 
 ## [0.4.1] - 2026-08-17
 

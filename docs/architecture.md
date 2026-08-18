@@ -38,6 +38,14 @@ A drop-in Avalonia control:
 | AC12 | 10 MB / 50k-paragraph document scrolls and types without perceptible lag (virtualized). |
 | AC13 | MVVM-friendly: bindable `Document`, `Selection`, `IsReadOnly`, commands for every formatting action. |
 
+> **Clarified 2026-08-18 — AC13 is met, and "bindable" means one-way out.** The commands and `IsReadOnly` were in place; `Document` and `Selection` were not, and a view model had no way to hear that the user had typed. Both controls now expose `Document`, `Selection`, the `DocumentProperty` and `SelectionProperty` behind them, and `DocumentChanged`/`SelectionChanged`.
+>
+> The direct properties are read-only and default to `OneWayToSource`, so the binding a view model writes is the natural one. Assigning a document *in* is deliberately not offered: reconciling an external assignment against in-flight edits and the undo history is a design with real hazards, and no consumer has asked for it. A document is still loaded through `State`.
+>
+> The events exist alongside the properties for a measured reason rather than a stylistic one. `OneWayToSource` never pushes the value that is already there, only subsequent changes, so a view model that binds after a document is loaded holds `null` until the first keystroke. `GetObservable` does prime, but it needs an `AnonymousObserver<T>` rather than a lambda, which is not the API a host reaches for. Subscribing to `DocumentChanged` and reading `Document` once is.
+>
+> Both halves are raised from one place, `RaiseStateParts`, for the reason §12 gives: the state is set from more than one path, and wiring the announcement at each is how the fourth one gets missed. The shell raises its own from the same choke point and does so whether or not it has been templated, because a host that loads a document before the control is on screen must still be heard.
+
 ### 1.2 Explicit non-goals
 
 - **Not** a code editor. Syntax highlighting, folding, completion, multi-caret → that is `AvaloniaEdit`'s domain; do not duplicate it.
@@ -421,6 +429,13 @@ internal sealed class ParagraphView : BlockView
 > `ContentImported` and `ImageRefused` — everything configured before the control is on screen.
 > The forty-odd editing commands are not forwarded; duplicating them would double the shell's
 > surface for no benefit a host can name.
+>
+> **Amended 2026-08-18.** `ContentImporting` joined that list for the same reason as its two
+> neighbours, and `Document`, `Selection`, `DocumentChanged` and `SelectionChanged` joined it for a
+> stronger one. Those four are not merely reached before templating — they must *work* before it. A
+> view model that binds in its constructor and a host that loads a document into `State` before the
+> control is on screen are both ordinary, so the shell raises its own change notifications from its
+> own state rather than relaying the view's, and pushes to the view only once there is one.
 >
 > `EnsureView()` is the escape hatch and is honest about its lifetime: it applies the template if
 > that has not happened and returns a view that is never null. That is safe because the default
@@ -886,6 +901,10 @@ Four decisions in that shape:
 
 The clipboard carries bytes end to end as a result: `RichTextClipboard.Encode` asks the exporter to write into a `MemoryStream` and `Decode` hands the payload straight back as one, so a registered binary format survives copy and paste unchanged. `ClipboardFlavor` no longer carries an `Encoding` — `IDocumentFormat.TextEncoding` is the single source of truth, and a flavour minted with a hard-coded UTF-8 would be a lie for a format that is not text.
 
+> **Corrected 2026-08-18 — one implementation, not three.** `RichTextView` and `RichTextViewer` each built their own clipboard payload beside this helper's, and the copies drifted until the difference was user-visible (§4.9, plain text). All three are now one call: `RichTextClipboard.Build` and `WriteAsync` take the plain text flavour from the caller, because a control already knows what it shows selected and a rectangle of table cells is copied as a rebuilt document rather than a cut of the original.
+>
+> Three `FlavorFor(...) is not { } flavour` guards went with it. `FlavorFor` stopped being nullable when it learned to mint an application-specific flavour for an unregistered format, so those branches had become unreachable. The behaviour they guarded is deliberate and was left alone — a format with no platform convention still gets a flavour, which is what makes registering one work at all.
+
 Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
 
 **The envelope is Windows-only, and for a while it was not.** `HtmlFormat.Export` wrapped every payload in `CF_HTML` regardless of platform, so a copy on Linux or macOS put `Version:0.9` and a block of byte offsets under `text/html` and `public.html` — targets that are defined to carry bare markup. A receiving application would have rendered the preamble as content. The format *name* was already chosen per platform by the `Platform` helper above; only the payload was not, and this paragraph's own sentence about `HTML Format` being a Windows requirement was the specification the code had drifted from.
@@ -923,10 +942,36 @@ public sealed class ContentImportedEventArgs : EventArgs
 Three decisions in it:
 
 - **A notification, not a veto.** The content is in the document by the time it is raised; there is nothing to cancel. Interception *before* the fact is a separate piece of work and is deliberately not this — a cancellable event here would be a lie, because the undo entry already exists.
+
+  > **Corrected 2026-08-18.** That separate piece of work is now done, and the decision above stands unchanged: `ContentImported` is still a notification and still uncancellable. What was added is a *second* event that comes first.
+  >
+  > ```csharp
+  > public event EventHandler<ContentImportingEventArgs>? ContentImporting;
+  >
+  > public sealed class ContentImportingEventArgs : CancelEventArgs
+  > {
+  >     public DocumentNode Content { get; }
+  >     public ImmutableArray<ImportDiagnostic> Diagnostics { get; }
+  >     public bool AnythingDropped { get; }
+  > }
+  > ```
+  >
+  > It carries the exact document that would be inserted, so a host sees what it is refusing rather than a description of it. Four things about it are load-bearing:
+  >
+  > - **It is raised only for content that would otherwise land.** A read-only control, a rectangle selection, an empty clip — all of those already refuse the paste, and asking a host to arbitrate one that was never going to happen is how a policy handler ends up counting rejections that did not occur. `WouldPaste` and `WouldPasteSlice` answer that question before the event is raised.
+  > - **A refusal is a paste that did not occur.** No edit, no undo entry, no `ContentImported`, no diagnostic. The alternative — reporting a refusal through the diagnostics channel — was rejected: `ImportDiagnostic` describes what an *importer* could not represent, and a host's own policy is not that.
+  > - **A handler that throws costs one paste.** On the keyboard, menu and drop paths the existing broad handler swallows it, exactly as it does for a throwing exporter. `PasteImport` called directly rethrows, because a programmatic import has a caller who can deal with it. The document is never left half-changed either way: the gate runs before the transaction is built.
+  > - **Two seams, both behind the same gate.** `PasteImport` and `PasteImportedText`. The plain-text path is separate for the reason given below, and gating only the rich one would let a host's policy be bypassed by pasting from Notepad — which is §12's "the fourth call site was missed" in advance.
+  >
+  > Images are deliberately outside it. `IImageStore.Save` returning `null` is already inspect-and-refuse, and `ImageRefused` already reports the outcome; a third convention for the same decision would be worse than either.
 - **Raised for a clean import too**, with an empty list. A host that puts up "2 things were changed" after one paste needs the next, clean paste to take that notice down, and it can only do that if the clean paste tells it something.
 - **One seam, not three.** Paste, drop and a host's own file import all go through `PasteImport(ImportResult)`, which pastes and then raises. Wiring the event at each of the three call sites is exactly how this defect happens again the next time a fourth is added; the public `PasteImport` is also the programmatic import path an application needs to open a file with the same reporting the clipboard gets.
 
 Plain text is the one path that does not go through it. `PasteText` normalizes line endings and strips the reserved U+FFFC placeholder, and routing it through `DocumentNode.FromParagraphs` instead would throw on that placeholder into a broad `catch` — a bug already fixed once, where a whole clip pasted nothing. It reports the same way with an empty list, having lost nothing worth naming.
+
+> **Corrected 2026-08-18.** Still true that plain text has its own seam, and no longer true that it has its own *normalization*. The two paths had drifted: `RichTextClipboard`'s plain-text fallback did route through `DocumentNode.FromParagraphs` and did throw on U+FFFC into a broad `catch`, so the bug described above as "already fixed once" was fixed only in `RichTextView` — dropping text carrying U+FFFC inserted nothing while pasting the same text worked. The two also disagreed about what a line break is, the helper normalizing through `string.ReplaceLineEndings` and the view only CRLF and CR, so one clip became seven paragraphs dropped and three pasted.
+>
+> `RichTextClipboard.Lines` is now the single answer to "what paragraphs does this text become", used by the helper's two read overloads and by the view's paste path. The seam is still separate — `PasteImportedText` rather than `PasteImport` — because the two build different slices: plain text always pastes into an open slice, where `PasteImport` closes the slice for an empty host block so that text pasted into an empty heading stays a heading.
 
 It follows `ImageRefused` (§4.6) rather than inventing a second convention: a host that does not subscribe gets exactly the old behavior.
 
@@ -986,10 +1031,15 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 wanted only RTF had to reference the HTML package to configure it, and the choice above — that RTF
 is read by way of HTML — was frozen where a later rewrite of the RTF reader could not have changed
 it. `RtfImportOptions` is the RTF package's own type, mapped to HTML's internally. It is
-deliberately smaller: `MaxDepth` and `PreserveIdentifiers` are absent because the HTML they would
-apply to is generated here rather than authored, so there are no `class` or `id` attributes to keep
-and no reason for a host to loosen a stack-overflow bound on markup it did not write. The project
-reference stays; only the leak is closed.
+deliberately smaller: `MaxDepth` is absent because the HTML it would apply to is generated here
+rather than authored, so there is no reason for a host to loosen a stack-overflow bound on markup it
+did not write. The project reference stays; only the leak is closed.
+
+> **Corrected 2026-08-18.** This paragraph also listed `PreserveIdentifiers` among the options
+> `RtfImportOptions` deliberately omits. That option has since been deleted from
+> `HtmlImportOptions` too — it was declared, defaulted and documented, and no code path ever read
+> it, so setting it did nothing in either direction and a host had no way to find that out. There
+> is nothing left to omit.
 
 **Rejected:** `NPOI` — Apache-2.0 source but 2.8.0 binaries impose a maintenance-fee EULA on revenue-generating users; a legal hazard for a "free" library. `DocX`/Xceed — Xceed Community License, non-commercial. `OpenXML-Office` — AGPL-3.0/commercial. `ShapeCrawler` — PPTX only.
 
@@ -1911,6 +1961,9 @@ was shaped from.
 | **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
 | **A `Selection` member for "is this a rectangle"?** | **No — the type test stays, and closing the hierarchy is why.** 23 sites ask it, but they are 11 refusals with 11 different reasons, 7 dispatches that need a transaction and the presenter's geometry, and 4 reads of a cell index meaningless on the other two shapes. Once the constructor became `private protected` the type test is exhaustive by construction, which is a stronger guarantee than any virtual `bool` could give. `Selection.Map` remains the only member that varies by shape. See §4.5. | 2026-08-18 |
+| **Two-way `Document` binding?** | **No — one way, out of the control.** A view model can observe `Document` and `Selection` and bind them `OneWayToSource`; assigning a document in is not offered. Reconciling an external assignment against in-flight edits and the undo history is a design with real hazards — what an outstanding composition means, whether the history survives, what a stale assignment from a slow view model does to text typed since — and no consumer has asked for it. Loading stays `State`. See §1.1 AC13. | 2026-08-18 |
+| **Should a host be able to veto imported content?** | **Yes, as a second event rather than by making `ContentImported` cancellable.** `ContentImporting` carries the exact document that would be inserted and a `Cancel` flag, is raised only for content that would otherwise land, and treats a refusal as a paste that did not happen. `ContentImported` stays what it is — a report of what an import cost, raised when the undo entry already exists. See §4.9. | 2026-08-18 |
+| **Declarative XAML configuration of `Formats`?** | **No, and the reason is mechanical.** `HtmlFormat` and `RtfFormat` are constructor-less: `Instance` and `With(options)` are the only ways to obtain one, which is what makes the paranoid defaults the default. XAML can only construct types with a public parameterless constructor, so a `<Formats>` collection in markup would require undoing that. Registering in code is one line and does not trade a security default for markup. | 2026-08-18 |
 
 ### 12.2 Still open
 
