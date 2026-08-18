@@ -314,6 +314,33 @@ Three selection kinds is not over-engineering — it is the minimum that makes "
 > `Selection` by declaring one that chains to it. It cannot happen by accident, which is what the
 > closure is for.
 
+> **No virtual "is this a rectangle" member, and closing the hierarchy is why** (2026-08-18).
+> `is CellSelection` is open-coded at 17 sites, with the private `RichTextView.Rectangle` covering
+> another 6 — 23 in all. That looks like an abstraction asking to be extracted. It is not, and the
+> reason is worth writing down because it will be filed again otherwise.
+>
+> The case *for* a member was that a type test is not exhaustive: a fourth shape would fall through
+> to the range path and be treated as text, which is the silently destructive outcome this section
+> exists to prevent. That case died when the constructor became `private protected`. Three shapes
+> are now the whole set, so the type test is exhaustive by construction. A virtual `bool` would have
+> made the fallthrough polite; closing the hierarchy makes it impossible. The weaker guarantee is
+> not worth a public member.
+>
+> What is left does not cohere. The 23 sites are 11 refusals, 7 dispatches to a cell-specific
+> implementation, 4 reads of `AnchorCell`/`HeadCell`, plus the property itself. The refusals share
+> an *answer*, not a *predicate*: there is no block for a heading to land on, no place for a typed
+> character, no caret for an IME composition, no ends for a touch handle to drag, no image at a cell
+> boundary, no enclosing list, no run of sibling blocks to wrap. One `CanReplaceRange` would name
+> none of those eleven reasons and would only be true because it means `is CellSelection` spelled
+> longer. The 7 dispatches need a transaction, the presenter's geometry and `Rect` — `VellumText.Core`
+> has no dependencies and an MSBuild target that fails the build if it acquires one, so they cannot
+> move. The 4 index reads want an `int?` that is null for two of the three shapes.
+>
+> The invariant they defend was audited rather than assumed: every read of `From`/`To` in
+> `VellumText.Avalonia` is downstream of one of the 23 guards, and there is no `switch` over the
+> three shapes anywhere. `Selection.Map` is the one place where behaviour genuinely varies by shape,
+> and it is already `abstract`. That is the member that earned its place; a second one would not.
+
 ### 4.6 View layer
 
 ```csharp
@@ -1747,6 +1774,7 @@ was shaped from.
 | **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf` on RtfPipe. | user decision |
 | **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
+| **A `Selection` member for "is this a rectangle"?** | **No — the type test stays, and closing the hierarchy is why.** 23 sites ask it, but they are 11 refusals with 11 different reasons, 7 dispatches that need a transaction and the presenter's geometry, and 4 reads of a cell index meaningless on the other two shapes. Once the constructor became `private protected` the type test is exhaustive by construction, which is a stronger guarantee than any virtual `bool` could give. `Selection.Map` remains the only member that varies by shape. See §4.5. | 2026-08-18 |
 
 ### 12.2 Still open
 
