@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -74,19 +75,99 @@ public partial class RichTextView
     /// </remarks>
     public event EventHandler<ContentImportedEventArgs>? ContentImported;
 
+    /// <summary>Content from outside, before any of it has been inserted.</summary>
+    /// <param name="content">The blocks that are about to replace the selection.</param>
+    /// <param name="diagnostics">Everything the importer could not do faithfully.</param>
+    public sealed class ContentImportingEventArgs(
+        DocumentNode content,
+        ImmutableArray<ImportDiagnostic> diagnostics)
+        : CancelEventArgs
+    {
+        /// <summary>The document that is about to be inserted, exactly as it would arrive.</summary>
+        /// <remarks>
+        /// Not the bytes on the clipboard: what the importer made of them, after every drop and
+        /// downgrade the diagnostics describe. A policy that inspected the source would be
+        /// inspecting something else — the point is to vet what will actually be in the document.
+        /// </remarks>
+        public DocumentNode Content { get; } = content;
+
+        /// <summary>Everything the importer could not do faithfully, in the order it happened.</summary>
+        /// <remarks>Empty for plain text, which has no importer and so nothing to compromise on.</remarks>
+        public ImmutableArray<ImportDiagnostic> Diagnostics { get; } = diagnostics;
+
+        /// <summary>Whether anything was removed for safety rather than merely downgraded.</summary>
+        public bool AnythingDropped =>
+            Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Dropped);
+    }
+
+    /// <summary>Raised before content from outside is inserted, so a host can refuse it.</summary>
+    /// <remarks>
+    /// <para>
+    /// The veto <see cref="ContentImported"/> deliberately is not. Set <c>Cancel</c> and the paste
+    /// or drop does nothing at all: no edit, no undo entry, no <see cref="ContentImported"/> — a
+    /// refusal is indistinguishable from a paste of nothing, which is what it is. The host is the
+    /// one refusing, so it already knows; nothing is reported back to it.
+    /// </para>
+    /// <para>
+    /// <b>Raised only for content that would otherwise land.</b> A read-only control, a rectangle
+    /// selection, an empty clip: none of them reach a policy that may be slow, and none of them
+    /// have to be understood by a host writing one.
+    /// </para>
+    /// <para>
+    /// <b>A handler that throws loses the paste, not the document.</b> Nothing has been applied
+    /// when this runs, so there is no half-inserted state to unwind. On the keyboard, menu and drop
+    /// paths the exception meets the same handler a failing clipboard does and the paste is simply
+    /// dropped; a host calling <see cref="PasteImport"/> itself sees its own exception, because
+    /// swallowing it there would hide the host's bug from the host.
+    /// </para>
+    /// <para>
+    /// Images are not routed through this. <c>IImageStore.Save</c> returning null is already an
+    /// inspect-and-veto for image bytes, and <see cref="ImageRefused"/> already reports it — a
+    /// second way to say no would be a second thing to keep in step.
+    /// </para>
+    /// </remarks>
+    public event EventHandler<ContentImportingEventArgs>? ContentImporting;
+
+    /// <summary>Asks the host whether content from outside may be inserted.</summary>
+    /// <remarks>
+    /// The choke point, called from the two seams that insert imported content and from nowhere
+    /// else, for the reason <see cref="PasteImport"/> gives: a gate at each call site is a gate
+    /// the next call site will forget.
+    /// </remarks>
+    private bool ContentAllowed(DocumentNode content, ImmutableArray<ImportDiagnostic> diagnostics)
+    {
+        if (ContentImporting is not { } handlers)
+        {
+            return true;
+        }
+
+        var refusal = new ContentImportingEventArgs(content, diagnostics);
+
+        handlers(this, refusal);
+
+        return !refusal.Cancel;
+    }
+
     /// <summary>Replaces the selection with an imported document, and says what the import cost.</summary>
     /// <param name="result">What an importer produced, diagnostics and all.</param>
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// The single seam every import goes through — paste, drop, and a host importing a file of its
-    /// own — so that <see cref="ContentImported"/> cannot be raised by two of the three and
-    /// forgotten by the last. Nothing is reported when the paste was refused, because then nothing
-    /// arrived to explain.
+    /// own — so that <see cref="ContentImporting"/> and <see cref="ContentImported"/> cannot be
+    /// raised by two of the three and forgotten by the last. Nothing is reported when the paste was
+    /// refused, because then nothing arrived to explain.
     /// </remarks>
     public bool PasteImport(ImportResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
+
+        // Asked before anything is applied, and only when there is something to ask about: a
+        // policy is only shown content that would otherwise be in the document a moment later.
+        if (!WouldPaste(result.Doc) || !ContentAllowed(result.Doc, result.Diagnostics))
+        {
+            return false;
+        }
 
         if (!PasteDocument(result.Doc))
         {
@@ -427,6 +508,18 @@ public partial class RichTextView
     /// </remarks>
     private bool PasteImportedText(string text)
     {
+        if (TextSlice(text) is not { } slice || !WouldPasteSlice(slice))
+        {
+            return false;
+        }
+
+        // Shown as the document it will become rather than as the string it arrived as, so a
+        // policy written once works the same on both seams.
+        if (!ContentAllowed(new DocumentNode(TextParagraphs(text)), []))
+        {
+            return false;
+        }
+
         if (!PasteText(text))
         {
             return false;
@@ -457,6 +550,13 @@ public partial class RichTextView
     /// </remarks>
     internal bool WouldPaste(DocumentNode doc) =>
         !IsReadOnly && PasteTransaction(doc) is { ChangedDoc: true };
+
+    /// <summary>Whether pasting <paramref name="slice"/> would change the document.</summary>
+    /// <remarks>The <see cref="WouldPaste"/> question for the plain-text seam, which builds a
+    /// slice directly rather than going through <see cref="PasteTransaction"/>.</remarks>
+    private bool WouldPasteSlice(Slice slice) =>
+        !IsReadOnly
+        && SliceTransaction(slice, _state.Selection.From, _state.Selection.To) is { ChangedDoc: true };
 
     /// <summary>The transaction pasting <paramref name="doc"/>'s blocks would apply, or null.</summary>
     private Transaction? PasteTransaction(DocumentNode doc)
@@ -529,29 +629,41 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        if (text.Length == 0 || Rectangle is not null)
-        {
-            return false;
-        }
+        return TextSlice(text) is { } slice && PasteSlice(slice);
+    }
 
+    /// <summary>The paragraphs <paramref name="text"/> would become.</summary>
+    /// <remarks>
+    /// Shared with <see cref="PasteImportedText"/> so that what a host is shown and what lands
+    /// cannot drift: the line breaks are already normalized and the reserved placeholder already
+    /// gone by the time either sees it.
+    /// </remarks>
+    private static ImmutableArray<BlockNode> TextParagraphs(string text)
+    {
         // Normalized first, so that a Windows clipboard's CRLF does not paste two breaks and a
         // classic-Mac CR does not paste none.
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Split('\n');
 
-        var selection = _state.Selection;
-        var at = selection.From;
+        return lines
+            .Select(line => (BlockNode)new ParagraphNode(InlineContent.FromText(WithoutPlaceholder(line))))
+            .ToImmutableArray();
+    }
+
+    /// <summary>The slice pasting <paramref name="text"/> would insert, or null if there is none.</summary>
+    private Slice? TextSlice(string text)
+    {
+        if (text.Length == 0 || Rectangle is not null)
+        {
+            return null;
+        }
 
         // One transaction, so that one undo takes the paste back. Splitting and inserting line by
         // line reads more simply and is wrong: it leaves the user pressing Ctrl+Z once per line.
         // Open on both ends is what makes the first and last pasted paragraphs merge into the
         // paragraph the caret was sitting in, rather than pushing it apart.
-        var content = lines
-            .Select(line => (Node)new ParagraphNode(InlineContent.FromText(WithoutPlaceholder(line))))
-            .ToArray();
-
-        return PasteSlice(new Slice(content, 1, 1));
+        return new Slice(TextParagraphs(text).CastArray<Node>(), 1, 1);
     }
 
     /// <summary>Replaces the selection with <paramref name="slice"/>.</summary>

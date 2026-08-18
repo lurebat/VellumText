@@ -465,6 +465,18 @@ public class RichTextEditor : TemplatedControl
         set => EnsureView().SyntaxTheme = value;
     }
 
+    /// <inheritdoc cref="RichTextView.ContentImporting"/>
+    /// <remarks>
+    /// Forwarded for the reason <see cref="ContentImported"/> is, and it matters more here: a
+    /// content policy subscribed to a view that does not exist yet is a policy that never runs,
+    /// and the first sign of it is content the host meant to refuse sitting in the document.
+    /// </remarks>
+    public event EventHandler<RichTextView.ContentImportingEventArgs>? ContentImporting
+    {
+        add => EnsureView().ContentImporting += value;
+        remove => EnsureView().ContentImporting -= value;
+    }
+
     /// <inheritdoc cref="RichTextView.ContentImported"/>
     /// <remarks>
     /// Forwarded because a subscription is made at setup. Missing one costs no exception and no

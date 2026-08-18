@@ -77,7 +77,8 @@ returns a view that is never null — use it for commands, which run in response
 
 Setup does not need it. The surfaces a host configures before the control is on screen are on the
 shell directly — `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
-`SyntaxHighlighter`, `SyntaxTheme`, and the `ContentImported` and `ImageRefused` events — because
+`SyntaxHighlighter`, `SyntaxTheme`, and the `ContentImporting`, `ContentImported` and `ImageRefused`
+events — because
 those are the ones where being too early is silent: a format registered on a view that does not
 exist throws, and an event subscribed on one is simply never heard from.
 
@@ -527,6 +528,50 @@ travels on the clipboard unchanged.
 > anywhere that takes a payload as a `string`, so this mistake cannot be written through it.
 
 `RichTextClipboard.Read` is the synchronous overload, for a drop's `DragEventArgs.DataTransfer`.
+
+## Inspecting and refusing incoming content
+
+`ContentImporting` runs **before** anything is inserted, and can refuse it:
+
+```csharp
+editor.ContentImporting += (_, e) =>
+{
+    if (DocumentText.Of(e.Content).Length > 100_000 || e.AnythingDropped)
+        e.Cancel = true;
+};
+```
+
+`e.Content` is the document that is about to arrive — what the importer made of the payload, after
+every drop and downgrade `e.Diagnostics` describes. Not the bytes on the clipboard: a policy that
+vetted those would be vetting something other than what lands.
+
+It covers every way content gets in: paste, paste-as-plain-text, drop, and `PasteImport` called by
+the host. Plain text is offered as the paragraphs it will become, with the line breaks already
+normalized, so one policy works for both.
+
+- **A refusal is a paste that never happened.** No edit, no undo entry, no `ContentImported`. The
+  host is the one refusing, so nothing is reported back to it.
+- **It is raised only for content that would otherwise land.** A read-only control, a rectangle
+  selection, an empty clip: none of them reach a policy that may be slow.
+- **A handler that throws loses the paste, not the document.** Nothing has been applied when it
+  runs. On the keyboard, menu and drop paths the exception meets the same handler a failing
+  clipboard does; call `PasteImport` yourself and you get your own exception back, because
+  swallowing it there would hide your bug from you.
+- **Images are not routed through it.** `IImageStore.Save` returning null is already an
+  inspect-and-veto for image bytes, and `ImageRefused` already reports it.
+
+`ContentImported` is the other half and stays a notification: it says what an import *cost*, after
+it has landed.
+
+```csharp
+editor.ContentImported += (_, e) =>
+{
+    status.Text = e.AnythingDropped ? $"{e.Diagnostics.Length} things changed" : "";
+};
+```
+
+It is raised for a clean import too, with an empty list — a host that put up "2 things were changed"
+after one paste can only take that notice down if the next, clean paste tells it anything at all.
 
 ## Images
 
