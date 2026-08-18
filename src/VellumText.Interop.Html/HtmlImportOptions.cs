@@ -65,9 +65,4 @@ public sealed record HtmlImportOptions
     /// </remarks>
     public Uri? BaseUri { get; init; }
 
-    /// <summary>
-    /// Whether to keep the <c>class</c> and <c>id</c> attributes. Off by default, and they are
-    /// dropped rather than reported, since the document model has nowhere to put them.
-    /// </summary>
-    public bool PreserveIdentifiers { get; init; }
 }
