@@ -22,6 +22,35 @@ namespace VellumText;
 public abstract class Node : IEquatable<Node>
 {
     /// <summary>
+    /// How many children a lookup has to walk past before this node earns a size index.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A floor below which an index cannot pay, not a tuned knob. One cold lookup at the last
+    /// child of a node costs the same 276 ns at 32 children whether it scans or builds and
+    /// searches an index; below that the <c>int[]</c> is pure loss, and most nodes are a table
+    /// row of three cells or a list of five items, while a document of 50,000 paragraphs has
+    /// exactly one node that is not.
+    /// </para>
+    /// <para>
+    /// What the measurement actually settles is that the trigger must not be zero. Indexing on
+    /// the first lookup instead made resolving at the <em>start</em> of a document linear in its
+    /// size — 0.011 ms and 17 KB, flat across sizes, became 0.140 ms and 81 KB at 16,000 blocks —
+    /// which is this defect again, moved to the cheap end. See <see cref="ChildIndexAt"/>.
+    /// </para>
+    /// </remarks>
+    private const int IndexAfterScanning = 32;
+
+    /// <summary>
+    /// Where each child ends, cumulatively — or null until a lookup here has proven expensive.
+    /// </summary>
+    /// <remarks>
+    /// Strictly increasing, because every node occupies at least one position, which is what
+    /// makes a binary search over it unambiguous.
+    /// </remarks>
+    private int[]? _childEnds;
+
+    /// <summary>
     /// The number of positions inside this node, excluding its own boundary tokens.
     /// </summary>
     /// <remarks>
@@ -51,6 +80,88 @@ public abstract class Node : IEquatable<Node>
     /// <exception cref="InvalidOperationException">This node cannot hold children at all.</exception>
     public abstract Node WithChildren(IReadOnlyList<Node> children);
 
+    /// <summary>
+    /// Finds the child covering an offset into this node's content.
+    /// </summary>
+    /// <param name="offset">An offset from the start of this node's content.</param>
+    /// <param name="start">Set to the offset at which the returned child starts.</param>
+    /// <returns>
+    /// The child whose half-open extent <c>[start, start + NodeSize)</c> contains
+    /// <paramref name="offset"/>, or <see cref="ImmutableArray{T}.Length"/> of
+    /// <see cref="Children"/> when the offset is at or past the end of the content — the same
+    /// answer a position landing exactly on a boundary has always given.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// Resolving a position is this lookup once per level, so before there was an index the cost
+    /// of finding a position depended on where in the document it was: typing at the end of
+    /// 50,000 paragraphs walked all 50,000, and typing at the start walked one. Typing at the end
+    /// is what writing is, so that is the case the budget has to hold for.
+    /// </para>
+    /// <para>
+    /// <b>A plain prefix-sum array, not a Fenwick tree.</b> <c>BlockHeightIndex</c> in the
+    /// view layer needs a Fenwick tree because a block's height changes under it and the index
+    /// has to absorb that in logarithmic time. Children never change: a node with different
+    /// children is a different node, with its own index. So the structure that fits is the
+    /// simplest one that answers the question — cumulative ends, binary searched — and the
+    /// update path a Fenwick tree buys would never be taken.
+    /// </para>
+    /// <para>
+    /// <b>Built on demand, after a scan has proven expensive, rather than in the constructor.</b>
+    /// Building it eagerly would put an <c>int[]</c> per node on the edit path, where
+    /// <see cref="WithChildren"/> rebuilds the root on every keystroke — and it would charge that
+    /// to documents that never resolve anything near their end. Building it on the first lookup
+    /// instead would charge a full pass to <em>cheap</em> lookups, which is a straight loss for a
+    /// caret at the start of a document. So the trigger is the work actually done: a scan that
+    /// walked past <see cref="IndexAfterScanning"/> children says this node is one where finding
+    /// a child is expensive, and the next lookup in it will not be.
+    /// </para>
+    /// <para>
+    /// The index cannot go stale, because there is nothing for it to go stale against: it is
+    /// derived from children that are fixed at construction. Two threads racing here compute the
+    /// same array from the same children, so the loser's work is wasted and nothing else. The
+    /// volatile write is what makes the array's contents visible to a reader that sees the
+    /// reference.
+    /// </para>
+    /// </remarks>
+    internal int ChildIndexAt(int offset, out int start)
+    {
+        if (Volatile.Read(ref _childEnds) is { } ends)
+        {
+            return Search(ends, offset, out start);
+        }
+
+        var children = Children;
+        var consumed = 0;
+        var index = 0;
+
+        while (index < children.Length)
+        {
+            if (index == IndexAfterScanning)
+            {
+                // The walk has gone far enough to prove this is a node where finding a child is
+                // expensive. Building the index costs one pass over the children, which is no
+                // more than finishing the walk would have, and it is the last such pass this node
+                // will ever need — so stop walking here rather than paying for both.
+                return Search(BuildChildEnds(children), offset, out start);
+            }
+
+            var size = children[index].NodeSize;
+
+            if (consumed + size > offset)
+            {
+                break;
+            }
+
+            consumed += size;
+            index++;
+        }
+
+        start = consumed;
+
+        return index;
+    }
+
     /// <inheritdoc/>
     public bool Equals(Node? other) =>
         ReferenceEquals(this, other) || (other is not null && GetType() == other.GetType() && EqualsCore(other));
@@ -66,6 +177,43 @@ public abstract class Node : IEquatable<Node>
     /// </summary>
     /// <param name="other">The node to compare against.</param>
     protected abstract bool EqualsCore(Node other);
+
+    /// <summary>Records where each child ends, for <see cref="ChildIndexAt"/> to search.</summary>
+    /// <param name="children">This node's children, already read once by the caller.</param>
+    /// <returns>The cumulative ends, so the caller can search them without re-reading the field.</returns>
+    private int[] BuildChildEnds(ImmutableArray<Node> children)
+    {
+        var ends = new int[children.Length];
+        var total = 0;
+
+        for (var i = 0; i < children.Length; i++)
+        {
+            total += children[i].NodeSize;
+            ends[i] = total;
+        }
+
+        Volatile.Write(ref _childEnds, ends);
+
+        return ends;
+    }
+
+    /// <summary>Finds the child covering an offset in an already-built index.</summary>
+    /// <param name="ends">Cumulative child ends, strictly increasing.</param>
+    /// <param name="offset">An offset from the start of this node's content.</param>
+    /// <param name="start">Set to the offset at which the returned child starts.</param>
+    private static int Search(int[] ends, int offset, out int start)
+    {
+        // An exact hit is the boundary *after* that child, so the position belongs to the next
+        // one. A miss gives the first child ending past the offset, which is the one containing
+        // it. Both cases fall out of the same expression, which is why the bitwise complement is
+        // not unwrapped into a branch.
+        var found = Array.BinarySearch(ends, offset);
+        var at = found >= 0 ? found + 1 : ~found;
+
+        start = at == 0 ? 0 : ends[at - 1];
+
+        return at;
+    }
 
     /// <summary>Compares two child lists element by element.</summary>
     /// <param name="left">The first list.</param>
