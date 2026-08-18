@@ -425,9 +425,25 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(doc);
 
+        return PasteTransaction(doc) is { } transaction && Apply(transaction);
+    }
+
+    /// <summary>Whether pasting <paramref name="doc"/> would change the document.</summary>
+    /// <remarks>
+    /// Building a transaction does not install one — <see cref="Apply"/> is the only thing that
+    /// does — so this answers the question without an edit and without an undo entry. It exists
+    /// for the one caller with an irreversible side effect to arrange first: see
+    /// <see cref="InsertImage"/>.
+    /// </remarks>
+    internal bool WouldPaste(DocumentNode doc) =>
+        !IsReadOnly && PasteTransaction(doc) is { ChangedDoc: true };
+
+    /// <summary>The transaction pasting <paramref name="doc"/>'s blocks would apply, or null.</summary>
+    private Transaction? PasteTransaction(DocumentNode doc)
+    {
         if (doc.Blocks.IsEmpty || Rectangle is not null)
         {
-            return false;
+            return null;
         }
 
         // Open ends are what make the first and last pasted paragraphs merge into the paragraph
@@ -455,8 +471,9 @@ public partial class RichTextView
         // with the original blocks: the padding above exists only to open a slice, and a closed
         // one would keep it as a stray empty paragraph.
         return EmptyHostBlock() is { } host
-            ? PasteSlice(new Slice([.. doc.Blocks], 0, 0), host.From, host.To)
-            : PasteSlice(new Slice([.. blocks], 1, 1));
+            ? SliceTransaction(new Slice([.. doc.Blocks], 0, 0), host.From, host.To)
+            : SliceTransaction(
+                new Slice([.. blocks], 1, 1), _state.Selection.From, _state.Selection.To);
     }
 
     /// <summary>
@@ -523,10 +540,14 @@ public partial class RichTextView
     /// block reads more simply and is wrong: it leaves the user pressing Ctrl+Z once per block.
     /// </remarks>
     private bool PasteSlice(Slice slice) =>
-        PasteSlice(slice, _state.Selection.From, _state.Selection.To);
+        SliceTransaction(slice, _state.Selection.From, _state.Selection.To) is { } transaction
+            && Apply(transaction);
 
-    /// <summary>Replaces <paramref name="from"/>..<paramref name="to"/> with <paramref name="slice"/>.</summary>
-    private bool PasteSlice(Slice slice, int from, int to)
+    /// <summary>
+    /// The transaction replacing <paramref name="from"/>..<paramref name="to"/> with
+    /// <paramref name="slice"/> would apply, or null if it cannot be built at all.
+    /// </summary>
+    private Transaction? SliceTransaction(Slice slice, int from, int to)
     {
         var transaction = _state.Transaction().As(TransactionKind.Paste);
 
@@ -540,7 +561,7 @@ public partial class RichTextView
 
             if (!transaction.Failures.IsEmpty)
             {
-                return false;
+                return null;
             }
 
             to = from;
@@ -551,7 +572,7 @@ public partial class RichTextView
             .SetSelection(TextSelection.Cursor(from + slice.Size))
             .SetStoredMarks(null);
 
-        return Apply(transaction);
+        return transaction;
     }
 
     /// <summary>Removes the selection, leaving a caret where it was.</summary>

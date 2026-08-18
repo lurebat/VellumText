@@ -837,6 +837,7 @@ non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_a
 | Undo integrity | Property test: for any random transaction sequence, `undo*` returns to the exact initial document; `redo*` returns to the exact final document. |
 | IME | Preedit never reaches the model or history. |
 | Read-only | Enforced at the single `RichTextEditor.Dispatch(Transaction)` chokepoint, not per-command. |
+| External side effects | An irreversible side effect an edit needs — writing bytes to `IImageStore` — is arranged **after** the edit is known to be acceptable, never before. See "Ordering an edit against a side effect" below. |
 
 ### Why a transaction is not atomic
 
@@ -863,6 +864,36 @@ cheap because steps are pre-applied as they are added.
 **This is a deliberate decision, taken 2026-08-17**, when a review found the document and the
 implementation disagreeing. Best-effort was kept and the document corrected, rather than the
 reverse.
+
+### Ordering an edit against a side effect
+
+The row above exists because `InsertImage` had the order backwards. It wrote the bytes to
+`IImageStore` and *then* pasted the embed that names them, so every refusal — a read-only view, a
+rectangle of cells, a position the schema will not take an embed at — left the store holding a
+file nothing references. `IImageStore.Save` is the whole interface; there is no way to take one
+back, and a host implementing it against a directory or a blob container accumulates those
+forever.
+
+**An edit here fails by returning `false`, not by throwing**, which is why this survived: the
+`try`/`catch` reflex does not catch it and neither did the tests, which asserted only that the
+document was unchanged. Nothing asserted about the store, because the store was not the thing
+under test.
+
+The fix is the ordering, and it is available because **building a transaction is not applying
+one**. `Apply` is the only thing that installs state, so a caller can build the exact transaction
+it means to apply, ask whether it changed anything, and only then arrange the side effect:
+
+```csharp
+if (!WouldPaste(ImageDocument("probe:"))) return false;   // nothing written
+if (ImageStore.Save(bytes, mediaType) is not { } source) { /* refused */ }
+return PasteDocument(ImageDocument(source));
+```
+
+The probe carries a placeholder source because nothing about the paste depends on what a source
+says — only that it is not blank — and nothing can move between probe and paste, since none of
+this path awaits. The visible consequence is that an edit the *document* refuses no longer raises
+`ImageRefused`: the store refused nothing there, and had it been asked it would now be holding
+the orphan.
 
 ---
 
