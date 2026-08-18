@@ -217,14 +217,47 @@ public partial class RichTextView
         return DeleteSelection();
     }
 
+    /// <summary>The document and selection an asynchronous edit was started against.</summary>
+    /// <remarks>
+    /// The document is held by reference deliberately. Documents are immutable, so a different
+    /// object is a different document, and comparing offsets alone would let a paste land in a
+    /// document that had been swapped underneath it for another with a selection at the same
+    /// numbers — which is exactly the case a clipboard manager or a tabbed host produces.
+    /// </remarks>
+    internal readonly record struct EditOrigin(DocumentNode Doc, int From, int To);
+
+    /// <summary>Where an edit starting now would land.</summary>
+    internal EditOrigin CurrentOrigin() => new(_state.Doc, _state.Selection.From, _state.Selection.To);
+
+    /// <summary>Whether the document and selection are still the ones an edit began on.</summary>
+    /// <param name="origin">What <see cref="CurrentOrigin"/> returned before the first await.</param>
+    /// <remarks>
+    /// Separate and internal for the same reason <see cref="DeleteCutRange"/> is: the headless
+    /// clipboard completes synchronously, so no test can drive the await this exists to defend.
+    /// The decision can be tested even though the race cannot be staged.
+    /// </remarks>
+    internal bool StillAt(EditOrigin origin) =>
+        ReferenceEquals(_state.Doc, origin.Doc)
+        && _state.Selection.From == origin.From
+        && _state.Selection.To == origin.To;
+
     /// <summary>Replaces the selection with the clipboard's richest readable flavour.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
+    /// <remarks>
+    /// Ctrl+V starts this without awaiting it, so everything after the first await runs at a
+    /// moment the caller no longer controls. The origin is settled before that await and checked
+    /// again at each point the document would be changed: a paste that arrives to find a
+    /// different document, or a moved caret, is dropped rather than applied somewhere the user
+    /// did not ask for. This is the guard <see cref="DeleteCutRange"/> already gives a cut.
+    /// </remarks>
     public async Task<bool> PasteAsync()
     {
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
         {
             return false;
         }
+
+        var origin = CurrentOrigin();
 
         try
         {
@@ -252,21 +285,21 @@ public partial class RichTextView
 
                 if (!doc.Blocks.IsEmpty)
                 {
-                    return PasteDocument(doc);
+                    return StillAt(origin) && PasteDocument(doc);
                 }
             }
 
             // After the rich formats and before plain text. A screenshot on the clipboard often
             // carries a text flavour too - a filename, or nothing useful - so taking text first
             // would paste the label instead of the picture.
-            if (await InsertImageFrom(data).ConfigureAwait(true))
+            if (StillAt(origin) && await InsertImageFrom(data, origin).ConfigureAwait(true))
             {
                 return true;
             }
 
             var text = await data.TryGetTextAsync().ConfigureAwait(true);
 
-            return text is { Length: > 0 } && PasteText(text);
+            return text is { Length: > 0 } && StillAt(origin) && PasteText(text);
         }
         catch (Exception)
         {

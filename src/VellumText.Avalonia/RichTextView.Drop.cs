@@ -98,7 +98,7 @@ public partial class RichTextView
     }
 
     /// <summary>Reads an image out of a transfer whose contents are already in hand.</summary>
-    private async Task<bool> InsertImageFrom(IDataTransfer data)
+    private async Task<bool> InsertImageFrom(IDataTransfer data, EditOrigin origin)
     {
         if (data.TryGetBitmap() is { } bitmap)
         {
@@ -106,16 +106,19 @@ public partial class RichTextView
             {
                 if (Encode(bitmap) is { } png)
                 {
-                    return InsertImage(png, "image/png");
+                    return StillAt(origin) && InsertImage(png, "image/png");
                 }
             }
         }
 
-        return data.TryGetFiles() is { } files && await InsertImageFiles(files).ConfigureAwait(true);
+        // Checked after the file read, not before it: reading from disk is the longest await on
+        // any of these paths and so the likeliest to outlive the document it started in.
+        return data.TryGetFiles() is { } files
+            && await InsertImageFiles(files, origin).ConfigureAwait(true);
     }
 
     /// <summary>Reads an image out of a transfer that has to be awaited, as a clipboard's is.</summary>
-    private async Task<bool> InsertImageFrom(IAsyncDataTransfer data)
+    private async Task<bool> InsertImageFrom(IAsyncDataTransfer data, EditOrigin origin)
     {
         if (await data.TryGetBitmapAsync().ConfigureAwait(true) is { } bitmap)
         {
@@ -123,17 +126,17 @@ public partial class RichTextView
             {
                 if (Encode(bitmap) is { } png)
                 {
-                    return InsertImage(png, "image/png");
+                    return StillAt(origin) && InsertImage(png, "image/png");
                 }
             }
         }
 
         return await data.TryGetFilesAsync().ConfigureAwait(true) is { } files
-            && await InsertImageFiles(files).ConfigureAwait(true);
+            && await InsertImageFiles(files, origin).ConfigureAwait(true);
     }
 
     /// <summary>Inserts every image among some dropped or pasted files.</summary>
-    private async Task<bool> InsertImageFiles(IEnumerable<IStorageItem> files)
+    private async Task<bool> InsertImageFiles(IEnumerable<IStorageItem> files, EditOrigin origin)
     {
         var inserted = false;
 
@@ -150,6 +153,14 @@ public partial class RichTextView
                 using var buffer = new MemoryStream();
 
                 await stream.CopyToAsync(buffer).ConfigureAwait(true);
+
+                // Re-checked per file. A multi-file drop can take long enough for the document
+                // to change between one file and the next, and the files after that point
+                // would otherwise land in it.
+                if (!StillAt(origin))
+                {
+                    break;
+                }
 
                 inserted |= InsertImage(buffer.ToArray(), mediaType);
             }
@@ -219,15 +230,22 @@ public partial class RichTextView
         // aimed rather than wherever the caret happened to have been left.
         MoveTo(PositionAt(e.GetPosition(this)), extend: false);
 
+        // Settled after the caret has been aimed and before the first await. Reading a file can
+        // take arbitrarily long, and this is async void, so by the time it returns the host may
+        // have loaded a different document entirely - and the position aimed at belonged to the
+        // old one.
+        var origin = CurrentOrigin();
+
         try
         {
-            if (await InsertImageFrom(e.DataTransfer).ConfigureAwait(true))
+            if (await InsertImageFrom(e.DataTransfer, origin).ConfigureAwait(true))
             {
                 return;
             }
 
-            if (RichTextClipboard.Read(e.DataTransfer, ReadableFormats())
-                is { Doc.Blocks.IsEmpty: false } result)
+            if (StillAt(origin)
+                && RichTextClipboard.Read(e.DataTransfer, ReadableFormats())
+                    is { Doc.Blocks.IsEmpty: false } result)
             {
                 PasteDocument(result.Doc);
             }

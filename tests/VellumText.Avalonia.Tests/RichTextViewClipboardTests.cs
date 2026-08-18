@@ -293,6 +293,74 @@ public class RichTextViewClipboardTests
         Assert.True(view.Undo());
         Assert.Equal("one", Text(view));
     }
+    /// <summary>
+    /// An asynchronous edit is abandoned when the document it started against is gone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ctrl+V starts <c>PasteAsync</c> without awaiting it, so everything after the first await
+    /// runs at a moment nothing controls. The clipboard read can outlive the document: a host
+    /// that loads another one — a clipboard manager moving to the next clip, a tabbed editor —
+    /// would otherwise receive the paste into whatever is loaded when it lands.
+    /// </para>
+    /// <para>
+    /// The race cannot be staged here, because the headless clipboard completes synchronously
+    /// and there is no await to interleave with. What can be tested is the decision, which is
+    /// why it is a method rather than a condition buried inside the paste — the same reasoning,
+    /// and the same limitation, already written on <see cref="RichTextView.DeleteCutRange"/>.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void AnEditIsAbandonedWhenTheDocumentHasBeenReplaced()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+        var origin = view.CurrentOrigin();
+
+        Assert.True(view.StillAt(origin));
+
+        view.State = EditorState.Create(DocumentNode.FromParagraphs("hello world"));
+
+        // Same text, same offsets, a different document. Comparing positions alone calls this
+        // unchanged and pastes into a document the user never aimed at.
+        Assert.False(view.StillAt(origin));
+    }
+
+    /// <summary>An asynchronous edit is abandoned when the caret has moved on.</summary>
+    [AvaloniaFact]
+    public void AnEditIsAbandonedWhenTheSelectionHasMoved()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+
+        var origin = view.CurrentOrigin();
+
+        Assert.True(view.StillAt(origin));
+
+        view.MoveTo(4, extend: false);
+
+        Assert.False(view.StillAt(origin));
+    }
+
+    /// <summary>An edit nothing disturbed still proceeds.</summary>
+    /// <remarks>
+    /// The companion the other two need: a guard that refused everything would satisfy both of
+    /// them while breaking every paste in the product.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AnUndisturbedEditStillProceeds()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+
+        var origin = view.CurrentOrigin();
+
+        Assert.True(view.StillAt(origin));
+        Assert.True(view.PasteText("x"));
+        Assert.Equal("xhello world", Text(view));
+    }
+
     private static string Text(RichTextView view) =>
         string.Join('\n', view.State.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
 
