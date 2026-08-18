@@ -1,3 +1,4 @@
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -30,10 +31,18 @@ public class RichTextViewImportDiagnosticsTests
 
         public string MediaType => "text/chatty";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public string Export(DocumentNode doc) => DocumentText.Of(doc);
+
+        public void Export(Stream destination, DocumentNode doc) =>
+            DocumentPayload.WriteAllText(destination, Encoding.UTF8, Export(doc));
 
         public ImportResult Import(string text) =>
             new(DocumentNode.FromParagraphs(text.Split('\n')), Compromises);
+
+        public ImportResult Import(Stream source) =>
+            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
     }
 
     /// <summary>An importer that has nothing to complain about.</summary>
@@ -43,7 +52,12 @@ public class RichTextViewImportDiagnosticsTests
 
         public string MediaType => "text/quiet";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public ImportResult Import(string text) => new(DocumentNode.FromParagraphs(text.Split('\n')));
+
+        public ImportResult Import(Stream source) =>
+            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
     }
 
     private static RichTextView Shown(params string[] paragraphs)
@@ -64,7 +78,7 @@ public class RichTextViewImportDiagnosticsTests
         var flavour = RichTextClipboard.FlavorFor(format);
         var item = new DataTransferItem();
 
-        item.Set(flavour.DataFormat, flavour.Encoding.GetBytes(payload));
+        item.Set(flavour.DataFormat, Encoding.UTF8.GetBytes(payload));
 
         var data = new DataTransfer();
 

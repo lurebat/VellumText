@@ -2,6 +2,9 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Avalonia.Headless.XUnit;
 using VellumText.Avalonia;
+using VellumText.Interop.Html;
+using VellumText.Interop.Json;
+using VellumText.Interop.Rtf;
 
 namespace VellumText.Tests.Avalonia;
 
@@ -38,8 +41,16 @@ public class GuideCheckTests
         ("DocumentText", typeof(DocumentText)),
         ("DocumentTextMap", typeof(DocumentTextMap)),
         ("DocumentSearch", typeof(DocumentSearch)),
+        ("DocumentPayload", typeof(DocumentPayload)),
         ("BitmapEmbedRenderer", typeof(BitmapEmbedRenderer)),
         ("RichTextToolbar", typeof(RichTextToolbar)),
+        ("HtmlFormat", typeof(HtmlFormat)),
+        ("RtfFormat", typeof(RtfFormat)),
+        ("JsonFormat", typeof(JsonFormat)),
+
+        // Not a typo: the receiver in the guide really is `HtmlFormat.Instance`, and without this
+        // entry `With` — the whole point of the configuration seam — would go unchecked.
+        ("HtmlFormat.Instance", typeof(HtmlFormat)),
     ];
 
     [AvaloniaFact]
@@ -162,6 +173,43 @@ public class GuideCheckTests
             .ToArray();
 
         Assert.Equal([], missing);
+    }
+
+    [AvaloniaFact]
+    public void TheImportOptionsTheGuideSetsAreRealProperties()
+    {
+        // These arrive in an object initializer, so the receiver regex above cannot see them —
+        // and they are the security controls, where a guide naming a property that no longer
+        // exists teaches a host to write code that does not compile, or worse, silently omits a
+        // setting they believed they had made.
+        var guide = ReadGuide();
+        var missing = new List<string>();
+        var found = 0;
+
+        foreach (Match block in Regex.Matches(
+            guide,
+            @"new (Html|Rtf)ImportOptions\s*\{(?<body>[^}]*)\}",
+            RegexOptions.Singleline))
+        {
+            var type = block.Groups[1].Value == "Html"
+                ? typeof(HtmlImportOptions)
+                : typeof(RtfImportOptions);
+
+            foreach (Match property in Regex.Matches(block.Groups["body"].Value, @"(\w+)\s*="))
+            {
+                var name = property.Groups[1].Value;
+
+                found++;
+
+                if (type.GetProperty(name) is null)
+                {
+                    missing.Add($"{type.Name}.{name}");
+                }
+            }
+        }
+
+        Assert.True(found >= 2, $"only {found} import options found - has the section moved?");
+        Assert.Equal([], missing.Distinct().Order());
     }
 
     private static string RepositoryRoot()

@@ -6,6 +6,17 @@
   </PropertyGroup>
 
   <!--
+    The node, embed and selection hierarchies are closed with private protected constructors
+    (docs/architecture.md 9). The tests must still be able to derive: proving that the closed
+    switches throw on an unrecognised type is exactly what says the closure is load-bearing, and
+    there is no way to write that test from outside. Friendship rather than a wider public API.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="VellumText.Core.Tests" />
+    <InternalsVisibleTo Include="VellumText.Avalonia.Tests" />
+  </ItemGroup>
+
+  <!--
     VellumText.Core deliberately has ZERO package references, not even Avalonia.Base
     (decided 2026-08-11, docs/architecture.md 12.1). This guard turns an accidental
     dependency into a build failure rather than a silent regression.

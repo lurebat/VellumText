@@ -10,7 +10,116 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **`RtfImporter.Import` takes `RtfImportOptions` rather than `HtmlImportOptions` — this is a
+  breaking change.** RTF is read by way of HTML internally, and that had leaked into the RTF
+  package's public API: a consumer who wanted only RTF had to reference the HTML package to
+  configure it, and an internal choice was frozen where a later rewrite of the RTF reader could not
+  have changed it. `RtfImportOptions` carries `AllowRemoteImages`, `AllowDataImages`,
+  `MaxDataImageBytes` and `BaseUri`. It deliberately omits `MaxDepth` and `PreserveIdentifiers`,
+  which apply to authored HTML rather than the HTML this package generates for itself.
+
+- **`RichTextEditor` forwards the whole setup surface, so `Editor.View!` is no longer the
+  documented path.** `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
+  `SyntaxHighlighter`, `SyntaxTheme`, `ContentImported` and `ImageRefused` are now on the shell.
+  These are the surfaces a host reaches before the control is templated, which is exactly when
+  `View` is null — a format registered on a missing view throws, and an event subscribed on one is
+  silently never heard from.
+
+- **`Transaction.DocsBefore` is gone.** It exposed the per-step document snapshots the undo
+  bookkeeping keeps and had no caller: `Invert()` reads the field directly. `Transaction.Steps` and
+  `Transaction.Failures` were examined at the same time and both stay public — `Steps` is the
+  rebase primitive collaboration needs, and `Failures` is what a host checks when it needs a
+  transaction to have been all-or-nothing.
+
+- **`IDocumentImporter` and `IDocumentExporter` now read and write streams, and the string
+  overloads are derived from them — this is a breaking change for anyone implementing a format.**
+  The contract dealt only in strings, which *structurally* excluded DOCX and ODT: both are ZIP
+  containers, both are on the roadmap, and no later effort could have made one fit through a
+  `string` without a base64 fiction. Streams are now the primitive.
+
+  A format must implement `ImportResult Import(Stream source)` and
+  `void Export(Stream destination, DocumentNode doc)`, and must declare
+  `Encoding? TextEncoding` — an encoding if it is text, `null` if it is not. The string overloads
+  `Import(string)` and `Export(DocumentNode)` remain, as default interface members that encode or
+  decode through `TextEncoding`, because HTML and RTF genuinely are text and making a caller wrap a
+  string in a `MemoryStream` would be pure ceremony.
+
+  Migrating a format means adding the two stream members and `TextEncoding`; the existing string
+  bodies stay exactly as they are. Every omission is a compile error. **Do not implement a stream
+  member by calling its string counterpart** unless you also declare that counterpart — the default
+  implementation calls back into the stream member and the pair recurses forever.
+
+  For a format with no text form, `Import(string)` returns an empty result carrying a `Malformed`
+  diagnostic and `Export(DocumentNode)` throws `NotSupportedException`. There is no honest string to
+  return, and `""` would be a document silently lost on the way to a file.
+
+- **`RichTextClipboard.Encode` and `Decode` no longer return `null`.** They never actually did —
+  `FlavorFor` mints an application flavour rather than returning `null` — so the nullable return was
+  dead, and callers were pushed into a null check that could not fire. Existing code compiles
+  unchanged; the annotation is what moved.
+
+- **`ClipboardFlavor` no longer carries an `Encoding`.** `IDocumentFormat.TextEncoding` is now the
+  single source of truth, and a flavour minted with a hard-coded UTF-8 would have been a lie for a
+  format that is not text. Read the encoding from the format instead.
+
+### Removed from the public API
+
+None of the following was reachable in a way that would have survived contact with a real host; they
+are listed because a 1.0 that shipped them would have frozen them.
+
+- **The rendering machinery is internal.** `BlockView`, `ParagraphView`, `RuleView`,
+  `BlockImageView`, `TableBlockView`, `InlineTextSource` and `TextAt` are layout objects — a
+  `TextLayout`, a run cache, a measured size — whose lifetimes the presenter owns and whose
+  invalidation rules nothing outside it can honour. `docs/architecture.md` §4.6 and §4.7 always
+  declared them internal; the code did not. `DocumentPresenter.Blocks`, `DocumentPresenter.Slots`
+  and `RichTextView.Block` went with them, a property being only as internal as its type.
+
+  **`DocumentPresenter.BlockCount` replaces `Blocks.Count`**, and is the part a host actually
+  needed: `BlockOrigin`, `BlockIndexOf`, `BlockIndexAt` and `CaretBlockIndex` all speak in block
+  indices, so the range those indices live in is public even though the objects behind them are not.
+
+- **`Node`, `BlockNode`, `InlineEmbed` and `Selection` can no longer be derived from outside the
+  library.** Each now has a `private protected` constructor. They were externally derivable and
+  consumed by `switch` statements that throw, drop or refuse on a shape they do not recognise —
+  `DocumentPresenter`'s block factory, the HTML and RTF exporters, the JSON writer, every command
+  that asks whether it has a rectangle of cells. A type you derived would compile and then fail the
+  first time it was rendered or saved, which is worse than no extensibility at all because it fails
+  at run time in your application instead of at compile time in ours.
+
+  `Step` is deliberately still open: nothing switches on which step it is, and all four obligations
+  are on the base, so a step written elsewhere works everywhere one is consumed.
+
+  One hole cannot be closed, and is stated rather than hidden: a record's copy constructor must be
+  `public` or `protected` (CS8878), so `InlineEmbed` and `Selection` can still be derived from by
+  declaring a copy constructor that chains to the base. It cannot happen by accident, and anything
+  that does it lands on a `default:` that throws.
+
+### Added
+
+- **`HtmlFormat.With(options)` and `RtfFormat.With(options)`**, returning a configured instance and
+  leaving `Instance` alone. Both formats were constructor-less singletons, which made
+  `HtmlImportOptions` unreachable from the seam hosts are told to use: the control holds an
+  `IDocumentImporter` and calls `Import`, so a static `HtmlImporter.Import(html, options)` on a type
+  in a package the control cannot name is no use to an application that uses the editor.
+  `AllowRemoteImages` is a privacy control and `BaseUri` decides whether a relative image URL
+  resolves at all, and neither reached the importer. `Instance` still means the paranoid defaults,
+  and `HtmlFormat.Instance.ImportOptions` says so.
+
+- **`RichTextEditor.EnsureView()`**, the honest escape hatch for the editing commands the shell
+  does not forward. It applies the template if that has not happened and returns a view that is
+  never null. `View` stays nullable and answers the different question — has this been templated
+  yet.
+
+- **`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText`**, the bridge a text format's
+  stream members need. `WriteAllText` writes no byte order mark — `CF_HTML`'s byte offsets are
+  computed over a payload without one, and an RTF reader rejects a document preceded by
+  `EF BB BF` — and `ReadAllText` honours a mark when one is present and leaves the stream open.
+
+- **Binary formats travel on the clipboard end to end.** `RichTextClipboard` asks the exporter to
+  write its own bytes and hands a payload straight back to the importer, so a registered format that
+  is not text survives a copy and a paste unchanged.
 
 ## [0.4.1] - 2026-08-17
 

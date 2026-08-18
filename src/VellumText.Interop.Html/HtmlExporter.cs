@@ -37,6 +37,9 @@ public sealed class HtmlExporter : IDocumentExporter
     public string MediaType => "text/html";
 
     /// <inheritdoc/>
+    public Encoding? TextEncoding => Encoding.UTF8;
+
+    /// <inheritdoc/>
     public string Export(DocumentNode doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
@@ -48,14 +51,18 @@ public sealed class HtmlExporter : IDocumentExporter
         return html.ToString();
     }
 
+    /// <inheritdoc/>
+    public void Export(Stream destination, DocumentNode doc) =>
+        DocumentPayload.WriteAllText(destination, Encoding.UTF8, Export(doc));
+
     /// <summary>Writes the document wrapped in the clipboard's CF_HTML envelope.</summary>
     /// <param name="doc">The document.</param>
     /// <param name="sourceUri">A source URL to record, or null.</param>
     /// <returns>A complete CF_HTML payload.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="doc"/> is null.</exception>
     /// <remarks>
-    /// Separate from <see cref="Export"/> because the envelope is a clipboard convention, not a
-    /// property of the format: an exporter writing to a file must not emit it.
+    /// Separate from <see cref="Export(DocumentNode)"/> because the envelope is a clipboard
+    /// convention, not a property of the format: an exporter writing to a file must not emit it.
     /// </remarks>
     public string ExportForClipboard(DocumentNode doc, Uri? sourceUri = null) =>
         ClipboardHtml.Wrap(Export(doc), sourceUri);

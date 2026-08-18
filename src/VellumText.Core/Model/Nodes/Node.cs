@@ -21,6 +21,17 @@ namespace VellumText;
 /// </remarks>
 public abstract class Node : IEquatable<Node>
 {
+    /// <remarks>
+    /// <c>private protected</c> closes the hierarchy. Every consumer that walks a document —
+    /// the exporters, the JSON writer, the presenter's block factory — switches on the concrete
+    /// node types and throws on anything else, so a node type written outside this assembly would
+    /// compile and then fail the first time it was rendered or saved. That is worse than no
+    /// extensibility, because it fails at run time in the host's application rather than at
+    /// compile time in ours.
+    /// </remarks>
+    private protected Node()
+    {
+    }
     /// <summary>
     /// How many children a lookup has to walk past before this node earns a size index.
     /// </summary>
@@ -306,7 +317,17 @@ public abstract class Node : IEquatable<Node>
 }
 
 /// <summary>A node that can appear where block content is expected.</summary>
-public abstract class BlockNode : Node;
+/// <remarks>
+/// Needs its own <c>private protected</c> constructor: inheriting one does not make it callable,
+/// but the implicit public parameterless constructor the compiler would otherwise supply here
+/// would reopen what <see cref="Node"/> closed.
+/// </remarks>
+public abstract class BlockNode : Node
+{
+    private protected BlockNode()
+    {
+    }
+}
 
 /// <summary>Guards for the enum-valued attributes nodes carry.</summary>
 /// <remarks>

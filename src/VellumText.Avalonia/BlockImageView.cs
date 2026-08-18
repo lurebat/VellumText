@@ -17,7 +17,7 @@ namespace VellumText.Avalonia;
 /// the picture.
 /// </para>
 /// </remarks>
-public sealed class BlockImageView : BlockView
+internal sealed class BlockImageView : BlockView
 {
     private readonly BlockImageNode _node;
     private readonly IEmbedRenderer _renderer;

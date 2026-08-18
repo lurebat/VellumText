@@ -29,27 +29,24 @@ public class RichTextClipboardTests
     ]);
 
     [AvaloniaFact]
-    public void EveryFlavourCarriesBytesRatherThanText()
+    public void EveryFlavourIsADistinctPlatformSlot()
     {
-        // The whole design. A string flavour would let the backend pick an encoding, and its pick
-        // for RTF is the bug this type exists to prevent.
+        // Two flavours sharing a platform format would silently overwrite one another in the same
+        // transfer, and the loser would be whichever exporter ran first.
         Assert.NotEmpty(RichTextClipboard.Flavors);
-        Assert.All(
-            RichTextClipboard.Flavors,
-            flavour =>
-            {
-                Assert.NotNull(flavour.DataFormat);
-                Assert.NotNull(flavour.Encoding);
-            });
+        Assert.Equal(
+            RichTextClipboard.Flavors.Count,
+            RichTextClipboard.Flavors.Select(flavour => flavour.DataFormat).Distinct().Count());
     }
 
     [AvaloniaFact]
     public void HtmlIsUtf8AndRtfIsSingleByte()
     {
         // CF_HTML's byte offsets are only correct in UTF-8. RTF is seven-bit by construction, and
-        // a multi-byte guess over it is exactly the mojibake case.
-        Assert.Equal(Encoding.UTF8, RichTextClipboard.FlavorFor("html")!.Encoding);
-        Assert.Equal(1, RichTextClipboard.FlavorFor("rtf")!.Encoding.GetByteCount("a"));
+        // a multi-byte guess over it is exactly the mojibake case. The encoding belongs to the
+        // format rather than to the clipboard flavour, so the exporter is what decides it.
+        Assert.Equal(Encoding.UTF8, HtmlFormat.Instance.TextEncoding);
+        Assert.Equal(1, RtfFormat.Instance.TextEncoding!.GetByteCount("a"));
     }
 
     [AvaloniaFact]
@@ -267,9 +264,17 @@ public class RichTextClipboardTests
 
         public string MediaType => "application/x-nowhere";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public ImportResult Import(string text) => new(new DocumentNode([]));
 
+        public ImportResult Import(Stream source) =>
+            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+
         public string Export(DocumentNode doc) => "{}";
+
+        public void Export(Stream destination, DocumentNode doc) =>
+            DocumentPayload.WriteAllText(destination, Encoding.UTF8, Export(doc));
     }
 
     /// <summary>An exporter that breaks its contract by throwing.</summary>
@@ -279,6 +284,11 @@ public class RichTextClipboardTests
 
         public string MediaType => "text/html";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public string Export(DocumentNode doc) => throw new InvalidOperationException("bug");
+
+        public void Export(Stream destination, DocumentNode doc) =>
+            throw new InvalidOperationException("bug");
     }
 }

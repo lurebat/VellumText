@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -145,7 +146,7 @@ public class RichTextViewDropTests
         var flavour = RichTextClipboard.FlavorFor(format);
         var item = new DataTransferItem();
 
-        item.Set(flavour.DataFormat, flavour.Encoding.GetBytes(payload));
+        item.Set(flavour.DataFormat, Encoding.UTF8.GetBytes(payload));
 
         var data = new DataTransfer();
 

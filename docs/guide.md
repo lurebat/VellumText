@@ -67,10 +67,18 @@ images, find, bidi text and IME all work with no further setup.
 inside it, and is where the commands live:
 
 ```csharp
-Editor.View!.ToggleStyle(TextStyle.Bold);
+Editor.EnsureView().ToggleStyle(TextStyle.Bold);
 ```
 
-`View` is null until the control is templated, so reach it from `Loaded` rather than a constructor.
+`Editor.View` is null until the control is templated, so it answers "has this been templated yet?"
+rather than "give me the view". `EnsureView()` applies the template if that has not happened and
+returns a view that is never null — use it for commands, which run in response to a user action.
+
+Setup does not need it. The surfaces a host configures before the control is on screen are on the
+shell directly — `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
+`SyntaxHighlighter`, `SyntaxTheme`, and the `ContentImported` and `ImageRefused` events — because
+those are the ones where being too early is silent: a format registered on a view that does not
+exist throws, and an event subscribed on one is simply never heard from.
 
 ## The document model
 
@@ -99,6 +107,14 @@ standing at one `\uFFFC` placeholder in the text.
 
 Nodes have **value equality**, which is worth knowing: two documents built separately from the same
 content compare equal and hash the same.
+
+**The node, embed and selection hierarchies are closed.** `Node`, `BlockNode`, `InlineEmbed` and
+`Selection` have `private protected` constructors, so those lists are the whole set. That is
+deliberate: the exporters, the JSON writer and the block factory all switch on the concrete type and
+have nothing to do with one they do not recognise, so a node you defined would compile and then be
+dropped or throw the first time it was rendered or saved. The extension points that *are* open are
+the renderers and resolvers — `IEmbedRenderer`, `IImageStore`, `ITextStyleResolver`,
+`IParagraphStyleResolver`, `ISyntaxTheme` — and `Step`, where every consumer is generic.
 
 ```csharp
 DocumentText.Of(doc);                 // plain text, for search or a label
@@ -166,7 +182,7 @@ Every command is a method on `RichTextView`, returns `bool` for "did anything ch
 undo step.
 
 ```csharp
-var view = Editor.View!;
+var view = Editor.EnsureView();
 
 view.ToggleStyle(TextStyle.Bold);            // also Italic, Underline, Strikethrough, Sub, Super, Code
 view.SetForeground(new Rgba(200, 0, 0, 255));
@@ -256,6 +272,30 @@ view.Formats.Add(HtmlFormat.Instance);
 view.Formats.Add(RtfFormat.Instance);
 ```
 
+`Formats` is also on `RichTextEditor`, so registration works from a constructor or a binding,
+before the control has been templated.
+
+`HtmlFormat.Instance` and `RtfFormat.Instance` import with the paranoid defaults. `With(options)`
+returns a configured copy, and registering that copy is how import options reach the importer at
+all — the control only ever calls `Import`, so an option that cannot travel through registration
+cannot travel:
+
+```csharp
+view.Formats.Add(HtmlFormat.Instance.With(new HtmlImportOptions
+{
+    BaseUri = new Uri("https://example.com/dir/page"),   // relative URLs resolve against this
+    AllowRemoteImages = true,                            // off by default: a remote image tracks
+}));
+```
+
+`With` leaves `Instance` alone, so one configured view does not change what every other one trusts.
+`AllowRemoteImages` is the security control here; `BaseUri` is what decides whether a relative image
+URL resolves or is dropped.
+
+RTF import takes `RtfImportOptions` — its own type, not the HTML importer's, even though RTF is
+read by way of HTML internally. Naming HTML's options here would make a consumer who only wanted
+RTF depend on the HTML package to configure it.
+
 Or use them directly:
 
 ```csharp
@@ -272,6 +312,31 @@ if (result.AnythingDropped)
 string html = HtmlFormat.Instance.Export(result.Doc);
 string json = JsonFormat.Instance.Export(result.Doc);
 ```
+
+Every format also reads and writes **streams**, and that overload — not the string one — is the one
+every format implements:
+
+```csharp
+using var file = File.OpenRead("document.html");
+
+ImportResult fromFile = HtmlFormat.Instance.Import(file);
+
+using var output = File.Create("document.json");
+
+JsonFormat.Instance.Export(output, fromFile.Doc);
+```
+
+The stream overloads exist because a format need not be text at all: DOCX and ODT are ZIP
+containers, and a contract that only spoke in strings could not express one. A format declares
+which it is through `IDocumentFormat.TextEncoding` — an encoding for a text format, `null` for a
+binary one. For a binary format `Import(string)` returns an empty result carrying a `Malformed`
+diagnostic and `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest
+string to return and `""` would be a document silently lost.
+
+Writing a format of your own means implementing `Import(Stream)` and `Export(Stream, doc)`. If it
+is text, implement the string overloads too and have each call your parser directly —
+`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText` bridge the two. Never write one
+overload in terms of the other's default implementation; that recurses forever.
 
 **Importers never throw.** They see input nobody wrote for them — a fragment from Word, a file from
 1998 — so they produce the best document they can and report, item by item, where they gave ground.
@@ -304,12 +369,15 @@ To hold payloads yourself and parse them later:
 ```csharp
 foreach (var flavour in RichTextClipboard.Flavors)
 {
-    // flavour.Format ("html"), flavour.DataFormat (to read/write), flavour.Encoding
+    // flavour.Format ("html"), flavour.DataFormat (to read/write)
 }
 
-byte[]? payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
-ImportResult? doc = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
+byte[] payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
+ImportResult read = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
 ```
+
+The payload is bytes the whole way, produced by the exporter itself, so a registered binary format
+travels on the clipboard unchanged.
 
 > **Read native clipboard formats as bytes, never as a string.** Asking a clipboard backend for a
 > native format as text lets it reinterpret the bytes with whatever encoding it guesses, and its

@@ -325,7 +325,7 @@ public class RichTextViewFormatTests
         item.TryGetValue(RichTextClipboard.FlavorFor(format)!.DataFormat);
 
     private static string Decode(IDataTransferItem item, string format) =>
-        RichTextClipboard.FlavorFor(format)!.Encoding.GetString(Payload(item, format)!);
+        Encoding.UTF8.GetString(Payload(item, format)!);
 
     private sealed class BrokenFormat : IDocumentExporter
     {
@@ -333,7 +333,12 @@ public class RichTextViewFormatTests
 
         public string MediaType => "text/html";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public string Export(DocumentNode doc) => throw new InvalidOperationException("bug");
+
+        public void Export(Stream destination, DocumentNode doc) =>
+            throw new InvalidOperationException("bug");
     }
 
     private sealed class MarkdownFormat : IDocumentImporter
@@ -342,7 +347,12 @@ public class RichTextViewFormatTests
 
         public string MediaType => "text/markdown";
 
+        public Encoding? TextEncoding => Encoding.UTF8;
+
         public ImportResult Import(string text) => new(DocumentNode.FromParagraphs(text));
+
+        public ImportResult Import(Stream source) =>
+            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
     }
 
     private sealed class InertFormat : IDocumentFormat
@@ -350,5 +360,7 @@ public class RichTextViewFormatTests
         public string Format => "inert";
 
         public string MediaType => "application/octet-stream";
+
+        public Encoding? TextEncoding => null;
     }
 }

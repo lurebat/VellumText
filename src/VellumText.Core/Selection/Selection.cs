@@ -3,8 +3,6 @@ namespace VellumText;
 /// <summary>
 /// What is currently selected.
 /// </summary>
-/// <param name="Anchor">Where the selection was started from.</param>
-/// <param name="Head">Where it currently ends - the end that moves.</param>
 /// <remarks>
 /// <para>
 /// Anchor and head are kept apart from from and to because dragging backwards is a different
@@ -16,9 +14,36 @@ namespace VellumText;
 /// its own validity. Validity is established when one is created and preserved by
 /// <see cref="Map"/>; nothing else may fabricate one.
 /// </para>
+/// <para>
+/// <b>The hierarchy is closed.</b> The constructor is <c>private protected</c>, so the three
+/// shapes here are the only ones. Editing commands ask which shape they have and refuse the ones
+/// they cannot serve; a fourth would reach that code as an unrecognised selection and be refused
+/// or mishandled, so leaving derivation open would have been an extensibility that fails at
+/// runtime rather than at compile time.
+/// </para>
+/// <para>
+/// One gap is unclosable and is stated rather than hidden: a record's copy constructor must be
+/// <c>public</c> or <c>protected</c> (CS8878), so a determined caller outside this assembly can
+/// still derive by declaring one that chains to it. Nothing prevents that; it just cannot happen
+/// by accident, which is what the closure is for.
+/// </para>
 /// </remarks>
-public abstract record Selection(int Anchor, int Head)
+public abstract record Selection
 {
+    /// <param name="anchor">Where the selection was started from.</param>
+    /// <param name="head">Where it currently ends — the end that moves.</param>
+    private protected Selection(int anchor, int head)
+    {
+        Anchor = anchor;
+        Head = head;
+    }
+
+    /// <summary>Where the selection was started from.</summary>
+    public int Anchor { get; init; }
+
+    /// <summary>Where it currently ends — the end that moves.</summary>
+    public int Head { get; init; }
+
     /// <summary>The lower of the two ends.</summary>
     public int From => Math.Min(Anchor, Head);
 
