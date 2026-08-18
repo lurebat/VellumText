@@ -236,9 +236,12 @@ public partial class RichTextView
             return false;
         }
 
-        await clipboard.SetDataAsync(BuildCopyData(text)).ConfigureAwait(true);
-
-        return true;
+        // Through the shared helper, which swallows a clipboard another process is holding open.
+        // Every caller of this starts it without awaiting it, so an exception out of here would
+        // reach no handler at all.
+        return await RichTextClipboard
+            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text)
+            .ConfigureAwait(true);
     }
 
     /// <summary>
@@ -248,42 +251,12 @@ public partial class RichTextView
     /// <remarks>
     /// Separate from <see cref="CopyAsync"/> because it is the whole of what a copy decides, and
     /// the only part of it a test can look at: what a real clipboard does with the payload
-    /// afterwards is the platform's business, not this control's.
+    /// afterwards is the platform's business, not this control's. The document the flavours
+    /// describe is the selection, not the whole document — copying a paragraph out of the middle
+    /// must not paste the document back in.
     /// </remarks>
-    internal DataTransfer BuildCopyData(string text)
-    {
-        var item = new DataTransferItem();
-
-        item.SetText(text);
-
-        // The document the flavours describe is the selection, not the whole document — copying a
-        // paragraph out of the middle must not paste the document back in.
-        var doc = SelectedDocument();
-
-        foreach (var exporter in Formats.OfType<IDocumentExporter>())
-        {
-            if (RichTextClipboard.FlavorFor(exporter.Format) is not { } flavour)
-            {
-                continue;
-            }
-
-            try
-            {
-                item.Set(flavour.DataFormat, RichTextClipboard.Encode(exporter, doc));
-            }
-            catch (Exception)
-            {
-                // An exporter is contractually forbidden from throwing, so this is a bug in one.
-                // Losing that flavour is the right price; losing the user's copy is not.
-            }
-        }
-
-        var data = new DataTransfer();
-
-        data.Add(item);
-
-        return data;
-    }
+    internal DataTransfer BuildCopyData(string text) =>
+        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text);
 
     /// <summary>The selection as a document in its own right.</summary>
     internal DocumentNode SelectedDocument()
@@ -366,21 +339,6 @@ public partial class RichTextView
         && _state.Selection.From == origin.From
         && _state.Selection.To == origin.To;
 
-    /// <summary>Plain text with the model's embed placeholder taken out.</summary>
-    /// <remarks>
-    /// U+FFFC is reserved: it marks where an embed sits, and <c>InlineContent.FromText</c> throws
-    /// for text carrying one without matching embeds. Plain text from outside can perfectly well
-    /// contain it — Word writes it for objects it cannot otherwise express, and anything that has
-    /// already been through a rich text model carries it — and the throw was caught by the broad
-    /// handler in <see cref="PasteAsync"/>, so a clip containing one silently pasted nothing at
-    /// all rather than pasting imperfectly. The HTML importer has removed it on the way in for
-    /// exactly this reason; the plain-text path simply never applied the same policy.
-    /// </remarks>
-    private static string WithoutPlaceholder(string line) =>
-        line.Contains(InlineContent.Placeholder, StringComparison.Ordinal)
-            ? line.Replace(InlineContent.Placeholder.ToString(), string.Empty, StringComparison.Ordinal)
-            : line;
-
     /// <summary>Replaces the selection with the clipboard's richest readable flavour.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <remarks>
@@ -409,14 +367,11 @@ public partial class RichTextView
 
             foreach (var importer in ReadableFormats())
             {
-                if (RichTextClipboard.FlavorFor(importer.Format) is not { } flavour)
-                {
-                    continue;
-                }
                 // Bytes, deliberately, and never as a string: a clipboard backend handed a native
                 // format to decode as text will guess an encoding, and its guess for RTF produces
                 // convincing mojibake that then parses to nothing.
-                if (await data.TryGetValueAsync(flavour.DataFormat).ConfigureAwait(true) is not { Length: > 0 } bytes)
+                if (await data.TryGetValueAsync(RichTextClipboard.FlavorFor(importer.Format).DataFormat)
+                    .ConfigureAwait(true) is not { Length: > 0 } bytes)
                 {
                     continue;
                 }
@@ -635,21 +590,14 @@ public partial class RichTextView
     /// <summary>The paragraphs <paramref name="text"/> would become.</summary>
     /// <remarks>
     /// Shared with <see cref="PasteImportedText"/> so that what a host is shown and what lands
-    /// cannot drift: the line breaks are already normalized and the reserved placeholder already
-    /// gone by the time either sees it.
+    /// cannot drift, and built out of <see cref="RichTextClipboard.Lines"/> so that a paste and a
+    /// drop of one clip cannot either: line endings normalized the same way, and the reserved
+    /// placeholder taken out by the same rule.
     /// </remarks>
-    private static ImmutableArray<BlockNode> TextParagraphs(string text)
-    {
-        // Normalized first, so that a Windows clipboard's CRLF does not paste two breaks and a
-        // classic-Mac CR does not paste none.
-        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n');
-
-        return lines
-            .Select(line => (BlockNode)new ParagraphNode(InlineContent.FromText(WithoutPlaceholder(line))))
+    private static ImmutableArray<BlockNode> TextParagraphs(string text) =>
+        RichTextClipboard.Lines(text)
+            .Select(line => (BlockNode)new ParagraphNode(InlineContent.FromText(line)))
             .ToImmutableArray();
-    }
 
     /// <summary>The slice pasting <paramref name="text"/> would insert, or null if there is none.</summary>
     private Slice? TextSlice(string text)

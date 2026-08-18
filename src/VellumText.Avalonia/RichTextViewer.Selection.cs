@@ -116,9 +116,9 @@ public partial class RichTextViewer
             return false;
         }
 
-        await clipboard.SetDataAsync(BuildCopyData(text)).ConfigureAwait(true);
-
-        return true;
+        return await RichTextClipboard
+            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text)
+            .ConfigureAwait(true);
     }
 
     /// <summary>The clipboard payload for the current selection.</summary>
@@ -127,41 +127,16 @@ public partial class RichTextViewer
     /// the whole of what a copy decides, and what a real clipboard does with it afterwards is the
     /// platform's business rather than this control's.
     /// </remarks>
-    internal DataTransfer BuildCopyData(string text)
-    {
-        var item = new DataTransferItem();
+    internal DataTransfer BuildCopyData(string text) =>
+        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text);
 
-        item.SetText(text);
-
-        // The selection, not the whole document: copying one paragraph out of a clip must not
-        // paste the clip back in.
-        var doc = new DocumentNode(
-            Slice.Cut(Document, SelectionStart, SelectionEnd).Content.OfType<BlockNode>());
-
-        foreach (var exporter in Formats.OfType<IDocumentExporter>())
-        {
-            if (RichTextClipboard.FlavorFor(exporter.Format) is not { } flavour)
-            {
-                continue;
-            }
-
-            try
-            {
-                item.Set(flavour.DataFormat, RichTextClipboard.Encode(exporter, doc));
-            }
-            catch (Exception)
-            {
-                // An exporter is contractually forbidden from throwing, so this is a bug in one.
-                // Losing that flavour is the right price; losing the reader's copy is not.
-            }
-        }
-
-        var data = new DataTransfer();
-
-        data.Add(item);
-
-        return data;
-    }
+    /// <summary>The selection as a document in its own right.</summary>
+    /// <remarks>
+    /// The selection, not the whole document: copying one paragraph out of a clip must not paste
+    /// the clip back in.
+    /// </remarks>
+    internal DocumentNode SelectedDocument() =>
+        new(Slice.Cut(Document, SelectionStart, SelectionEnd).Content.OfType<BlockNode>());
 
     /// <summary>The formats a copy is offered in.</summary>
     /// <remarks>

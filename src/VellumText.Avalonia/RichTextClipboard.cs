@@ -199,14 +199,9 @@ public static class RichTextClipboard
 
         foreach (var exporter in exporters)
         {
-            if (FlavorFor(exporter.Format) is not { } flavour)
-            {
-                continue;
-            }
-
             try
             {
-                item.Set(flavour.DataFormat, Encode(exporter, doc));
+                item.Set(FlavorFor(exporter.Format).DataFormat, Encode(exporter, doc));
             }
             catch (Exception)
             {
@@ -224,10 +219,25 @@ public static class RichTextClipboard
     /// <param name="clipboard">The clipboard to write to.</param>
     /// <param name="doc">The document to write.</param>
     /// <param name="exporters">The formats to write beyond plain text.</param>
+    /// <param name="text">
+    /// The plain text flavour, or <see langword="null"/> to take it from <paramref name="doc"/>.
+    /// </param>
     /// <returns><see langword="true"/> if the write completed.</returns>
-    /// <exception cref="ArgumentNullException">Any argument is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="clipboard"/>, <paramref name="doc"/> or <paramref name="exporters"/> is
+    /// <see langword="null"/>.
+    /// </exception>
+    /// <remarks>
+    /// <paramref name="text"/> lets a caller keep its own authority over the plain text flavour:
+    /// a control already knows what it shows selected, and a rectangle of table cells is copied as
+    /// a rebuilt document rather than a cut of the original. The two agree today; the parameter is
+    /// what keeps the clipboard's text the control's answer rather than a re-derivation of it.
+    /// </remarks>
     public static async Task<bool> WriteAsync(
-        IClipboard clipboard, DocumentNode doc, IEnumerable<IDocumentExporter> exporters)
+        IClipboard clipboard,
+        DocumentNode doc,
+        IEnumerable<IDocumentExporter> exporters,
+        string? text = null)
     {
         ArgumentNullException.ThrowIfNull(clipboard);
         ArgumentNullException.ThrowIfNull(doc);
@@ -235,7 +245,7 @@ public static class RichTextClipboard
 
         try
         {
-            await clipboard.SetDataAsync(Build(doc, exporters)).ConfigureAwait(true);
+            await clipboard.SetDataAsync(Build(doc, exporters, text)).ConfigureAwait(true);
 
             return true;
         }
@@ -302,13 +312,8 @@ public static class RichTextClipboard
         {
             foreach (var importer in InPreferenceOrder(importers))
             {
-                if (FlavorFor(importer.Format) is not { } flavour)
-                {
-                    continue;
-                }
-
                 // Bytes, deliberately, and never as a string. See the type's remarks.
-                if (await data.TryGetValueAsync(flavour.DataFormat).ConfigureAwait(true)
+                if (await data.TryGetValueAsync(FlavorFor(importer.Format).DataFormat).ConfigureAwait(true)
                     is not { Length: > 0 } bytes)
                 {
                     continue;
@@ -322,9 +327,7 @@ public static class RichTextClipboard
                 }
             }
 
-            return await data.TryGetTextAsync().ConfigureAwait(true) is { Length: > 0 } text
-                ? new ImportResult(DocumentNode.FromParagraphs(text.ReplaceLineEndings("\n").Split('\n')))
-                : null;
+            return FromPlainText(await data.TryGetTextAsync().ConfigureAwait(true));
         }
         catch (Exception)
         {
@@ -353,13 +356,8 @@ public static class RichTextClipboard
         {
             foreach (var importer in InPreferenceOrder(importers))
             {
-                if (FlavorFor(importer.Format) is not { } flavour)
-                {
-                    continue;
-                }
-
                 // Bytes, deliberately, and never as a string. See the type's remarks.
-                if (data.TryGetValue(flavour.DataFormat) is not { Length: > 0 } bytes)
+                if (data.TryGetValue(FlavorFor(importer.Format).DataFormat) is not { Length: > 0 } bytes)
                 {
                     continue;
                 }
@@ -372,15 +370,56 @@ public static class RichTextClipboard
                 }
             }
 
-            return data.TryGetText() is { Length: > 0 } text
-                ? new ImportResult(DocumentNode.FromParagraphs(text.ReplaceLineEndings("\n").Split('\n')))
-                : null;
+            return FromPlainText(data.TryGetText());
         }
         catch (Exception)
         {
             return null;
         }
     }
+
+    /// <summary>Plain text as a document of one paragraph per line, or null if there is none.</summary>
+    /// <remarks>
+    /// <para>
+    /// Shared by both read overloads, and the same rules the controls' own plain-text paste
+    /// follows. It used to be <c>FromParagraphs(text.ReplaceLineEndings("\n").Split('\n'))</c> in
+    /// each of them, which throws for text carrying U+FFFC — the placeholder the model reserves
+    /// for embeds — straight into the broad handler around it. So a clip containing one was read
+    /// as nothing at all, and a drop of text a paste accepted quietly inserted nothing.
+    /// </para>
+    /// <para>
+    /// <see cref="string.ReplaceLineEndings(string)"/> takes the form feed, NEL, and the Unicode
+    /// line and paragraph separators as well as CR, LF and CRLF. It does not take the vertical tab
+    /// Word writes for Shift+Enter, which stays in the text as a character — the model has soft
+    /// breaks, and turning one into a paragraph split silently would be a guess.
+    /// </para>
+    /// </remarks>
+    private static ImportResult? FromPlainText(string? text) =>
+        text is { Length: > 0 }
+            ? new ImportResult(DocumentNode.FromParagraphs(Lines(text)))
+            : null;
+
+    /// <summary>The paragraphs a run of plain text becomes.</summary>
+    /// <remarks>
+    /// Internal so that the controls' paste path builds its paragraphs the same way rather than
+    /// beside it: the two disagreeing is exactly what made a drop and a paste of one clip do
+    /// different things.
+    /// </remarks>
+    internal static string[] Lines(string text) =>
+        text.ReplaceLineEndings("\n").Split('\n').Select(WithoutPlaceholder).ToArray();
+
+    /// <summary>A line with the reserved embed placeholder taken out.</summary>
+    /// <remarks>
+    /// U+FFFC marks where an embed sits, and <c>InlineContent.FromText</c> throws for text carrying
+    /// one without matching embeds. Plain text from outside can perfectly well contain it — Word
+    /// writes it for objects it cannot otherwise express, and anything that has already been
+    /// through a rich text model carries it. The HTML importer removes it on the way in for exactly
+    /// this reason.
+    /// </remarks>
+    internal static string WithoutPlaceholder(string line) =>
+        line.Contains(InlineContent.Placeholder, StringComparison.Ordinal)
+            ? line.Replace(InlineContent.Placeholder.ToString(), string.Empty, StringComparison.Ordinal)
+            : line;
 
     /// <summary>The importers, richest first.</summary>
     internal static IEnumerable<IDocumentImporter> InPreferenceOrder(
