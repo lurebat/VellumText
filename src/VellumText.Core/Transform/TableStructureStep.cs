@@ -119,6 +119,14 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     /// — its content is text, not a child list — so descending into one would compare nothing,
     /// find nothing, and report a range of zero for two paragraphs of different lengths.
     /// </para>
+    /// <para>
+    /// A change confined to a cell's <em>attributes</em> — its spans, background or header flag —
+    /// therefore reports no range at all, because only the children are compared. That is the
+    /// right answer and the same one <see cref="SetBlockAttrStep"/> gives: an attribute moves no
+    /// position, so a map that claimed it had moved one would throw away a caret for a change the
+    /// reader would describe as nothing having moved. It does mean this map is not a complete
+    /// description of the difference between two tables, only of where the positions went.
+    /// </para>
     /// </remarks>
     private static void Diff(Node before, Node after, int contentStart, List<ReplacedRange> ranges)
     {
