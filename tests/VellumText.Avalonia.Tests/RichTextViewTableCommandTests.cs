@@ -321,8 +321,33 @@ public class RichTextViewTableCommandTests
         Assert.Equal(["a1|b1", "a2|xb2"], Shape(view));
     }
 
-    // ---- the context menu ------------------------------------------------------------------
+    [AvaloniaFact]
+    public void AMergeAcrossEveryRowStillLaysOutAndDraws()
+    {
+        // The merged cell covers both rows, so the second row carries nothing of its own and the
+        // row heights come out [0, everything]. That shape reaches the layout for the first time
+        // with this feature, and a table view that divided by a row count or indexed a row's
+        // first cell would fall over on it.
+        var view = At(Grid(), "a1");
 
+        view.MoveTo(StartOf(view.State.Doc, "b2"), extend: true);
+
+        Assert.True(view.MergeCells());
+
+        view.Measure(new Size(500, 400));
+        view.Arrange(new Rect(0, 0, 500, 400));
+
+        var table = Assert.IsType<TableBlockView>(view.Blocks[0]);
+
+        Assert.True(table.Size.Height > 0, "the merged table measured to nothing");
+        Assert.True(table.Size.Width > 0);
+
+        // And it is still editable afterwards, which is what a broken layout would take away.
+        Assert.True(view.InsertText("!"));
+        Assert.Equal(["a1 b1 a2 b2!(2x2)", ""], Shape(view));
+    }
+
+    // ---- the context menu ------------------------------------------------------------------
     [AvaloniaFact]
     public void TheTableMenuAppearsOnlyInsideATable()
     {
