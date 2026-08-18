@@ -267,6 +267,23 @@ view.Formats.Add(RtfFormat.Instance);
 `Formats` is also on `RichTextEditor`, so registration works from a constructor or a binding,
 before the control has been templated.
 
+`HtmlFormat.Instance` and `RtfFormat.Instance` import with the paranoid defaults. `With(options)`
+returns a configured copy, and registering that copy is how import options reach the importer at
+all — the control only ever calls `Import`, so an option that cannot travel through registration
+cannot travel:
+
+```csharp
+view.Formats.Add(HtmlFormat.Instance.With(new HtmlImportOptions
+{
+    BaseUri = new Uri("https://example.com/dir/page"),   // relative URLs resolve against this
+    AllowRemoteImages = true,                            // off by default: a remote image tracks
+}));
+```
+
+`With` leaves `Instance` alone, so one configured view does not change what every other one trusts.
+`AllowRemoteImages` is the security control here; `BaseUri` is what decides whether a relative image
+URL resolves or is dropped.
+
 RTF import takes `RtfImportOptions` — its own type, not the HTML importer's, even though RTF is
 read by way of HTML internally. Naming HTML's options here would make a consumer who only wanted
 RTF depend on the HTML package to configure it.

@@ -23,14 +23,40 @@ namespace VellumText.Interop.Html;
 /// plenty of applications write bare HTML and a paste that refused them would be worse than
 /// useless.
 /// </para>
+/// <para>
+/// <see cref="Instance"/> imports with <see cref="HtmlImportOptions.Default"/>. Use
+/// <see cref="With"/> to register a configured one — that is the only way <c>BaseUri</c> and
+/// <c>AllowRemoteImages</c> reach the importer when the control is doing the importing.
+/// </para>
 /// </remarks>
 public sealed class HtmlFormat : IDocumentImporter, IDocumentExporter
 {
-    /// <summary>The one instance. Importing and exporting are pure, so more would be waste.</summary>
-    public static readonly HtmlFormat Instance = new();
+    /// <summary>
+    /// The shared default: import options are <see cref="HtmlImportOptions.Default"/>.
+    /// </summary>
+    public static readonly HtmlFormat Instance = new(HtmlImportOptions.Default);
 
-    private HtmlFormat()
+    private HtmlFormat(HtmlImportOptions importOptions) => ImportOptions = importOptions;
+
+    /// <summary>How much of the incoming HTML this instance trusts.</summary>
+    public HtmlImportOptions ImportOptions { get; }
+
+    /// <summary>
+    /// A format that imports with <paramref name="importOptions"/>, leaving this one unchanged.
+    /// </summary>
+    /// <param name="importOptions">The options the importer should use.</param>
+    /// <returns>A new configured instance; register it in place of <see cref="Instance"/>.</returns>
+    /// <remarks>
+    /// Registration is the seam a host is told to use, so options that cannot travel through it are
+    /// unreachable in practice: <see cref="HtmlImportOptions.AllowRemoteImages"/> is a security
+    /// control and <see cref="HtmlImportOptions.BaseUri"/> decides whether a relative image URL
+    /// resolves at all, and neither means anything if the only way to pass it is a static method
+    /// the control never calls.
+    /// </remarks>
+    public HtmlFormat With(HtmlImportOptions importOptions)
     {
+        ArgumentNullException.ThrowIfNull(importOptions);
+        return new HtmlFormat(importOptions);
     }
 
     /// <inheritdoc/>
@@ -46,11 +72,11 @@ public sealed class HtmlFormat : IDocumentImporter, IDocumentExporter
     public Encoding? TextEncoding => Encoding.UTF8;
 
     /// <inheritdoc/>
-    public ImportResult Import(string text) => HtmlImporter.ImportClipboard(text);
+    public ImportResult Import(string text) => HtmlImporter.ImportClipboard(text, ImportOptions);
 
     /// <inheritdoc/>
     public ImportResult Import(Stream source) =>
-        HtmlImporter.ImportClipboard(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        HtmlImporter.ImportClipboard(DocumentPayload.ReadAllText(source, Encoding.UTF8), ImportOptions);
 
     /// <inheritdoc/>
     /// <remarks>

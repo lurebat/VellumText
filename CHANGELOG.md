@@ -66,6 +66,15 @@ NuGet; packages are published to a local feed, and
 
 ### Added
 
+- **`HtmlFormat.With(options)` and `RtfFormat.With(options)`**, returning a configured instance and
+  leaving `Instance` alone. Both formats were constructor-less singletons, which made
+  `HtmlImportOptions` unreachable from the seam hosts are told to use: the control holds an
+  `IDocumentImporter` and calls `Import`, so a static `HtmlImporter.Import(html, options)` on a type
+  in a package the control cannot name is no use to an application that uses the editor.
+  `AllowRemoteImages` is a privacy control and `BaseUri` decides whether a relative image URL
+  resolves at all, and neither reached the importer. `Instance` still means the paranoid defaults,
+  and `HtmlFormat.Instance.ImportOptions` says so.
+
 - **`RichTextEditor.EnsureView()`**, the honest escape hatch for the editing commands the shell
   does not forward. It applies the template if that has not happened and returns a view that is
   never null. `View` stays nullable and answers the different question — has this been templated

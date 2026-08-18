@@ -732,6 +732,25 @@ Two things changed against the sketch above, both forced by decision 3 in §12.1
 - **`VellumText.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
 - **`NativeSlice` is not built.** It exists to carry what HTML cannot, and HTML currently carries everything the model can hold. It is worth adding when that stops being true, and not before.
 
+#### Registration is the only seam, so options travel through it
+
+`HtmlFormat` and `RtfFormat` were constructor-less singletons. That made `HtmlImportOptions`
+unreachable from the path the bullet above tells a host to use: the control holds an
+`IDocumentImporter` and calls `Import`, so `HtmlImporter.Import(html, options)` — a static method on
+a type in a package the control cannot name — is not a seam an application using the control can
+reach at all. `AllowRemoteImages` is a privacy control and `BaseUri` decides whether a relative
+image URL resolves or is dropped, and neither did anything for anyone using the editor.
+
+`With(options)` returns a configured instance and leaves the singleton alone:
+
+```csharp
+view.Formats.Add(HtmlFormat.Instance.With(new HtmlImportOptions { BaseUri = source }));
+```
+
+An instance rather than mutable state on the singleton, because two views in one application can
+legitimately trust different sources, and a shared mutable `Instance` would make the last
+registration win for everything.
+
 #### The format contract is bytes, with strings on top
 
 The contract was string-only until it was noticed that this *structurally* excludes DOCX and ODT — both are ZIP containers, both are on the roadmap in §10, and a format that cannot be expressed is worse than one that is merely unimplemented. Streams are the primitive now:
