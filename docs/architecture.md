@@ -271,7 +271,14 @@ Every mutation is a `Transaction`. Nothing mutates the document directly — not
 - **Undo is nearly free.** `history` stores `Invert(before)` per step, reversed. No snapshots, no diffing.
 - **Undo grouping is a policy, not a mechanism.** Coalesce adjacent `Typing` transactions within 500 ms *and* contiguous positions *and* no intervening selection jump; never coalesce across `Structure` or `Paste`.
 - **The view updates incrementally.** `Transaction.Mapping` tells `RichTextView` exactly which block range changed → invalidate only those `BlockView`s and only that `TextRunCache`.
-- **Collaboration is later, not never.** `Step.Map` is the rebase primitive OT needs. We ship no collab code, but we do not design it out.
+- **Collaboration is later, not never.** `Step.Map` is the rebase primitive OT needs. We ship no collab code, but we do not design it out. `Transaction.Steps` stays public for that reason and no other — nothing in this repository reads it outside its own tests.
+
+> **`Transaction.DocsBefore` removed** (2026-08-18). It exposed the per-step document snapshots the
+> undo bookkeeping keeps, had no caller anywhere — `Invert()` reads the field directly — and would
+> have frozen an internal representation into the public API at 1.0. `Steps` and `Failures` were
+> examined at the same time and both kept: `Steps` is the collaboration primitive above, and
+> `Failures` is what §7 tells a host to check, because a transaction is best-effort rather than
+> atomic.
 
 ### 4.5 Selection
 
@@ -326,6 +333,25 @@ internal sealed class ParagraphView : BlockView
 > - **`TextRunCache.InvalidateFrom(offset)` is not used for edits.** Increment 0 measured it
 >   returning stale runs for any `offset > 0`. Paragraph layouts are rebuilt wholesale on edit.
 >   The cache is kept only for width-only relayout, where it is correct and ≈3.5× faster.
+
+> **The shell forwards setup, not commands** (2026-08-18). `RichTextEditor` forwarded five of the
+> view's surfaces, so every other one had to be reached through `Editor.View!` — a null-forgiving
+> operator on a property that genuinely is null until the template is applied. That is fine for a
+> command, which runs in response to a user action long after templating, and it is a race for
+> setup, where the losing side is silent: a format registered on a view that does not exist throws,
+> and an event subscribed on one is never heard from.
+>
+> So the split is by *when a host reaches it*, not by what it does. The shell forwards `Formats`,
+> `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`, `SyntaxHighlighter`, `SyntaxTheme`,
+> `ContentImported` and `ImageRefused` — everything configured before the control is on screen.
+> The forty-odd editing commands are not forwarded; duplicating them would double the shell's
+> surface for no benefit a host can name.
+>
+> `EnsureView()` is the escape hatch and is honest about its lifetime: it applies the template if
+> that has not happened and returns a view that is never null. That is safe because the default
+> template is registered as `TemplateProperty`'s default value rather than living in a theme
+> dictionary, so it resolves with no application styles loaded at all. `View` stays nullable and
+> answers the different question — has this been templated yet.
 
 **Virtualization:** `BlockHeightIndex` keeps a Fenwick/prefix-sum tree of block heights. Unmeasured blocks get an estimate (average measured height); measuring on realization corrects the estimate and adjusts scroll offset. This is the standard approach and it is why AC12 is achievable.
 
@@ -836,6 +862,16 @@ time anything of ours sees it, and it follows the theme. Recovering the distinct
 reading `\colortbl` and `\cf` ourselves — the hand-written RTF reader this section exists to
 avoid — so the behaviour is pinned by a test rather than worked around. `\highlight` and every
 non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_all`.
+
+**The HTML stage is internal, and the public API says so.** `RtfImporter.Import` took an
+`HtmlImportOptions`, which put HTML's type in the RTF package's public surface: a consumer who
+wanted only RTF had to reference the HTML package to configure it, and the choice above — that RTF
+is read by way of HTML — was frozen where a later rewrite of the RTF reader could not have changed
+it. `RtfImportOptions` is the RTF package's own type, mapped to HTML's internally. It is
+deliberately smaller: `MaxDepth` and `PreserveIdentifiers` are absent because the HTML they would
+apply to is generated here rather than authored, so there are no `class` or `id` attributes to keep
+and no reason for a host to loosen a stack-overflow bound on markup it did not write. The project
+reference stays; only the leak is closed.
 
 **Rejected:** `NPOI` — Apache-2.0 source but 2.8.0 binaries impose a maintenance-fee EULA on revenue-generating users; a legal hazard for a "free" library. `DocX`/Xceed — Xceed Community License, non-commercial. `OpenXML-Office` — AGPL-3.0/commercial. `ShapeCrawler` — PPTX only.
 

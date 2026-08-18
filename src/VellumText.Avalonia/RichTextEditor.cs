@@ -323,7 +323,130 @@ public class RichTextEditor : TemplatedControl
     public int CurrentMatchNumber => (_view?.CurrentMatch ?? -1) + 1;
 
     /// <summary>The view doing the work, or null before the template has been applied.</summary>
+    /// <remarks>
+    /// <para>
+    /// Null is the honest answer and not a defensive one: until the template is applied there is
+    /// no view, and every editing command lives on it. Use this to <i>ask</i> whether the control
+    /// has been templated; use <see cref="EnsureView"/> to get one.
+    /// </para>
+    /// <para>
+    /// The setup surfaces a host reaches before the control is on screen — <see cref="Formats"/>,
+    /// <see cref="ImageStore"/>, <see cref="Embeds"/>, the style resolvers, the syntax properties
+    /// and the two reporting events — are forwarded from here, so none of them requires a view
+    /// that may not exist yet. Those are the ones where a value set too early would be silently
+    /// lost rather than loudly refused; the editing commands are called in response to a user
+    /// action, by which point the control has long been templated.
+    /// </para>
+    /// </remarks>
     public RichTextView? View => _view;
+
+    /// <summary>The view doing the work, applying the template first if that has not happened.</summary>
+    /// <returns>The view. Never null.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The template contains no <see cref="RichTextView"/> named <see cref="ViewPart"/>.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// The escape hatch, for the editing commands this shell does not forward. It is a method
+    /// rather than a non-null property because it can do work and can fail, and because
+    /// <c>Editor.View!</c> — which is what a host writes otherwise — is a null-forgiving operator
+    /// on something that genuinely is null for part of the control's life, and so is an exception
+    /// waiting for whichever host calls it one layout pass too early.
+    /// </para>
+    /// <para>
+    /// Applying the template early is safe and idempotent: the default template is registered as
+    /// the property's default value rather than coming from a theme dictionary, so it resolves
+    /// with no application styles loaded at all, and Avalonia applies a template once per
+    /// <see cref="TemplatedControl.Template"/> value.
+    /// </para>
+    /// </remarks>
+    public RichTextView EnsureView()
+    {
+        if (_view is null)
+        {
+            ApplyTemplate();
+        }
+
+        return _view
+            ?? throw new InvalidOperationException(
+                $"The {nameof(RichTextEditor)} template produced no {nameof(RichTextView)}.");
+    }
+
+    /// <summary>The interchange formats copy and paste carry, beyond plain text.</summary>
+    /// <remarks>
+    /// Forwarded rather than left to <see cref="View"/> because registration happens at setup,
+    /// which is exactly when there is no view: a host that writes
+    /// <c>Editor.View!.Formats.Add(…)</c> in a constructor throws, and one that writes it in a
+    /// property setter fired by a binding throws intermittently.
+    /// </remarks>
+    public ICollection<IDocumentFormat> Formats => EnsureView().Formats;
+
+    /// <inheritdoc cref="RichTextView.ImageStore"/>
+    public IImageStore ImageStore
+    {
+        get => EnsureView().ImageStore;
+        set => EnsureView().ImageStore = value;
+    }
+
+    /// <inheritdoc cref="DocumentPresenter.Embeds"/>
+    public IEmbedRenderer Embeds
+    {
+        get => EnsureView().Embeds;
+        set => EnsureView().Embeds = value;
+    }
+
+    /// <inheritdoc cref="DocumentPresenter.TextStyles"/>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ITextStyleResolver TextStyles
+    {
+        get => EnsureView().TextStyles;
+        set => EnsureView().TextStyles = value;
+    }
+
+    /// <inheritdoc cref="DocumentPresenter.ParagraphStyles"/>
+    public IParagraphStyleResolver ParagraphStyles
+    {
+        get => EnsureView().ParagraphStyles;
+        set => EnsureView().ParagraphStyles = value;
+    }
+
+    /// <inheritdoc cref="DocumentPresenter.SyntaxHighlighter"/>
+    public ISyntaxHighlighter? SyntaxHighlighter
+    {
+        get => EnsureView().SyntaxHighlighter;
+        set => EnsureView().SyntaxHighlighter = value;
+    }
+
+    /// <inheritdoc cref="DocumentPresenter.SyntaxTheme"/>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ISyntaxTheme SyntaxTheme
+    {
+        get => EnsureView().SyntaxTheme;
+        set => EnsureView().SyntaxTheme = value;
+    }
+
+    /// <inheritdoc cref="RichTextView.ContentImported"/>
+    /// <remarks>
+    /// Forwarded because a subscription is made at setup. Missing one costs no exception and no
+    /// warning — the host simply never hears that a paste dropped half a document.
+    /// </remarks>
+    public event EventHandler<RichTextView.ContentImportedEventArgs>? ContentImported
+    {
+        add => EnsureView().ContentImported += value;
+        remove => EnsureView().ContentImported -= value;
+    }
+
+    /// <inheritdoc cref="RichTextView.ImageRefused"/>
+    /// <remarks>
+    /// Forwarded for the same reason as <see cref="ContentImported"/>: a missed subscription is
+    /// silent, and this one reports a security decision.
+    /// </remarks>
+    public event EventHandler<RichTextView.ImageRefusedEventArgs>? ImageRefused
+    {
+        add => EnsureView().ImageRefused += value;
+        remove => EnsureView().ImageRefused -= value;
+    }
+
 
     /// <summary>
     /// The toolbar that floats beside the selection, or null when the template has none.

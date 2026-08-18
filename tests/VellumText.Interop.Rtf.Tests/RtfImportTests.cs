@@ -324,7 +324,7 @@ public class RtfImportTests
 
         var withBase = RtfImporter.Import(
             rtf,
-            new HtmlImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
+            new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
         Assert.True(AnyRunHas(withBase, m => m.Link?.Href == "https://example.com/relative"));
         Assert.False(AnyRunHas(RtfImporter.Import(rtf), m => m.Link is not null));

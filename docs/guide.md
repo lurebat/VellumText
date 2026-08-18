@@ -67,10 +67,18 @@ images, find, bidi text and IME all work with no further setup.
 inside it, and is where the commands live:
 
 ```csharp
-Editor.View!.ToggleStyle(TextStyle.Bold);
+Editor.EnsureView().ToggleStyle(TextStyle.Bold);
 ```
 
-`View` is null until the control is templated, so reach it from `Loaded` rather than a constructor.
+`Editor.View` is null until the control is templated, so it answers "has this been templated yet?"
+rather than "give me the view". `EnsureView()` applies the template if that has not happened and
+returns a view that is never null — use it for commands, which run in response to a user action.
+
+Setup does not need it. The surfaces a host configures before the control is on screen are on the
+shell directly — `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
+`SyntaxHighlighter`, `SyntaxTheme`, and the `ContentImported` and `ImageRefused` events — because
+those are the ones where being too early is silent: a format registered on a view that does not
+exist throws, and an event subscribed on one is simply never heard from.
 
 ## The document model
 
@@ -166,7 +174,7 @@ Every command is a method on `RichTextView`, returns `bool` for "did anything ch
 undo step.
 
 ```csharp
-var view = Editor.View!;
+var view = Editor.EnsureView();
 
 view.ToggleStyle(TextStyle.Bold);            // also Italic, Underline, Strikethrough, Sub, Super, Code
 view.SetForeground(new Rgba(200, 0, 0, 255));
@@ -255,6 +263,13 @@ Register the formats you want, and copy and paste start carrying them:
 view.Formats.Add(HtmlFormat.Instance);
 view.Formats.Add(RtfFormat.Instance);
 ```
+
+`Formats` is also on `RichTextEditor`, so registration works from a constructor or a binding,
+before the control has been templated.
+
+RTF import takes `RtfImportOptions` — its own type, not the HTML importer's, even though RTF is
+read by way of HTML internally. Naming HTML's options here would make a consumer who only wanted
+RTF depend on the HTML package to configure it.
 
 Or use them directly:
 

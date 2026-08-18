@@ -12,6 +12,27 @@ NuGet; packages are published to a local feed, and
 
 ### Changed
 
+- **`RtfImporter.Import` takes `RtfImportOptions` rather than `HtmlImportOptions` — this is a
+  breaking change.** RTF is read by way of HTML internally, and that had leaked into the RTF
+  package's public API: a consumer who wanted only RTF had to reference the HTML package to
+  configure it, and an internal choice was frozen where a later rewrite of the RTF reader could not
+  have changed it. `RtfImportOptions` carries `AllowRemoteImages`, `AllowDataImages`,
+  `MaxDataImageBytes` and `BaseUri`. It deliberately omits `MaxDepth` and `PreserveIdentifiers`,
+  which apply to authored HTML rather than the HTML this package generates for itself.
+
+- **`RichTextEditor` forwards the whole setup surface, so `Editor.View!` is no longer the
+  documented path.** `Formats`, `ImageStore`, `Embeds`, `TextStyles`, `ParagraphStyles`,
+  `SyntaxHighlighter`, `SyntaxTheme`, `ContentImported` and `ImageRefused` are now on the shell.
+  These are the surfaces a host reaches before the control is templated, which is exactly when
+  `View` is null — a format registered on a missing view throws, and an event subscribed on one is
+  silently never heard from.
+
+- **`Transaction.DocsBefore` is gone.** It exposed the per-step document snapshots the undo
+  bookkeeping keeps and had no caller: `Invert()` reads the field directly. `Transaction.Steps` and
+  `Transaction.Failures` were examined at the same time and both stay public — `Steps` is the
+  rebase primitive collaboration needs, and `Failures` is what a host checks when it needs a
+  transaction to have been all-or-nothing.
+
 - **`IDocumentImporter` and `IDocumentExporter` now read and write streams, and the string
   overloads are derived from them — this is a breaking change for anyone implementing a format.**
   The contract dealt only in strings, which *structurally* excluded DOCX and ODT: both are ZIP
@@ -44,6 +65,11 @@ NuGet; packages are published to a local feed, and
   format that is not text. Read the encoding from the format instead.
 
 ### Added
+
+- **`RichTextEditor.EnsureView()`**, the honest escape hatch for the editing commands the shell
+  does not forward. It applies the template if that has not happened and returns a view that is
+  never null. `View` stays nullable and answers the different question — has this been templated
+  yet.
 
 - **`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText`**, the bridge a text format's
   stream members need. `WriteAllText` writes no byte order mark — `CF_HTML`'s byte offsets are
