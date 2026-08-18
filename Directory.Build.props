@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>avalonia;richtext;editor;wysiwyg;text</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <VersionPrefix>0.4.1</VersionPrefix>
+    <VersionPrefix>0.5.0</VersionPrefix>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
     <!-- Source link comes from the SDK, so debugging into a package needs no extra reference. -->

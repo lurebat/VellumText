@@ -8,12 +8,15 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-18
 
-Every breaking change here is deliberate. VellumText is pre-1.0 with no public
-consumers, and the point of this release is that a 1.0 must not freeze an API
-that a real host cannot use. Each entry says what moved, why, and what to do
-about it; **migrating** below is the short version.
+Every breaking change here is deliberate. VellumText is pre-1.0 and the point of
+this release is that a 1.0 must not freeze an API that a real host cannot use.
+Each entry says what moved, why, and what to do about it; **migrating** below is
+the short version.
+
+**If you render a read-only document, upgrade for the accessibility fix**, which
+is the one defect in this release a consumer cannot work around from outside.
 
 ### Migrating
 
@@ -194,6 +197,29 @@ are listed because a 1.0 that shipped them would have frozen them.
   what it shows selected. Existing calls compile and behave unchanged.
 
 ### Fixed
+
+- **A read-only editor no longer tells a screen reader it is writable.** `RichTextView` answered
+  `SupportsTextInput` unconditionally, and the automation peer derives
+  `IValueProvider.IsReadOnly` from exactly that — so `RichTextEditor { IsReadOnly = true }`
+  announced itself to assistive technology as an editable document. The peer's own
+  `ElementNotEnabledException` guard was already correct and simply unreachable, because the value
+  it consulted never varied.
+
+  **This is the one defect in this release that a consumer cannot work around.** The peer belongs
+  to the templated inner `RichTextView`, so a host holding a `RichTextEditor` has no lever except
+  `AccessibilityView = Raw`, which hides the pane from screen readers entirely — worse than being
+  misinformed about it. Reported from a shipped application whose preview pane had been affected in
+  every release since it adopted VellumText.
+
+  A refused automation write also ran `SelectAll` before declining, so it moved the user's
+  selection over the whole document. The document itself was never at risk.
+
+- **A read-only editor no longer composes.** Nothing in the input method path consulted
+  `IsReadOnly`, so a locked editor accepted a composition: characters drawn underlined with the
+  candidate window open, and the commit refused only at the end, because it arrives as ordinary
+  text input. The user watched their own typing appear and vanish. Clearing a composition is still
+  allowed whatever the state, so a view locked mid-composition can be tidied up rather than
+  stranding underlined text.
 
 - **Text carrying `U+FFFC` is no longer silently dropped.** The object replacement character is
   what the model reserves for embeds, and building a paragraph from text containing one throws.
