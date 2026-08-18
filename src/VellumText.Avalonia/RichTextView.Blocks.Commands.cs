@@ -247,7 +247,7 @@ public partial class RichTextView
         _ => false,
     };
 
-    /// <summary>Handles Tab and Shift+Tab, which mean different things inside a list.</summary>
+    /// <summary>Handles Tab and Shift+Tab, which mean different things inside a list or a table.</summary>
     /// <returns>Whether the key was consumed, which is not the same as whether anything changed.</returns>
     /// <remarks>
     /// <para>
@@ -265,14 +265,35 @@ public partial class RichTextView
     /// into the one around it, or out of a top-level list into ordinary paragraphs — so
     /// <see cref="LiftListItem"/> only fails when there is no list at all.
     /// </para>
+    /// <para>
+    /// In a table cell, Tab moves to the next cell, which is the one thing everything else with
+    /// a grid in it does. <em>Unless the caret is in a list</em>, where it still nests: a list is
+    /// the more specific context, it is nested more deeply than the cell, and a list inside a
+    /// cell that could never be nested would be a capability lost with nothing offered in its
+    /// place. The cost is that such a list cannot be tabbed out of, which the arrow keys and the
+    /// mouse both still do.
+    /// </para>
+    /// <para>
+    /// Either way a table consumes the key, including where there is nowhere to go — the first
+    /// cell on Shift+Tab. Reporting it unhandled there would move focus out of the editor from
+    /// the middle of a table, which reads as the editor losing the key rather than declining it.
+    /// </para>
     /// </remarks>
     private bool Tab(bool lift)
     {
-        // Off, the key belongs to focus navigation - including inside a list, where the remarks
-        // above otherwise argue for consuming it. A host that turned this off asked for that.
+        // Off, the key belongs to focus navigation - including inside a list or a table, where
+        // the remarks above otherwise argue for consuming it. A host that turned this off asked
+        // for that.
         if (!AcceptsTab)
         {
             return false;
+        }
+
+        if (ListKindAt is null && IsInTable)
+        {
+            _ = MoveToCell(backwards: lift);
+
+            return true;
         }
 
         if (ListKindAt is null)

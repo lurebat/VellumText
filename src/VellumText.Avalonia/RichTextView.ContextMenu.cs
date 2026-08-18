@@ -17,17 +17,23 @@ public partial class RichTextView
     private MenuItem? _cutItem;
     private MenuItem? _copyItem;
     private MenuItem? _pasteItem;
+    private MenuItem? _tableItem;
 
     private MenuFlyout BuildContextFlyout()
     {
         _cutItem = Item("Cut", "Ctrl+X", () => _ = CutAsync());
         _copyItem = Item("Copy", "Ctrl+C", () => _ = CopyAsync());
         _pasteItem = Item("Paste", "Ctrl+V", () => _ = PasteAsync());
+        _tableItem = BuildTableItem();
 
         var selectAll = Item("Select All", "Ctrl+A", () => SelectAll());
         var flyout = new MenuFlyout
         {
-            ItemsSource = new object[] { _cutItem, _copyItem, _pasteItem, new Separator(), selectAll },
+            ItemsSource = new object[]
+            {
+                _cutItem, _copyItem, _pasteItem, new Separator(), selectAll,
+                new Separator(), _tableItem,
+            },
         };
 
         flyout.Opening += (_, _) => SyncContextFlyout();
@@ -57,11 +63,56 @@ public partial class RichTextView
         {
             _pasteItem.IsEnabled = TopLevel.GetTopLevel(this)?.Clipboard is not null;
         }
+
+        if (_tableItem is not null)
+        {
+            // Hidden rather than disabled. Cut and Paste are always meaningful and only
+            // sometimes possible, so greying them says something; a table submenu in a document
+            // with no table in it says nothing at all, and its separator would leave a gap.
+            _tableItem.IsVisible = IsInTable;
+        }
     }
+
+    /// <summary>
+    /// The table submenu.
+    /// </summary>
+    /// <remarks>
+    /// Every entry stays enabled while the caret is in a table, even when it cannot apply — merge
+    /// with no rectangle selected, split on a cell that was never merged. Those two change with
+    /// every caret move, and a menu whose entries flicker in and out reads as broken; a command
+    /// that quietly does nothing reads as a command that did not apply. This is the same rule the
+    /// toolbar follows.
+    /// </remarks>
+    private MenuItem BuildTableItem() => new()
+    {
+        Header = "Table",
+        ItemsSource = new object[]
+        {
+            Item("Insert Row Above", () => InsertRowAbove()),
+            Item("Insert Row Below", () => InsertRowBelow()),
+            Item("Insert Column Left", () => InsertColumnLeft()),
+            Item("Insert Column Right", () => InsertColumnRight()),
+            new Separator(),
+            Item("Delete Row", () => DeleteRow()),
+            Item("Delete Column", () => DeleteColumn()),
+            new Separator(),
+            Item("Merge Cells", () => MergeCells()),
+            Item("Split Cell", () => SplitCell()),
+        },
+    };
 
     private static MenuItem Item(string header, string gesture, Action invoke)
     {
         var item = new MenuItem { Header = header, InputGesture = KeyGesture.Parse(gesture) };
+
+        item.Click += (_, _) => invoke();
+
+        return item;
+    }
+
+    private static MenuItem Item(string header, Func<bool> invoke)
+    {
+        var item = new MenuItem { Header = header };
 
         item.Click += (_, _) => invoke();
 

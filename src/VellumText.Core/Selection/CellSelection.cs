@@ -84,6 +84,43 @@ public sealed class TableGrid
     }
 
     /// <summary>
+    /// The innermost table cell containing a position, as the position directly before it.
+    /// </summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="pos">Any position.</param>
+    /// <returns>The position before the cell, or null if the position is not inside one.</returns>
+    /// <remarks>
+    /// Innermost, because a position inside a nested table is inside a cell of both tables and
+    /// a command asked to act on "this cell" means the one the caret is actually in.
+    /// </remarks>
+    public static int? CellContaining(DocumentNode doc, int pos)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        if (pos < 0 || pos > doc.ContentSize)
+        {
+            return null;
+        }
+
+        var at = doc.Resolve(pos);
+
+        // A cell is always a row's child and a row always a table's, so a cell at depth d puts
+        // its table at d - 2. Stopping at 3 keeps that lookup at depth 1 or deeper, which is what
+        // Before requires: there is nothing outside the document to address.
+        for (var depth = at.Depth; depth >= 3; depth--)
+        {
+            if (at.NodeAt(depth) is TableCellNode
+                && at.NodeAt(depth - 1) is TableRowNode
+                && at.NodeAt(depth - 2) is TableNode)
+            {
+                return at.Before(depth);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Lays out a table.
     /// </summary>
     /// <param name="tablePos">The position directly before the table.</param>

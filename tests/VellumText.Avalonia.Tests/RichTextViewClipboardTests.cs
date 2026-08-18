@@ -47,7 +47,8 @@ public class RichTextViewClipboardTests
         var flyout = Assert.IsType<MenuFlyout>(view.ContextFlyout);
         var headers = flyout.ItemsSource!.Cast<object>().OfType<MenuItem>().Select(i => i.Header).ToArray();
 
-        Assert.Equal(new object[] { "Cut", "Copy", "Paste", "Select All" }, headers);
+        // Table is present but hidden until the caret is in one; see SyncContextFlyout.
+        Assert.Equal(new object[] { "Cut", "Copy", "Paste", "Select All", "Table" }, headers);
     }
 
     [AvaloniaFact]
