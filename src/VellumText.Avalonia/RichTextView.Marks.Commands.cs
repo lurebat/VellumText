@@ -216,6 +216,18 @@ public partial class RichTextView
                 ClearFormatting();
                 return true;
 
+            // Ctrl+K makes or edits a link; Ctrl+Shift+K removes one. Recognised here so the
+            // chords are swallowed, but this control cannot show a dialog — a document control
+            // that pops up its own window cannot be themed, localised or embedded — so the work
+            // is the host's. LinkRequested is what tells it to ask.
+            case (Key.K, true, false):
+                RaiseLinkRequested();
+                return true;
+
+            case (Key.K, true, true):
+                RemoveLink();
+                return true;
+
             default:
                 return false;
         }
