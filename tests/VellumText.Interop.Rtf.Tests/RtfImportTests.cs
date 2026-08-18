@@ -70,6 +70,32 @@ public class RtfImportTests
 
     // ---- what a real document carries -------------------------------------------------------
 
+    /// <summary>What RTF whitespace does and does not survive, pinned deliberately.</summary>
+    /// <remarks>
+    /// The character count survives and the characters themselves do not: RtfPipe writes a run of
+    /// spaces as one space followed by &amp;nbsp; entities, so four spaces come back as a space
+    /// and three U+00A0. That matters for anything that searches, wraps or re-exports the text -
+    /// a non-breaking space is not a space to any of them.
+    ///
+    /// Pinned with the codepoints spelled out because the two are indistinguishable on screen. I
+    /// first read this output as four ordinary spaces and reported the review finding as wrong;
+    /// it was closer to right than I was.
+    ///
+    /// The tab is dropped, and that is a decision rather than an oversight: see the remarks on
+    /// RtfImporter. Asserted here so that "fixing" it is a deliberate act with a failing test in
+    /// front of it.
+    /// </remarks>
+    [Fact]
+    public void Interior_spaces_survive_and_a_tab_does_not()
+    {
+        var spaced = RtfImporter.Import(@"{\rtf1\ansi a    b}").Doc;
+
+        Assert.Equal("a \u00A0\u00A0\u00A0b", ((ParagraphNode)spaced.Blocks[0]).Content.Text);
+
+        var tabbed = RtfImporter.Import(@"{\rtf1\ansi tab\tab here}").Doc;
+
+        Assert.Equal("tabhere", ((ParagraphNode)tabbed.Blocks[0]).Content.Text);
+    }
     [Fact]
     public void The_words_survive()
     {

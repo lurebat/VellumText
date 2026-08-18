@@ -21,6 +21,26 @@ namespace VellumText.Interop.Rtf;
 /// to contain. A second importer with its own idea of which URLs are safe is a second importer to
 /// get that wrong in.
 /// </para>
+/// <para>
+/// <b>A tab in the source is dropped, deliberately (decided 2026-08-18).</b> RtfPipe renders one
+/// as <c>&lt;span style="display:inline-block;width:48px"&gt;&lt;/span&gt;</c> — an empty spacer
+/// element rather than a character — so it arrives here as empty content and goes. Recovering it
+/// would mean recognising that library's private rendering choice, which changes without notice;
+/// but the stronger reason is that this editor has no tab to recover it <em>into</em>. Tab is
+/// bound to indent and outdent, as it is in a browser and in Word's lists, so there is no way to
+/// type a tab character and no tab-stop model to lay one out against. Importing one would inject
+/// a character the editor can never produce and can never round-trip. If tab stops are ever
+/// added, revisit this — and target a space or an indent, not a tab character, until then.
+/// </para>
+/// <para>
+/// Leading and trailing spaces go the same way, by ordinary HTML whitespace collapsing. An
+/// interior run survives in <em>length</em> but not in kind: RtfPipe writes it as one space
+/// followed by <c>&amp;nbsp;</c> entities, so four spaces arrive as a space and three U+00A0.
+/// That matters to anything that searches, wraps or re-exports the text, because a non-breaking
+/// space is not a space to any of them. Pinned by a test with the codepoints spelled out, since
+/// the two are indistinguishable on screen — I misread this output as four ordinary spaces once
+/// already.
+/// </para>
 /// </remarks>
 public static class RtfImporter
 {
