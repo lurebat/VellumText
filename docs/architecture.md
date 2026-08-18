@@ -208,6 +208,21 @@ This is the pivotal choice. It gives:
 
 `ResolvedPos Resolve(int pos)` yields the ancestor chain, depth, parent, and index — cached, invalidated per transaction.
 
+> **A `StepMap` holds several ranges, not one** (built 2026-08-18). Almost every step replaces one
+> stretch of the document, and that case is stored inline so a keystroke still allocates nothing to
+> describe itself — measured at 8 bytes more per edit than the one-range version, flat at every
+> document size. Several ranges are what a table edit needs: inserting a column adds a cell to
+> every row, and merging cells takes content out of several and puts it in one.
+>
+> The single-range answer was available and is arithmetically sound — call the whole table one
+> replaced range — and it was rejected because of what it does to positions *inside* the table. All
+> of them collapse onto the table's edge, including in rows the edit never touched, so a caret
+> three rows below an inserted row jumps to the top of the table. Everything holding a position
+> through the edit sees the same.
+>
+> Ranges that touch are merged when a map is built, so no position can be claimed by two of them
+> and mapping needs no tie-break.
+
 ### 4.4 Transactions and steps
 
 ```csharp
@@ -222,8 +237,8 @@ public abstract record Step
 public sealed record ReplaceStep(int From, int To, Slice Content) : Step;
 public sealed record AddMarkStep(int From, int To, MarkSet Mark, MarkFields Fields) : Step;
 public sealed record RemoveMarkStep(int From, int To, MarkFields Fields) : Step;
-public sealed record SetBlockAttrStep(int Pos, BlockAttr Attr, object? Value) : Step;
-public sealed record TableStructureStep(...) : Step;
+public sealed record SetBlockAttrStep(int Pos, BlockAttr Attr, int Value) : Step;
+public sealed record TableStructureStep(int Pos, TableNode Before, TableNode After) : Step;
 
 public sealed class Transaction
 {
@@ -885,7 +900,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
    This did not pass before that date: a keystroke was **27.59 ms**, and a criterion nothing measures is a sentence rather than a check. Four causes, all found by measurement and none by a failing test — validation re-walking the whole document after every step and building diagnostic strings it discarded, the block list being re-flattened on every state change including a caret move, and two linear lookups over sorted data.
    
    **Two linear costs remain, and they compound.** An edit rebuilds the root's child array, and ResolvedPos walks a parent's children to locate a position — so the cost of a keystroke depends on *where in the document it happens*. Measured at 32,000 blocks: resolving at the end takes 0.349 ms against 0.0001 ms at the start, doubling with the document. Fixing this needs a prefix-sum index over child sizes, the same shape as BlockHeightIndex, so a position can be located in O(log n) instead of O(children). The caret move is already flat — 1,768 bytes whatever the document size.
-9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries.
+9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries. **Covered 2026-08-18** by `RichTextViewTableCommandTests` for Tab and `RichTextViewBlockNavigationTests` for the arrows.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.
 
@@ -1208,6 +1223,57 @@ visible from inside the project. **Four of these were defects in code that had p
 the scale its consumers run it at, not at the scale its tests do — and that the questions which
 exposed all four came from outside the project. §10.4's "check the tree, not the row" has a
 companion: *check it against a consumer*.
+
+### 10.4.2 Table structure editing
+
+**Built 2026-08-18.** Insert and delete rows and columns, merge a rectangle of cells, split a
+merged one, and Tab between cells. The last thing that made VellumText a rich text editor rather
+than a rich text *viewer* with formatting: tables rendered, selected and round-tripped, and could
+not be changed.
+
+Three things were load-bearing and none of them were about tables.
+
+**A `StepMap` had to describe several ranges.** See the note in §4.3 — the short version is that
+the one-range answer is sound arithmetic and collapses every position inside the table onto its
+edge.
+
+**A table edit has to be one step**, and that is a consequence of the schema rather than a choice.
+`DocumentSchema` requires a table's cells to tile its grid exactly and every step must leave a
+document the schema accepts, so a column done a cell at a time stands, between steps, in exactly
+the document the schema exists to refuse. Verified before anything was built, by writing those
+replacements and watching them fail.
+
+**The step carries both tables, not just the new one.** `GetMap` has no document to consult, so
+the alternative is a caller-supplied map beside a caller-supplied table: two descriptions of one
+edit, free to disagree, with nothing able to notice. Carrying the pair makes the map derived, and
+costs two references — the old table is the one already in the document.
+
+Two things this uncovered:
+
+- **The schema was wrong about empty rows.** Merging a whole rectangle leaves one cell covering
+  several rows and the rows under it carrying nothing, which is what Word produces and what HTML
+  expresses. `RequireNonEmpty` called that broken while the occupancy check beside it already
+  answered the question properly. The rule moved into `ValidateTable` where coverage is known; a
+  row reached on its own still has to carry a cell, because it has no table to ask.
+- **§6.3's ragged-merge rejection cannot happen.** See the correction there.
+
+And one thing that only appeared because of the first: **the HTML importer dropped every empty
+`<tr>`**, so a merged table exported and read back came home as plain paragraphs. That code was
+correct for as long as no document could contain an empty row, which is to say it was correct
+until this increment. An empty row cannot be judged on its own — it is a merge when the rows above
+span into it and a stray tag from a word processor when nothing does — so the importer now tries
+the shape the author wrote and drops the empty rows only if it does not stand.
+
+**The lesson is about the tests, not the fix.** Three interop tests were written for exactly this,
+one per format, and all three asserted that what came back was schema-valid. A document of one
+paragraph is schema-valid. They passed, in green, while the table was being thrown away, and the
+defect surfaced only because the round trip was probed for what it actually returned. §8's rule
+about round-trip tests proving the writer and reader agree with each other has a companion:
+**a test that asserts an invariant the failure also satisfies is not a test.**
+
+**Deliberately not built**, and left for whoever picks this up: column resize by dragging, table
+styles and themes, and anything drag-and-drop. `TableEdits` has no notion of a table style and
+`ColumnWidths` is already the model for a resize, so neither is foreclosed.
 
 ### 10.5 Candidate upstream Avalonia reports
 

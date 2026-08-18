@@ -203,7 +203,8 @@ view.ListKindAt;
 
 The keyboard shortcuts are the usual ones: Ctrl+B/I/U, Ctrl+Shift+X, Ctrl+. and Ctrl+, for
 super/subscript, Ctrl+0–6 for paragraph kinds, Ctrl+L/E/R/J for alignment, Ctrl+Shift+7/8 for
-lists, Tab and Shift+Tab for indent and list nesting, Ctrl+Z/Y, Ctrl+F.
+lists, Tab and Shift+Tab for indent, list nesting and moving between table cells, Ctrl+Z/Y,
+Ctrl+F.
 
 ## The toolbar
 
@@ -424,15 +425,70 @@ involved.
 ## Tables
 
 Tables render as real tables, with row and column spans, header cells and cell backgrounds.
+
+### Editing the structure
+
+```csharp
+view.InsertRowAbove();
+view.InsertRowBelow();
+view.DeleteRow();
+
+view.InsertColumnLeft();
+view.InsertColumnRight();
+view.DeleteColumn();
+
+view.MergeCells();
+view.SplitCell();
+
+view.IsInTable;   // whether any of the above has anything to act on
+```
+
+Each is one undo step, and each returns `false` when it cannot apply: outside a table, merging
+without a rectangle selected, splitting a cell that was never merged, or deleting the last row or
+column — refused because removing a table is a different thing from editing one. They are also on
+the context menu under **Table**, which appears when the caret is in one.
+
+With a rectangle selected, the row and column commands act on as many rows or columns as it
+covers, so selecting three rows and inserting puts three rows in.
+
+**Tab and Shift+Tab move between cells**, and Tab in the last cell adds a row, so a table can be
+filled in without reaching for the mouse. Inside a list in a cell, Tab still nests the list — the
+list is the more specific thing to be doing, and it would otherwise have no way to nest at all.
+
+Merging keeps every absorbed cell's content, in document order, under the top-left cell's
+background and header flag; a cell holding nothing but an empty paragraph contributes nothing, so
+merging three empty cells into a full one does not leave three blank lines behind. Splitting
+leaves the content where it is, puts empty cells in the freed slots, and keeps the caret exactly
+as far into the cell as it was.
+
+Merging a whole rectangle leaves the rows underneath it carrying no cells of their own. That is a
+valid table — the merged cell covers them — and it is what both Word and HTML produce for the same
+gesture.
+
+To do the same to a document with no control involved, `TableEdits` in `VellumText.Core` returns
+the step to put in a transaction, and `TableGrid.CellContaining` finds the cell position it takes:
+
+```csharp
+var cell = TableGrid.CellContaining(doc, caret);
+var step = TableEdits.InsertRows(doc, cell!.Value, cell.Value, below: true);
+```
+
+### Selecting cells
+
 Dragging across cells makes a **rectangular** selection, which follows Word's rules: delete and cut
 empty the selected cells rather than removing them; marks apply to each cell independently; copy
-yields a table of just those cells; typing, paste and structural commands are refused.
+yields a table of just those cells. Typing, paste, and the *block* commands — headings, lists,
+indent — are refused, because a rectangle names no single block for them to land on.
 
 A rectangular selection is a `CellSelection` on the state:
 
 ```csharp
 var rectangle = view.State.Selection as CellSelection;
 ```
+
+Dragging to a cell that is merged across two columns takes the whole of it, and taking it widens
+the rectangle, which may take another — so a rectangle always covers whole cells, and there is no
+such thing as a ragged one to merge.
 
 ## Undo
 
