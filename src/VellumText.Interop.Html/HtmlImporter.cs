@@ -517,6 +517,7 @@ public static class HtmlImporter
         private void AddTable(IElement element, MarkSet mark, BlockStyle block, BlockSink sink, int depth)
         {
             var rows = new List<TableRowNode>();
+            var filled = 0;
 
             foreach (var rowElement in RowsOf(element))
             {
@@ -534,13 +535,15 @@ public static class HtmlImporter
                     cells.Add(BuildCell(cellElement, mark, block, depth, isHeader));
                 }
 
+                rows.Add(new TableRowNode(cells));
+
                 if (cells.Count > 0)
                 {
-                    rows.Add(new TableRowNode(cells));
+                    filled++;
                 }
             }
 
-            if (rows.Count == 0)
+            if (filled == 0)
             {
                 WalkChildren(element, mark, block, sink, depth);
                 return;
@@ -548,23 +551,44 @@ public static class HtmlImporter
 
             try
             {
-                var table = new TableNode(rows);
-
-                // The constructor only rejects a table that is malformed outright; whether the
-                // rows actually tile a rectangle is a schema rule, and a table that breaks it
-                // would be built happily here and then refused when the paste is applied.
-                if (!DocumentSchema.IsValid(table))
+                // An empty row is meaningful exactly when the rows above span into it, which is
+                // what merging across a whole rectangle produces and what this library's own
+                // exporter therefore writes. It is meaningless, and makes the table ragged, when
+                // nothing covers it - which is what a stray <tr> from a word processor is. Both
+                // arrive, and only the table itself can tell them apart, so the shape the author
+                // wrote is tried first and the empty rows are dropped only if it does not stand.
+                if (Rectangular(rows) is { } asWritten)
                 {
-                    Downgrade(rows, block, sink, "its rows do not form a rectangle");
+                    sink.AddBlock(block, asWritten);
                     return;
                 }
 
-                sink.AddBlock(block, table);
+                if (filled < rows.Count
+                    && Rectangular([.. rows.Where(row => row.Cells.Length > 0)]) is { } trimmed)
+                {
+                    sink.AddBlock(block, trimmed);
+                    return;
+                }
+
+                Downgrade(rows, block, sink, "its rows do not form a rectangle");
             }
             catch (ArgumentException ex)
             {
                 Downgrade(rows, block, sink, ex.Message);
             }
+        }
+
+        /// <summary>The table these rows make, or null if they do not tile a grid.</summary>
+        /// <remarks>
+        /// The constructor only rejects a table that is malformed outright; whether the rows
+        /// actually tile a rectangle is a schema rule, and a table that breaks it would be built
+        /// happily here and then refused when the paste is applied.
+        /// </remarks>
+        private static TableNode? Rectangular(List<TableRowNode> rows)
+        {
+            var table = new TableNode(rows);
+
+            return DocumentSchema.IsValid(table) ? table : null;
         }
 
         /// <summary>
