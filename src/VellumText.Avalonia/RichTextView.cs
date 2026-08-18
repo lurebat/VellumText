@@ -32,6 +32,25 @@ public partial class RichTextView : DocumentPresenter
         AvaloniaProperty.RegisterDirect<RichTextView, EditorState>(
             nameof(State), o => o.State, (o, v) => o.State = v);
 
+    /// <summary>Defines the <see cref="Document"/> property.</summary>
+    /// <remarks>
+    /// One-way to the source by default, because that is the only direction this property has:
+    /// see <see cref="Document"/>.
+    /// </remarks>
+    public static readonly DirectProperty<RichTextView, DocumentNode> DocumentProperty =
+        AvaloniaProperty.RegisterDirect<RichTextView, DocumentNode>(
+            nameof(Document),
+            o => o.Document,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.OneWayToSource);
+
+    /// <summary>Defines the <see cref="Selection"/> property.</summary>
+    /// <remarks>One-way to the source for the same reason <see cref="DocumentProperty"/> is.</remarks>
+    public static readonly DirectProperty<RichTextView, Selection> SelectionProperty =
+        AvaloniaProperty.RegisterDirect<RichTextView, Selection>(
+            nameof(Selection),
+            o => o.Selection,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.OneWayToSource);
+
     /// <summary>Defines the <see cref="SelectionBrush"/> property.</summary>
     public static readonly StyledProperty<IBrush?> SelectionBrushProperty =
         AvaloniaProperty.Register<RichTextView, IBrush?>(
@@ -147,7 +166,92 @@ public partial class RichTextView : DocumentPresenter
 
         OnStateChanged();
         RaisePropertyChanged(StateProperty, previous, value);
+        RaiseStateParts(previous, value);
     }
+
+    /// <summary>Announces the two halves of the state a view model binds to on their own.</summary>
+    /// <remarks>
+    /// <para>
+    /// Raised from here rather than from a setter because <see cref="State"/> is the only thing
+    /// that installs either of them: a document and a selection cannot be assigned separately, and
+    /// anything that announced them separately from somewhere else would be a second place to
+    /// forget.
+    /// </para>
+    /// <para>
+    /// Compared by reference for the document and by value for the selection, and deliberately not
+    /// the other way round. A selection is four small integers. A document is a tree, and
+    /// <see cref="Node.Equals(Node)"/> walks it — so a value comparison would run a deep compare of
+    /// the whole document on every keystroke, to answer a question identity already answers: the
+    /// model is immutable, so a different object is a different document.
+    /// </para>
+    /// </remarks>
+    private void RaiseStateParts(EditorState previous, EditorState value)
+    {
+        if (!ReferenceEquals(previous.Doc, value.Doc))
+        {
+            RaisePropertyChanged(DocumentProperty, previous.Doc, value.Doc);
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        if (previous.Selection != value.Selection)
+        {
+            RaisePropertyChanged(SelectionProperty, previous.Selection, value.Selection);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Raised after <see cref="Document"/> has become a different document.</summary>
+    /// <remarks>
+    /// <para>
+    /// The plain-event half of the same notification <see cref="DocumentProperty"/> gives, and it
+    /// exists because the property alone is not a usable story for an application that is not
+    /// written in XAML. Measured, against Avalonia 12.1.1: a <c>OneWayToSource</c> binding delivers
+    /// <em>changes</em> and never the value that was already there, so a view model bound before
+    /// the first edit holds null until the user types; and <c>GetObservable</c> does prime, but
+    /// only through <c>AnonymousObserver&lt;T&gt;</c> or a reference to Rx, which is a great deal
+    /// of ceremony to hear that a document changed.
+    /// </para>
+    /// <para>
+    /// Read <see cref="Document"/> in the handler. There is no payload deliberately: a document is
+    /// the whole tree, and an argument carrying the previous one would keep it alive for as long as
+    /// the handler ran.
+    /// </para>
+    /// </remarks>
+    public event EventHandler? DocumentChanged;
+
+    /// <summary>Raised after <see cref="Selection"/> has moved or changed shape.</summary>
+    /// <remarks>
+    /// Not raised for an edit that leaves the selection where it was, and not raised twice for an
+    /// edit that moves it: the two are announced independently because a view model usually wants
+    /// only one of them. A word count wants <see cref="DocumentChanged"/>; a "3 characters
+    /// selected" label wants this.
+    /// </remarks>
+    public event EventHandler? SelectionChanged;
+
+    /// <summary>The document being presented.</summary>
+    /// <remarks>
+    /// <para>
+    /// Read-only, and one-way <em>out</em> of the control: bind it with
+    /// <c>Mode=OneWayToSource</c> — which is its default — or subscribe with
+    /// <c>GetObservable(DocumentProperty)</c>, and a view model hears every edit the user makes.
+    /// </para>
+    /// <para>
+    /// <b>Assigning a document is deliberately not this property's job.</b> Load one through
+    /// <see cref="State"/>, which is where the rule about what becomes of the undo history lives —
+    /// see <see cref="SetState"/>. Reconciling a document assigned from outside against edits
+    /// already in flight, and against a history recorded over a document that is no longer there,
+    /// is a design with real hazards and nobody has asked for it.
+    /// </para>
+    /// </remarks>
+    public DocumentNode Document => _state.Doc;
+
+    /// <summary>What is selected: a range of text, or a rectangle of table cells.</summary>
+    /// <remarks>
+    /// Read-only and one-way out, exactly as <see cref="Document"/> is. Move it with
+    /// <see cref="SelectAll"/>, <c>MoveTo</c>, or by assigning a <see cref="State"/> carrying the
+    /// same document and a different selection — which costs no undo history.
+    /// </remarks>
+    public Selection Selection => _state.Selection;
 
     /// <summary>The fill behind selected text.</summary>
     public IBrush? SelectionBrush

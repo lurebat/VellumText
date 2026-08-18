@@ -246,7 +246,7 @@ Ctrl+K raises `LinkRequested` so you can show your own dialog — it carries the
 the caret is inside one, so the same dialog serves create and edit:
 
 ```csharp
-view.LinkRequested += (_, e) =>
+view.LinkRequested += async (_, e) =>
 {
     var href = await AskUser(e.Link?.Href);   // e.Link is null when creating
     if (href is not null)
@@ -298,6 +298,58 @@ A read-only editor never shows it, whatever that flag says — a control that ha
 refused should not advertise them. The flag keeps its own authority in the other direction, so you
 can suppress the bar on an editable control too. The same rule applies to the context menu: Cut,
 Paste and the table submenu are hidden when `IsReadOnly` is set, and Copy and Select All remain.
+
+## Binding to a view model
+
+Both controls expose the two halves of their state as bindable properties:
+
+| Member | On | What it is |
+| --- | --- | --- |
+| `Document` | editor, view | The document as it now is. |
+| `Selection` | editor, view | What is selected — a text range or a rectangle of cells. |
+| `DocumentChanged` | editor, view | Raised after the document became a different document. |
+| `SelectionChanged` | editor, view | Raised after the selection moved or changed shape. |
+
+`Document` and `Selection` are **one-way out**. Their default binding mode is `OneWayToSource`, so
+this is all a view model needs to follow along:
+
+```xml
+<v:RichTextEditor Document="{Binding Doc}" Selection="{Binding Caret}" />
+```
+
+Assigning them is refused with an `ArgumentException` rather than accepted and dropped. To *load* a
+document, assign `State` — which announces itself the same way, so a view model that both loads and
+observes hears its own load:
+
+```csharp
+Editor.State = EditorState.Create(await LoadAsync(path));
+```
+
+Two-way document binding is deliberately not offered. Reconciling a document assigned from outside
+against edits in flight, and against a history recorded over a document that is no longer there, has
+real hazards; refusing the write says so out loud.
+
+**A binding carries changes, not the value that is already there.** Measured against Avalonia
+12.1.1: a `OneWayToSource` binding attached to a control that already holds a document writes
+nothing until the next edit, so a view model that only bound would hold `null` through a session in
+which the user changed nothing. That is what the two events are for — subscribe, then read the
+property:
+
+```csharp
+Editor.DocumentChanged += (_, _) => vm.IsDirty = true;
+Editor.SelectionChanged += (_, _) => vm.WordCount = Count(Editor.Document, Editor.Selection);
+```
+
+They are raised from the shell's own state rather than relayed from the view, so a view model may
+subscribe in a constructor — before the template exists — and still hear the first change. Neither
+fires for a change that did not happen: pressing Ctrl+B at a collapsed caret arms formatting for the
+next character and announces nothing, because no reader of the document could tell.
+
+For formatting **commands**, bind `RichTextToolbar` — it exposes an `ICommand` for every action
+(`ToggleStyleCommand`, `SetParagraphKindCommand`, `SetAlignCommand`, `ToggleListCommand`,
+`SetForegroundCommand`, `SetHighlightCommand`, `SetFontFamilyCommand`, `SetFontSizeCommand`,
+`IndentCommand`, `OutdentCommand`, `ClearFormattingCommand`, `SetLinkCommand`, `UndoCommand`,
+`RedoCommand`) and none of them throw.
 
 ## Which control for a preview pane
 

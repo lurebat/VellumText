@@ -213,6 +213,99 @@ public class GuideCheckTests
         Assert.Equal([], missing.Distinct().Order());
     }
 
+    [AvaloniaFact]
+    public void TheMvvmSurfaceTheGuideDescribesExistsOnBothControls()
+    {
+        // The section a developer reads in their first ten minutes, and none of it is reachable by
+        // the receiver regex above: the table is prose, and the XAML snippet is the exact thing
+        // that gets copied. A binding to a property that is not there fails at runtime with a
+        // warning in a log nobody is reading.
+        var guide = ReadGuide();
+        var section = Section(guide, "## Binding to a view model", "## Which control for a preview pane");
+        var missing = new List<string>();
+        var rows = 0;
+
+        foreach (Match row in Regex.Matches(section, @"^\| `(\w+)` \| ([^|]+)\|", RegexOptions.Multiline))
+        {
+            var member = row.Groups[1].Value;
+
+            foreach (var control in row.Groups[2].Value.Split(','))
+            {
+                var type = control.Trim() switch
+                {
+                    "editor" => typeof(RichTextEditor),
+                    "view" => typeof(RichTextView),
+                    _ => null,
+                };
+
+                if (type is null)
+                {
+                    continue;
+                }
+
+                rows++;
+
+                if (type.GetMember(member).Length == 0)
+                {
+                    missing.Add($"{type.Name}.{member}");
+                }
+            }
+        }
+
+        // Bindable in XAML means the AvaloniaProperty exists too, not just the CLR property.
+        var attributes = 0;
+
+        foreach (Match attribute in Regex.Matches(section, @"(\w+)=""\{Binding"))
+        {
+            var name = attribute.Groups[1].Value;
+
+            attributes++;
+
+            if (typeof(RichTextEditor).GetField($"{name}Property", BindingFlags.Public | BindingFlags.Static) is null)
+            {
+                missing.Add($"RichTextEditor.{name}Property");
+            }
+        }
+
+        var commands = 0;
+
+        foreach (Match command in Regex.Matches(section, @"`(\w+Command)`"))
+        {
+            // The interface itself, named in the prose that introduces the list.
+            if (command.Groups[1].Value == "ICommand")
+            {
+                continue;
+            }
+
+            commands++;
+
+            if (typeof(RichTextToolbar).GetProperty(command.Groups[1].Value) is null)
+            {
+                missing.Add($"RichTextToolbar.{command.Groups[1].Value}");
+            }
+        }
+
+        // Guards the guard three times over: each regex would pass silently against a section that
+        // had been renamed out from under it.
+        Assert.True(rows >= 8, $"only {rows} table entries found - has the section moved?");
+        Assert.True(attributes >= 2, $"only {attributes} bound attributes found - has the section moved?");
+        Assert.True(commands >= 10, $"only {commands} commands found - has the section moved?");
+        Assert.Equal([], missing.Distinct().Order());
+    }
+
+    private static string Section(string guide, string from, string to)
+    {
+        var start = guide.IndexOf(from, StringComparison.Ordinal);
+
+        Assert.True(start >= 0, $"'{from}' is no longer in the guide");
+
+        var end = guide.IndexOf(to, start, StringComparison.Ordinal);
+
+        Assert.True(end > start, $"'{to}' no longer follows '{from}' in the guide");
+
+        return guide[start..end];
+    }
+
     private static string RepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -58,6 +58,25 @@ public class RichTextEditor : TemplatedControl
             EditorState.Create(DocumentNode.Empty),
             defaultBindingMode: global::Avalonia.Data.BindingMode.TwoWay);
 
+    /// <summary>Defines the <see cref="Document"/> property.</summary>
+    /// <remarks>
+    /// One-way to the source by default, because that is the only direction it has. See
+    /// <see cref="RichTextView.DocumentProperty"/>.
+    /// </remarks>
+    public static readonly DirectProperty<RichTextEditor, DocumentNode> DocumentProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, DocumentNode>(
+            nameof(Document),
+            o => o.Document,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.OneWayToSource);
+
+    /// <summary>Defines the <see cref="Selection"/> property.</summary>
+    /// <remarks>One-way to the source for the same reason <see cref="DocumentProperty"/> is.</remarks>
+    public static readonly DirectProperty<RichTextEditor, Selection> SelectionProperty =
+        AvaloniaProperty.RegisterDirect<RichTextEditor, Selection>(
+            nameof(Selection),
+            o => o.Selection,
+            defaultBindingMode: global::Avalonia.Data.BindingMode.OneWayToSource);
+
     /// <summary>Defines the <see cref="IsSelectionToolbarEnabled"/> property.</summary>
     public static readonly StyledProperty<bool> IsSelectionToolbarEnabledProperty =
         AvaloniaProperty.Register<RichTextEditor, bool>(
@@ -208,6 +227,27 @@ public class RichTextEditor : TemplatedControl
         get => GetValue(StateProperty);
         set => SetValue(StateProperty, value);
     }
+
+    /// <summary>The document being edited.</summary>
+    /// <remarks>
+    /// <para>
+    /// Read-only and one-way <em>out</em>: bind it with <c>Mode=OneWayToSource</c> — its default —
+    /// or subscribe with <c>GetObservable(DocumentProperty)</c>, and a view model hears every edit
+    /// without knowing anything about transactions. Load a document by assigning
+    /// <see cref="State"/>; <see cref="RichTextView.Document"/> explains why that direction is not
+    /// this property's.
+    /// </para>
+    /// <para>
+    /// Read from <see cref="State"/> rather than relayed from the view, so it answers before the
+    /// template has been applied. A view model bound in a constructor would otherwise see an empty
+    /// document until the control was first laid out.
+    /// </para>
+    /// </remarks>
+    public DocumentNode Document => State.Doc;
+
+    /// <summary>What is selected: a range of text, or a rectangle of table cells.</summary>
+    /// <remarks>Read-only and one-way out, exactly as <see cref="Document"/> is.</remarks>
+    public Selection Selection => State.Selection;
 
     /// <summary>Whether a small formatting bar floats beside a non-empty selection.</summary>
     /// <remarks>
@@ -564,9 +604,17 @@ public class RichTextEditor : TemplatedControl
 
         base.OnPropertyChanged(change);
 
-        if (change.Property == StateProperty && _view is not null)
+        if (change.Property == StateProperty)
         {
-            _view.State = State;
+            // Announced here rather than beside the view's own pair, because this shell holds the
+            // state itself: the editor answers Document before it has ever been templated, and a
+            // relay from the view would say "empty" until the first layout pass.
+            RaiseStateParts((EditorState)change.OldValue!, (EditorState)change.NewValue!);
+
+            if (_view is not null)
+            {
+                _view.State = State;
+            }
         }
         else if (change.Property == IsSelectionToolbarEnabledProperty)
         {
@@ -588,6 +636,38 @@ public class RichTextEditor : TemplatedControl
             }
         }
     }
+
+    /// <summary>Announces the two halves of the state a view model binds to on their own.</summary>
+    /// <remarks>
+    /// The same reference-for-the-document, value-for-the-selection rule
+    /// <see cref="RichTextView"/> uses, and for the same reason: comparing documents by value
+    /// would walk the whole tree on every keystroke to answer a question identity already answers.
+    /// </remarks>
+    private void RaiseStateParts(EditorState previous, EditorState value)
+    {
+        if (!ReferenceEquals(previous.Doc, value.Doc))
+        {
+            RaisePropertyChanged(DocumentProperty, previous.Doc, value.Doc);
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        if (previous.Selection != value.Selection)
+        {
+            RaisePropertyChanged(SelectionProperty, previous.Selection, value.Selection);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <inheritdoc cref="RichTextView.DocumentChanged"/>
+    /// <remarks>
+    /// Raised from the shell's own state rather than forwarded from the view, so a view model may
+    /// subscribe in a constructor — before the template exists — and still hear the first edit.
+    /// </remarks>
+    public event EventHandler? DocumentChanged;
+
+    /// <inheritdoc cref="RichTextView.SelectionChanged"/>
+    /// <remarks>Raised from the shell's own state, for the reason <see cref="DocumentChanged"/> is.</remarks>
+    public event EventHandler? SelectionChanged;
 
     /// <summary>Copies the four behaviour properties into the templated view.</summary>
     /// <remarks>
