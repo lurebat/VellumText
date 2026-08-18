@@ -28,4 +28,13 @@
            Text="VellumText.Core must have no ProjectReference. Found: @(ProjectReference)." />
   </Target>
 
+  <ItemGroup>
+    <!-- Two things in Core exist for its dependents rather than for a host: HeadingAppearance, which
+         the editor and the RTF exporter must agree on, and InlineContent.Runs, the run-splitting scan
+         every exporter needs. Neither is a model concept, so both stay out of the public API. -->
+    <InternalsVisibleTo Include="VellumText.Avalonia" />
+    <InternalsVisibleTo Include="VellumText.Interop.Html" />
+    <InternalsVisibleTo Include="VellumText.Interop.Rtf" />
+  </ItemGroup>
+
 </Project>

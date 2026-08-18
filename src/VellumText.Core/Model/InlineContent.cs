@@ -223,8 +223,39 @@ public sealed class InlineContent : IEquatable<InlineContent>
     }
 
     /// <summary>
-    /// The formatting a character typed at <paramref name="offset"/> should inherit.
+    /// The content split into maximal stretches of identical formatting, in order.
     /// </summary>
+    /// <returns>
+    /// One <see cref="ValueSpan{T}"/> per run, together covering <c>[0, Length)</c> exactly.
+    /// Empty content yields nothing.
+    /// </returns>
+    /// <remarks>
+    /// Internal rather than public because it is not a model concept a host needs: it exists for
+    /// the two exporters that write formatting as markup, HTML and RTF, each of which had written
+    /// the same scan by hand. The JSON format does not use it — it persists the mark spans
+    /// themselves. Runs are maximal by construction, so a writer that opens a group per run cannot
+    /// emit an empty one.
+    /// </remarks>
+    internal IEnumerable<ValueSpan<MarkSet>> Runs()
+    {
+        var start = 0;
+
+        while (start < Length)
+        {
+            var mark = MarkAt(start);
+            var end = start + 1;
+
+            while (end < Length && MarkAt(end) == mark)
+            {
+                end++;
+            }
+
+            yield return new ValueSpan<MarkSet>(start, end - start, mark);
+            start = end;
+        }
+    }
+
+    /// <summary>The formatting a character typed at <paramref name="offset"/> should inherit.</summary>
     /// <remarks>
     /// Takes the formatting of the character before the caret, which is what every editor
     /// does: typing at the end of a bold word continues bold. At the very start there is no

@@ -96,12 +96,23 @@ public class RtfExportTests
         is ParagraphKind.Heading1 or ParagraphKind.Heading2 or ParagraphKind.Heading3
         or ParagraphKind.Heading4 or ParagraphKind.Heading5 or ParagraphKind.Heading6;
 
+    /// <summary>
+    /// The size, in pixels, that a paragraph of <paramref name="kind"/> comes back wearing.
+    /// </summary>
+    /// <remarks>
+    /// These are the editor's heading ratios against a 16px body, rounded to the nearest
+    /// half-point because that is the only size RTF can state. They are written out rather than
+    /// computed from the exporter's own ramp so that this normaliser cannot silently agree with
+    /// whatever the exporter currently does; <see cref="A_heading_is_exported_at_the_size_the_editor_draws_it"/>
+    /// is where the same numbers are asserted directly.
+    /// </remarks>
     private static double SizeOf(ParagraphKind kind) => kind switch
     {
-        ParagraphKind.Heading1 => 32,
-        ParagraphKind.Heading2 => 24,
-        ParagraphKind.Heading3 => 20,
-        ParagraphKind.Heading5 => 14,
+        ParagraphKind.Heading1 => 32.0,
+        ParagraphKind.Heading2 => 25.333333333333332,
+        ParagraphKind.Heading3 => 21.333333333333332,
+        ParagraphKind.Heading4 => 19.333333333333332,
+        ParagraphKind.Heading5 => 17.333333333333332,
         _ => DefaultSize,
     };
 
@@ -272,6 +283,35 @@ public class RtfExportTests
     public void Indent_depth_survives(int level) =>
         Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text"), ParagraphKind.Body, TextAlign.Default, level)]));
+
+    /// <summary>
+    /// A heading is exported at the size the editor draws it, so that a paste lands looking like
+    /// what was copied.
+    /// </summary>
+    /// <remarks>
+    /// The exporter used to carry its own ramp — 1.5, 1.25, 1.0, 0.875, 0.85 for levels 2 to 6 —
+    /// which agreed with the editor at level 1 and nowhere else. Nothing was red because no
+    /// heading was ever round-tripped for equality, only for its kind. This is that assertion.
+    /// The sizes are written out rather than computed from the shared ramp, so that the test does
+    /// not simply restate whatever the code currently says. They are the editor's ratios against a
+    /// 16px body, rounded to the nearest half-point because that is the only size RTF can state.
+    /// </remarks>
+    [Theory]
+    [InlineData(ParagraphKind.Heading1, 32.0)]
+    [InlineData(ParagraphKind.Heading2, 25.333333333333332)]
+    [InlineData(ParagraphKind.Heading3, 21.333333333333332)]
+    [InlineData(ParagraphKind.Heading4, 19.333333333333332)]
+    [InlineData(ParagraphKind.Heading5, 17.333333333333332)]
+    [InlineData(ParagraphKind.Heading6, 16.0)]
+    public void A_heading_is_exported_at_the_size_the_editor_draws_it(ParagraphKind kind, double expected)
+    {
+        var back = RoundTrip(new DocumentNode([
+            new ParagraphNode(InlineContent.FromText("title"), kind)]));
+
+        // Level 6 is drawn at body size, so RTF states nothing and the run comes back with the
+        // document default — which is the same 16px, arrived at by a different route.
+        Assert.Equal(expected, Para(back).Content.MarkAt(0).FontSize);
+    }
 
     [Theory]
     [InlineData(ParagraphKind.Heading1)]

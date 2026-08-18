@@ -94,8 +94,6 @@ public interface IParagraphStyleResolver
 /// </remarks>
 public sealed class ParagraphStyleResolver : IParagraphStyleResolver
 {
-    private static readonly double[] HeadingScales = [2.0, 1.6, 1.35, 1.2, 1.1, 1.0];
-
     /// <summary>
     /// Baseline-to-baseline distance for body text, as a multiple of its size. The usual reading
     /// range is 1.4 to 1.6; the top of it because an editor's line is a click target as well as
@@ -147,12 +145,7 @@ public sealed class ParagraphStyleResolver : IParagraphStyleResolver
     /// <inheritdoc/>
     public ParagraphStyle Resolve(ParagraphKind kind) => kind switch
     {
-        ParagraphKind.Heading1 => Heading(0),
-        ParagraphKind.Heading2 => Heading(1),
-        ParagraphKind.Heading3 => Heading(2),
-        ParagraphKind.Heading4 => Heading(3),
-        ParagraphKind.Heading5 => Heading(4),
-        ParagraphKind.Heading6 => Heading(5),
+        _ when HeadingAppearance.IsHeading(kind) => Heading(kind),
 
         ParagraphKind.Quote => new ParagraphStyle(
             SpaceBefore: _spacing,
@@ -174,13 +167,18 @@ public sealed class ParagraphStyleResolver : IParagraphStyleResolver
         _ => new ParagraphStyle(SpaceAfter: _spacing, LineHeightScale: BodyLineHeight),
     };
 
-    private ParagraphStyle Heading(int level) => new(
-        FontScale: HeadingScales[level],
-        Weight: FontWeight.Bold,
+    private ParagraphStyle Heading(ParagraphKind kind)
+    {
+        var scale = HeadingAppearance.Scale(kind);
 
-        // A heading belongs to what follows it, so it leaves more room above than below, and
-        // both gaps are measured in the heading's own size rather than the body's.
-        SpaceBefore: _spacing * HeadingScales[level] * 1.6,
-        SpaceAfter: _spacing * HeadingScales[level] * 0.45,
-        LineHeightScale: HeadingLineHeight);
+        return new ParagraphStyle(
+            FontScale: scale,
+            Weight: FontWeight.Bold,
+
+            // A heading belongs to what follows it, so it leaves more room above than below, and
+            // both gaps are measured in the heading's own size rather than the body's.
+            SpaceBefore: _spacing * scale * 1.6,
+            SpaceAfter: _spacing * scale * 0.45,
+            LineHeightScale: HeadingLineHeight);
+    }
 }

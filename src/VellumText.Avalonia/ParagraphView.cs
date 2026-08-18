@@ -322,6 +322,7 @@ internal sealed class ParagraphView : BlockView
     /// as the line. The run's top is the line's baseline less the run's own, which is how the
     /// formatter placed it — see <see cref="EmbedRun"/>.
     /// </remarks>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public override Rect? GetImageRect(int localPosition)
     {
         // Deliberately kept although no test can distinguish it: the line search below happens to
@@ -436,6 +437,7 @@ internal sealed class ParagraphView : BlockView
     }
 
     /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public override int HitTest(Point local)
     {
         var hit = Layout.HitTestPoint(local - Origin);
@@ -447,6 +449,10 @@ internal sealed class ParagraphView : BlockView
     }
 
     /// <inheritdoc/>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="localPosition"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public override Rect GetCaretRect(int localPosition)
     {
         CheckPosition(localPosition);
@@ -460,7 +466,9 @@ internal sealed class ParagraphView : BlockView
     /// position the document has no counterpart for, which is exactly what that method refuses
     /// to accept.
     /// </remarks>
-    /// <exception cref="InvalidOperationException">Nothing is being composed here.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Nothing is being composed here, or the paragraph has not been measured.
+    /// </exception>
     public Rect GetPreeditCaretRect()
     {
         if (_preedit is not { } preedit)
@@ -483,6 +491,14 @@ internal sealed class ParagraphView : BlockView
     public override TextAt? ParagraphAt(int localPosition) => new(this, 0, default);
 
     /// <inheritdoc/>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="from"/> or <paramref name="to"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// The paragraph has not been measured, and the range is not empty. An empty range answers
+    /// with no rectangles before any geometry is needed, so it is not a question the layout has to
+    /// exist to answer.
+    /// </exception>
     public override IReadOnlyList<Rect> GetSelectionRects(int from, int to)
     {
         CheckPosition(from);
@@ -533,6 +549,10 @@ internal sealed class ParagraphView : BlockView
     /// grapheme cluster.
     /// </summary>
     /// <param name="localPosition">The position to move from.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="localPosition"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int NextCaretPosition(int localPosition) =>
         Move(localPosition, forward: true, static (line, hit) => line.GetNextCaretCharacterHit(hit));
 
@@ -541,6 +561,10 @@ internal sealed class ParagraphView : BlockView
     /// inside a grapheme cluster.
     /// </summary>
     /// <param name="localPosition">The position to move from.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="localPosition"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int PreviousCaretPosition(int localPosition) =>
         Move(localPosition, forward: false, static (line, hit) => line.GetPreviousCaretCharacterHit(hit));
 
@@ -553,10 +577,15 @@ internal sealed class ParagraphView : BlockView
     /// difference and the user chose to keep the component-peel behaviour.
     /// </remarks>
     /// <param name="localPosition">The caret position to delete back from.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="localPosition"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int BackspacePosition(int localPosition) =>
         Move(localPosition, forward: false, static (line, hit) => line.GetBackspaceCaretCharacterHit(hit));
 
     /// <summary>The number of visual lines the paragraph wrapped onto.</summary>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineCount => Layout.TextLines.Count;
 
     /// <summary>The index of the visual line a position sits on.</summary>
@@ -566,6 +595,10 @@ internal sealed class ParagraphView : BlockView
     /// </remarks>
     /// <param name="localPosition">The position to locate.</param>
     /// <param name="forward">Whether the caret is moving forward.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="localPosition"/> is outside <c>[0, ContentSize]</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineIndexAt(int localPosition, bool forward)
     {
         CheckPosition(localPosition);
@@ -592,6 +625,10 @@ internal sealed class ParagraphView : BlockView
 
     /// <summary>The first position on a visual line.</summary>
     /// <param name="lineIndex">The line.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="lineIndex"/> is outside <c>[0, LineCount)</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineStart(int lineIndex) =>
         FromLayout(Math.Clamp(Line(lineIndex).FirstTextSourceIndex, 0, LayoutSize));
 
@@ -603,6 +640,10 @@ internal sealed class ParagraphView : BlockView
     /// not sit past the visible edge of the line.
     /// </remarks>
     /// <param name="lineIndex">The line.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="lineIndex"/> is outside <c>[0, LineCount)</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineEnd(int lineIndex)
     {
         var line = Line(lineIndex);
@@ -618,6 +659,10 @@ internal sealed class ParagraphView : BlockView
     /// </remarks>
     /// <param name="lineIndex">The line to land on.</param>
     /// <param name="x">The horizontal offset to land nearest.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="lineIndex"/> is outside <c>[0, LineCount)</c>.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int PositionAtLineX(int lineIndex, double x)
     {
         var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Origin.X);

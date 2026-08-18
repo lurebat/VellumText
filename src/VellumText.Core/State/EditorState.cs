@@ -86,6 +86,7 @@ public sealed class Transaction
     /// <summary>The steps that were applied, in order.</summary>
     public ImmutableArray<Step> Steps => _steps.ToImmutable();
 
+
     /// <summary>Why each dropped step was dropped.</summary>
     public ImmutableArray<string> Failures => _failures.ToImmutable();
 

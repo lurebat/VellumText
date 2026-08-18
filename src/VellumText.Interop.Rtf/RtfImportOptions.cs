@@ -19,9 +19,8 @@ namespace VellumText.Interop.Rtf;
 /// public surface where a later rewrite of the RTF reader could not change it.
 /// </para>
 /// <para>
-/// It is deliberately smaller. <c>MaxDepth</c> and <c>PreserveIdentifiers</c> are absent because
-/// the HTML they would apply to is generated here rather than authored: there are no <c>class</c>
-/// or <c>id</c> attributes to preserve, and the nesting bound is a stack-overflow guard that a host
+/// It is deliberately smaller. <c>MaxDepth</c> is absent because the HTML it would apply to is
+/// generated here rather than authored, and the nesting bound is a stack-overflow guard that a host
 /// has no reason to loosen on markup it did not write.
 /// </para>
 /// </remarks>
