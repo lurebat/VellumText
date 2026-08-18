@@ -37,7 +37,7 @@ public class StepMapTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new StepMap(1, int.MaxValue, 0));
 
         // The largest honest map is still allowed.
-        Assert.Equal(int.MaxValue, new StepMap(0, 0, int.MaxValue).NewSize);
+        Assert.Equal(int.MaxValue, new StepMap(0, 0, int.MaxValue).RangeAt(0).NewSize);
     }
 
     [Fact]
@@ -115,9 +115,7 @@ public class StepMapTests
     {
         var inverted = Replace5To10With2.Invert();
 
-        Assert.Equal(5, inverted.Start);
-        Assert.Equal(2, inverted.OldSize);
-        Assert.Equal(5, inverted.NewSize);
+        Assert.Equal(new ReplacedRange(5, 2, 5), inverted.RangeAt(0));
         Assert.Equal(3, inverted.SizeDelta);
     }
 
@@ -201,6 +199,177 @@ public class StepMapRoundTripTests
             var mapped = map.Map(pos);
 
             Assert.True(mapped >= 0);
+            Assert.True(mapped >= previous, $"{pos} mapped to {mapped}, behind {previous}");
+
+            previous = mapped;
+        }
+    }
+}
+
+/// <summary>
+/// A map over several separated ranges.
+/// </summary>
+/// <remarks>
+/// Inserting a table column adds a cell to every row and merging cells takes content out of
+/// several and puts it in one, so neither is one replaced range. The alternative — one range
+/// spanning the whole table — maps positions outside the table correctly and collapses every
+/// position inside it onto the table's edge, including in rows the edit never touched.
+/// </remarks>
+public class MultiRangeStepMapTests
+{
+    // Delete two positions at 5, and insert three at 20. Between them the document is two
+    // shorter; after them it is one longer.
+    private static readonly StepMap TwoRanges = StepMap.Of([
+        new ReplacedRange(5, 2, 0),
+        new ReplacedRange(20, 0, 3),
+    ]);
+
+    [Fact]
+    public void APositionBetweenTwoRangesMovesByTheFirstRangeAlone()
+    {
+        Assert.Equal(8, TwoRanges.Map(10));
+        Assert.Equal(17, TwoRanges.Map(19));
+    }
+
+    [Fact]
+    public void APositionBeforeEveryRangeStaysPut()
+    {
+        Assert.Equal(4, TwoRanges.Map(4));
+    }
+
+    [Fact]
+    public void APositionAfterEveryRangeMovesByTheirTotal()
+    {
+        Assert.Equal(22, TwoRanges.Map(21));
+        Assert.Equal(1, TwoRanges.SizeDelta);
+    }
+
+    [Fact]
+    public void APositionInsideALaterRangeCollapsesInThatRangesOwnCoordinates()
+    {
+        // Inside the deletion at 5, which by then has already moved nothing before it.
+        Assert.Equal(5, TwoRanges.Map(6));
+        Assert.True(TwoRanges.MapWithResult(6).Deleted);
+
+        // The insertion at 20 is a pure insertion, so the caller picks a side - and both answers
+        // are measured after the earlier deletion has taken two positions out.
+        Assert.Equal(18, TwoRanges.Map(20, Assoc.Before));
+        Assert.Equal(21, TwoRanges.Map(20, Assoc.After));
+    }
+
+    [Fact]
+    public void EveryRangeIsVisible()
+    {
+        Assert.Equal(2, TwoRanges.RangeCount);
+        Assert.Equal(new ReplacedRange(5, 2, 0), TwoRanges.RangeAt(0));
+        Assert.Equal(new ReplacedRange(20, 0, 3), TwoRanges.RangeAt(1));
+    }
+
+    [Fact]
+    public void UndeletedPositionsSurviveTheRoundTrip()
+    {
+        var back = TwoRanges.Invert();
+        var survivors = 0;
+
+        for (var pos = 0; pos <= 30; pos++)
+        {
+            foreach (var assoc in new[] { Assoc.Before, Assoc.After })
+            {
+                var forward = TwoRanges.MapWithResult(pos, assoc);
+
+                if (forward.Deleted)
+                {
+                    continue;
+                }
+
+                Assert.Equal(pos, back.Map(forward.Pos, assoc));
+                survivors++;
+            }
+        }
+
+        // Only the two positions inside the deletion are lost, so a run that round tripped
+        // almost nothing would mean the inverse was wrong rather than that the edit was large.
+        Assert.True(survivors >= 55, $"only {survivors} positions round tripped");
+    }
+
+    [Fact]
+    public void AMapOfNoRangesMovesNothing()
+    {
+        Assert.True(StepMap.Of([]).IsIdentity);
+        Assert.Equal(StepMap.Identity, StepMap.Of([]));
+    }
+
+    [Fact]
+    public void ASingleRangeIsTheSameMapWhicheverWayItIsBuilt()
+    {
+        Assert.Equal(new StepMap(5, 2, 0), StepMap.Of([new ReplacedRange(5, 2, 0)]));
+        Assert.Equal(1, StepMap.Of([new ReplacedRange(5, 2, 0)]).RangeCount);
+    }
+
+    [Fact]
+    public void TwoMapsBuiltFromTheSameRangesAreEqual()
+    {
+        // The compiler's own equality would compare the extra ranges by array reference, so
+        // these two would differ and nothing would ever notice, since the maps a transaction
+        // builds are never the same array twice.
+        var other = StepMap.Of([new ReplacedRange(5, 2, 0), new ReplacedRange(20, 0, 3)]);
+
+        Assert.Equal(TwoRanges, other);
+        Assert.Equal(TwoRanges.GetHashCode(), other.GetHashCode());
+        Assert.NotEqual(TwoRanges, StepMap.Of([new ReplacedRange(5, 2, 0)]));
+    }
+
+    [Fact]
+    public void RangesThatTouchAreMergedIntoOne()
+    {
+        // Two replacements with nothing between them and the one replacement covering both move
+        // everything outside them identically. Merging them means the position where they meet
+        // has one answer rather than two rules disagreeing about which range deleted it.
+        var merged = StepMap.Of([new ReplacedRange(5, 2, 1), new ReplacedRange(7, 3, 4)]);
+
+        Assert.Equal(1, merged.RangeCount);
+        Assert.Equal(new ReplacedRange(5, 5, 5), merged.RangeAt(0));
+    }
+
+    [Fact]
+    public void OverlappingOrUnorderedRangesAreRefused()
+    {
+        Assert.Throws<ArgumentException>(() => StepMap.Of([
+            new ReplacedRange(5, 4, 0),
+            new ReplacedRange(6, 1, 0),
+        ]));
+
+        Assert.Throws<ArgumentException>(() => StepMap.Of([
+            new ReplacedRange(20, 0, 3),
+            new ReplacedRange(5, 2, 0),
+        ]));
+    }
+
+    [Fact]
+    public void RangesThatTogetherOverflowThePositionSpaceAreRefused()
+    {
+        // Neither range runs off the end on its own - the second one inserts twenty positions
+        // near the start of the document. It is the first range's insertion, already counted,
+        // that puts the second one past the end, and that running total is what a position
+        // after both of them gets added to.
+        Assert.Throws<ArgumentOutOfRangeException>(() => StepMap.Of([
+            new ReplacedRange(0, 0, int.MaxValue - 10),
+            new ReplacedRange(5, 0, 20),
+        ]));
+
+        // The same second range on its own is perfectly ordinary.
+        Assert.Equal(20, StepMap.Of([new ReplacedRange(5, 0, 20)]).SizeDelta);
+    }
+
+    [Fact]
+    public void MappingNeverGoesBackwards()
+    {
+        var previous = 0;
+
+        for (var pos = 0; pos <= 30; pos++)
+        {
+            var mapped = TwoRanges.Map(pos);
+
             Assert.True(mapped >= previous, $"{pos} mapped to {mapped}, behind {previous}");
 
             previous = mapped;

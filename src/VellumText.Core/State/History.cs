@@ -149,11 +149,22 @@ public readonly record struct HistoryPolicy(
                 continue;
             }
 
+            // A map may describe several separated ranges - a column insert touches one cell in
+            // every row - and what history wants is the whole stretch the step disturbed, so the
+            // first range's start and the last one's end bound it.
+            var first = maps[i].RangeAt(0);
+            var last = maps[i].RangeAt(maps[i].RangeCount - 1);
+
             // Both ends are positions in the document as it stood after this map, so carrying
-            // them through the maps that follow lands them in the transaction's final space.
-            var start = tr.Mapping.MapRange(maps[i].Start, i + 1, maps.Length, Assoc.Before);
+            // them through the maps that follow lands them in the transaction's final space. The
+            // last range's end has to be shifted by everything the earlier ranges of the same map
+            // did, since its start is still written in the coordinates this map was built from.
+            var start = tr.Mapping.MapRange(first.Start, i + 1, maps.Length, Assoc.Before);
             var end = tr.Mapping.MapRange(
-                maps[i].Start + maps[i].NewSize, i + 1, maps.Length, Assoc.After);
+                last.Start + maps[i].SizeDelta - last.SizeDelta + last.NewSize,
+                i + 1,
+                maps.Length,
+                Assoc.After);
 
             from = Math.Min(from, start.Pos);
             to = Math.Max(to, end.Pos);
