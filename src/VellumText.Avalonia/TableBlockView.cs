@@ -32,7 +32,7 @@ namespace VellumText.Avalonia;
 /// honoured.
 /// </para>
 /// </remarks>
-public sealed class TableBlockView : BlockView
+internal sealed class TableBlockView : BlockView
 {
     private const double CellPadding = 6;
     private const double BorderThickness = 1;

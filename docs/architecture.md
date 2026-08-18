@@ -296,6 +296,24 @@ public sealed record CellSelection(int AnchorCell, int HeadCell) : Selection; //
 
 Three selection kinds is not over-engineering — it is the minimum that makes "click an image and press Delete" and "drag across table cells and set a background" expressible without special-casing them in every command.
 
+> **Three, and exactly three** (2026-08-18). `Selection`'s constructor is `private protected`, so
+> the hierarchy is closed outside this assembly. Commands are written as "which of the three is
+> this, and can I serve it" — a fourth shape reaches them as something they do not recognise and is
+> refused or, worse, handled as if it were text. That is extensibility that fails in the host's
+> application at run time instead of in ours at compile time, which is strictly worse than none.
+> `Node`, `BlockNode` and `InlineEmbed` are closed for the same reason: `DocumentPresenter`'s block
+> factory, the HTML and RTF exporters and the JSON writer all switch and throw on the default.
+>
+> `Step` is deliberately **not** closed, and that is the contrast that makes the rule a rule rather
+> than a reflex. Nothing switches on which step it is; all four obligations are on the base, so a
+> step written elsewhere works everywhere a step is consumed. Open where the consumer is generic,
+> closed where it enumerates.
+>
+> One hole cannot be closed and is stated rather than hidden: a record's copy constructor must be
+> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed` or
+> `Selection` by declaring one that chains to it. It cannot happen by accident, which is what the
+> closure is for.
+
 ### 4.6 View layer
 
 ```csharp
@@ -333,6 +351,28 @@ internal sealed class ParagraphView : BlockView
 > - **`TextRunCache.InvalidateFrom(offset)` is not used for edits.** Increment 0 measured it
 >   returning stale runs for any `offset > 0`. Paragraph layouts are rebuilt wholesale on edit.
 >   The cache is kept only for width-only relayout, where it is correct and ≈3.5× faster.
+
+> **The sketch above says `internal` and the code finally agrees** (2026-08-18). `BlockView`,
+> `ParagraphView`, `RuleView`, `BlockImageView`, `TableBlockView`, `InlineTextSource` and `TextAt`
+> shipped `public`. They are layout objects: a `TextLayout`, a run cache, a measured size, all with
+> lifetimes the presenter owns and invalidation rules nothing outside it can honour. Freezing them
+> at 1.0 would have made the rendering machinery a contract by accident.
+>
+> `DocumentPresenter.Blocks` and `Slots` and `RichTextView.Block` went with them, since a property
+> is only as internal as its type. **`DocumentPresenter.BlockCount` replaces `Blocks.Count`** and is
+> the piece a host actually needed: `BlockOrigin`, `BlockIndexOf`, `BlockIndexAt` and
+> `CaretBlockIndex` all speak in block indices, so the range those indices live in is public and the
+> objects behind them are not. The demo's status bar was the only external caller and now reads
+> `BlockCount`.
+
+> **What deliberately stayed public.** A control library exposes things it never calls itself:
+> `IEmbedRenderer`, `IImageStore`, `ITextStyleResolver`, `IParagraphStyleResolver`, `ISyntaxTheme`
+> and their default implementations are extension points; `ToolbarConverters` is used from XAML;
+> the commands, geometry and events exist for a host. Nothing here was hidden merely because this
+> repository has no caller for it. `InternalsVisibleTo` covers the tests instead, which is why
+> `VellumText.Core` now grants it to `VellumText.Core.Tests` and `VellumText.Avalonia.Tests` — the
+> tests that prove a closed switch throws on an unknown node have to be able to write one, and that
+> is friendship, not API.
 
 > **The shell forwards setup, not commands** (2026-08-18). `RichTextEditor` forwarded five of the
 > view's surfaces, so every other one had to be reached through `Editor.View!` — a null-forgiving

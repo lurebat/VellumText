@@ -124,10 +124,21 @@ public abstract partial class DocumentPresenter
     private protected virtual bool ScrollAnchorIntoView() => false;
 
     /// <summary>The blocks that have been laid out, in document order.</summary>
-    public IReadOnlyList<BlockView> Blocks => _views;
+    internal IReadOnlyList<BlockView> Blocks => _views;
+
+    /// <summary>
+    /// How many blocks have been laid out — the range every block index on this type accepts.
+    /// </summary>
+    /// <remarks>
+    /// The count without the views. <see cref="BlockOrigin"/>, <see cref="BlockIndexOf"/>,
+    /// <see cref="BlockIndexAt"/> and <c>RichTextView.CaretBlockIndex</c> all speak in block
+    /// indices, so a host needs to know how many there are; it does not need the layout objects
+    /// behind them, which are rendering machinery.
+    /// </remarks>
+    public int BlockCount => _views.Count;
 
     /// <summary>What the document says about each block, in document order.</summary>
-    public ImmutableArray<BlockSlot> Slots => _slots;
+    internal ImmutableArray<BlockSlot> Slots => _slots;
 
     /// <summary>The top-left corner of a block, in this control's coordinates.</summary>
     /// <remarks>

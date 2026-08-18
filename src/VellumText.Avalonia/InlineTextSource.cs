@@ -19,7 +19,7 @@ namespace VellumText.Avalonia;
 /// content and therefore a new source; nothing here mutates.
 /// </para>
 /// </remarks>
-public sealed class InlineTextSource : ITextSource
+internal sealed class InlineTextSource : ITextSource
 {
     private readonly InlineContent _content;
     private readonly ITextStyleResolver _styles;

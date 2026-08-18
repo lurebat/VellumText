@@ -108,6 +108,14 @@ standing at one `\uFFFC` placeholder in the text.
 Nodes have **value equality**, which is worth knowing: two documents built separately from the same
 content compare equal and hash the same.
 
+**The node, embed and selection hierarchies are closed.** `Node`, `BlockNode`, `InlineEmbed` and
+`Selection` have `private protected` constructors, so those lists are the whole set. That is
+deliberate: the exporters, the JSON writer and the block factory all switch on the concrete type and
+have nothing to do with one they do not recognise, so a node you defined would compile and then be
+dropped or throw the first time it was rendered or saved. The extension points that *are* open are
+the renderers and resolvers — `IEmbedRenderer`, `IImageStore`, `ITextStyleResolver`,
+`IParagraphStyleResolver`, `ISyntaxTheme` — and `Step`, where every consumer is generic.
+
 ```csharp
 DocumentText.Of(doc);                 // plain text, for search or a label
 DocumentPreview.Truncate(doc, 200);   // the first 200 characters, formatting intact

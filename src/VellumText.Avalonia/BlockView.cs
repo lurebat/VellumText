@@ -20,7 +20,7 @@ namespace VellumText.Avalonia;
 /// leaking into every block type.
 /// </para>
 /// </remarks>
-public abstract class BlockView
+internal abstract class BlockView
 {
     /// <summary>The number of positions inside this block.</summary>
     public abstract int ContentSize { get; }
@@ -103,4 +103,4 @@ public abstract class BlockView
 /// <param name="Origin">
 /// The paragraph's top-left corner, relative to the containing block's top-left corner.
 /// </param>
-public readonly record struct TextAt(ParagraphView View, int Start, Point Origin);
+internal readonly record struct TextAt(ParagraphView View, int Start, Point Origin);

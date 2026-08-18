@@ -64,6 +64,38 @@ NuGet; packages are published to a local feed, and
   single source of truth, and a flavour minted with a hard-coded UTF-8 would have been a lie for a
   format that is not text. Read the encoding from the format instead.
 
+### Removed from the public API
+
+None of the following was reachable in a way that would have survived contact with a real host; they
+are listed because a 1.0 that shipped them would have frozen them.
+
+- **The rendering machinery is internal.** `BlockView`, `ParagraphView`, `RuleView`,
+  `BlockImageView`, `TableBlockView`, `InlineTextSource` and `TextAt` are layout objects — a
+  `TextLayout`, a run cache, a measured size — whose lifetimes the presenter owns and whose
+  invalidation rules nothing outside it can honour. `docs/architecture.md` §4.6 and §4.7 always
+  declared them internal; the code did not. `DocumentPresenter.Blocks`, `DocumentPresenter.Slots`
+  and `RichTextView.Block` went with them, a property being only as internal as its type.
+
+  **`DocumentPresenter.BlockCount` replaces `Blocks.Count`**, and is the part a host actually
+  needed: `BlockOrigin`, `BlockIndexOf`, `BlockIndexAt` and `CaretBlockIndex` all speak in block
+  indices, so the range those indices live in is public even though the objects behind them are not.
+
+- **`Node`, `BlockNode`, `InlineEmbed` and `Selection` can no longer be derived from outside the
+  library.** Each now has a `private protected` constructor. They were externally derivable and
+  consumed by `switch` statements that throw, drop or refuse on a shape they do not recognise —
+  `DocumentPresenter`'s block factory, the HTML and RTF exporters, the JSON writer, every command
+  that asks whether it has a rectangle of cells. A type you derived would compile and then fail the
+  first time it was rendered or saved, which is worse than no extensibility at all because it fails
+  at run time in your application instead of at compile time in ours.
+
+  `Step` is deliberately still open: nothing switches on which step it is, and all four obligations
+  are on the base, so a step written elsewhere works everywhere one is consumed.
+
+  One hole cannot be closed, and is stated rather than hidden: a record's copy constructor must be
+  `public` or `protected` (CS8878), so `InlineEmbed` and `Selection` can still be derived from by
+  declaring a copy constructor that chains to the base. It cannot happen by accident, and anything
+  that does it lands on a `default:` that throws.
+
 ### Added
 
 - **`HtmlFormat.With(options)` and `RtfFormat.With(options)`**, returning a configured instance and

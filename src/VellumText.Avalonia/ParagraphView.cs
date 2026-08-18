@@ -23,7 +23,7 @@ namespace VellumText.Avalonia;
 /// window resize, once per paragraph.
 /// </para>
 /// </remarks>
-public sealed class ParagraphView : BlockView
+internal sealed class ParagraphView : BlockView
 {
     private readonly ITextStyleResolver _base;
     private readonly IParagraphStyleResolver _kinds;

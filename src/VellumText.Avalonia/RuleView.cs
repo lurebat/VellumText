@@ -11,7 +11,7 @@ namespace VellumText.Avalonia;
 /// belongs to the host, which is the only thing that knows a selection reaches past this block
 /// on both sides.
 /// </remarks>
-public sealed class RuleView : BlockView
+internal sealed class RuleView : BlockView
 {
     private readonly IBrush _brush;
     private Size _size;
