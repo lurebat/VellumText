@@ -10,7 +10,49 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **`IDocumentImporter` and `IDocumentExporter` now read and write streams, and the string
+  overloads are derived from them — this is a breaking change for anyone implementing a format.**
+  The contract dealt only in strings, which *structurally* excluded DOCX and ODT: both are ZIP
+  containers, both are on the roadmap, and no later effort could have made one fit through a
+  `string` without a base64 fiction. Streams are now the primitive.
+
+  A format must implement `ImportResult Import(Stream source)` and
+  `void Export(Stream destination, DocumentNode doc)`, and must declare
+  `Encoding? TextEncoding` — an encoding if it is text, `null` if it is not. The string overloads
+  `Import(string)` and `Export(DocumentNode)` remain, as default interface members that encode or
+  decode through `TextEncoding`, because HTML and RTF genuinely are text and making a caller wrap a
+  string in a `MemoryStream` would be pure ceremony.
+
+  Migrating a format means adding the two stream members and `TextEncoding`; the existing string
+  bodies stay exactly as they are. Every omission is a compile error. **Do not implement a stream
+  member by calling its string counterpart** unless you also declare that counterpart — the default
+  implementation calls back into the stream member and the pair recurses forever.
+
+  For a format with no text form, `Import(string)` returns an empty result carrying a `Malformed`
+  diagnostic and `Export(DocumentNode)` throws `NotSupportedException`. There is no honest string to
+  return, and `""` would be a document silently lost on the way to a file.
+
+- **`RichTextClipboard.Encode` and `Decode` no longer return `null`.** They never actually did —
+  `FlavorFor` mints an application flavour rather than returning `null` — so the nullable return was
+  dead, and callers were pushed into a null check that could not fire. Existing code compiles
+  unchanged; the annotation is what moved.
+
+- **`ClipboardFlavor` no longer carries an `Encoding`.** `IDocumentFormat.TextEncoding` is now the
+  single source of truth, and a flavour minted with a hard-coded UTF-8 would have been a lie for a
+  format that is not text. Read the encoding from the format instead.
+
+### Added
+
+- **`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText`**, the bridge a text format's
+  stream members need. `WriteAllText` writes no byte order mark — `CF_HTML`'s byte offsets are
+  computed over a payload without one, and an RTF reader rejects a document preceded by
+  `EF BB BF` — and `ReadAllText` honours a mark when one is present and leaves the stream open.
+
+- **Binary formats travel on the clipboard end to end.** `RichTextClipboard` asks the exporter to
+  write its own bytes and hands a payload straight back to the importer, so a registered format that
+  is not text survives a copy and a paste unchanged.
 
 ## [0.4.1] - 2026-08-17
 

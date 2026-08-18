@@ -706,6 +706,42 @@ Two things changed against the sketch above, both forced by decision 3 in §12.1
 - **`VellumText.Avalonia` does not reference the interop packages**, so it cannot name an HTML or RTF exporter. Formats are **registered** instead — `view.Formats.Add(HtmlFormat.Instance)` — through `IDocumentFormat`, which `IDocumentImporter` and `IDocumentExporter` both extend. An application that only wants an editor does not acquire an HTML parser and an RTF reader to get one. With nothing registered, copy and paste still move plain text.
 - **`NativeSlice` is not built.** It exists to carry what HTML cannot, and HTML currently carries everything the model can hold. It is worth adding when that stops being true, and not before.
 
+#### The format contract is bytes, with strings on top
+
+The contract was string-only until it was noticed that this *structurally* excludes DOCX and ODT — both are ZIP containers, both are on the roadmap in §10, and a format that cannot be expressed is worse than one that is merely unimplemented. Streams are the primitive now:
+
+```csharp
+public interface IDocumentFormat
+{
+    string Format { get; }
+    string MediaType { get; }
+    Encoding? TextEncoding { get; }   // null ⇒ this format is bytes, not text
+}
+
+public interface IDocumentImporter : IDocumentFormat
+{
+    ImportResult Import(Stream source);            // every format implements this
+    ImportResult Import(string text) => …;         // default: encode, then defer
+}
+
+public interface IDocumentExporter : IDocumentFormat
+{
+    void Export(Stream destination, DocumentNode doc);   // every format implements this
+    string Export(DocumentNode doc) => …;                // default: write, then decode
+}
+```
+
+Four decisions in that shape:
+
+- **Streams are required and strings are derived**, not the other way round. A DOCX importer must not be made to write a nonsense `Import(string)` to satisfy the interface, whereas a text format's `Export(Stream, doc)` is one line over its existing writer. The string members stay because HTML and RTF genuinely are text and forcing a caller holding a string to wrap it in a `MemoryStream` would be pure ceremony.
+- **The string members are default interface members**, so exactly one member of each pair is mandatory and the text formats override both, each calling its parser directly. The hazard is writing `Import(Stream)` in terms of `Import(string)` without declaring the latter — that recurses forever, and it is called out on both members.
+- **`TextEncoding` is required, not defaulted.** It is not derivable from `MediaType`: `text/rtf` is Latin1 by construction while `text/html` on the clipboard is UTF-8 by definition, and a wrong default is silent mojibake rather than a compile error. It is also the honest place for a format to say it has no text form at all.
+- **A binary format's string members fail loudly and asymmetrically.** `Import(string)` returns an empty result with a `Malformed` diagnostic, because an importer that throws is what `ImportResult` exists to avoid; `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest string and `""` would be a document silently lost on the way to a file.
+
+`DocumentPayload.ReadAllText`/`WriteAllText` are the two-line bridge every text format's stream members use. They are public because the formats that need them are separate assemblies that cannot see each other, and so is any format a host writes. `WriteAllText` emits no BOM — `CF_HTML`'s byte offsets are computed over a payload without one and an RTF reader rejects a document preceded by `EF BB BF` — and `ReadAllText` leaves the stream open, because the caller owns it.
+
+The clipboard carries bytes end to end as a result: `RichTextClipboard.Encode` asks the exporter to write into a `MemoryStream` and `Decode` hands the payload straight back as one, so a registered binary format survives copy and paste unchanged. `ClipboardFlavor` no longer carries an `Encoding` — `IDocumentFormat.TextEncoding` is the single source of truth, and a flavour minted with a hard-coded UTF-8 would be a lie for a format that is not text.
+
 Native formats are read and written as **bytes**, never as strings. Asking a clipboard backend for RTF as a string lets it reinterpret those bytes as UTF-16, which yields convincing mojibake that then parses to nothing. `CF_HTML` is UTF-8 by definition; RTF is seven-bit by construction and is carried as Latin1, which cannot substitute.
 
 **The envelope is Windows-only, and for a while it was not.** `HtmlFormat.Export` wrapped every payload in `CF_HTML` regardless of platform, so a copy on Linux or macOS put `Version:0.9` and a block of byte offsets under `text/html` and `public.html` — targets that are defined to carry bare markup. A receiving application would have rendered the preamble as content. The format *name* was already chosen per platform by the `Platform` helper above; only the payload was not, and this paragraph's own sentence about `HTML Format` being a Windows requirement was the specification the code had drifted from.
@@ -1294,6 +1330,8 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
+
+**DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
 
 **Scope of v1, decided 2026-08-16.** P8–P11 are all required for v1.0. DOCX/XAML serialization and
 the spellcheck hook are explicitly **out** — they widen what the library can represent rather than

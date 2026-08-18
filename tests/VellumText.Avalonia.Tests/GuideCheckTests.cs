@@ -38,6 +38,7 @@ public class GuideCheckTests
         ("DocumentText", typeof(DocumentText)),
         ("DocumentTextMap", typeof(DocumentTextMap)),
         ("DocumentSearch", typeof(DocumentSearch)),
+        ("DocumentPayload", typeof(DocumentPayload)),
         ("BitmapEmbedRenderer", typeof(BitmapEmbedRenderer)),
         ("RichTextToolbar", typeof(RichTextToolbar)),
     ];

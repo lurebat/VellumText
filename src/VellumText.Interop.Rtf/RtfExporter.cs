@@ -58,6 +58,13 @@ public sealed class RtfExporter : IDocumentExporter
     public string MediaType => "text/rtf";
 
     /// <inheritdoc/>
+    public Encoding? TextEncoding => Encoding.Latin1;
+
+    /// <inheritdoc/>
+    public void Export(Stream destination, DocumentNode doc) =>
+        DocumentPayload.WriteAllText(destination, Encoding.Latin1, Export(doc));
+
+    /// <inheritdoc/>
     public string Export(DocumentNode doc)
     {
         ArgumentNullException.ThrowIfNull(doc);

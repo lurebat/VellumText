@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace VellumText.Interop.Html;
 
 /// <summary>
@@ -38,7 +40,17 @@ public sealed class HtmlFormat : IDocumentImporter, IDocumentExporter
     public string MediaType => "text/html";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// UTF-8 because <c>CF_HTML</c> is defined in it and its byte offsets are only correct in it.
+    /// </remarks>
+    public Encoding? TextEncoding => Encoding.UTF8;
+
+    /// <inheritdoc/>
     public ImportResult Import(string text) => HtmlImporter.ImportClipboard(text);
+
+    /// <inheritdoc/>
+    public ImportResult Import(Stream source) =>
+        HtmlImporter.ImportClipboard(DocumentPayload.ReadAllText(source, Encoding.UTF8));
 
     /// <inheritdoc/>
     /// <remarks>
@@ -46,10 +58,14 @@ public sealed class HtmlFormat : IDocumentImporter, IDocumentExporter
     /// <em>name</em> is already chosen per platform — <c>HTML Format</c>, <c>public.html</c>,
     /// <c>text/html</c> — and only the first of those three is defined to carry a preamble. Use
     /// <see cref="HtmlExporter.ExportForClipboard"/> to demand the envelope regardless of platform,
-    /// and <see cref="HtmlExporter.Export"/> to demand bare markup.
+    /// and <see cref="HtmlExporter.Export(DocumentNode)"/> to demand bare markup.
     /// </remarks>
     public string Export(DocumentNode doc) =>
         OperatingSystem.IsWindows()
             ? HtmlExporter.Instance.ExportForClipboard(doc)
             : HtmlExporter.Instance.Export(doc);
+
+    /// <inheritdoc/>
+    public void Export(Stream destination, DocumentNode doc) =>
+        DocumentPayload.WriteAllText(destination, Encoding.UTF8, Export(doc));
 }

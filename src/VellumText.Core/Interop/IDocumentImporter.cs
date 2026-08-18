@@ -18,14 +18,79 @@ namespace VellumText;
 /// </remarks>
 public interface IDocumentImporter : IDocumentFormat
 {
+    /// <summary>Reads a document out of <paramref name="source"/>.</summary>
+    /// <param name="source">The payload, positioned at its first byte.</param>
+    /// <returns>What was understood, and what had to be given up to understand it.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the member every format has to write, and the string overload is derived from
+    /// it.</b> A format is not required to be text — DOCX is a ZIP container and ODT another, and
+    /// a contract that only spoke in strings could not express either. Reversing the two so that
+    /// bytes are the primitive costs the text formats one line each and stops the model from
+    /// excluding a whole class of format it is otherwise perfectly able to hold.
+    /// </para>
+    /// <para>
+    /// Reads to the end of the stream and does not dispose it: the caller owns it, and the same
+    /// stream may carry more than one thing. An implementation must not seek — a clipboard or
+    /// network stream cannot.
+    /// </para>
+    /// <para>
+    /// Must not throw for any input at all, including input that is not this format. A paste is
+    /// handed whatever another application put on the clipboard, and an application that dies
+    /// on a malformed paste is worse than one that pastes nothing.
+    /// </para>
+    /// <para>
+    /// <b>Do not implement this by calling <see cref="Import(string)"/>.</b> The default
+    /// implementation of that overload calls this one, so a format that has no string
+    /// implementation of its own and writes one in terms of the other recurses forever. Text
+    /// formats implement both, with each calling the underlying parser directly.
+    /// </para>
+    /// </remarks>
+    ImportResult Import(Stream source);
+
     /// <summary>Reads <paramref name="text"/> in.</summary>
     /// <param name="text">The document in this importer's format.</param>
     /// <returns>What was understood, and what had to be given up to understand it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
     /// <remarks>
+    /// <para>
+    /// Kept because HTML and RTF genuinely are text, and forcing a caller who has a string to
+    /// wrap it in a stream to hand it over would be pure ceremony. A text format overrides this
+    /// with its parser; the default encodes through <see cref="IDocumentFormat.TextEncoding"/>
+    /// and defers to <see cref="Import(Stream)"/>.
+    /// </para>
+    /// <para>
+    /// Meaningful only when <see cref="IDocumentFormat.TextEncoding"/> is not
+    /// <see langword="null"/>. A binary format returns an empty result carrying a
+    /// <see cref="DiagnosticSeverity.Malformed"/> diagnostic saying so, because an importer that
+    /// throws is exactly what <see cref="ImportResult"/> exists to avoid.
+    /// </para>
+    /// <para>
     /// Must not throw for any input at all, including input that is not this format. A paste is
     /// handed whatever another application put on the clipboard, and an application that dies
     /// on a malformed paste is worse than one that pastes nothing.
+    /// </para>
     /// </remarks>
-    ImportResult Import(string text);
+    ImportResult Import(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        if (TextEncoding is not { } encoding)
+        {
+            return new ImportResult(
+                DocumentNode.Empty,
+                [
+                    new ImportDiagnostic(
+                        DiagnosticSeverity.Malformed,
+                        $"The '{Format}' format is not text and cannot be read from a string. "
+                            + "Read it from a stream instead.",
+                        Format),
+                ]);
+        }
+
+        using var source = new MemoryStream(encoding.GetBytes(text), writable: false);
+
+        return Import(source);
+    }
 }

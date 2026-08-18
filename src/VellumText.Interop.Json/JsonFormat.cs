@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 
 namespace VellumText.Interop.Json;
@@ -44,23 +45,50 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     public string MediaType => "application/vnd.VellumText+json";
 
     /// <inheritdoc/>
+    /// <remarks>JSON is UTF-8 by RFC 8259, and this writer emits nothing else.</remarks>
+    public Encoding? TextEncoding => Encoding.UTF8;
+
+    /// <inheritdoc/>
     /// <exception cref="ArgumentNullException"><paramref name="doc"/> is <see langword="null"/>.</exception>
     public string Export(DocumentNode doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
 
         using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteNumber("VellumText", SchemaVersion);
-            writer.WritePropertyName("blocks");
-            WriteBlocks(writer, doc.Blocks);
-            writer.WriteEndObject();
-        }
 
-        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+        Write(buffer, doc);
+
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The direct path: <see cref="Utf8JsonWriter"/> writes UTF-8 bytes, which is what the stream
+    /// wants, so this is the form that copies the payload the fewest times. The string overload
+    /// goes through it rather than the other way round.
+    /// </remarks>
+    public void Export(Stream destination, DocumentNode doc)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(doc);
+
+        Write(destination, doc);
+    }
+
+    private static void Write(Stream destination, DocumentNode doc)
+    {
+        using var writer = new Utf8JsonWriter(destination, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteNumber("VellumText", SchemaVersion);
+        writer.WritePropertyName("blocks");
+        WriteBlocks(writer, doc.Blocks);
+        writer.WriteEndObject();
+    }
+
+    /// <inheritdoc/>
+    public ImportResult Import(Stream source) =>
+        Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
 
     /// <inheritdoc/>
     /// <remarks>

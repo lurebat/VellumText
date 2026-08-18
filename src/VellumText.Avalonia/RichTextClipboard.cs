@@ -6,18 +6,19 @@ using Avalonia.Input.Platform;
 namespace VellumText.Avalonia;
 
 /// <summary>
-/// One clipboard flavour a rich document travels in: the platform format, and the encoding that
-/// format insists on.
+/// One clipboard flavour a rich document travels in: the platform format it is published under.
 /// </summary>
 /// <param name="Format">The short name, as on <see cref="IDocumentFormat.Format"/>.</param>
 /// <param name="DataFormat">The platform format to read and write it under.</param>
-/// <param name="Encoding">The encoding its bytes are in.</param>
 /// <remarks>
-/// The encoding is carried alongside the format rather than left to the caller because the two are
-/// not independent: <c>CF_HTML</c> is UTF-8 by definition and its byte offsets are only correct in
-/// it, while RTF is seven-bit by construction and a multi-byte guess turns it into mojibake.
+/// A flavour is the platform slot and nothing else. How the payload's bytes are made is the
+/// format's business, not the clipboard's: <see cref="IDocumentExporter.Export(Stream, DocumentNode)"/>
+/// writes them and <see cref="IDocumentImporter.Import(Stream)"/> reads them, so a format that is
+/// not text at all — a container like DOCX — travels here exactly as HTML does. This used to carry
+/// an <see cref="Encoding"/> as well, which forced every payload through a string and made a
+/// binary flavour impossible to express.
 /// </remarks>
-public sealed record ClipboardFlavor(string Format, DataFormat<byte[]> DataFormat, Encoding Encoding);
+public sealed record ClipboardFlavor(string Format, DataFormat<byte[]> DataFormat);
 
 /// <summary>
 /// Reading and writing rich documents on the system clipboard, in the formats other applications
@@ -69,13 +70,10 @@ public static class RichTextClipboard
     public static IReadOnlyList<string> Preference { get; } = PreferenceOrder;
 
     private static readonly ClipboardFlavor HtmlFlavor = new(
-        "html", Platform("HTML Format", "public.html", "text/html"), Encoding.UTF8);
+        "html", Platform("HTML Format", "public.html", "text/html"));
 
-    // Latin1 over ASCII because it cannot substitute: RTF is seven-bit by construction, so if
-    // anything non-ASCII ever did escape an exporter the bytes stay wrong rather than silently
-    // becoming question marks.
     private static readonly ClipboardFlavor RtfFlavor = new(
-        "rtf", Platform("Rich Text Format", "public.rtf", "text/rtf"), Encoding.Latin1);
+        "rtf", Platform("Rich Text Format", "public.rtf", "text/rtf"));
 
     /// <summary>Every flavour a document can travel in, richest first.</summary>
     public static IReadOnlyList<ClipboardFlavor> Flavors { get; } = [HtmlFlavor, RtfFlavor];
@@ -112,8 +110,7 @@ public static class RichTextClipboard
                 format,
                 name => new ClipboardFlavor(
                     name,
-                    DataFormat.CreateBytesApplicationFormat($"VellumText-{name}"),
-                    Encoding.UTF8)),
+                    DataFormat.CreateBytesApplicationFormat($"VellumText-{name}"))),
         };
     }
 
@@ -128,26 +125,29 @@ public static class RichTextClipboard
     /// <summary>Turns a document into the bytes its format travels in on the clipboard.</summary>
     /// <param name="exporter">The exporter to write with.</param>
     /// <param name="doc">The document to write.</param>
-    /// <returns>The payload, or <see langword="null"/> if the format has no clipboard flavour.</returns>
+    /// <returns>The payload.</returns>
     /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
     /// <remarks>
-    /// The encoding is chosen from the exporter's own format rather than taken as an argument,
-    /// which is what makes the wrong one unreachable.
+    /// The exporter writes its own bytes, so nothing here has to know or guess how the format is
+    /// encoded — which is what makes the wrong encoding unreachable, and what lets a format that
+    /// is not text at all travel on the clipboard unchanged.
     /// </remarks>
-    public static byte[]? Encode(IDocumentExporter exporter, DocumentNode doc)
+    public static byte[] Encode(IDocumentExporter exporter, DocumentNode doc)
     {
         ArgumentNullException.ThrowIfNull(exporter);
         ArgumentNullException.ThrowIfNull(doc);
 
-        return FlavorFor(exporter.Format) is { } flavour
-            ? flavour.Encoding.GetBytes(exporter.Export(doc))
-            : null;
+        using var buffer = new MemoryStream();
+
+        exporter.Export(buffer, doc);
+
+        return buffer.ToArray();
     }
 
     /// <summary>Reads a clipboard payload back into a document.</summary>
     /// <param name="importer">The importer to read with.</param>
     /// <param name="payload">The bytes exactly as they came off the clipboard.</param>
-    /// <returns>The result, or <see langword="null"/> if the format has no clipboard flavour.</returns>
+    /// <returns>The result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="importer"/> is <see langword="null"/>.</exception>
     /// <remarks>
     /// <para>
@@ -155,21 +155,18 @@ public static class RichTextClipboard
     /// happened, and parses them later or never.
     /// </para>
     /// <para>
-    /// There is no overload taking the payload as a <see cref="string"/>, deliberately. Decoding
-    /// the bytes is this method's job precisely because doing it at the call site is the mistake
-    /// this type exists to prevent.
+    /// There is no overload taking the payload as a <see cref="string"/>, deliberately. Handing
+    /// the bytes to the importer is this method's job precisely because decoding them at the call
+    /// site is the mistake this type exists to prevent.
     /// </para>
     /// </remarks>
-    public static ImportResult? Decode(IDocumentImporter importer, ReadOnlySpan<byte> payload)
+    public static ImportResult Decode(IDocumentImporter importer, ReadOnlySpan<byte> payload)
     {
         ArgumentNullException.ThrowIfNull(importer);
 
-        if (FlavorFor(importer.Format) is not { } flavour)
-        {
-            return null;
-        }
+        using var source = new MemoryStream(payload.ToArray(), writable: false);
 
-        return importer.Import(flavour.Encoding.GetString(payload));
+        return importer.Import(source);
     }
 
     /// <summary>
@@ -209,7 +206,7 @@ public static class RichTextClipboard
 
             try
             {
-                item.Set(flavour.DataFormat, flavour.Encoding.GetBytes(exporter.Export(doc)));
+                item.Set(flavour.DataFormat, Encode(exporter, doc));
             }
             catch (Exception)
             {
@@ -317,7 +314,7 @@ public static class RichTextClipboard
                     continue;
                 }
 
-                var result = importer.Import(flavour.Encoding.GetString(bytes));
+                var result = Decode(importer, bytes);
 
                 if (!result.Doc.Blocks.IsEmpty)
                 {
@@ -367,7 +364,7 @@ public static class RichTextClipboard
                     continue;
                 }
 
-                var result = importer.Import(flavour.Encoding.GetString(bytes));
+                var result = Decode(importer, bytes);
 
                 if (!result.Doc.Blocks.IsEmpty)
                 {

@@ -273,6 +273,31 @@ string html = HtmlFormat.Instance.Export(result.Doc);
 string json = JsonFormat.Instance.Export(result.Doc);
 ```
 
+Every format also reads and writes **streams**, and that overload — not the string one — is the one
+every format implements:
+
+```csharp
+using var file = File.OpenRead("document.html");
+
+ImportResult fromFile = HtmlFormat.Instance.Import(file);
+
+using var output = File.Create("document.json");
+
+JsonFormat.Instance.Export(output, fromFile.Doc);
+```
+
+The stream overloads exist because a format need not be text at all: DOCX and ODT are ZIP
+containers, and a contract that only spoke in strings could not express one. A format declares
+which it is through `IDocumentFormat.TextEncoding` — an encoding for a text format, `null` for a
+binary one. For a binary format `Import(string)` returns an empty result carrying a `Malformed`
+diagnostic and `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest
+string to return and `""` would be a document silently lost.
+
+Writing a format of your own means implementing `Import(Stream)` and `Export(Stream, doc)`. If it
+is text, implement the string overloads too and have each call your parser directly —
+`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText` bridge the two. Never write one
+overload in terms of the other's default implementation; that recurses forever.
+
 **Importers never throw.** They see input nobody wrote for them — a fragment from Word, a file from
 1998 — so they produce the best document they can and report, item by item, where they gave ground.
 HTML import also sanitizes: script, event handlers and dangerous URLs are removed rather than
@@ -304,12 +329,15 @@ To hold payloads yourself and parse them later:
 ```csharp
 foreach (var flavour in RichTextClipboard.Flavors)
 {
-    // flavour.Format ("html"), flavour.DataFormat (to read/write), flavour.Encoding
+    // flavour.Format ("html"), flavour.DataFormat (to read/write)
 }
 
-byte[]? payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
-ImportResult? doc = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
+byte[] payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
+ImportResult read = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
 ```
+
+The payload is bytes the whole way, produced by the exporter itself, so a registered binary format
+travels on the clipboard unchanged.
 
 > **Read native clipboard formats as bytes, never as a string.** Asking a clipboard backend for a
 > native format as text lets it reinterpret the bytes with whatever encoding it guesses, and its
