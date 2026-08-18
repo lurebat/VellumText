@@ -142,7 +142,12 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool SetMarks(MarkSet value, MarkFields fields)
     {
-        if (fields == MarkFields.None)
+        // Read-only is checked here and not left to Apply. The empty-selection path below arms
+        // StoredMarks directly and never builds a transaction, so Apply never sees it -- Ctrl+B
+        // with no selection on a read-only view left marks armed for an insertion that can never
+        // happen. This is the SetMarks choke point, so every formatting shortcut is covered by
+        // the one check.
+        if (fields == MarkFields.None || IsReadOnly)
         {
             return false;
         }

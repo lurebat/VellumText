@@ -10,6 +10,7 @@ it is.
   - [Text offsets](#text-offsets)
 - [Editing](#editing)
 - [The toolbar](#the-toolbar)
+- [Which control for a preview pane](#which-control-for-a-preview-pane)
 - [A read-only viewer](#a-read-only-viewer)
 - [Import and export](#import-and-export)
 - [The clipboard](#the-clipboard)
@@ -292,6 +293,30 @@ broken.
 
 The editor also shows a floating toolbar over a selection; turn it off with
 `IsSelectionToolbarEnabled="False"`.
+
+A read-only editor never shows it, whatever that flag says — a control that has been told edits are
+refused should not advertise them. The flag keeps its own authority in the other direction, so you
+can suppress the bar on an editable control too. The same rule applies to the context menu: Cut,
+Paste and the table submenu are hidden when `IsReadOnly` is set, and Copy and Select All remain.
+
+## Which control for a preview pane
+
+`RichTextViewer` for rendering, `RichTextEditor { IsReadOnly = true }` for a preview a user
+interacts with. Both are read-only and neither will change a document.
+
+Reach for the **editor** when the preview is a pane the user works with — a right-hand pane, a
+detail view, anything where they will want a context menu, or to select across blocks with the
+keyboard. It brings the context menu, `EnsureView()` and every forwarded option with it.
+
+Reach for the **viewer** when the document is a *cell*: a list row, a search result, a hover card —
+many on screen at once, each glanced at rather than used. That is what it is built for, and the
+saving is real: a `RichTextView` costs 19.7 KiB and 0.050 ms more than a bare control before it
+lays out a line, which is roughly half the cost of a laid-out clipboard-sized document. Across a
+list of two hundred rows that is the difference worth having.
+
+The viewer supports selection and copy, so it is not the "cannot take anything from it" control it
+once was. What it does not have is a context menu, an editing surface, or any of the editor's
+options — and if you find yourself wanting those, you wanted the editor.
 
 ## A read-only viewer
 
@@ -649,7 +674,7 @@ set from outside — keeps the history, and so does editing.
 | `AcceptsTab` | `true` | Tab indents and nests. Off, it moves focus |
 | `UndoLimit` | `-1` | Unlimited |
 | `AcceptsDrop` | `true` | On the view. A read-only view refuses regardless |
-| `IsSelectionToolbarEnabled` | `true` | The floating toolbar over a selection |
+| `IsSelectionToolbarEnabled` | `true` | The floating toolbar over a selection. Never shown when `IsReadOnly` |
 
 `IsReadOnly` is enforced at one place — the point where a transaction becomes state — so it covers
 typing, paste, drop, IME, every toolbar command and anything added later. Setting `State` directly

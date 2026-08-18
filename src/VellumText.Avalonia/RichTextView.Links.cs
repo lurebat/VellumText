@@ -63,8 +63,21 @@ public partial class RichTextView
         public LinkMark? Existing { get; } = existing;
     }
 
-    private void RaiseLinkRequested() =>
+    /// <remarks>
+    /// Silent on a read-only view. The event asks the host to put a link dialog on screen, so
+    /// raising it would prompt the user for a URL that <see cref="ApplyLink"/> then refuses --
+    /// the same "advertising an edit that will not happen" failure as showing a Bold button, but
+    /// worse, because it costs the user a dialog before the refusal.
+    /// </remarks>
+    private void RaiseLinkRequested()
+    {
+        if (IsReadOnly)
+        {
+            return;
+        }
+
         LinkRequested?.Invoke(this, new LinkRequestedEventArgs(SelectionLink));
+    }
 
     /// <summary>
     /// Puts a link on the selection, or on the whole link the caret is inside.

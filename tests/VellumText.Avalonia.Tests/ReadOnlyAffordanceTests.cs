@@ -1,8 +1,11 @@
 using global::Avalonia;
 using global::Avalonia.Controls;
+using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Input;
+using global::Avalonia.Input.Platform;
 using global::Avalonia.Markup.Xaml.Styling;
+using global::Avalonia.Threading;
 using VellumText;
 using VellumText.Avalonia;
 
@@ -236,26 +239,217 @@ public class ReadOnlyAffordanceTests
         var view = ShownView(readOnly: true);
         var clipboard = TopLevel.GetTopLevel(view)!.Clipboard!;
 
-        await clipboard.ClearAsync();
-
-        var data = new DataTransfer();
-        var item = new DataTransferItem();
-
-        item.SetText("untouched");
-        data.Add(item);
-
-        await clipboard.SetDataAsync(data);
+        await SetClipboard(clipboard, "untouched");
 
         view.SelectAll();
 
         Assert.False(await view.CutAsync());
+        Assert.Equal("untouched", await ReadClipboard(clipboard));
+    }
 
-        var after = await clipboard.TryGetDataAsync();
-        var text = after is null
-            ? null
-            : await after.Items[0].TryGetTextAsync();
+    /// <remarks>
+    /// Hiding the menu entry does not disarm the accelerator, and this is the one shortcut where
+    /// that matters: <c>CutAsync</c> copies before it deletes, so an ungated Ctrl+X on a read-only
+    /// pane overwrites the clipboard and then declines the delete. The document is untouched, which
+    /// is exactly why asserting the document would have proved nothing.
+    ///
+    /// The consequence is worst in the product that reported it — a clipboard manager, where a
+    /// mis-hit for Ctrl+C on a preview silently discards what the user was holding and records the
+    /// replacement as a clip they never made, from a key that visibly did nothing.
+    ///
+    /// Gated in <c>CutAsync</c> rather than in the key handler on purpose: one choke point covers
+    /// the menu entry, the accelerator and any programmatic caller. Gating call sites is how the
+    /// fourth call site gets missed.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task ARefusedCutDoesNotWriteTheClipboardFromTheKeyboardEither()
+    {
+        var view = ShownView(readOnly: true);
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var clipboard = window.Clipboard!;
 
-        Assert.Equal("untouched", text);
+        await SetClipboard(clipboard, "SENTINEL");
+
+        view.Focus();
+        view.SelectAll();
+
+        window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Control);
+
+        // The handler is async void, so the cut would land after the gesture returns.
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal("SENTINEL", await ReadClipboard(clipboard));
+    }
+
+    /// <remarks>
+    /// Guards the guard. If the gesture above never reached <c>CutAsync</c> at all — a wrong key,
+    /// an unfocused view — the assertion would pass against a completely ungated control, so the
+    /// same gesture is shown to write the clipboard on an editable one.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task TheSameKeystrokeOnAnEditableViewDoesWriteTheClipboard()
+    {
+        var view = ShownView(readOnly: false);
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var clipboard = window.Clipboard!;
+
+        await SetClipboard(clipboard, "SENTINEL");
+
+        view.Focus();
+        view.SelectAll();
+
+        window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Control);
+
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual("SENTINEL", await ReadClipboard(clipboard));
+    }
+
+    /// <remarks>
+    /// A tripwire over every other clipboard-adjacent gesture, so that binding a Cut synonym later
+    /// is caught here rather than in a preview pane. Today's table has no <c>Key.Insert</c> case at
+    /// all, and <c>Key.Delete</c> carries no modifier guard, so Shift+Delete falls into plain
+    /// delete — the classic Cut synonyms are absent and inert respectively.
+    ///
+    /// Ctrl+C is retained as a control on purpose: a sweep asserting only that nothing wrote would
+    /// pass just as well against a fixture where the clipboard is unreachable, which would prove
+    /// the opposite of what it claims.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task NoOtherShortcutWritesTheClipboardOnAReadOnlyView()
+    {
+        (PhysicalKey Key, RawInputModifiers Modifiers)[] inert =
+        [
+            (PhysicalKey.Delete, RawInputModifiers.Shift),
+            (PhysicalKey.Insert, RawInputModifiers.Control),
+            (PhysicalKey.Insert, RawInputModifiers.Shift),
+            (PhysicalKey.V, RawInputModifiers.Control),
+            (PhysicalKey.Delete, RawInputModifiers.None),
+            (PhysicalKey.Backspace, RawInputModifiers.None),
+        ];
+
+        foreach (var (key, modifiers) in inert)
+        {
+            var view = ShownView(readOnly: true);
+            var window = (Window)TopLevel.GetTopLevel(view)!;
+            var clipboard = window.Clipboard!;
+
+            await SetClipboard(clipboard, "SENTINEL");
+
+            view.Focus();
+            view.SelectAll();
+
+            window.KeyPressQwerty(key, modifiers);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("SENTINEL", await ReadClipboard(clipboard));
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task ButCopyStillReachesTheClipboardFromTheSameFixture()
+    {
+        var view = ShownView(readOnly: true);
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var clipboard = window.Clipboard!;
+
+        await SetClipboard(clipboard, "SENTINEL");
+
+        view.Focus();
+        view.SelectAll();
+
+        window.KeyPressQwerty(PhysicalKey.C, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual("SENTINEL", await ReadClipboard(clipboard));
+    }
+
+    /// <remarks>
+    /// Found by auditing every gesture for side effects that survive a refused edit, after the
+    /// Ctrl+X finding showed that <c>Apply</c> alone is not a sufficient gate.
+    ///
+    /// Formatting with an empty selection arms <c>StoredMarks</c> directly and never builds a
+    /// transaction, so <c>Apply</c> never sees it: Ctrl+B on a read-only view left bold armed for
+    /// an insertion that can never happen. Gated in <c>SetMarks</c>, which is the choke point every
+    /// formatting shortcut goes through.
+    /// </remarks>
+    [AvaloniaFact]
+    public void FormattingAReadOnlyViewDoesNotArmMarksForAnInsertionThatCannotHappen()
+    {
+        var view = ShownView(readOnly: true);
+
+        view.MoveTo(view.Slots[0].Start + 2, extend: false);
+
+        Assert.False(view.ToggleStyle(TextStyle.Bold));
+        Assert.Null(view.State.StoredMarks);
+    }
+
+    [AvaloniaFact]
+    public void FormattingAnEditableViewStillArmsThem()
+    {
+        var view = ShownView(readOnly: false);
+
+        view.MoveTo(view.Slots[0].Start + 2, extend: false);
+
+        Assert.True(view.ToggleStyle(TextStyle.Bold));
+        Assert.NotNull(view.State.StoredMarks);
+    }
+
+    /// <remarks>
+    /// <c>LinkRequested</c> asks the host to put a dialog on screen. Raising it on a read-only view
+    /// costs the user a dialog and a typed URL before <c>ApplyLink</c> refuses — an affordance bug
+    /// of the same family as the toolbar, and more expensive than most.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AReadOnlyViewDoesNotAskTheHostForALinkItWillRefuse()
+    {
+        var view = ShownView(readOnly: true);
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var asked = 0;
+
+        view.LinkRequested += (_, _) => asked++;
+        view.Focus();
+        view.SelectAll();
+
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, asked);
+    }
+
+    [AvaloniaFact]
+    public void AnEditableViewStillAsks()
+    {
+        var view = ShownView(readOnly: false);
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var asked = 0;
+
+        view.LinkRequested += (_, _) => asked++;
+        view.Focus();
+        view.SelectAll();
+
+        window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, asked);
+    }
+
+    private static async Task SetClipboard(IClipboard clipboard, string text)
+    {
+        var data = new DataTransfer();
+        var item = new DataTransferItem();
+
+        item.SetText(text);
+        data.Add(item);
+
+        await clipboard.SetDataAsync(data);
+    }
+
+    private static async Task<string?> ReadClipboard(IClipboard clipboard)
+    {
+        var data = await clipboard.TryGetDataAsync();
+
+        return data is null ? null : await data.Items[0].TryGetTextAsync();
     }
 
     private static MenuItem Item(RichTextView view, string header) =>

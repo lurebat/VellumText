@@ -1441,7 +1441,77 @@ worth using". Comparing it against what VellumText actually had:
 > from `SupportsTextInput`; it is not a settable control property. Note the read-only *flag* is partly
 > moot by the decision below that a viewer is a distinct control.
 
+> **Correction (2026-08-18, read-only affordances).** Reported from live use, and worth recording
+> because the fix is a rule rather than a patch. A clipboard manager rendering previews as
+> `RichTextEditor { IsReadOnly = true }` was offered the full floating toolbar over any selection,
+> Cut and Paste on the context menu, and the entire table submenu — every one of which the editor
+> then refused. `IsReadOnly` was enforced correctly at `Apply`; nothing consulted it when deciding
+> what to *offer*. (This also supersedes the note above that *"it is not a settable control
+> property"* — it is one on both `RichTextView` and `RichTextEditor` now.)
+>
+> **Refusing an action and not advertising it are separate obligations, and only the first was
+> met.** An editor that renders a Bold button and then declines to embolden has already misled the
+> user by the time the command runs, so the tests for this assert affordances — the bar is not
+> visible, the entry is not there — and not that the command returns false.
+>
+> Effective bar visibility is now `IsSelectionToolbarEnabled && !IsReadOnly`. The flag keeps its
+> own authority so a host can still suppress the bar on an editable control, but `IsReadOnly` is
+> sufficient alone: a consumer who has said edits are refused should not need a second flag to
+> stop the control advertising them.
+>
+> **Hiding and greying answer different questions, and conflating them is how this regresses.**
+> `BuildTableItem`'s existing rule — entries stay enabled when they cannot apply, because a menu
+> whose entries flicker reads as broken — is about state that tracks the *caret*, which moves
+> constantly. Read-only tracks the *control's configuration*, which changes only when the host
+> decides, so hiding on it cannot flicker. The existing rule stands; read-only is simply the other
+> case.
+>
+> Two halves a single fix would have missed. `IsReadOnlyProperty` routed to `PushOptions` and not
+> to `UpdateSelectionToolbar`, so flipping it at runtime left a visible bar on screen — the
+> reported repro sets the flag at construction and would never have caught it. And `CutAsync`
+> copies before it deletes while only the delete consulted `IsReadOnly`, so a read-only Cut left
+> the document alone and still wrote the clipboard: half an operation, with nothing to tell the
+> user which half ran.
+>
+> **Hiding a menu entry does not disarm its accelerator, and that is the durable lesson.** On a
+> read-only pane Ctrl+X still reached `CutAsync` with the entry gone from the menu, so the gate
+> belongs at the choke point — `CutAsync` itself, refusing before it copies — which covers the
+> entry, the accelerator and any programmatic caller at once. Gating call sites is how the fourth
+> call site gets missed.
+>
+> Auditing the rest of the gesture table for side effects that survive a refused edit found Cut is
+> the only clipboard one: there is no `Key.Insert` case at all so Ctrl+Insert is unbound, and
+> `Key.Delete` carries no modifier guard so Shift+Delete falls into plain delete. Undo and redo
+> already consult `IsReadOnly` in `CanUndo`/`CanRedo`; `ContentImported` and `ImageRefused` are
+> suppressed because both paths edit before raising. That is a fact about today's bindings rather
+> than a property of the design, so a tripwire test pins it — with Ctrl+C retained as a control,
+> because a sweep asserting only that nothing wrote would pass against a fixture with no clipboard.
+>
+> Two non-clipboard leaks came out of the same audit. Formatting with an empty selection arms
+> `StoredMarks` directly and never builds a transaction, so `Apply` never saw it and Ctrl+B left
+> bold armed on a read-only view for an insertion that can never happen; gated in `SetMarks`, the
+> choke point every formatting shortcut shares. And Ctrl+K raised `LinkRequested`, asking the host
+> to put a link dialog on screen for an edit `ApplyLink` then refuses — the same advertising bug as
+> the toolbar, but costing the user a dialog and a typed URL before the refusal.
+
+> **Which control a preview pane wants (2026-08-18).** The consumer above shipped `RichTextViewer`
+> first, found it exposed `Document` and nothing else, and switched to a read-only editor. That
+> raises whether the viewer earns its place, and the answer is that it does — but for a narrower
+> case than the guide implied, so the guide now says which.
+>
+> The viewer is for a document rendered as a *cell*: a list row, a search result, a hover card,
+> many on screen and each glanced at. The 19.7 KiB and 0.050 ms measured above are per instance,
+> and across a virtualised list that is the whole argument. The editor is for a preview a user
+> *works* in — one on screen, wanting a context menu, keyboard selection across blocks, and the
+> forwarded options.
+>
+> The field report is nonetheless evidence the split was mis-sold rather than wrong: the consumer
+> reached for the viewer because "read-only" named it, not because their case was cell-shaped.
+> Adding selection and copy closes the gap that made it unusable; the guide now points a preview
+> pane at the editor instead of leaving the reader to infer it.
+
 > **Correction (2026-08-18, hyperlinks and viewer selection).** Two rows above were wrong.
+
 >
 > *"Hyperlinks | ✅ **closed**"* described the **model and the importers**, not the control. The
 > model had `LinkMark` and both importers produced links, but `RichTextView` offered no way to
