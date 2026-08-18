@@ -17,6 +17,7 @@
     <!-- The context menu's enabled state is real logic, and a headless test platform cannot open a
          popup to observe it through the UI. -->
     <InternalsVisibleTo Include="VellumText.Avalonia.Tests" />
+    <InternalsVisibleTo Include="VellumText.Bench" />
   </ItemGroup>
 
 </Project>

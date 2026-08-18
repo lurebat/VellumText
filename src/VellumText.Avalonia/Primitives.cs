@@ -10,7 +10,7 @@ namespace VellumText.Avalonia;
 /// The layouts are deliberately identical on both sides, so these are field-for-field copies
 /// rather than translations. This is the only place in the product that knows both shapes.
 /// </remarks>
-public static class Primitives
+internal static class Primitives
 {
     /// <summary>Converts a VellumText colour to an Avalonia one.</summary>
     /// <param name="colour">The colour to convert.</param>

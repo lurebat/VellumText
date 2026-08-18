@@ -31,7 +31,7 @@ namespace VellumText.Avalonia;
 /// a measurement costs one logarithmic update to each tree.
 /// </para>
 /// </remarks>
-public sealed class BlockHeightIndex
+internal sealed class BlockHeightIndex
 {
     private double[] _tree = [];
     private int[] _pending = [];

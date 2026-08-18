@@ -23,7 +23,7 @@ namespace VellumText.Avalonia;
 /// Increment 0; see docs/increment-0-findings.md section 1.
 /// </para>
 /// </remarks>
-public sealed class EmbedRun : DrawableTextRun
+internal sealed class EmbedRun : DrawableTextRun
 {
     /// <summary>Size used for an embed that does not say how big it is.</summary>
     private const double IntrinsicFallback = 16;
