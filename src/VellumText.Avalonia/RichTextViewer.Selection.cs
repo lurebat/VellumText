@@ -147,7 +147,7 @@ public partial class RichTextViewer
 
             try
             {
-                item.Set(flavour.DataFormat, flavour.Encoding.GetBytes(exporter.Export(doc)));
+                item.Set(flavour.DataFormat, RichTextClipboard.Encode(exporter, doc));
             }
             catch (Exception)
             {
