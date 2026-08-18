@@ -1136,6 +1136,38 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
     `http://` source, `Convert.FromBase64String` inside a broad catch, and the negative-start
     clause in `StepMap.Check` are redundant defence-in-depth on paths that are already closed, not
     tests that cannot fail.
+14. **Drop pipeline** — `RichTextViewDropTests` covers the drop path at the same depth as paste,
+    against a real `DragDrop.DropEvent` rather than a direct call to the insert methods.
+
+    Drop shares nearly all of paste's risk surface and had two defects in a week — an in-flight
+    drop landing in whichever document was open when its file finished reading, and images reaching
+    the store before the edit was known to succeed. Both are ordering faults that only exist
+    because a drop reads files asynchronously, so neither is reachable through `InsertImage` alone,
+    which is what the existing tests called.
+
+    Every test here was watched fail first. The mutants:
+
+    | property | the mutant that proves it |
+    |---|---|
+    | A multi-file drop inserts every image it can read | The per-file origin left stale after an insert. |
+    | A rejected file does not end the drop | The stale origin, and the per-file `catch` made to rethrow. |
+    | A drop stops when the document is swapped underneath it — mid-drop, before it starts, and when the replacement holds identical text | The per-file `StillAt(origin)` guard. |
+    | A read-only or opted-out view never reaches the store and reports nothing | `CanAcceptDrop() => true`. |
+    | A store refusal is reported rather than silently dropping the image | `ImageRefused` not raised. |
+    | Going read-only mid-flight leaves nothing in the store | `ImageStore.Save` moved above `WouldPaste`. |
+    | Sanitised-away content brings neither text nor link addresses across | `script` removed from `NonContentElements`. |
+    | A payload with nothing left after sanitising still reports the loss | The removal reported as `Downgraded` rather than `Dropped`. |
+
+    Writing them found a third defect, in `InsertImageFiles`: the swap guard was checked against an
+    origin taken before the loop, so the *first* insert made every later file look like a document
+    swap and a drop of a folder of pictures silently inserted one of them. The origin is now
+    re-taken after each successful insert. It survived because the only multi-file coverage called
+    `InsertImage` per file directly, which is the one path where nothing takes the guard.
+
+    The positive control is load-bearing here and not decoration. `OnDrop` is `async void`, so
+    raising the event only starts it; every negative assertion in this file would hold against a
+    drop that never ran at all. `AMultiFileDropInsertsEveryImageItCanRead` is what says the
+    dispatcher pump is real.
 
 ---
 

@@ -182,7 +182,16 @@ public partial class RichTextView
                     break;
                 }
 
-                inserted |= InsertImage(buffer.ToArray(), mediaType);
+                if (InsertImage(buffer.ToArray(), mediaType))
+                {
+                    inserted = true;
+
+                    // The insert is itself a change to the document, so the origin it was just
+                    // checked against is now stale. Left alone it makes every file after the
+                    // first look like a document swap, and a drop of a folder of pictures
+                    // silently inserts one of them.
+                    origin = CurrentOrigin();
+                }
             }
             catch (Exception)
             {
