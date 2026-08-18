@@ -1337,7 +1337,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
     constant, not a guarantee.
 13. **Vacuous-test audit** — the suite is searched, on purpose, for tests that cannot fail.
 
-    **Done 2026-08-20 over all 4,397 tests. Five found, five proven, five fixed.** The reason to
+    **Done 2026-08-18 over all 4,397 tests. Five found, five proven, five fixed.** The reason to
     do it was that the five vacuous tests found before this were all found by accident, which says
     nothing about how many there are and everything about how hard anyone had looked.
 
@@ -1376,6 +1376,19 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
     `http://` source, `Convert.FromBase64String` inside a broad catch, and the negative-start
     clause in `StepMap.Check` are redundant defence-in-depth on paths that are already closed, not
     tests that cannot fail.
+
+    **A test can become vacuous without being edited, and an upgrade is how.** Reported by the
+    downstream consumer after taking 0.5.0. They had gated Ctrl+X locally when a read-only editor
+    was found to overwrite the clipboard, with a mutant proving the gate was load-bearing. Once
+    `CutAsync` refused on its own, that mutant *survived*: the property their test asserts still
+    holds, but this library now guarantees it and their handler no longer does. Their suite went
+    green, their anchors validated, and nothing in their repository could have flagged it — only
+    re-running the mutants against the new dependency found it.
+
+    The lesson applies here too, because VellumText pins Avalonia. A test that passes because
+    Avalonia grew a guard is not a test of VellumText, and there is no signal for it short of
+    killing mutants again after an upgrade. Worth doing on the next Avalonia bump rather than
+    assuming a green suite means the same thing it meant before.
 14. **Drop pipeline** — `RichTextViewDropTests` covers the drop path at the same depth as paste,
     against a real `DragDrop.DropEvent` rather than a direct call to the insert methods.
 
