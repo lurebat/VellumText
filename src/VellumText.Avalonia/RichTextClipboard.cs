@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -49,9 +50,18 @@ public static class RichTextClipboard
 {
     /// <summary>The formats, in the order a paste should prefer them.</summary>
     /// <remarks>
+    /// <para>
     /// HTML first because it carries more than RTF does and because it is what a browser and an
     /// online editor put on the clipboard. RTF second because it is what word processors put
     /// there. Plain text is not here: it is the floor that is fallen back to on its own.
+    /// </para>
+    /// <para>
+    /// A registered format that is not named here still travels — it simply sorts last. Ranking
+    /// JSON above HTML was tried and reverted: it would only be an improvement if it carried
+    /// more, and the "As built" note in §4.9 records that HTML already carries everything the
+    /// model can hold. The test written to justify it passed with JSON taken out of the list,
+    /// which is what settled the question.
+    /// </para>
     /// </remarks>
     private static readonly string[] PreferenceOrder = ["html", "rtf"];
 
@@ -70,11 +80,27 @@ public static class RichTextClipboard
     /// <summary>Every flavour a document can travel in, richest first.</summary>
     public static IReadOnlyList<ClipboardFlavor> Flavors { get; } = [HtmlFlavor, RtfFlavor];
 
-    /// <summary>The flavour a short format name travels in, if it has one.</summary>
+    /// <summary>The flavour a short format name travels in.</summary>
     /// <param name="format">A short name, as on <see cref="IDocumentFormat.Format"/>.</param>
-    /// <returns>The flavour, or <see langword="null"/> for a format with no clipboard presence.</returns>
+    /// <returns>The flavour the format travels in.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="format"/> is <see langword="null"/>.</exception>
-    public static ClipboardFlavor? FlavorFor(string format)
+    /// <remarks>
+    /// <para>
+    /// HTML and RTF are named explicitly because their clipboard identifiers are platform
+    /// conventions rather than anything derivable — <c>HTML Format</c> on Windows,
+    /// <c>public.html</c> on macOS, <c>text/html</c> elsewhere — and naming one wrong means no
+    /// other application sees the data at all.
+    /// </para>
+    /// <para>
+    /// Anything else registered gets an application-specific format named after it. It used to
+    /// get <see langword="null"/>, which meant <c>Formats.Add(JsonFormat.Instance)</c> was
+    /// accepted, validated, and then quietly did nothing on copy or paste. A seam that ignores a
+    /// registration is worse than one that refuses it, because nothing tells the caller. An
+    /// application format is invisible to other programs, which is exactly right: these are
+    /// formats only this model understands.
+    /// </para>
+    /// </remarks>
+    public static ClipboardFlavor FlavorFor(string format)
     {
         ArgumentNullException.ThrowIfNull(format);
 
@@ -82,9 +108,22 @@ public static class RichTextClipboard
         {
             "html" => HtmlFlavor,
             "rtf" => RtfFlavor,
-            _ => null,
+            _ => ApplicationFlavors.GetOrAdd(
+                format,
+                name => new ClipboardFlavor(
+                    name,
+                    DataFormat.CreateBytesApplicationFormat($"VellumText-{name}"),
+                    Encoding.UTF8)),
         };
     }
+
+    /// <summary>Flavours minted for registered formats with no platform convention of their own.</summary>
+    /// <remarks>
+    /// Cached because a <see cref="DataFormat"/> is matched by equality when a payload is read
+    /// back, and a fresh instance per call would fail to match the one it was written under.
+    /// </remarks>
+    private static readonly ConcurrentDictionary<string, ClipboardFlavor> ApplicationFlavors =
+        new(StringComparer.Ordinal);
 
     /// <summary>Turns a document into the bytes its format travels in on the clipboard.</summary>
     /// <param name="exporter">The exporter to write with.</param>

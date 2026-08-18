@@ -1,3 +1,4 @@
+using VellumText.Interop.Json;
 using System.Text;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -52,10 +53,17 @@ public class RichTextClipboardTests
     }
 
     [AvaloniaFact]
-    public void AFormatWithNoClipboardPresenceReportsNoneRatherThanGuessing()
+    public void AFormatWithNoPlatformConventionGetsAnApplicationFlavour()
     {
-        Assert.Null(RichTextClipboard.FlavorFor("json"));
-        Assert.Null(RichTextClipboard.FlavorFor(""));
+        // It used to get null, so registering such a format was accepted and then silently did
+        // nothing. An application format is invisible to other programs, which is right: only
+        // this model understands it.
+        var flavour = RichTextClipboard.FlavorFor("json");
+
+        Assert.NotEqual(RichTextClipboard.FlavorFor("html").DataFormat, flavour.DataFormat);
+
+        // Minted once: a payload is matched by format equality when it is read back.
+        Assert.Equal(flavour.DataFormat, RichTextClipboard.FlavorFor("json").DataFormat);
         Assert.Throws<ArgumentNullException>(() => RichTextClipboard.FlavorFor(null!));
     }
 
@@ -90,10 +98,13 @@ public class RichTextClipboardTests
     }
 
     [AvaloniaFact]
-    public void EncodeAndDecodeRefuseAFormatWithNoFlavourRatherThanInventingOne()
+    public void EncodeAndDecodeWorkForAFormatWithNoPlatformConvention()
     {
-        Assert.Null(RichTextClipboard.Encode(new Nowhere(), Styled));
-        Assert.Null(RichTextClipboard.Decode(new Nowhere(), new byte[] { 1, 2, 3 }));
+        var format = new Nowhere();
+        var payload = RichTextClipboard.Encode(format, Styled);
+
+        Assert.NotNull(payload);
+        Assert.NotNull(RichTextClipboard.Decode(format, payload));
     }
 
     [AvaloniaFact]
@@ -116,13 +127,41 @@ public class RichTextClipboardTests
             RichTextClipboard.InPreferenceOrder(backwards).Select(i => i.Format));
     }
 
+    /// <summary>A registered format actually travels, rather than being quietly ignored.</summary>
+    /// <remarks>
+    /// The defect this closes: FlavorFor returned null for anything but HTML and RTF, so
+    /// Formats.Add(JsonFormat.Instance) was accepted, validated, and then did nothing at all on
+    /// copy or paste. Asserted through Build and Read rather than on FlavorFor, because the
+    /// question is whether the payload carries it, not whether a lookup answers.
+    ///
+    /// Deliberately not asserted here: that JSON is *better* than HTML. It is not, today - §4.9
+    /// records that HTML carries everything the model can hold - and the test that claimed
+    /// otherwise passed with JSON removed from the list.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ARegisteredFormatWithNoPlatformConventionStillTravels()
+    {
+        IDocumentFormat[] formats = [HtmlFormat.Instance, JsonFormat.Instance];
+
+        var data = RichTextClipboard.Build(Styled, formats.OfType<IDocumentExporter>());
+        var flavour = RichTextClipboard.FlavorFor(JsonFormat.Instance.Format);
+
+        // The payload carries it, which it did not before.
+        Assert.NotNull(data.Items[0].TryGetValue(flavour.DataFormat));
+
+        // And it can be read back through that flavour alone.
+        var jsonOnly = RichTextClipboard.Read(data, [JsonFormat.Instance]);
+
+        Assert.NotNull(jsonOnly);
+        Assert.Equal(Styled, jsonOnly.Doc);
+    }
     [AvaloniaFact]
     public void AFormatWithNoPreferenceRankSortsAfterTheOnesThatHaveOne()
     {
         IDocumentImporter[] formats = [new Nowhere(), RtfFormat.Instance, HtmlFormat.Instance];
 
         Assert.Equal(
-            ["html", "rtf", "json"],
+            ["html", "rtf", "nowhere"],
             RichTextClipboard.InPreferenceOrder(formats).Select(i => i.Format));
     }
 
@@ -221,12 +260,12 @@ public class RichTextClipboardTests
             () => RichTextClipboard.WriteAsync(null!, Styled, []));
     }
 
-    /// <summary>A format that can be read and written but has no clipboard flavour.</summary>
+    /// <summary>A registered format with no platform clipboard convention of its own.</summary>
     private sealed class Nowhere : IDocumentImporter, IDocumentExporter
     {
-        public string Format => "json";
+        public string Format => "nowhere";
 
-        public string MediaType => "application/json";
+        public string MediaType => "application/x-nowhere";
 
         public ImportResult Import(string text) => new(new DocumentNode([]));
 
