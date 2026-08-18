@@ -347,18 +347,10 @@ public sealed class RtfExporter : IDocumentExporter
         private void WriteContent(InlineContent content, double scale, bool alwaysBold)
         {
             var embed = 0;
-            var start = 0;
 
-            while (start < content.Length)
+            foreach (var run in content.Runs())
             {
-                var mark = content.MarkAt(start);
-                var end = start + 1;
-
-                while (end < content.Length && content.MarkAt(end) == mark)
-                {
-                    end++;
-                }
-
+                var mark = run.Value;
                 var link = mark.Link;
 
                 if (link is not null)
@@ -371,7 +363,7 @@ public sealed class RtfExporter : IDocumentExporter
                 rtf.Append('{');
                 WriteRunProperties(mark, scale, alwaysBold, underlined: link is not null);
 
-                for (var i = start; i < end; i++)
+                for (var i = run.Start; i < run.End; i++)
                 {
                     var c = content.Text[i];
 
@@ -395,8 +387,6 @@ public sealed class RtfExporter : IDocumentExporter
                 {
                     rtf.Append("}}");
                 }
-
-                start = end;
             }
         }
 
@@ -655,39 +645,16 @@ public sealed class RtfExporter : IDocumentExporter
 
     /// <summary>How much larger than body text a heading is drawn.</summary>
     /// <remarks>
-    /// These are the ratios the editor itself uses. RTF cannot say "heading", so the size is the
-    /// only part of the meaning that can be carried, and it has to agree with what the user was
-    /// looking at when they pressed copy.
+    /// RTF cannot say "heading", so the size is the only part of the meaning that can be carried,
+    /// and it has to agree with what the user was looking at when they pressed copy. That is why
+    /// the ratios come from the model rather than being restated here: a second table drifted from
+    /// the editor's at every level below the first.
     /// </remarks>
-    private static double HeadingScale(ParagraphKind kind) => kind switch
-    {
-        ParagraphKind.Heading1 => 2.0,
-        ParagraphKind.Heading2 => 1.5,
-        ParagraphKind.Heading3 => 1.25,
-        ParagraphKind.Heading4 => 1.0,
-        ParagraphKind.Heading5 => 0.875,
-        ParagraphKind.Heading6 => 0.85,
-        _ => 1.0,
-    };
+    private static double HeadingScale(ParagraphKind kind) => HeadingAppearance.Scale(kind);
 
-    private static bool Emphasised(ParagraphKind kind) => kind
-        is ParagraphKind.Heading1
-        or ParagraphKind.Heading2
-        or ParagraphKind.Heading3
-        or ParagraphKind.Heading4
-        or ParagraphKind.Heading5
-        or ParagraphKind.Heading6;
+    private static bool Emphasised(ParagraphKind kind) => HeadingAppearance.IsHeading(kind);
 
-    private static int? OutlineLevel(ParagraphKind kind) => kind switch
-    {
-        ParagraphKind.Heading1 => 0,
-        ParagraphKind.Heading2 => 1,
-        ParagraphKind.Heading3 => 2,
-        ParagraphKind.Heading4 => 3,
-        ParagraphKind.Heading5 => 4,
-        ParagraphKind.Heading6 => 5,
-        _ => null,
-    };
+    private static int? OutlineLevel(ParagraphKind kind) => HeadingAppearance.OutlineLevel(kind);
 
     /// <summary>Reads the bytes out of a <c>data:</c> URI.</summary>
     private static class DataUri

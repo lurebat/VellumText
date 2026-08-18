@@ -274,18 +274,10 @@ public sealed class HtmlExporter : IDocumentExporter
     private static void WriteContent(StringBuilder html, InlineContent content, bool preformatted)
     {
         var embed = 0;
-        var start = 0;
 
-        while (start < content.Length)
+        foreach (var run in content.Runs())
         {
-            var mark = content.MarkAt(start);
-            var end = start + 1;
-
-            while (end < content.Length && content.MarkAt(end) == mark)
-            {
-                end++;
-            }
-
+            var mark = run.Value;
             var open = new StringBuilder();
             var close = new StringBuilder();
 
@@ -293,7 +285,7 @@ public sealed class HtmlExporter : IDocumentExporter
 
             html.Append(open);
 
-            for (var i = start; i < end; i++)
+            for (var i = run.Start; i < run.End; i++)
             {
                 var c = content.Text[i];
 
@@ -320,7 +312,6 @@ public sealed class HtmlExporter : IDocumentExporter
             }
 
             html.Append(close);
-            start = end;
         }
     }
 
