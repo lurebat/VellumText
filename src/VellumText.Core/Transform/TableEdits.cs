@@ -378,6 +378,76 @@ public static class TableEdits
         return Step(tablePos, table, cells, layout.Height, table.ColumnWidths);
     }
 
+    /// <summary>Restates a table's column widths.</summary>
+    /// <param name="doc">The document.</param>
+    /// <param name="tablePos">The position directly before the table.</param>
+    /// <param name="widths">One width per column, as ratios rather than measurements.</param>
+    /// <returns>
+    /// The step, or null if there is no table there, if the count does not match the table's
+    /// columns, or if the table already states these widths.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A width is not a positive finite number.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// The widths are shares of whatever width the table is given, not measurements, so
+    /// <c>[1, 2]</c> and <c>[100, 200]</c> describe the same table. Callers that mean a proportion
+    /// should say so by passing one — a vector summing to 1 leaves nothing to misread.
+    /// </para>
+    /// <para>
+    /// The count is checked against the grid's width rather than against any row's cell count,
+    /// because a row whose cells span columns carries fewer cells than the table is wide.
+    /// </para>
+    /// <para>
+    /// This is the one edit here that moves nothing, and it is still a
+    /// <see cref="TableStructureStep"/>: the rows are handed through untouched, so they stay
+    /// reference-identical and the step's map comes out empty. Nothing else would be gained by a
+    /// step of its own, which would have to repeat the rebasing guard and the schema validation.
+    /// </para>
+    /// <para>
+    /// A mismatched count returns null rather than throwing, matching the rest of this class: the
+    /// table may have changed under a caller holding an older column count, and that is a fact
+    /// about the document. A width that is not a width is a fault in the argument instead, so it
+    /// throws exactly as <see cref="TableNode"/>'s own constructor would a line later.
+    /// </para>
+    /// </remarks>
+    public static TableStructureStep? SetColumnWidths(
+        DocumentNode doc, int tablePos, IEnumerable<double> widths)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(widths);
+
+        var stated = widths.ToImmutableArray();
+
+        foreach (var width in stated)
+        {
+            if (!double.IsFinite(width) || width <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(widths), width, "A column width must be a positive finite number.");
+            }
+        }
+
+        if (tablePos < 0
+            || tablePos > doc.ContentSize
+            || doc.Resolve(tablePos).NodeAfter is not TableNode table)
+        {
+            return null;
+        }
+
+        TableGeometry.Place(table, out var columns);
+
+        if (stated.Length != columns)
+        {
+            return null;
+        }
+
+        var after = table.WithColumnWidths(stated);
+
+        return after.Equals(table) ? null : new TableStructureStep(tablePos, table, after);
+    }
+
     /// <summary>Where one cell sits, as a rectangle rather than as a pair of spans.</summary>
     private readonly record struct Placed(
         TableCellNode Cell, int Top, int Left, int Bottom, int Right);

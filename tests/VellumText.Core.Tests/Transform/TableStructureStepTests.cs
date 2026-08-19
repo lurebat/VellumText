@@ -527,6 +527,194 @@ public class TableEditsTests
         Assert.Null(TableEdits.DeleteColumns(doc, 1, 1));
         Assert.Null(TableEdits.MergeCells(doc, 1, 1));
         Assert.Null(TableEdits.SplitCell(doc, 1));
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [0.5, 0.5]));
+    }
+}
+
+/// <summary>
+/// Restating a table's column widths.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The odd one out in <see cref="TableEdits"/>: every other edit here rearranges cells, and this
+/// one moves nothing at all. It is still a <see cref="TableStructureStep"/> rather than a step of
+/// its own, because that step already expresses it — a width-only change leaves every row
+/// reference-identical, so the diff behind <see cref="TableStructureStep.GetMap"/> stops at the
+/// first comparison and reports no ranges. A new step type would have had to repeat
+/// <c>Apply</c>, the rebasing guard and the schema validation to say the same thing.
+/// </para>
+/// <para>
+/// The widths are ratios, so what these tests pin is the proportion between them and never a
+/// pixel.
+/// </para>
+/// </remarks>
+public class TableColumnWidthTests
+{
+    [Fact]
+    public void StatedWidthsReplaceTheOnesTheTableHad()
+    {
+        var doc = Tables.Grid(2, 2, [1d, 1d]);
+        var after = Tables.Apply(doc, TableEdits.SetColumnWidths(doc, 0, [0.25, 0.75]));
+
+        Assert.Equal([0.25, 0.75], Tables.Table(after).ColumnWidths.AsEnumerable());
+    }
+
+    /// <summary>
+    /// An automatic table has no vector at all, and a resize has to be able to give it one —
+    /// otherwise the first drag on a freshly inserted table has nothing to change.
+    /// </summary>
+    [Fact]
+    public void AnAutomaticTableCanBeGivenAFullVector()
+    {
+        var doc = Tables.Grid(2, 3);
+
+        Assert.True(Tables.Table(doc).ColumnWidths.IsEmpty);
+
+        var after = Tables.Apply(doc, TableEdits.SetColumnWidths(doc, 0, [0.2, 0.3, 0.5]));
+
+        Assert.Equal([0.2, 0.3, 0.5], Tables.Table(after).ColumnWidths.AsEnumerable());
+    }
+
+    [Fact]
+    public void AVectorThatDoesNotHaveOneEntryPerColumnIsRefused()
+    {
+        var doc = Tables.Grid(2, 3);
+
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [0.5, 0.5]));
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [0.25, 0.25, 0.25, 0.25]));
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, []));
+    }
+
+    /// <summary>
+    /// The count is the <em>grid's</em> width, not the first row's cell count. A row whose cells
+    /// span columns carries fewer cells than the table is wide, and a vector sized from the cells
+    /// would be refused for the table it was correctly built for.
+    /// </summary>
+    [Fact]
+    public void TheColumnCountComesFromTheGridRatherThanFromTheCells()
+    {
+        var doc = Tables.Of(
+            new TableRowNode([new TableCellNode([ParagraphNode.FromText("wide")], columnSpan: 2)]),
+            new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]));
+
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [1d]));
+
+        var after = Tables.Apply(doc, TableEdits.SetColumnWidths(doc, 0, [0.4, 0.6]));
+
+        Assert.Equal([0.4, 0.6], Tables.Table(after).ColumnWidths.AsEnumerable());
+    }
+
+    /// <summary>
+    /// Not null, unlike everything else here. Null means "this edit does not apply to this
+    /// document", which a caller can reasonably ignore; a width that is not a number is a fault in
+    /// the caller, and <see cref="TableNode"/>'s own constructor would throw on it a line later.
+    /// Returning null would turn that fault into a silent no-op.
+    /// </summary>
+    /// <remarks>
+    /// The last two cases are the ones that pin the check to this method rather than to the
+    /// constructor: the vector never reaches a <see cref="TableNode"/> when there is no table
+    /// there or when the count is wrong, so without an up-front check those would return null and
+    /// swallow the bad number.
+    /// </remarks>
+    [Fact]
+    public void AWidthThatIsNotAPositiveFiniteNumberThrows()
+    {
+        var doc = Tables.Grid(2, 2);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(doc, 0, [0.5, 0d]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(doc, 0, [0.5, -0.5]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(doc, 0, [0.5, double.NaN]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(doc, 0, [0.5, double.PositiveInfinity]));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(doc, 0, [0.2, 0.2, double.NaN]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => TableEdits.SetColumnWidths(
+                DocumentNode.FromParagraphs("no table"), 0, [0.5, -1d]));
+    }
+
+    [Fact]
+    public void RestatingTheWidthsATableAlreadyHasIsNoEdit()
+    {
+        var doc = Tables.Grid(2, 2, [0.25, 0.75]);
+
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [0.25, 0.75]));
+    }
+
+    [Fact]
+    public void ThereIsNoTableToWidenWhereThereIsNoTable()
+    {
+        var doc = new DocumentNode([ParagraphNode.FromText("first"), Tables.Table(Tables.Grid(2, 2))]);
+
+        // Position 0 is the paragraph, not the table, and the table starts at 7.
+        Assert.Null(TableEdits.SetColumnWidths(doc, 0, [0.5, 0.5]));
+        Assert.Null(TableEdits.SetColumnWidths(doc, -1, [0.5, 0.5]));
+        Assert.Null(TableEdits.SetColumnWidths(doc, doc.ContentSize + 1, [0.5, 0.5]));
+        Assert.NotNull(TableEdits.SetColumnWidths(doc, 7, [0.5, 0.5]));
+    }
+
+    /// <summary>
+    /// The reason this needs no step of its own. A width change disturbs no position, so the map
+    /// is the identity — and a caret three cells away has to come out exactly where it was, not
+    /// collapsed onto the table's edge by a range covering the whole table.
+    /// </summary>
+    /// <remarks>
+    /// Asserted through <see cref="StepMap.IsIdentity"/> rather than through a range count, which
+    /// is never zero: a map that moves nothing is spelled as one empty range, so
+    /// <c>RangeCount == 1</c> is what both this and a genuine one-range edit report.
+    /// </remarks>
+    [Fact]
+    public void AWidthChangeMovesNoPosition()
+    {
+        var doc = Tables.Grid(3, 3);
+        var step = TableEdits.SetColumnWidths(doc, 0, [0.2, 0.3, 0.5])!;
+        var map = step.GetMap();
+
+        Assert.True(map.IsIdentity, map.ToString());
+        Assert.Equal(0, map.SizeDelta);
+
+        for (var pos = 0; pos <= doc.ContentSize; pos++)
+        {
+            var mapped = map.MapWithResult(pos);
+
+            Assert.False(mapped.Deleted, $"position {pos} was reported deleted");
+            Assert.Equal(pos, mapped.Pos);
+        }
+    }
+
+    [Fact]
+    public void UndoingAWidthChangePutsBackTheWidthsItFound()
+    {
+        var doc = Tables.Grid(2, 2, [0.25, 0.75]);
+        var step = TableEdits.SetColumnWidths(doc, 0, [0.6, 0.4])!;
+        var after = Tables.Apply(doc, step);
+        var undone = step.Invert(doc).Apply(after);
+
+        Assert.True(undone.IsOk, undone.Failure);
+        Assert.Equal(doc, undone.Doc);
+    }
+
+    /// <summary>
+    /// The rows are handed straight through rather than rebuilt, which is what leaves them
+    /// reference-identical and is therefore what makes the identity map above true. Asserting it
+    /// directly, because the map test would still pass on a rebuilt-but-equal table today and
+    /// would only start failing once <c>Diff</c> stopped short-circuiting on equality.
+    /// </summary>
+    [Fact]
+    public void ChangingTheWidthsKeepsEveryRowObject()
+    {
+        var doc = Tables.Grid(2, 2);
+        var before = Tables.Table(doc);
+        var after = Tables.Table(Tables.Apply(doc, TableEdits.SetColumnWidths(doc, 0, [0.4, 0.6])));
+
+        for (var row = 0; row < before.Rows.Length; row++)
+        {
+            Assert.Same(before.Rows[row], after.Rows[row]);
+        }
     }
 }
 
