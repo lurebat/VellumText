@@ -8,6 +8,52 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
+## [Unreleased]
+
+### Added
+
+- **Column resize by dragging.** Drag a column boundary in a table and the two
+  columns either side of it change share; the rest of the table does not move
+  and the table's total width does not change. The pointer becomes a horizontal
+  resize cursor within four pixels of a boundary, anywhere down the table's
+  height, and a guide line follows the drag. The document is relaid out once, on
+  release, as **one undo step** — a whole gesture goes back in one Ctrl+Z. A
+  table with no stated widths gets a full vector the first time a boundary is
+  dragged, and a column will not go below 5% of the table (or a quarter of the
+  two columns' combined width, for a table with too many columns for 5% each to
+  be possible). Nothing is armed or committed on a read-only view. This
+  completes AC5, the last unbuilt clause of the table acceptance criterion.
+- **`TableEdits.SetColumnWidths(DocumentNode doc, int tablePos, IEnumerable<double> widths)`.**
+  Returns the `TableStructureStep` to put in a transaction, or `null` when there
+  is no table at that position, when the vector has the wrong number of entries
+  for the table's columns, or when the widths are the ones the table already
+  has. Throws for a width that is not a positive finite number, which is a
+  caller error rather than a no-op. The entries do not have to sum to anything:
+  `TableNode.ColumnWidths` is a set of **proportions**, so `[1, 2]` and
+  `[100, 200]` lay out identically. The control writes vectors summing to 1.
+- **`RichTextView.IsResizingColumn`**, and the two constants that govern the
+  gesture: **`RichTextView.ColumnBoundaryTolerance`** (4 px either side of a
+  boundary) and **`RichTextView.MinimumColumnShare`** (0.05).
+
+### Fixed
+
+- **A table column narrower than its own cell padding no longer takes the whole
+  layout down.** `TableBlockView` passed the cell's inner width straight to
+  `ParagraphView.Measure`, which refuses zero, so any document stating widths
+  like `[0.995, 0.005]` threw `ArgumentOutOfRangeException` during layout. Text
+  now overflows a column that narrow, which is what a column that narrow means.
+  Pre-existing and reachable from import — no gesture required.
+
+### Documentation
+
+- **`TableNode.ColumnWidths` are proportions, not pixels.** The XML doc said
+  "device-independent pixels" while the layout scaled them unconditionally to
+  the available width. Corrected, along with a claim in `TableBlockView` that
+  the HTML and RTF importers produce explicit column widths — neither does.
+- **Only the JSON format carries column widths.** HTML and RTF export a table's
+  structure and content but not its proportions, in either direction, so a
+  round-trip through either lays the table out evenly. Now stated in the guide.
+
 ## [0.5.0] - 2026-08-18
 
 Every breaking change here is deliberate. VellumText is pre-1.0 and the point of

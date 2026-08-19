@@ -576,6 +576,11 @@ internal sealed class ParagraphView : BlockView
 >   get the mean of the stated ones; none stated is an even split. That is not what a browser does
 >   — browsers size to content — but it is predictable and never collapses a column. Content-based
 >   sizing needs a min/max width pass the block views do not expose.
+>   **Corrected 2026-08-19:** the XML doc on `TableNode.ColumnWidths` said "device-independent
+>   pixels" for months while `ColumnEdges` scaled unconditionally (`scale = available / total`),
+>   so `[100, 200]` and `[1, 2]` always laid out identically and a table asking for less than it
+>   was given was stretched to fill. The document was wrong, not the code. Column resize (P12)
+>   now writes a vector summing to 1, which makes the proportion impossible to misread again.
 > - **A cell that states its own background beats the header tint.** The document was explicit; the
 >   tint (`TableHeaderBrush`) is only the control saying what a header row usually looks like.
 > - **The schema reports, it does not enforce.** `new TableCellNode([])` is constructible and
@@ -1485,7 +1490,7 @@ worth using". Comparing it against what VellumText actually had:
 | Character formatting (17+ controls) | ✅ | ✅ every mark | ❌ → ✅ **closed** |
 | Headings, alignment, indent | ✅ | ✅ | ✅ |
 | Lists | ✅ | ✅ | ❌ → ✅ **closed** (P3) |
-| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ → ✅ real grid (P6); cross-cell selection (P8) |
+| Tables, merged cells | ✅ non-destructive | ✅ full schema + `CellSelection` | ⚠️ → ✅ real grid (P6); cross-cell selection (P8); column resize by dragging (P12) |
 | Inline & block images | ✅ | ✅ | ✅ renders, selects and resizes by dragging a corner |
 | Hyperlinks | ✅ | ✅ | ✅ **closed** |
 | Toolbar (`EditorToolbar`) | ✅ | — | ❌ → ✅ **closed** (P4) |
@@ -1650,6 +1655,7 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P9** | **Packaging.** Metadata and release automation are **done** — see "As built" below. ~~**Blocked on package identity**~~ **Resolved 2026-08-17 by renaming to `VellumText.*`.** | The old name collided: `Vellum.Core` 0.1.0 and 0.2.0 exist on nuget.org, published by the envelope-encryption library at `github.com/OkaySire/vellum`, which also holds `Vellum.Vault`, `Vellum.Static`, `Vellum.InMemory` and `Vellum.EntityFrameworkCore`. Plain `Vellum` 1.3.1 is taken too. | Done |
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
+| **P12** | ~~**Column resize by dragging.**~~ **Done** (2026-08-19). The last unbuilt clause of AC5, listed under "Deliberately not built" above since P8. See "As built" below. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
 
 **DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
@@ -1895,9 +1901,88 @@ defect surfaced only because the round trip was probed for what it actually retu
 about round-trip tests proving the writer and reader agree with each other has a companion:
 **a test that asserts an invariant the failure also satisfies is not a test.**
 
-**Deliberately not built**, and left for whoever picks this up: column resize by dragging, table
-styles and themes, and anything drag-and-drop. `TableEdits` has no notion of a table style and
-`ColumnWidths` is already the model for a resize, so neither is foreclosed.
+**Deliberately not built**, and left for whoever picks this up: table styles and themes, and
+anything drag-and-drop. `TableEdits` has no notion of a table style, so neither is foreclosed.
+**Column resize by dragging was on this list and is now built — see P12 below.**
+
+### 10.4.3 Column resize by dragging (P12)
+
+The last unbuilt clause of AC5. Two separable pieces: a Core primitive that states widths, and a
+view gesture that decides what to state.
+
+**No new step type.** A width change is a `TableStructureStep` like any other structural edit.
+`TableStructureStep.GetMap` diffs the before and after rows and **stops at reference equality**, and
+`WithColumnWidths` rebuilds only the wrapper, so a width-only change yields an **identity map** —
+nothing moves, which is exactly right for a resize. A dedicated step type was drafted and abandoned:
+it would have duplicated `Apply`, the rebasing guard and schema validation to express something the
+existing step already expresses. **Checking `GetMap` overturned the expectation that one was needed.**
+
+**A correction to how this was described.** `StepMap.RangeCount` is *never* zero — a map that moves
+nothing has one empty range (`StepMap.cs:170`). "Yields no ranges" is spelled `IsIdentity` in this
+codebase, and `RangeCount == 1` cannot tell an identity map from a genuine one-range edit. A test
+asserting `RangeCount == 0` fails against correct code.
+
+**The gesture previews in view-local state and commits once on release.** Not one transaction per
+pointer-move relying on coalescing to hide them — undo has to take the whole gesture back in one
+step, and coalescing is a heuristic about typing, not a transaction boundary. The preview is a
+vertical guide line rather than live relayout, mirroring image resize: a table remeasures every cell
+in it, so the document would reflow under a pointer that is still aiming.
+
+**Widths are captured in pixels at drag start, from the edges the view just laid out, and converted
+to ratios once, on release.** That is what makes an automatic table (empty `ColumnWidths`) and a
+stated one behave identically: both start from real geometry, and the automatic one materialises a
+full vector on first drag. The written vector is **normalised to sum 1** — harmless precisely
+because the magnitudes never meant anything, and it makes the pixel misreading impossible to make
+again.
+
+**Normalisation lives in the view, not in `TableEdits`.** A host with pixel measurements from
+somewhere else should not have them silently rewritten; what the *control* has is laid-out widths
+whose magnitudes are an artefact of the window, so it is the control that owes the conversion.
+
+**Holding the pair's sum constant** is simultaneously what keeps the table's total width unchanged
+and what leaves a `ColumnSpan > 1` cell exactly as wide as it was. A boundary under a spanning cell
+is a **slot** boundary — the grid is indexed by slots — so it is grabbable down the table's whole
+height and the spanning cell's total does not move.
+
+**The clamp is 5% of the table, capped at a quarter of the two columns either side.** The cap is not
+decoration: without it a table of more than twenty even columns has every column already below 5%,
+and the floor exceeds what is available. It must be **strictly** below half the pair — at exactly
+half the boundary pins to the pair's midpoint and the gesture silently does nothing, and above half
+the lower clamp limit passes the upper one and `Math.Clamp` throws. A quarter is the round number
+below half, and leaves half the pair as travel either way.
+
+**Hit-testing sits after image handles and before text.** An image resize handle is drawn *outside*
+its image box and can therefore overlap a column boundary; the handles win for the same reason they
+win over the image itself — a pointer on a handle is aiming at the handle. A nested table is asked
+before its container, mirroring `Collect`: its boundaries lie inside one of the outer table's cells,
+so it is the more specific answer.
+
+**Read-only is gated at a single choke point** — `ColumnBoundaryUnder`, which the cursor, the
+capture, the preview and the commit all go through. §10.2 records five defects where a read-only
+control advertised or armed an edit it then refused; one gate that the whole gesture passes through
+is the shape that cannot drift back into that.
+
+**Two pre-existing defects surfaced while testing this.**
+
+- **`TableBlockView.Measure` crashed on a narrow column.** It passed `Math.Max(0, inner)` to
+  `ParagraphView.Measure`, which throws on zero. Any column narrower than its own padding (12px)
+  took the whole layout down, reachable from any imported document stating e.g. `[0.995, 0.005]` —
+  no gesture involved. Now `Math.Max(1, inner)`; the text overflows, which is what a column that
+  narrow means.
+- **A false claim in `TableBlockView`'s own remarks** that the HTML and RTF importers produce
+  explicit column widths whenever the source stated any. Neither does, in either direction.
+
+**Null result: only JSON round-trips proportions.** `HtmlImporter.Rectangular` builds
+`new TableNode(rows)` with no widths ever; `HtmlExporter` writes no width; `RtfExporter.WriteTable`
+emits a fixed `\cellx` step of `ColumnSpan * 1440` twips, ignoring `ColumnWidths` entirely; and
+`RtfImporter` contains no `TableNode` at all. Carrying widths through either format is a new feature
+in both formats, not a fix, and R2 keeps v1 to fixed/proportional widths. The round-trip test
+therefore exists for JSON only, and the guide says so rather than leaving users to discover it.
+
+**Declined: a programmatic entry point on `RichTextView`.** `ResizeSelectedImage` is the obvious
+precedent, but a host already has everything it needs — `TableEdits.SetColumnWidths` is public,
+`Transaction.Step` takes it, and `Apply` runs it. Adding a control method would be a second way to
+say the same thing, and public surface cannot be withdrawn after 1.0.
 
 ### 10.5 Candidate upstream Avalonia reports
 
@@ -1992,4 +2077,6 @@ Tables being firm changes three things in this design, and they should be treate
 - **`CellSelection` must be in the `Selection` hierarchy from Increment 1.** Retrofitting a third selection kind through every command is the expensive path.
 
 **Revised risk posture:** R2 (table layout is entirely ours, §9) is no longer deferrable and cannot be scoped out under schedule pressure. The realistic v1.0 estimate stands at **4–6 months** part-time, with Increment 6 as the single largest block of work. Constrain v1 to fixed/proportional column widths and no auto-fit-to-content — that constraint is what keeps tables at weeks rather than months.
+
+**Held.** Column resize (P12, §10.4.3) is a proportional resize: it redistributes the share between two adjacent columns and never measures content. Auto-fit remains unbuilt, and it is the width-only clause of R2 that made the resize a day rather than a month.
 

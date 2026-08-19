@@ -727,6 +727,34 @@ var cell = TableGrid.CellContaining(doc, caret);
 var step = TableEdits.InsertRows(doc, cell!.Value, cell.Value, below: true);
 ```
 
+### Column widths
+
+**Dragging a column boundary resizes the two columns either side of it.** The pointer turns into a
+horizontal resize cursor within four pixels of a boundary, anywhere down the table's height, and a
+guide line follows the drag; the document is relaid out once, on release, as a single undo step.
+Everything outside those two columns stays where it is, and the table's total width never changes.
+
+A column will not go below **5% of the table**, or a quarter of the two columns' combined width for
+a table with so many columns that 5% each is already impossible.
+
+Column widths are **proportions, not pixels**. A table is always laid out to the width it is given,
+and `TableNode.ColumnWidths` says how to divide that width up, so `[1, 2]` and `[100, 200]` mean the
+same thing. Dragging writes a vector summing to 1. A table with no stated widths divides the space
+evenly, and gets a full vector the first time a boundary is dragged.
+
+To set them without a control:
+
+```csharp
+var step = TableEdits.SetColumnWidths(doc, tablePos, [0.5, 0.25, 0.25]);
+```
+
+It returns `null` when there is no table at that position, when the vector has the wrong number of
+entries for the table, or when the widths are the ones the table already has; it throws for a width
+that is not a positive finite number. The entries do not have to sum to anything in particular.
+
+Only the JSON format carries column widths. HTML and RTF export a table's structure and content but
+not its proportions, so a round-trip through either lays the table out evenly.
+
 ### Selecting cells
 
 Dragging across cells makes a **rectangular** selection, which follows Word's rules: delete and cut
