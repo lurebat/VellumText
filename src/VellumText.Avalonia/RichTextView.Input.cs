@@ -231,6 +231,28 @@ public partial class RichTextView
             return;
         }
 
+        // The press now has a third answer, and this is where it is given: it can start a
+        // gesture, place a caret, or decide nothing at all and wait for the pointer to move. The
+        // cost of that third answer is that every early return above has to keep being reached
+        // first, which is why this sits below all of them.
+        //
+        // Below the boundary and above the image click, because a press on the picture that is
+        // already selected is the pickup of that picture rather than a fresh selection of it, and
+        // only the order can say so. Restricted to a plain single click so that the click count
+        // and the modifiers below still mean what they meant: a third click widens the selection
+        // the second one made, and Shift extends across it. Touch is left out - a press held on a
+        // selection there is how a document is scrolled.
+        if (e.Pointer.Type != PointerType.Touch
+            && e.ClickCount == 1
+            && e.KeyModifiers == KeyModifiers.None
+            && TryPickUpSelection(point))
+        {
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            return;
+        }
+
         // Clicking a picture selects the picture, as it does everywhere else. Shift is left to
         // the text path so that a selection can still be extended across one.
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift)
@@ -377,6 +399,14 @@ public partial class RichTextView
             return;
         }
 
+        if (_pickup is not null)
+        {
+            UpdateMove(point);
+            e.Handled = true;
+
+            return;
+        }
+
         if (!_dragging)
         {
             UpdateLinkAffordance(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
@@ -495,6 +525,23 @@ public partial class RichTextView
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The one gesture that ends here rather than in <see cref="OnPointerCaptureLost"/>, because
+    /// it is the only one for which the difference matters: a release is a drop and commits the
+    /// move, while capture taken away is a popup opening or the window deactivating and must
+    /// abandon it. Capture loss alone cannot tell the two apart, and committing a move the user
+    /// never released is a silent corruption rather than a lost gesture.
+    /// </remarks>
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        base.OnPointerReleased(e);
+
+        EndMove(dropped: true);
+    }
+
+    /// <inheritdoc/>
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
@@ -507,6 +554,10 @@ public partial class RichTextView
         EndResize();
         EndColumnResize();
         EndTouchDrag();
+
+        // Whatever is left of a move by the time capture is gone is abandoned, since a release
+        // has already committed anything that was meant to be committed.
+        EndMove(dropped: false);
 
         // The drag is what the autoscroll exists to serve, so it ends with it. A timer left
         // running after the button came up keeps scrolling the document under a still pointer.

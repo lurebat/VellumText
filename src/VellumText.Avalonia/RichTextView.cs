@@ -374,8 +374,9 @@ public partial class RichTextView : DocumentPresenter
     /// Order matters and was settled by looking at the result. Found-but-not-current matches go
     /// under the selection, because a match the user has also selected should read as selected.
     /// The current match goes over it, because it is always selected and would otherwise be a
-    /// muddy mixture of the two. Text is above all of them, the image handles and the column
-    /// resize guide above the text they overlap, and the caret above everything.
+    /// muddy mixture of the two. Text is above all of them, the image handles, the column
+    /// resize guide and the drop caret above the text they overlap, and the caret above
+    /// everything.
     /// </remarks>
     private protected override void RenderContent(DrawingContext context)
     {
@@ -385,6 +386,7 @@ public partial class RichTextView : DocumentPresenter
         RenderBlocks(context);
         RenderImageHandles(context);
         RenderColumnGuide(context);
+        RenderDropCaret(context);
         RenderTouchHandles(context);
         RenderCaret(context);
     }

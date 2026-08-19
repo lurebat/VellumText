@@ -229,6 +229,15 @@ triple-click selects a paragraph, dragging past the top or bottom edge keeps scr
 inserts a soft break inside the paragraph rather than starting a new one, and Ctrl+Shift+V pastes
 as plain text.
 
+Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and
+the selection is picked up; a caret follows the pointer to show where it will land, and releasing
+drops it there, selected. Releasing before those four pixels is an ordinary click and collapses the
+caret where the press landed. The whole move is one undo step. `view.IsMovingSelection` is true
+between the pickup and the drop, for a host that wants to suppress its own chrome while content is
+in the air. A read-only view never picks anything up, so a drag inside a selection there is an
+ordinary drag-select. Dragging out to another application, into another editor, or with a modifier
+held to copy rather than move are all out of scope; so is dragging a picture, for now.
+
 Word and paragraph selection use Unicode segmentation (UAX #29), so double-clicking a family emoji
 or an accented letter selects the whole cluster rather than half of one.
 

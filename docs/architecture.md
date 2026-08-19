@@ -1702,6 +1702,7 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P10** | ~~**The four control properties.**~~ **Done.** See "As built" below. | — | — |
 | **P11** | ~~**Selection flyout.**~~ **Was already done** — this row was wrong. Built during P4; see `SelectionToolbarTests.cs` (14 tests) and `RichTextEditor.cs`. | — | — |
 | **P12** | ~~**Column resize by dragging.**~~ **Done** (2026-08-19). The last unbuilt clause of AC5, listed under "Deliberately not built" above since P8. See "As built" below. | — | — |
+| **P13** | ~~**Drag-to-move the selection.**~~ **Done** (2026-08-20). See §10.4.4. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
 
 **DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
@@ -2029,6 +2030,80 @@ therefore exists for JSON only, and the guide says so rather than leaving users 
 precedent, but a host already has everything it needs — `TableEdits.SetColumnWidths` is public,
 `Transaction.Step` takes it, and `Apply` runs it. Adding a control method would be a second way to
 say the same thing, and public surface cannot be withdrawn after 1.0.
+
+### 10.4.4 Drag-to-move the selection (P13)
+
+Picking selected content up with the pointer and dropping it somewhere else in the same document.
+This modifies the most load-bearing input path in the control, and that is the whole of its risk.
+
+**A press inside a selection is ambiguous until the pointer moves, so the decision is deferred.**
+It is either the start of a new selection or the pickup of the selected content, and nothing at the
+moment of the press can tell which. The press therefore collapses nothing and begins nothing; past
+four pixels the gesture becomes a move, and a release before that is a click that collapses the
+caret where it landed. A modifier-initiated drag was considered and rejected: nobody discovers it,
+and it contradicts every other text surface on the platform.
+
+**The cost, stated plainly: `OnPointerPressed` now has an outcome it did not have** — a press that
+has answered nothing yet. The chain is four deep (touch handles → image resize handles → column
+boundary → image select → text), every branch of it captures the pointer and returns, and the new
+branch sits between the column boundary and the image select. Everything above it must still be
+reached first, and everything below it must still be reachable, which is what
+`ARectangleOfCellsIsNotPickedUp`, `ASelectedImageIsNotPickedUp`,
+`ATripleClickInsideASelectionStillSelectsTheParagraph` and `ShiftClickingInsideASelectionStillExtendsIt`
+exist to hold. The gate is deliberately narrow — one click, no modifiers, not touch — because every
+condition it does not state is a gesture it silently steals.
+
+**The delete and the insert are two steps of one transaction.** Two transactions would let an undo
+stop between them and leave the content in neither place, which is worse than either half being
+wrong. `Transaction` chains, so this costs nothing beyond writing it in the right order.
+
+**The order within the transaction is the rest of the difficulty.** The drop position is stated
+against the document as it was, and the deletion moves everything after the selection, so it is
+mapped through `transaction.Mapping` before the insert uses it. Getting this wrong displaces the
+content by exactly the length of the selection and corrupts silently — which is why every test
+range here is asymmetric. A move of three characters three characters to the right reads the same
+whether or not the mapping happened.
+
+**Dropping inside the dragged range is a no-op**, not a self-destructive edit. At the ends it would
+otherwise be an insert at a position the deletion had just taken away.
+
+**Read-only is answered at one choke point**, `SelectionUnder`, which the deferred press, the
+capture, the drop caret and the commit all pass through. §10.2 records six defects in this codebase
+where a read-only control advertised, armed or prompted for an edit it then refused, every one of
+which gated the write and nothing else. The question to ask of each step is what is *armed* before
+the refusal; here the answer is nothing, because a read-only press never becomes a pickup at all
+and falls through to the ordinary drag-select.
+
+**The in-flight guard is the drop pipeline's, not a second one.** `EditOrigin` is captured at the
+pickup and checked with `StillAt` at the drop, so a host that swapped the document mid-gesture gets
+its document left alone. Capture loss is deliberately *not* a drop: a popup opening or the window
+deactivating must not commit a move nobody released. Avalonia raises `PointerReleased` before
+`PointerCaptureLost`, so committing on release and cancelling on capture loss is unambiguous.
+
+**This is a view-local gesture, not a platform drag source.** There is no `DoDragDrop` anywhere in
+the control and this does not add one. Dragging out to another application and between two
+instances are both out of scope, and `Avalonia.Headless` 12.1.1 contains no `IPlatformDragSource`
+at all — verified by symbol search of the assembly — so a `DoDragDrop` implementation of the same
+feature could not be tested here. §10.5's standing point about what headless cannot drive applies
+again.
+
+**Two mutants survive and both are honest.**
+
+- **The touch exclusion** (`e.Pointer.Type != PointerType.Touch`) cannot be defended, because
+  headless has no touch input at all — the same limitation §10.5 records. It is kept because a held
+  press on a selection is how a touch document is scrolled.
+- **The refusal after `RemoveSelection`** is shadowed by the refusal after `Replace`. Both are
+  correct, and the shadowing was measured rather than assumed: for a selection running from a
+  paragraph into a table cell, the delete *succeeds* (`Failures` empty) and the insert is what
+  fails, with "the slice is open deeper than the position it goes into". So
+  `ASelectionReachingIntoATableIsNotMoved` kills the insert guard and leaves the delete guard alive.
+  Deleting the unreached guard would make the delete's own refusal contract — "reporting the refusal
+  is the caller's cue to abandon the whole edit" — depend on a downstream accident.
+
+**Declined.** A hover cursor over a selection: one fewer affordance to gate for read-only, and VS
+Code does not do it either. A public threshold: `AutoScrollStep` is the precedent for keeping a
+gesture constant private, and public surface cannot be withdrawn after 1.0. Hiding the selection
+toolbar mid-move, for consistency with `IsResizingColumn` and `IsResizingImage`, which do not.
 
 ### 10.5 Candidate upstream Avalonia reports
 

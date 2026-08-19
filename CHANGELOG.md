@@ -12,6 +12,18 @@ NuGet; packages are published to a local feed, and
 
 ### Added
 
+- **Move the selected text by dragging it.** Press inside a selection, drag past
+  four pixels and the selection is picked up; a caret follows the pointer to show
+  where it will land, and releasing moves it there. Releasing before those four
+  pixels is an ordinary click and collapses the caret where the press landed, so
+  both gestures a press inside a selection can mean are still available. The
+  delete and the insert are **one transaction**: a single Ctrl+Z puts the content
+  back where it came from. Dropping inside the range that is being dragged does
+  nothing rather than editing the document into itself. Nothing is armed,
+  previewed or committed on a read-only view, and a drag whose drop lands after
+  the host replaced the document is discarded. Dragging a selected image is not
+  in this release — a press on a picture still selects the picture.
+
 - **Column resize by dragging.** Drag a column boundary in a table and the two
   columns either side of it change share; the rest of the table does not move
   and the table's total width does not change. The pointer becomes a horizontal
