@@ -8,7 +8,11 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
-## [Unreleased]
+## [0.6.0] - 2026-08-19
+
+Two features and four fixes. `AC5` — the table acceptance criterion — is complete
+as of this release. No public surface was removed or moved, so upgrading from
+0.5.0 is a version bump and nothing else.
 
 ### Added
 
@@ -51,7 +55,11 @@ NuGet; packages are published to a local feed, and
   `[100, 200]` lay out identically. The control writes vectors summing to 1.
 - **`RichTextView.IsResizingColumn`**, and the two constants that govern the
   gesture: **`RichTextView.ColumnBoundaryTolerance`** (4 px either side of a
-  boundary) and **`RichTextView.MinimumColumnShare`** (0.05).
+  boundary) and **`RichTextView.MinimumColumnShare`** (0.05). Both are
+  `static readonly` rather than `const`, so tuning them in a later release
+  reaches a host on upgrade instead of staying baked into whatever it compiled
+  against.
+- **`RichTextView.IsMovingSelection`**, true while content is held by a drag.
 
 ### Fixed
 
@@ -60,7 +68,24 @@ NuGet; packages are published to a local feed, and
   `ParagraphView.Measure`, which refuses zero, so any document stating widths
   like `[0.995, 0.005]` threw `ArgumentOutOfRangeException` during layout. Text
   now overflows a column that narrow, which is what a column that narrow means.
-  Pre-existing and reachable from import — no gesture required.
+  Pre-existing, and no gesture required — but reachable only from the JSON
+  format or from a host building a `TableNode` directly, since neither HTML nor
+  RTF carries widths at all.
+
+- **Tab into a table cell that holds another table put the caret in the wrong
+  cell**, and a rectangular selection anchored on such a cell selected every
+  cell of the block rather than the column. One cause behind both: the caret
+  snapped to the *nearest* text position, and for a cell holding a table the
+  nearest one is the end of the cell before it. Tables without nested tables
+  were never affected.
+
+- **An `IImageStore` returning a blank source no longer throws out of
+  `InsertImage`.** `Save` documents a source or `null` to refuse; a blank is
+  neither, and it passed the null check and reached `ImageEmbed`, which rejects
+  it in its constructor — so a store answering `""` wrote the image and then
+  threw out of a method that returns a bool and documents no throw. A blank is
+  now a refusal and raises `ImageRefused`. This stops the exception, not an
+  orphaned file: `Save` has to be asked before its answer is known.
 
 ### Documentation
 
