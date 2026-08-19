@@ -21,8 +21,14 @@ NuGet; packages are published to a local feed, and
   back where it came from. Dropping inside the range that is being dragged does
   nothing rather than editing the document into itself. Nothing is armed,
   previewed or committed on a read-only view, and a drag whose drop lands after
-  the host replaced the document is discarded. Dragging a selected image is not
-  in this release — a press on a picture still selects the picture.
+  the host replaced the document is discarded.
+- **Move a selected picture by dragging it.** The same gesture on the existing
+  node selection: press on the picture, drag, and it lands where the drop caret
+  is, splitting the paragraph it was dropped into — again one undo step. The
+  picture is picked up from its own box rather than from anywhere its selection's
+  two positions reach, so a press beside it on the same line is still an ordinary
+  press, and a click on it without a drag leaves it selected. A drop aimed at a
+  picture lands in the text beside it.
 
 - **Column resize by dragging.** Drag a column boundary in a table and the two
   columns either side of it change share; the rest of the table does not move

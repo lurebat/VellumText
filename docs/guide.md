@@ -236,7 +236,11 @@ caret where the press landed. The whole move is one undo step. `view.IsMovingSel
 between the pickup and the drop, for a host that wants to suppress its own chrome while content is
 in the air. A read-only view never picks anything up, so a drag inside a selection there is an
 ordinary drag-select. Dragging out to another application, into another editor, or with a modifier
-held to copy rather than move are all out of scope; so is dragging a picture, for now.
+held to copy rather than move are all out of scope.
+
+A selected picture moves the same way, picked up from its own box: press on it, drag, and it lands
+where the drop caret is, splitting the paragraph it was dropped into. A press beside it on the same
+line is an ordinary press, and clicking it without dragging leaves it selected.
 
 Word and paragraph selection use Unicode segmentation (UAX #29), so double-clicking a family emoji
 or an accented letter selects the whole cluster rather than half of one.

@@ -452,31 +452,184 @@ public class RichTextViewDragMoveTests
     }
 
     /// <summary>
-    /// A press on a picture selects that picture, whether or not it is already selected. Moving
-    /// one by dragging it is the next increment; until then the gesture must leave the existing
-    /// behaviour of a press on an image exactly as it was.
+    /// The same gesture, on the existing node selection. A picture is picked up from its own box
+    /// and lands where the drop caret was, splitting the paragraph it was dropped into.
     /// </summary>
     [AvaloniaFact]
-    public void ASelectedImageIsNotPickedUp()
+    public void DraggingASelectedImageMovesIt()
     {
-        var (window, view) = Shown(new DocumentNode([
-            new BlockImageNode(new ImageEmbed("x.png", 80, 50)),
-            ParagraphNode.FromText("after the picture"),
-        ]));
+        var (window, view) = Shown(WithImageAbove());
+
+        Assert.True(view.SelectImage(view.Slots[0].Start));
+
+        var box = view.ImageRect(view.SelectedImage!.Value)!.Value;
+        var target = Middle(view, 1, 60);
+
+        window.MouseDown(box.Center, MouseButton.Left);
+        window.MouseMove(target);
+
+        Assert.True(view.IsMovingSelection);
+
+        window.MouseUp(target, MouseButton.Left);
+
+        var children = view.State.Doc.Children;
+
+        Assert.Equal(3, children.Length);
+        Assert.IsType<ParagraphNode>(children[0]);
+        Assert.IsType<BlockImageNode>(children[1]);
+        Assert.IsType<ParagraphNode>(children[2]);
+        Assert.Equal("after the pi", ((ParagraphNode)children[0]).Content.Text);
+        Assert.Equal("cture", ((ParagraphNode)children[2]).Content.Text);
+    }
+
+    /// <summary>
+    /// A moved picture stays selected, so it can be nudged again. This is the node selection, not
+    /// a text range that happens to cover it.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheMovedImageIsStillSelected()
+    {
+        var (window, view) = Shown(WithImageAbove());
+
+        Assert.True(view.SelectImage(view.Slots[0].Start));
+
+        var box = view.ImageRect(view.SelectedImage!.Value)!.Value;
+        var target = Middle(view, 1, 60);
+
+        Drag(window, box.Center, target);
+
+        // The picture started as the first block; a node selection that stayed where it was would
+        // still be a node selection, so this asserts where it points rather than what it is.
+        Assert.IsType<BlockImageNode>(view.State.Doc.Children[1]);
+        Assert.IsType<NodeSelection>(view.State.Selection);
+
+        var moved = view.SelectedImage;
+
+        Assert.NotNull(moved);
+        Assert.NotNull(view.ImageRect(moved!.Value));
+        Assert.Equal(view.State.Selection.From, moved.Value);
+    }
+
+    /// <summary>
+    /// One undo puts the picture back where it came from, for the same reason it does for text:
+    /// the delete and the insert are two steps of one transaction.
+    /// </summary>
+    [AvaloniaFact]
+    public void OneUndoPutsTheImageBack()
+    {
+        var (window, view) = Shown(WithImageAbove());
         var doc = view.State.Doc;
 
         Assert.True(view.SelectImage(view.Slots[0].Start));
 
         var box = view.ImageRect(view.SelectedImage!.Value)!.Value;
 
+        Drag(window, box.Center, Middle(view, 1, 60));
+
+        Assert.NotSame(doc, view.State.Doc);
+        Assert.True(view.Undo());
+        Assert.Equal(2, view.State.Doc.Children.Length);
+        Assert.IsType<BlockImageNode>(view.State.Doc.Children[0]);
+        Assert.Equal("after the picture", ((ParagraphNode)view.State.Doc.Children[1]).Content.Text);
+    }
+
+    /// <summary>
+    /// A click on a selected picture leaves it selected. Collapsing a caret into it would drop the
+    /// selection that a plain click is meant to keep, and put a picture out of reach of the delete
+    /// key by clicking on it.
+    /// </summary>
+    [AvaloniaFact]
+    public void AClickOnASelectedImageKeepsItSelected()
+    {
+        var (window, view) = Shown(WithImageAbove());
+
+        Assert.True(view.SelectImage(view.Slots[0].Start));
+
+        var position = view.SelectedImage!.Value;
+        var box = view.ImageRect(position)!.Value;
+
         window.MouseDown(box.Center, MouseButton.Left);
-        window.MouseMove(Middle(view, 1, 60));
+        window.MouseUp(box.Center, MouseButton.Left);
+
+        Assert.IsType<NodeSelection>(view.State.Selection);
+        Assert.Equal(position, view.SelectedImage);
+        Assert.False(view.CanUndo);
+    }
+
+    /// <summary>
+    /// The picture is picked up from its own box, not from anywhere the node selection's two
+    /// positions happen to cover. A press beside it in the same row is an ordinary press.
+    /// </summary>
+    [AvaloniaFact]
+    public void PressingBesideASelectedImageDoesNotPickItUp()
+    {
+        var (window, view) = Shown(WithImageAbove());
+        var doc = view.State.Doc;
+
+        Assert.True(view.SelectImage(view.Slots[0].Start));
+
+        var box = view.ImageRect(view.SelectedImage!.Value)!.Value;
+        var beside = new Point(box.Right + 40, box.Center.Y);
+        var target = Middle(view, 1, 60);
+
+        window.MouseDown(beside, MouseButton.Left);
+        window.MouseMove(target);
 
         Assert.False(view.IsMovingSelection);
 
-        window.MouseUp(Middle(view, 1, 60), MouseButton.Left);
+        window.MouseUp(target, MouseButton.Left);
 
         Assert.Same(doc, view.State.Doc);
+    }
+
+    /// <summary>
+    /// A press on a picture inside a longer text selection selects that picture, which is what it
+    /// did before this gesture existed and must keep doing.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnImageInsideATextSelectionIsStillSelectedByPressingIt()
+    {
+        var (window, view) = Shown(new DocumentNode([
+            ParagraphNode.FromText("before the picture"),
+            new BlockImageNode(new ImageEmbed("x.png", 80, 50)),
+            ParagraphNode.FromText("after the picture"),
+        ]));
+        var doc = view.State.Doc;
+
+        Assert.True(view.SelectAll());
+
+        Assert.False(view.State.Selection.IsEmpty);
+
+        var box = ImageBox(view);
+
+        window.MouseDown(box.Center, MouseButton.Left);
+        window.MouseUp(box.Center, MouseButton.Left);
+
+        Assert.Same(doc, view.State.Doc);
+        Assert.IsType<NodeSelection>(view.State.Selection);
+        Assert.NotNull(view.SelectedImage);
+    }
+
+    /// <summary>
+    /// A drop aimed at a picture lands in the text beside it rather than between the blocks, where
+    /// an open slice of text cannot go.
+    /// </summary>
+    [AvaloniaFact]
+    public void DroppingOntoAPictureLandsInTheTextBesideIt()
+    {
+        var (window, view) = Shown(new DocumentNode([
+            ParagraphNode.FromText("some words here"),
+            new BlockImageNode(new ImageEmbed("x.png", 80, 50)),
+        ]));
+
+        Select(view, 1, 6);
+
+        var box = ImageBox(view);
+
+        Drag(window, At(view, 2), box.Center);
+
+        Assert.Equal(2, view.State.Doc.Children.Length);
+        Assert.Equal("words heresome ", ((ParagraphNode)view.State.Doc.Children[0]).Content.Text);
     }
 
     private static (Window Window, RichTextView View) Shown(string paragraph) =>
@@ -630,6 +783,16 @@ public class RichTextViewDragMoveTests
                     TableCellNode.FromText("b2"),
                 ]),
             ]),
+        ]);
+
+    /// <summary>The box of the one picture in the document.</summary>
+    private static Rect ImageBox(RichTextView view) =>
+        view.Slots.Select(s => view.ImageRect(s.Start)).First(r => r is not null)!.Value;
+
+    private static DocumentNode WithImageAbove() =>
+        new([
+            new BlockImageNode(new ImageEmbed("x.png", 80, 50)),
+            ParagraphNode.FromText("after the picture"),
         ]);
 
     private static DocumentNode WithTableBetweenParagraphs() =>

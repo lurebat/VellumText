@@ -64,8 +64,9 @@ public partial class RichTextView
 
     /// <summary>A press inside the selection, before it is known what it meant.</summary>
     /// <param name="At">Where the press landed, in this control's coordinates.</param>
+    /// <param name="OfImage">Whether what was picked up is the selected image.</param>
     /// <param name="Origin">The document and selection the pickup was made against.</param>
-    private sealed record Pickup(Point At, EditOrigin Origin);
+    private sealed record Pickup(Point At, bool OfImage, EditOrigin Origin);
 
     /// <summary>Defers the decision if the press landed on the selected content.</summary>
     private bool TryPickUpSelection(Point point)
@@ -75,7 +76,7 @@ public partial class RichTextView
             return false;
         }
 
-        _pickup = new Pickup(point, origin);
+        _pickup = new Pickup(point, SelectedImage is not null, origin);
         _moving = false;
 
         return true;
@@ -106,9 +107,16 @@ public partial class RichTextView
             return null;
         }
 
-        // A press on an image selects that image, which is what the branch below this one in
-        // OnPointerPressed does and what it did before this existed. That also covers a picture
-        // that is already the selection: moving one is the next increment.
+        if (SelectedImage is { } image)
+        {
+            // The picture's own box rather than a hit-tested position: a node selection is two
+            // positions wide and a press anywhere on the line beside the picture reports one of
+            // them, which would pick the picture up from somewhere it plainly is not.
+            return ImageRect(image) is { } box && box.Contains(point) ? CurrentOrigin() : null;
+        }
+
+        // A press on an image inside a longer selection selects that image, which is what the
+        // branch below this one in OnPointerPressed does and what it did before this existed.
         if (ImageUnder(point) is not null)
         {
             return null;
@@ -168,9 +176,15 @@ public partial class RichTextView
         if (!moving)
         {
             // The decision the press deferred, made now and made the way an ordinary press would
-            // have made it.
-            _goalX = null;
-            MoveTo(PositionAt(pickup.At), extend: false);
+            // have made it. A picture is left alone: a click on a selected picture selects that
+            // picture, which is what it already is, and collapsing a caret beside it would drop
+            // the selection a plain click is meant to keep and put the picture out of reach of the
+            // delete key by clicking on it.
+            if (!pickup.OfImage)
+            {
+                _goalX = null;
+                MoveTo(PositionAt(pickup.At), extend: false);
+            }
 
             return;
         }
@@ -215,7 +229,7 @@ public partial class RichTextView
             return false;
         }
 
-        var slice = Slice.Cut(_state.Doc, selection.From, selection.To);
+        var slice = Movable(Slice.Cut(_state.Doc, selection.From, selection.To));
         var transaction = _state.Transaction().As(TransactionKind.Structure);
 
         if (!RemoveSelection(transaction, selection))
@@ -233,7 +247,7 @@ public partial class RichTextView
         }
 
         transaction
-            .SetSelection(TextSelection.Create(transaction.Doc, at, at + slice.Size))
+            .SetSelection(Moved(transaction.Doc, selection, at, slice))
             .SetStoredMarks(null);
 
         if (!Apply(transaction))
@@ -245,6 +259,45 @@ public partial class RichTextView
 
         return true;
     }
+
+    /// <summary>A cut slice in a shape that can be inserted wherever the drop landed.</summary>
+    /// <remarks>
+    /// A closed edge is a whole block, and a whole block cannot join the middle of the paragraph a
+    /// drop usually lands in. An empty open paragraph at that edge is what splits the paragraph
+    /// around it, and is the same padding a paste of a block image applies for the same reason.
+    /// Text cut from within a paragraph is open at both ends already and is left alone.
+    /// </remarks>
+    private static Slice Movable(Slice slice)
+    {
+        if (slice.OpenStart > 0 && slice.OpenEnd > 0)
+        {
+            return slice;
+        }
+
+        var content = slice.Content;
+
+        if (slice.OpenStart == 0)
+        {
+            content = content.Insert(0, ParagraphNode.Empty);
+        }
+
+        if (slice.OpenEnd == 0)
+        {
+            content = content.Add(ParagraphNode.Empty);
+        }
+
+        return new Slice(content, Math.Max(slice.OpenStart, 1), Math.Max(slice.OpenEnd, 1));
+    }
+
+    /// <summary>The selection that leaves the moved content selected where it landed.</summary>
+    /// <remarks>
+    /// A node keeps its node selection: <see cref="Movable"/> may have padded an empty paragraph
+    /// in front of it, and the open depth is exactly how far past the insert position it now sits.
+    /// </remarks>
+    private static Selection Moved(DocumentNode doc, Selection before, int at, Slice slice) =>
+        before is NodeSelection && NodeSelection.At(doc, at + slice.OpenStart) is { } node
+            ? node
+            : TextSelection.Create(doc, at, at + slice.Size);
 
     /// <summary>Draws the caret at the position a drop would land on.</summary>
     private void RenderDropCaret(DrawingContext context)

@@ -2048,7 +2048,7 @@ has answered nothing yet. The chain is four deep (touch handles → image resize
 boundary → image select → text), every branch of it captures the pointer and returns, and the new
 branch sits between the column boundary and the image select. Everything above it must still be
 reached first, and everything below it must still be reachable, which is what
-`ARectangleOfCellsIsNotPickedUp`, `ASelectedImageIsNotPickedUp`,
+`ARectangleOfCellsIsNotPickedUp`, `AnImageInsideATextSelectionIsStillSelectedByPressingIt`,
 `ATripleClickInsideASelectionStillSelectsTheParagraph` and `ShiftClickingInsideASelectionStillExtendsIt`
 exist to hold. The gate is deliberately narrow — one click, no modifiers, not touch — because every
 condition it does not state is a gesture it silently steals.
@@ -2066,6 +2066,23 @@ whether or not the mapping happened.
 
 **Dropping inside the dragged range is a no-op**, not a self-destructive edit. At the ends it would
 otherwise be an insert at a position the deletion had just taken away.
+
+**A picture is answered by its box, not by its selection's numbers.** A `NodeSelection` is two
+positions wide, and a press anywhere on the line beside the picture resolves to one of them, so the
+inclusive range test that makes a one-character text selection draggable would also pick a picture
+up from empty space beside it. Hit-testing the box instead is what `PressingBesideASelectedImageDoesNotPickItUp`
+holds — and it found this: the text-only increment, which had no box branch, *did* pick a picture up
+from beside it. A click on a picture is also left alone rather than collapsing a caret, because
+collapsing would drop the very selection a plain click is meant to keep and put the picture out of
+reach of the delete key by clicking on it.
+
+**A whole block is padded with an empty open paragraph at each closed edge.** A closed edge is a
+whole block, and a whole block cannot join the middle of the paragraph a drop usually lands in; the
+padding is what splits the paragraph around it, and is exactly what a paste of a block image already
+applies. `Slice.ParagraphSplit` proves the shape is legal. Text cut from inside a paragraph is open
+at both ends and is left alone. The drop position is also snapped to the nearest text position, so a
+drop aimed at a picture lands in the text beside it rather than between two blocks, where an open
+slice of text cannot go.
 
 **Read-only is answered at one choke point**, `SelectionUnder`, which the deferred press, the
 capture, the drop caret and the commit all pass through. §10.2 records six defects in this codebase
