@@ -130,6 +130,31 @@ public class TableBlockViewTests
     }
 
     /// <summary>
+    /// Widths totalling less than the space are scaled <em>up</em>, which is what makes them
+    /// proportions rather than measurements.
+    /// </summary>
+    /// <remarks>
+    /// The discriminating case, and the only one. <c>StatedColumnWidthsAreHonouredInProportion</c>
+    /// states 300 and 100 into 400, where the proportional answer and the literal-pixel answer are
+    /// the same number, and <c>StatedWidthsWiderThanTheSpaceAreScaledDownToFit</c> states more than
+    /// fits, which a pixel semantics that clamped would also scale down. Neither can tell the two
+    /// readings apart. Only a table asking for less than it is given can: pixels would leave the
+    /// remainder empty.
+    /// </remarks>
+    [AvaloniaFact]
+    public void StatedWidthsNarrowerThanTheSpaceAreScaledUpToFill()
+    {
+        var table = new TableNode(Grid().Rows, [100.0, 100.0]);
+        var view = Measured(table, 400);
+
+        var left = view.GetCaretRect(StartOf(table, "a1"));
+        var right = view.GetCaretRect(StartOf(table, "b1"));
+
+        // Half of 400, not the 100 the number says.
+        Assert.Equal(200, right.X - left.X, 1);
+    }
+
+    /// <summary>
     /// A table wider than the space is scaled to fit rather than drawn off the edge, because a
     /// pasted table's widths were written for someone else's window.
     /// </summary>

@@ -19,8 +19,10 @@ public sealed class TableNode : BlockNode
     /// <summary>Creates a table.</summary>
     /// <param name="rows">The rows.</param>
     /// <param name="columnWidths">
-    /// Explicit column widths in device-independent pixels. Empty means size every column
-    /// automatically; otherwise every entry must be a positive finite number.
+    /// Relative column widths. Only the ratios between them are used — the view scales whatever
+    /// is stated to the width it has, so <c>[100, 200]</c> and <c>[1, 2]</c> lay out identically
+    /// and a table asking for less than it is given is stretched to fill. Empty means size every
+    /// column automatically; otherwise every entry must be a positive finite number.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException">A column width is not positive and finite.</exception>
     public TableNode(IEnumerable<TableRowNode> rows, IEnumerable<double>? columnWidths = null)
@@ -52,7 +54,15 @@ public sealed class TableNode : BlockNode
     /// <summary>The rows.</summary>
     public ImmutableArray<TableRowNode> Rows => _rows;
 
-    /// <summary>Explicit column widths, or empty for automatic sizing.</summary>
+    /// <summary>Relative column widths, or empty for automatic sizing.</summary>
+    /// <remarks>
+    /// Ratios, not measurements. A document carries no idea of the width it will be drawn at, and
+    /// a pasted table's numbers were written for someone else's window, so the view divides the
+    /// space it has in these proportions rather than honouring them literally. Corrected
+    /// 2026-08-19: this said "device-independent pixels", which
+    /// <see cref="TableNode.WithColumnWidths"/> callers could reasonably have believed and which
+    /// no test could have contradicted.
+    /// </remarks>
     public ImmutableArray<double> ColumnWidths { get; }
 
     /// <inheritdoc/>
