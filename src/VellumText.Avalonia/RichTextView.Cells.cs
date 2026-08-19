@@ -35,13 +35,15 @@ public partial class RichTextView
     /// application can set one on <see cref="State"/> directly, and then the remembered position
     /// is whatever some earlier drag left behind, or nothing at all. Extending from that reaches
     /// out of the table and selects everything between it and the pointer, so a rectangle whose
-    /// remembered origin is not inside its own anchor cell measures from that cell instead.
+    /// remembered origin is not inside its own anchor cell measures from that cell instead —
+    /// from a position searched for inside it, since the nearest text position to a cell holding
+    /// a nested table lies in the cell before, and anchoring there would extend from the wrong one.
     /// </remarks>
     /// <param name="rectangle">The current selection.</param>
     private int CellOrigin(CellSelection rectangle) =>
         InCell(_state.Doc, _cellOrigin, rectangle.AnchorCell)
             ? _cellOrigin
-            : NearestTextPosition(rectangle.AnchorCell + 1, forward: true);
+            : CaretIn(_state.Doc, rectangle.AnchorCell);
 
     /// <summary>Whether a position is inside the cell that begins at <paramref name="cellPos"/>.</summary>
     private static bool InCell(DocumentNode doc, int pos, int cellPos)

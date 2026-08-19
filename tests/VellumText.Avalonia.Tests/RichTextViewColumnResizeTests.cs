@@ -379,6 +379,85 @@ public class RichTextViewColumnResizeTests
         Assert.Equal(1.0, resized.ColumnWidths.Sum(), 9);
     }
 
+    /// <summary>
+    /// The outer table's own boundaries are still there once a nested table has been asked.
+    /// </summary>
+    /// <remarks>
+    /// The nested scan is a first refusal, not a claim over the whole table: a boundary of the
+    /// outer grid lies outside every cell, so nothing inside a cell can answer for it. Without
+    /// this the previous test is satisfied by a hit test that gives up the moment it meets a
+    /// nested table, which would make the outer table unresizable wherever one is nested.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheOuterTablesOwnBoundariesSurviveANestedTable()
+    {
+        var (window, view) = Shown(WithNested());
+        var y = BoundaryY(view);
+        var found = Scan(view, y, boundary => boundary.TablePos == 0);
+
+        Assert.NotNull(found);
+
+        Drag(window, found.Value.At, 20);
+
+        var outer = (TableNode)view.State.Doc.Blocks[0];
+        var inner = (TableNode)outer.Rows[0].Cells[0].Blocks[0];
+
+        Assert.Equal(2, outer.ColumnWidths.Length);
+        Assert.Equal(1.0, outer.ColumnWidths.Sum(), 9);
+        Assert.True(inner.ColumnWidths.IsEmpty, "the nested table was resized instead");
+    }
+
+    /// <summary>
+    /// A nested table's boundary is grabbable only where the nested table is drawn.
+    /// </summary>
+    /// <remarks>
+    /// Each table checks the pointer against its own height, and it does so after asking the
+    /// tables nested in it, so an inner boundary extended down the outer table's later rows
+    /// would be caught here. That column of pixels belongs to the outer grid, where there is no
+    /// boundary at all.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ANestedTablesBoundaryIsNotGrabbableBelowTheNestedTable()
+    {
+        var (_, view) = Shown(WithNested());
+        var inner = Scan(view, BoundaryY(view), boundary => boundary.TablePos != 0);
+
+        Assert.NotNull(inner);
+
+        var table = (TableBlockView)view.Blocks[0];
+        var top = view.BlockOrigin(0).Y;
+        var below = top + table.Size.Height - (table.Size.Height / 4);
+
+        // Well down the second row of the outer table, at the x the inner boundary was found at.
+        Assert.True(below > BoundaryY(view), "the probe is not below the nested table");
+
+        var at = new Point(inner.Value.At.X, below);
+
+        Assert.Null(view.ColumnBoundaryAt(at, 4));
+    }
+
+    /// <summary>A two-row outer table whose first cell holds a table of its own.</summary>
+    private static DocumentNode WithNested() =>
+        new([
+            new TableNode([
+                new TableRowNode([
+                    new TableCellNode([
+                        new TableNode([
+                            new TableRowNode([
+                                TableCellNode.FromText("x"),
+                                TableCellNode.FromText("y"),
+                            ]),
+                        ]),
+                    ]),
+                    TableCellNode.FromText("outer"),
+                ]),
+                new TableRowNode([
+                    TableCellNode.FromText("a2"),
+                    TableCellNode.FromText("b2"),
+                ]),
+            ]),
+        ]);
+
     private static void Drag(Window window, Point at, double by)
     {
         window.MouseDown(at, MouseButton.Left);

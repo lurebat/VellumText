@@ -424,6 +424,12 @@ internal sealed class TableBlockView : BlockView
     /// lies inside one of this table's cells, so it is the more specific answer, and the outer
     /// table's own boundaries cannot be inside a cell to be confused with it.
     /// </para>
+    /// <para>
+    /// The vertical check below is against this table's own height and runs after that scan, so
+    /// a nested table declines the pointer everywhere it is not drawn and the outer table answers
+    /// there instead. Hoisting it above the scan would not do: a point inside a nested table is
+    /// inside this table too, so this table's height cannot decide for the nested one.
+    /// </para>
     /// </remarks>
     public ColumnBoundary? BoundaryAt(Point point, int start, Vector offset, double tolerance)
     {

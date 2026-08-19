@@ -134,6 +134,14 @@ public partial class RichTextView
     /// Shift+Tab in the first cell has nowhere to go and reports that it did nothing. The key is
     /// still consumed by the caller; see <c>Tab</c> in RichTextView.Blocks.Commands.cs.
     /// </para>
+    /// <para>
+    /// The grid walked is the innermost one the caret is in, so inside a nested table Tab visits
+    /// that table's cells and past its last cell adds a row to it, which is what Word does and
+    /// what "the next cell" can only sensibly mean when the reader is looking at the inner grid.
+    /// The price is that Tab never leaves a nested table in either direction; the arrow keys and
+    /// the mouse still do, and a key that walks a grid stopping at that grid's edge is the same
+    /// rule that stops Tab at the edge of an ordinary table.
+    /// </para>
     /// </remarks>
     internal bool MoveToCell(bool backwards)
     {
@@ -158,14 +166,14 @@ public partial class RichTextView
                 return false;
             }
 
-            MoveTo(ordered[index - 1] + 1, extend: false);
+            MoveTo(CaretIn(_state.Doc, ordered[index - 1]), extend: false);
 
             return true;
         }
 
         if (index + 1 < ordered.Length)
         {
-            MoveTo(ordered[index + 1] + 1, extend: false);
+            MoveTo(CaretIn(_state.Doc, ordered[index + 1]), extend: false);
 
             return true;
         }
@@ -191,8 +199,16 @@ public partial class RichTextView
     /// Resolves the selection into a table and the cells it covers, or null if it is not in one.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A caret counts as a one-cell rectangle. Every command here works the same way on both, so
     /// making the caret the degenerate case is what keeps them from each having two branches.
+    /// </para>
+    /// <para>
+    /// The table is whichever one the caret is innermost in, because
+    /// <see cref="TableGrid.CellContaining"/> answers innermost. Every structural command comes
+    /// through here, so a table nested in a cell is edited by the same commands as any other and
+    /// the table around it is left alone — settling the question once rather than per command.
+    /// </para>
     /// </remarks>
     private TableRegion? TableAt()
     {
@@ -288,11 +304,20 @@ public partial class RichTextView
 
     /// <summary>Where a caret goes inside a cell.</summary>
     /// <remarks>
+    /// <para>
     /// Searched for rather than computed, because a cell's first block need not be a paragraph:
     /// a cell that begins with a list has two more boundaries to step over before there is any
     /// text, and a cell of nothing but a rule has none at all.
+    /// </para>
+    /// <para>
+    /// Searched for <em>within the cell</em>, which is why this exists alongside
+    /// <c>NearestTextPosition</c>. That one searches outwards in both directions, and outside a
+    /// cell is another cell: for a cell holding a nested table the first text position inside it
+    /// is four boundaries in, so the nearest one is the end of the cell before.
+    /// </para>
     /// </remarks>
-    private static int CaretIn(DocumentNode doc, int cellPos, CellCaret caret, int offset)
+    private static int CaretIn(
+        DocumentNode doc, int cellPos, CellCaret caret = CellCaret.Start, int offset = 0)
     {
         if (doc.Resolve(cellPos).NodeAfter is not TableCellNode cell)
         {

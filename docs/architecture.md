@@ -1103,6 +1103,52 @@ did not write. The project reference stays; only the leak is closed.
 > The check to keep is therefore in `TableEdits`, and it is a different one: **fewer than two
 > cells is not a merge.** That is the only way the command declines.
 
+### 6.4 Tables inside tables
+
+A table is a block, a cell holds blocks, so a table nests. This has always rendered
+(`TableBlockView` recurses) and always updated in place
+(`TableBlockViewUpdateTests.ANestedTableIsUpdatedRatherThanRebuilt`). What was undefined until
+**2026-08-19** is which of the two tables an edit means. Every case below is settled by one rule,
+and the rule was already in the code:
+
+> **`TableGrid.CellContaining` answers with the innermost cell.** A position inside a nested table
+> is inside a cell of both tables, and a command asked to act on "this cell" means the one the
+> caret is actually in. Every structural command reaches its grid through `TableAt()`, which
+> reaches it through `CellContaining`, so settling it once settles all of them.
+
+| Behaviour | Decision |
+|---|---|
+| Tab / Shift+Tab inside a nested table | Walks the **inner** grid, and past its last cell adds a row to the **inner** table. Word does the same. |
+| Tab into an outer cell that holds a table | Lands **inside** the nested table's first cell. |
+| Insert/delete row or column with the caret in a nested table | Acts on the **inner** table; the outer one is untouched. |
+| Delete an outer row whose cell holds a table | The table goes with the row. Nothing is lifted out first. |
+| Merge outer cells, one holding a table | Resolves at the outer level (`CellSelection.Across` matches at the deepest common table). The nested table is content and moves with the rest. |
+| Caret afterwards | The last place text can sit in the merged cell — which, if the cell ends with a nested table, is **inside** it. |
+| Rectangular selection inside a nested table | Highlighted over the nested table's own cells, not the outer cell holding it (`TableBlockView.Collect` recurses with the child's origin). |
+| Arrow keys | Cross the boundary freely in both directions; they are what makes Tab's refusal to leave affordable. |
+| Backspace / Delete at a nested table's edge | Refused, exactly as at any other cell edge. |
+| Column resize hit test | The inner table is asked first, and each table checks the pointer against **its own** height, so an inner boundary is not grabbable below the inner table and the outer table's own boundaries survive. |
+
+**The cost of "innermost", stated plainly.** Tab cannot leave a nested table in either direction.
+That is the same trade already accepted for a list inside a cell (§10.4.2): a key that walks a
+structure stops at that structure's edge, because the inner structure would otherwise have no key
+of its own. The arrow keys and the mouse still cross, so nothing is unreachable.
+
+**Two defects this turned up**, both the same mistake in two places, both fixed on 2026-08-19:
+
+`RichTextView.MoveTo` snaps to the *nearest* text position, searching outwards in both directions.
+For an ordinary cell that is harmless — the first text position is two boundaries in and nothing
+is nearer. For a cell holding a nested table it is four boundaries in, and the nearest text
+position is **the end of the cell before**. So:
+
+- **Tab into a cell holding a table** put the caret at the end of the previous cell — the caret
+  did not move to the next cell at all, it moved to the far end of the one it was already in.
+- **`CellOrigin`** anchored an extension of a programmatically-set rectangle in the wrong cell,
+  so extending from a nested-table cell selected the whole table instead of the column.
+
+Both now call `CaretIn`, which searches *within* the cell and already existed for `Structure`.
+Flat tables are unaffected: for them the two searches agree.
+
 ---
 
 ## 7. Validation, failure behavior, security

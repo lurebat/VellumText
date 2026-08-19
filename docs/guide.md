@@ -727,6 +727,25 @@ var cell = TableGrid.CellContaining(doc, caret);
 var step = TableEdits.InsertRows(doc, cell!.Value, cell.Value, below: true);
 ```
 
+### Tables inside cells
+
+A cell can hold a table, and every command above then means **the innermost table the caret is
+in** — the one you are looking at. Insert a row inside a nested table and the nested table gets it;
+delete a row of the outer table and the nested table goes with it.
+
+Two consequences are worth knowing before they surprise you:
+
+- **Tab never leaves a nested table.** In its last cell Tab adds a row to the *nested* table rather
+  than stepping out to the outer one, and Shift+Tab in its first cell stays put. This is what Word
+  does, and it is the same trade as Tab inside a list in a cell. The arrow keys and the mouse move
+  in and out freely.
+- **Merging a cell whose content ends in a nested table leaves the caret inside that table**, since
+  that is the last place text can sit in the merged cell. The next table command will therefore act
+  on the nested table; click in the merged cell's own text first if you meant the outer one.
+
+Tab *into* a cell that holds a table puts the caret in that table's first cell, because there is
+nowhere else in the cell for it to go.
+
 ### Column widths
 
 **Dragging a column boundary resizes the two columns either side of it.** The pointer turns into a
@@ -736,6 +755,10 @@ Everything outside those two columns stays where it is, and the table's total wi
 
 A column will not go below **5% of the table**, or a quarter of the two columns' combined width for
 a table with so many columns that 5% each is already impossible.
+
+A table nested in a cell has columns of its own, and dragging one of its boundaries resizes that
+table, not the one around it. Its boundaries are only grabbable where it is drawn, so the outer
+table's boundaries remain reachable everywhere else.
 
 Column widths are **proportions, not pixels**. A table is always laid out to the width it is given,
 and `TableNode.ColumnWidths` says how to divide that width up, so `[1, 2]` and `[100, 200]` mean the
