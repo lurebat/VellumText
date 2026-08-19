@@ -219,6 +219,18 @@ public partial class RichTextView
             return;
         }
 
+        // After the image handles, which win: a handle sits outside the image's box and can land
+        // on a column boundary, and the selection that put it there is the more specific thing the
+        // user is holding. Before the text path, because a boundary lies inside the cells either
+        // side of it, so a press there would otherwise place a caret and never reach here.
+        if (TryBeginColumnResize(point))
+        {
+            e.Pointer.Capture(this);
+            e.Handled = true;
+
+            return;
+        }
+
         // Clicking a picture selects the picture, as it does everywhere else. Shift is left to
         // the text path so that a selection can still be extended across one.
         if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift)
@@ -357,6 +369,14 @@ public partial class RichTextView
             return;
         }
 
+        if (_columnDrag is not null)
+        {
+            UpdateColumnResize(point);
+            e.Handled = true;
+
+            return;
+        }
+
         if (!_dragging)
         {
             UpdateLinkAffordance(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
@@ -366,6 +386,7 @@ public partial class RichTextView
             // when it changes: assigning Cursor raises a property change and re-reads the
             // pointer on every move otherwise.
             var wanted = ResizeCursor(point)
+                ?? ColumnResizeCursor(point)
                 ?? (_linkCursor ? HandCursor : IsOverContent(point) ? TextCursor : ArrowCursor);
 
             if (!ReferenceEquals(Cursor, wanted))
@@ -484,6 +505,7 @@ public partial class RichTextView
         // test could distinguish from this.
         IsDragging = false;
         EndResize();
+        EndColumnResize();
         EndTouchDrag();
 
         // The drag is what the autoscroll exists to serve, so it ends with it. A timer left

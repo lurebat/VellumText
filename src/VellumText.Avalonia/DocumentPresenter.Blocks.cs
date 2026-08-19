@@ -410,6 +410,37 @@ public abstract partial class DocumentPresenter
         return rect.Translate(new Vector(origin.X, origin.Y));
     }
 
+    /// <summary>
+    /// The column boundary a point in this control's coordinates is on, or null if it is not on
+    /// one.
+    /// </summary>
+    /// <remarks>
+    /// Only the block under the point is asked. A boundary is a vertical line inside one table's
+    /// own box, so a point that is on one is over that table by definition, and a search over
+    /// every block would only find the same answer more slowly.
+    /// </remarks>
+    /// <param name="point">The point.</param>
+    /// <param name="tolerance">How far from the line still counts as on it.</param>
+    internal ColumnBoundary? ColumnBoundaryAt(Point point, double tolerance)
+    {
+        if (_views.Count == 0)
+        {
+            return null;
+        }
+
+        var index = BlockIndexAt(point.Y);
+
+        if (EnsureMeasured(index) is not TableBlockView table)
+        {
+            return null;
+        }
+
+        var origin = BlockOrigin(index);
+
+        return table.BoundaryAt(
+            point, _slots[index].Start, new Vector(origin.X, origin.Y), tolerance);
+    }
+
     /// <summary>The document position nearest a point in this control's coordinates.</summary>
     /// <param name="point">The point.</param>
     public int PositionAt(Point point)

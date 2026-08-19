@@ -28,8 +28,10 @@ namespace VellumText.Avalonia;
 /// Even division is not what a browser does — a browser sizes columns to their content — but it
 /// is predictable, it never collapses a column to nothing, and content-based sizing needs a
 /// min/max width pass over every cell that the block views do not currently expose. Explicit
-/// widths, which is what the HTML and RTF importers produce whenever the source stated any, are
-/// honoured.
+/// widths, which is what column resize and the JSON format produce, are honoured. Corrected
+/// 2026-08-19: this said the HTML and RTF importers produce them too, and neither does — the HTML
+/// importer builds every table with an empty width vector and the RTF exporter writes a fixed
+/// <c>\cellx</c> step regardless, so a table's proportions do not survive either format.
 /// </para>
 /// </remarks>
 internal sealed class TableBlockView : BlockView
@@ -248,8 +250,14 @@ internal sealed class TableBlockView : BlockView
             {
                 // Top is an offset within the cell's content box; the padding is added once, by
                 // ChildOrigin, so that measuring and drawing cannot disagree about it.
+                //
+                // At least one pixel to wrap to. A column narrower than twice the padding leaves
+                // nothing inside it, and a paragraph refuses a width of zero outright — so
+                // clamping to zero threw for a table that merely stated a very narrow column,
+                // which the HTML importer will do whenever the source did. The text overflows the
+                // cell at this width, which is what a column this narrow means.
                 child.Top = content;
-                content += child.View.Measure(Math.Max(0, inner)).Height;
+                content += child.View.Measure(Math.Max(1, inner)).Height;
             }
 
             var height = content + (2 * CellPadding);
@@ -387,6 +395,88 @@ internal sealed class TableBlockView : BlockView
         Collect(cells, rects, start, default);
 
         return rects;
+    }
+
+    /// <summary>
+    /// Finds the column boundary a point is on, if it is on one.
+    /// </summary>
+    /// <param name="point">The point, in the coordinates <paramref name="offset"/> is given in.</param>
+    /// <param name="start">The table's first inner position, in document coordinates.</param>
+    /// <param name="offset">Where this table's local origin sits in those same coordinates.</param>
+    /// <param name="tolerance">How far from the line still counts as on it.</param>
+    /// <returns>The boundary, or null if the point is not on one.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only the interior boundaries are offered. The outer two are the table's own edges, and
+    /// dragging one would change the table's total width rather than redistribute it — the widths
+    /// are shares of whatever the table is given, so there is nothing an outer edge could mean.
+    /// </para>
+    /// <para>
+    /// A boundary is grabbable down the table's whole height, including where a cell spanning
+    /// columns draws no line there. The boundary belongs to the grid, which is what the widths
+    /// index; hiding it under a merged cell would make a column unresizable for the length of
+    /// that cell without making the column any less real.
+    /// </para>
+    /// <para>
+    /// Nested tables are asked first, matching <see cref="Collect"/>: an inner table's boundary
+    /// lies inside one of this table's cells, so it is the more specific answer, and the outer
+    /// table's own boundaries cannot be inside a cell to be confused with it.
+    /// </para>
+    /// </remarks>
+    public ColumnBoundary? BoundaryAt(Point point, int start, Vector offset, double tolerance)
+    {
+        foreach (var cell in _cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                if (child.View is not TableBlockView nested)
+                {
+                    continue;
+                }
+
+                var origin = ChildOrigin(cell, child);
+                var found = nested.BoundaryAt(
+                    point,
+                    start + child.Start,
+                    offset + new Vector(origin.X, origin.Y),
+                    tolerance);
+
+                if (found is not null)
+                {
+                    return found;
+                }
+            }
+        }
+
+        var local = point - offset;
+
+        // Only the vertical extent needs checking. The loop below already yields nothing for a
+        // table of one column or none, so a guard on the edge count would be an early return that
+        // no test could tell from its absence.
+        if (local.Y < 0 || local.Y > _size.Height)
+        {
+            return null;
+        }
+
+        for (var boundary = 1; boundary < _columnEdges.Length - 1; boundary++)
+        {
+            if (Math.Abs(local.X - _columnEdges[boundary]) > tolerance)
+            {
+                continue;
+            }
+
+            var widths = ImmutableArray.CreateBuilder<double>(_columns);
+
+            for (var i = 0; i < _columns; i++)
+            {
+                widths.Add(_columnEdges[i + 1] - _columnEdges[i]);
+            }
+
+            // start - 1 is the position before the table, which is what a step names.
+            return new ColumnBoundary(start - 1, boundary, widths.MoveToImmutable(), offset.X);
+        }
+
+        return null;
     }
 
     private void Collect(IReadOnlyCollection<int> cells, List<Rect> into, int start, Vector offset)

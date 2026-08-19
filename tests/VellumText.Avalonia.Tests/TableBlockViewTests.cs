@@ -171,6 +171,26 @@ public class TableBlockViewTests
         Assert.Equal(300, right.X - left.X, 1);
     }
 
+    /// <summary>
+    /// A column narrower than its own padding still lays out. The inner width goes negative, and
+    /// clamping it to zero gave a paragraph nothing to wrap to — which
+    /// <see cref="ParagraphView.Measure"/> refuses outright, so the whole table threw.
+    /// </summary>
+    /// <remarks>
+    /// Not hypothetical: the HTML importer honours whatever widths the source stated, and column
+    /// resize can drive a column here as well. The text overflows its cell at this width, which is
+    /// what a column this narrow means; throwing is the one answer that cannot be right.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AColumnNarrowerThanItsOwnPaddingStillLaysOut()
+    {
+        var table = new TableNode(Grid().Rows, [0.995, 0.005]);
+        var view = Measured(table, 400);
+
+        Assert.Equal(400, view.Size.Width);
+        Assert.True(view.Size.Height > 0);
+    }
+
     [AvaloniaFact]
     public void EachRowIsBelowTheOneBeforeIt()
     {

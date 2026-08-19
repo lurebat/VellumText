@@ -163,6 +163,33 @@ public class JsonFormatTests
         Assert.Equal(doc, RoundTrip(doc));
     }
 
+    /// <summary>
+    /// Column resize writes proportions summing to one, so the numbers are long decimals rather
+    /// than the round ones a hand-written table carries. A format that shortened them would drift
+    /// the proportions a little on every save, and the sum would stop being one.
+    /// </summary>
+    [Fact]
+    public void ProportionalColumnWidthsSurviveToTheirLastDigit()
+    {
+        var widths = new[] { 0.28374659812734, 0.41283746501927, 1 - 0.28374659812734 - 0.41283746501927 };
+        var doc = new DocumentNode([
+            new TableNode(
+                [
+                    new TableRowNode([
+                        TableCellNode.FromText("a"),
+                        TableCellNode.FromText("b"),
+                        TableCellNode.FromText("c"),
+                    ]),
+                ],
+                widths),
+        ]);
+
+        var read = (TableNode)RoundTrip(doc).Blocks[0];
+
+        Assert.Equal(widths, read.ColumnWidths.AsEnumerable());
+        Assert.Equal(1.0, read.ColumnWidths.Sum(), 12);
+    }
+
     [Fact]
     public void RulesAndBlockImagesSurvive()
     {
