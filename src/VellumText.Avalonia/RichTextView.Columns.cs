@@ -42,7 +42,7 @@ public partial class RichTextView
     /// the band never reaches the text and a click aimed at the first character of a cell is not
     /// taken for a resize.
     /// </remarks>
-    public const double ColumnBoundaryTolerance = 4;
+    public static readonly double ColumnBoundaryTolerance = 4;
 
     /// <summary>The smallest share of the table's width a drag may leave a column at.</summary>
     /// <remarks>
@@ -53,7 +53,7 @@ public partial class RichTextView
     /// capped against the pair either side of the boundary — see <see cref="Clamped"/> — since a
     /// table wide enough has every column below this share already.
     /// </remarks>
-    public const double MinimumColumnShare = 0.05;
+    public static readonly double MinimumColumnShare = 0.05;
 
     /// <summary>The cursor shown on a column boundary.</summary>
     internal static readonly Cursor ColumnResizeCursorShape = new(StandardCursorType.SizeWestEast);

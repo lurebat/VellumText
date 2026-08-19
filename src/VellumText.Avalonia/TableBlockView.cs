@@ -253,9 +253,11 @@ internal sealed class TableBlockView : BlockView
                 //
                 // At least one pixel to wrap to. A column narrower than twice the padding leaves
                 // nothing inside it, and a paragraph refuses a width of zero outright — so
-                // clamping to zero threw for a table that merely stated a very narrow column,
-                // which the HTML importer will do whenever the source did. The text overflows the
-                // cell at this width, which is what a column this narrow means.
+                // clamping to zero threw for a table that merely stated a very narrow column.
+                // Reachable from the JSON format, from a host building a TableNode directly, and
+                // now from a resize; not from HTML or RTF, neither of which carries widths at all
+                // — see the remarks on this class. The text overflows the cell at this width,
+                // which is what a column this narrow means.
                 child.Top = content;
                 content += child.View.Measure(Math.Max(1, inner)).Height;
             }
