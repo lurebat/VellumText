@@ -1,10 +1,21 @@
-# Consuming VellumText before it is on NuGet
+# Consuming VellumText from a local feed
 
-VellumText is not published. Until it is, the supported way to consume it is a **local package feed** —
-a folder of `.nupkg` files that NuGet treats as a source. This gives you versioned, immutable
-packages without forking the source, and switching to a real feed later changes one line.
+The supported way to consume VellumText is a **local package feed** — a folder of `.nupkg` files
+that NuGet treats as a source. This gives you versioned, immutable packages without forking the
+source, and switching to a hosted feed later changes one line.
 
-## Publishing
+To find out whether a version is on nuget.org rather than assuming either way:
+
+```powershell
+Invoke-WebRequest https://api.nuget.org/v3-flatcontainer/vellumtext.core/index.json
+```
+
+404 means nothing is published under that id. Publishing is a deliberate, irreversible act — a
+version number is consumed permanently, since a package can be unlisted but never withdrawn — so it
+happens on request rather than as part of a release, and `.github/workflows/release.yml` is what
+does it, driven by a `v<version>` tag and an API key the repository owner holds.
+
+## Packing
 
 ```powershell
 dotnet pack -c Release -o G:\packages\VellumText-local
