@@ -6,7 +6,7 @@ namespace VellumText.Interop.Markdown;
 
 /// <summary>
 /// Writes a document as CommonMark with GitHub-flavoured pipe tables, in the dialect
-/// <c>MarkdownImporter</c> reads back.
+/// <see cref="MarkdownImporter"/> reads back.
 /// </summary>
 /// <remarks>
 /// <para>
