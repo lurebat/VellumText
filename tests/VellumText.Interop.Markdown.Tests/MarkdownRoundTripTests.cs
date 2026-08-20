@@ -297,6 +297,85 @@ public class MarkdownRoundTripTests
     }
 
     /// <summary>
+    /// Two sibling lists stay two lists, rather than merging into one on the way back.
+    /// </summary>
+    /// <remarks>
+    /// Written with the same bullet and a blank line between them, CommonMark reads the pair as a
+    /// single loose list and the boundary is gone for good. The distinction <em>is</em> expressible
+    /// — a list can only continue with the marker it started with — so the second list changes
+    /// character. Nothing else about it changes: <c>*</c> and <c>-</c> are the same bullet to a
+    /// reader, and <c>1)</c> and <c>1.</c> are the same number.
+    /// </remarks>
+    [Theory]
+    [InlineData(ListKind.Unordered, "- a\n\n* b\n")]
+    [InlineData(ListKind.Ordered, "1. a\n\n1) b\n")]
+    public void Two_sibling_lists_do_not_merge_into_one(ListKind kind, string expected)
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ListNode([ListItemNode.FromText("a")], kind),
+                new ListNode([ListItemNode.FromText("b")], kind),
+            ]),
+            expected);
+
+        Assert.Equal(2, back.Blocks.Length);
+
+        var first = Assert.IsType<ListNode>(back.Blocks[0]);
+        var second = Assert.IsType<ListNode>(back.Blocks[1]);
+
+        Assert.Equal(kind, first.Kind);
+        Assert.Equal(kind, second.Kind);
+        Assert.Equal("a", ((ParagraphNode)Assert.Single(first.Items).Blocks[0]).Content.Text);
+        Assert.Equal("b", ((ParagraphNode)Assert.Single(second.Items).Blocks[0]).Content.Text);
+    }
+
+    /// <summary>
+    /// The alternation is between neighbours, not a running toggle: a third list goes back to the
+    /// first marker, and a list after a paragraph starts again from it.
+    /// </summary>
+    [Fact]
+    public void The_marker_alternates_only_against_the_list_before_it()
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ListNode([ListItemNode.FromText("a")], ListKind.Unordered),
+                new ListNode([ListItemNode.FromText("b")], ListKind.Unordered),
+                new ListNode([ListItemNode.FromText("c")], ListKind.Unordered),
+                ParagraphNode.FromText("between"),
+                new ListNode([ListItemNode.FromText("d")], ListKind.Unordered),
+            ]),
+            "- a\n\n* b\n\n- c\n\nbetween\n\n- d\n");
+
+        Assert.Equal(5, back.Blocks.Length);
+        Assert.All(
+            new[] { 0, 1, 2, 4 },
+            i => Assert.IsType<ListNode>(back.Blocks[i]));
+    }
+
+    /// <summary>
+    /// A list of the other kind is already a different list to a reader, so it keeps the marker it
+    /// would have had on its own.
+    /// </summary>
+    /// <remarks>
+    /// Alternating here would be harmless and still wrong: it would spend the distinction where
+    /// there is nothing to distinguish, and leave the rule looking like "every second list" rather
+    /// than "a list that would otherwise be swallowed by the one before it".
+    /// </remarks>
+    [Fact]
+    public void A_list_of_the_other_kind_keeps_its_own_marker()
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ListNode([ListItemNode.FromText("a")], ListKind.Unordered),
+                new ListNode([ListItemNode.FromText("b")], ListKind.Ordered),
+            ]),
+            "- a\n\n1. b\n");
+
+        Assert.Equal(ListKind.Unordered, Assert.IsType<ListNode>(back.Blocks[0]).Kind);
+        Assert.Equal(ListKind.Ordered, Assert.IsType<ListNode>(back.Blocks[1]).Kind);
+    }
+
+    /// <summary>
     /// An item whose first block is itself a list still gets its own marker, so the nesting level
     /// it stands for survives.
     /// </summary>

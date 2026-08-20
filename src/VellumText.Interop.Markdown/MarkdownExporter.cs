@@ -112,6 +112,8 @@ public sealed class MarkdownExporter : IDocumentExporter
         public void WriteBlocks(IEnumerable<BlockNode> blocks, bool insideListItem = false)
         {
             var first = true;
+            var alternate = false;
+            BlockNode? previous = null;
 
             foreach (var block in blocks)
             {
@@ -119,11 +121,23 @@ public sealed class MarkdownExporter : IDocumentExporter
                 // separator between blocks, so writing one produces nothing to read back. This is
                 // the one loss not reported, because a document being edited routinely ends with
                 // an empty paragraph and a warning on every save would train the user to ignore
-                // the whole list.
+                // the whole list. Skipped without becoming the previous block, because what it
+                // writes is nothing and the blocks either side of it end up adjacent.
                 if (block is ParagraphNode { Kind: ParagraphKind.Body, Content.Length: 0 })
                 {
                     continue;
                 }
+
+                // Two lists of the same kind separated by a blank line are one loose list to a
+                // CommonMark reader, so the boundary between them would be gone for good. A list
+                // can only continue with the marker it started with, so changing the second one's
+                // is the whole distinction — and it costs nothing, since "*" and "-" are the same
+                // bullet to a reader and "1)" and "1." the same number. Against the block before
+                // rather than a running toggle, so a third list goes back to the first marker.
+                alternate = block is ListNode list
+                    && previous is ListNode prior
+                    && prior.Kind == list.Kind
+                    && !alternate;
 
                 // A list nested in an item follows its item's paragraph directly. A blank line
                 // there is legal but makes the outer list "loose", which changes nothing in the
@@ -136,11 +150,12 @@ public sealed class MarkdownExporter : IDocumentExporter
                 }
 
                 first = false;
-                WriteBlock(block);
+                previous = block;
+                WriteBlock(block, alternate);
             }
         }
 
-        private void WriteBlock(BlockNode block)
+        private void WriteBlock(BlockNode block, bool alternateListMarker)
         {
             switch (block)
             {
@@ -149,7 +164,7 @@ public sealed class MarkdownExporter : IDocumentExporter
                     return;
 
                 case ListNode list:
-                    WriteList(list);
+                    WriteList(list, alternateListMarker);
                     return;
 
                 case TableNode table:
@@ -314,7 +329,7 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// construction — the indent is the marker's width in spaces — so the inner markers below it
         /// still line up.
         /// </remarks>
-        private void WriteList(ListNode list)
+        private void WriteList(ListNode list, bool alternateMarker)
         {
             var number = list.Start;
             var outer = _indent;
@@ -325,8 +340,8 @@ public sealed class MarkdownExporter : IDocumentExporter
             foreach (var item in list.Items)
             {
                 var marker = list.Kind == ListKind.Ordered
-                    ? $"{number.ToString(CultureInfo.InvariantCulture)}. "
-                    : "- ";
+                    ? $"{number.ToString(CultureInfo.InvariantCulture)}{(alternateMarker ? ')' : '.')} "
+                    : alternateMarker ? "* " : "- ";
 
                 number++;
 

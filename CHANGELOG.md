@@ -63,6 +63,13 @@ NuGet; packages are published to a local feed, and
   column alignment are now both read from the grid `TableGeometry.Place` works
   out, the same grid the schema, cell selection and the view already use.
 
+- **Two adjacent sibling lists no longer merge into one on the way back.** Both
+  were written with the same marker and a blank line between them, which
+  CommonMark reads as a single loose list, so the boundary was gone for good.
+  A list can only continue with the marker it started with, so the second of a
+  pair now alternates — `-` against `*`, `1.` against `1)`. To a reader
+  those are the same bullet and the same number, so nothing else changes.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires
