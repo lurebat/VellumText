@@ -1540,12 +1540,12 @@ worth using". Comparing it against what VellumText actually had:
 | Inline & block images | ✅ | ✅ | ✅ renders, selects and resizes by dragging a corner |
 | Hyperlinks | ✅ | ✅ | ✅ **closed** |
 | Toolbar (`EditorToolbar`) | ✅ | — | ❌ → ✅ **closed** (P4) |
-| Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ⚠️ right-click context menu only; no floating selection flyout |
-| Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ → ✅ **closed** (P5) `RichTextViewer` |
-| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ⚠️ HTML + RTF both ways (P2); no DOCX/XAML |
+| Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ❌ → ✅ **closed** (P4) floating `RichTextToolbar` in a `VellumText-selection` template, plus a right-click context menu |
+| Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ → ✅ **closed** (P5) `RichTextViewer`, selectable and copyable since 0.5.0 |
+| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ⚠️ HTML + RTF both ways (P2), JSON both ways; no Markdown, DOCX or XAML |
 | Light & dark theme | ✅ | — | ❌ → ✅ **closed** (P4) light + dark variants |
-| `IsReadOnly`, `UndoLimit`, `AcceptsReturn`/`Tab` | ✅ | — | ❌ |
-| Spellcheck | ✅ | — | ❌ no hook |
+| `IsReadOnly`, `UndoLimit`, `AcceptsReturn`/`Tab` | ✅ | — | ❌ → ✅ **closed** (P10) all four public on both controls |
+| Spellcheck | ✅ | — | ❌ no hook — deferred to v2.0 |
 
 > **Verified against the tree at P7 (2026-08-16), not from memory.** This table had gone stale: P2–P6
 > closed seven of its rows while it still read `❌`. Each row above was re-checked against the code —
@@ -1554,6 +1554,17 @@ worth using". Comparing it against what VellumText actually had:
 > search. `IsReadOnly` exists **only** as `IValueProvider.IsReadOnly` on the automation peer, derived
 > from `SupportsTextInput`; it is not a settable control property. Note the read-only *flag* is partly
 > moot by the decision below that a viewer is a distinct control.
+
+> **Re-verified 2026-08-20, and it had drifted a third time.** Two rows still read as open that the
+> §10.4 rows *in this same document* record as closed: the selection flyout, which P11 establishes was
+> built during P4 and which `SelectionToolbarTests.cs` covers with fourteen tests, and the four
+> control properties, which P10 closed and which are public on both controls. The sentence above
+> saying `IsReadOnly` is "not a settable control property" was true when written and is now false —
+> it is the property a downstream consumer sets to render a preview pane.
+>
+> Both were found while answering "what is left to build", not by auditing the table. That is the
+> third time it has misled a reader in both directions, so the instruction under §10.4 —
+> **check the tree, not the row** — is repeated here, where the stale rows actually are.
 
 > **Correction (2026-08-18, read-only affordances).** Reported from live use, and worth recording
 > because the fix is a rule rather than a patch. A clipboard manager rendering previews as
@@ -1704,6 +1715,9 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P12** | ~~**Column resize by dragging.**~~ **Done** (2026-08-19). The last unbuilt clause of AC5, listed under "Deliberately not built" above since P8. See "As built" below. | — | — |
 | **P13** | ~~**Drag-to-move the selection.**~~ **Done** (2026-08-20). See §10.4.4. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
+| **P14** | **Markdown import and export.** | AC8 requires it in both directions. No `Markdig` reference and no Markdown source anywhere in `src` — confirmed by search 2026-08-20. | **Open, and never decided** |
+
+**Markdown fell through the record rather than being deferred.** AC8 names it alongside HTML, RTF and DOCX; the v1 scope decision below explicitly excludes DOCX, XAML and spellcheck and says nothing about Markdown. So it is the one clause of one acceptance criterion that is neither built nor knowingly dropped — found on 2026-08-20 while answering "what is left", not by auditing. **It needs a decision: build it, or amend AC8.** It is much smaller than DOCX — Markdig is the obvious dependency, export is a walk of the same block tree the HTML exporter already walks, and the stream members added in §4.9 mean the format contract can hold it either way.
 
 **DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
 
