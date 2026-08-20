@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
@@ -112,6 +113,15 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// escaped even in the spans that escape nothing else. See <see cref="EscapeCellPipes"/>.
         /// </summary>
         private bool _inTableCell;
+
+        /// <summary>Characters a delimiter run can find itself against without being written.</summary>
+        private static readonly Rune Asterisk = new('*');
+
+        private static readonly Rune Tilde = new('~');
+
+        private static readonly Rune Bracket = new('[');
+
+        private static readonly Rune CloseBracket = new(']');
 
         public MarkdownExportResult Result => new(_text.ToString(), _log.Items);
 
@@ -661,10 +671,17 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// The run boundaries come from <see cref="InlineContent.Runs"/> rather than from
         /// <see cref="InlineContent.Marks"/>, because mark spans are canonical and canonical form
         /// omits stretches that override nothing — unformatted text has no spans at all.
+        /// <para>
+        /// Two passes, because a delimiter's legality depends on what is written either side of it
+        /// (see <see cref="Flank"/>) and the character after a run's closing delimiter belongs to
+        /// the next run. The first pass turns each run into a <see cref="Segment"/>; the second
+        /// walks them left to right, where everything before is already written and everything
+        /// after is still inspectable.
+        /// </para>
         /// </remarks>
         private string Inline(InlineContent content)
         {
-            var markdown = new StringBuilder();
+            var segments = new List<Segment>();
             var embed = 0;
 
             foreach (var run in content.Runs())
@@ -673,7 +690,9 @@ public sealed class MarkdownExporter : IDocumentExporter
 
                 ReportMark(mark);
 
-                var body = mark.Has(TextStyle.Code)
+                var code = mark.Has(TextStyle.Code);
+
+                var body = code
                     ? CodeSpan(RunText(content, run.Start, run.End, ref embed))
                     : RunBody(content, run.Start, run.End, ref embed);
 
@@ -682,70 +701,223 @@ public sealed class MarkdownExporter : IDocumentExporter
                     continue;
                 }
 
-                var open = new StringBuilder();
-                var close = new StringBuilder();
+                var segment = new Segment
+                {
+                    Body = body,
+                    Bold = mark.Has(TextStyle.Bold),
+                    Italic = mark.Has(TextStyle.Italic),
+                    Strike = mark.Has(TextStyle.Strikethrough),
+
+                    // A code span's edges are its own backticks and an image's are its own syntax:
+                    // moving either outside the delimiters would take the construct apart.
+                    Movable = !code
+                        && content.Text.AsSpan(run.Start, run.End - run.Start)
+                            .IndexOf(InlineContent.Placeholder) < 0,
+                };
 
                 if (mark.Link is { } link)
                 {
-                    open.Append('[');
-                    close.Insert(0, $"]({Destination(link.Href)}{TitleSuffix(link.Title)})");
+                    segment.LinkOpen = "[";
+                    segment.LinkClose = $"]({Destination(link.Href)}{TitleSuffix(link.Title)})";
                 }
 
-                // Emphasis delimiters must touch the text they wrap: "** bold **" is four
-                // asterisks and two spaces, not strong emphasis. So any space at the edges moves
-                // outside the delimiters, where it means the same thing and still parses.
-                var lead = string.Empty;
-                var trail = string.Empty;
-
-                if (mark.Has(TextStyle.Bold) || mark.Has(TextStyle.Italic)
-                    || mark.Has(TextStyle.Strikethrough))
+                // Emphasis delimiters must touch the text they wrap: "** bold **" is four asterisks
+                // and two spaces, not strong emphasis. So any space at the edges moves outside the
+                // delimiters, where it means the same thing and still parses.
+                if (segment.Emphasis)
                 {
-                    var start = 0;
-                    var end = body.Length;
-
-                    while (start < end && body[start] is ' ' or '\t')
+                    while (segment.Body.Length > 0 && IsSpace(UnitRune(segment.Body, 0)))
                     {
-                        start++;
+                        segment.MoveLeadingUnitOut();
                     }
 
-                    while (end > start && body[end - 1] is ' ' or '\t')
+                    while (segment.Body.Length > 0
+                        && IsSpace(UnitRune(segment.Body, LastUnitStart(segment.Body))))
                     {
-                        end--;
+                        segment.MoveTrailingUnitOut();
                     }
 
-                    lead = body[..start];
-                    trail = body[end..];
-                    body = body[start..end];
+                    if (segment.Body.Length == 0)
+                    {
+                        segment.Bold = segment.Italic = segment.Strike = false;
+                    }
                 }
 
-                if (body.Length == 0)
-                {
-                    markdown.Append(lead).Append(trail);
-                    continue;
-                }
+                segments.Add(segment);
+            }
 
-                if (mark.Has(TextStyle.Bold))
-                {
-                    open.Append("**");
-                    close.Insert(0, "**");
-                }
+            var markdown = new StringBuilder();
 
-                if (mark.Has(TextStyle.Italic))
-                {
-                    open.Append('*');
-                    close.Insert(0, "*");
-                }
+            for (var i = 0; i < segments.Count; i++)
+            {
+                var segment = segments[i];
 
-                if (mark.Has(TextStyle.Strikethrough))
-                {
-                    open.Append("~~");
-                    close.Insert(0, "~~");
-                }
+                Flank(segment, markdown, NextFirst(segments, i));
 
-                markdown.Append(lead).Append(open).Append(body).Append(close).Append(trail);
+                markdown.Append(segment.Lead)
+                    .Append(segment.LinkOpen)
+                    .Append(segment.Asterisks)
+                    .Append(segment.Tildes)
+                    .Append(segment.Body)
+                    .Append(segment.Tildes)
+                    .Append(segment.Asterisks)
+                    .Append(segment.LinkClose)
+                    .Append(segment.Trail);
             }
 
             return markdown.ToString();
+        }
+
+        /// <summary>
+        /// Settles <paramref name="segment"/>'s delimiters against the text either side of them, so
+        /// that every one of them can actually open or close where it is written.
+        /// </summary>
+        /// <remarks>
+        /// CommonMark will not let a delimiter run open unless it is left-flanking or close unless
+        /// it is right-flanking, and both are decided by the two characters touching it. A run of
+        /// asterisks between punctuation and an alphanumeric is neither, which is why
+        /// <c>**Ver.**2</c> is four literal asterisks and no emphasis at all rather than a bold
+        /// "Ver.".
+        /// <para>
+        /// The first remedy costs nothing but the mark on one character: edge punctuation moves
+        /// outside the delimiters, where it is the same text and lets them flank —
+        /// <c>**Ver**.2</c>. Where that cannot work the delimiters themselves are the obstacle,
+        /// because <c>~~</c> against <c>*</c> is punctuation that no edit to the text can separate;
+        /// then strikethrough goes first, as the one style whose loss leaves the other two, and all
+        /// of them only if that still does not parse.
+        /// </para>
+        /// </remarks>
+        private void Flank(Segment segment, StringBuilder written, Rune? next)
+        {
+            while (segment.Emphasis)
+            {
+                var opens = Opens(segment, written);
+                var closes = Closes(segment, next);
+
+                if (opens && closes)
+                {
+                    return;
+                }
+
+                if (segment.Movable && segment.Body.Length > 1)
+                {
+                    if (!opens && IsPunctuation(UnitRune(segment.Body, 0)))
+                    {
+                        segment.MoveLeadingUnitOut();
+                        ReportEdge();
+                        continue;
+                    }
+
+                    if (!closes
+                        && IsPunctuation(UnitRune(segment.Body, LastUnitStart(segment.Body))))
+                    {
+                        segment.MoveTrailingUnitOut();
+                        ReportEdge();
+                        continue;
+                    }
+                }
+
+                if (segment.Strike && (segment.Bold || segment.Italic))
+                {
+                    segment.Strike = false;
+                }
+                else
+                {
+                    segment.Bold = segment.Italic = segment.Strike = false;
+                }
+
+                Report(
+                    DiagnosticSeverity.Downgraded,
+                    "Markdown emphasis has to touch text it can be told apart from, and this could "
+                        + "not be written where it was, so the style was dropped.",
+                    "emphasis-flanking");
+            }
+        }
+
+        private void ReportEdge() =>
+            Report(
+                DiagnosticSeverity.Downgraded,
+                "Markdown emphasis cannot end against punctuation, so the punctuation at the edge "
+                    + "of this styled text was written outside the style.",
+                "emphasis-edge");
+
+        /// <summary>Whether every one of a segment's opening delimiter runs is left-flanking.</summary>
+        private static bool Opens(Segment segment, StringBuilder written)
+        {
+            var before = segment.Lead.Length > 0 ? UnitRune(segment.Lead, LastUnitStart(segment.Lead))
+                : segment.LinkOpen.Length > 0 ? Bracket
+                : LastRune(written);
+
+            var first = UnitRune(segment.Body, 0);
+
+            if (segment.Asterisks.Length > 0
+                && !IsLeftFlanking(before, segment.Strike ? Tilde : first))
+            {
+                return false;
+            }
+
+            return segment.Tildes.Length == 0
+                || IsLeftFlanking(segment.Asterisks.Length > 0 ? Asterisk : before, first);
+        }
+
+        /// <summary>Whether every one of a segment's closing delimiter runs is right-flanking.</summary>
+        private static bool Closes(Segment segment, Rune? next)
+        {
+            var after = segment.LinkClose.Length > 0 ? CloseBracket
+                : segment.Trail.Length > 0 ? UnitRune(segment.Trail, 0)
+                : next;
+
+            var last = UnitRune(segment.Body, LastUnitStart(segment.Body));
+
+            if (segment.Asterisks.Length > 0
+                && !IsRightFlanking(segment.Strike ? Tilde : last, after))
+            {
+                return false;
+            }
+
+            return segment.Tildes.Length == 0
+                || IsRightFlanking(last, segment.Asterisks.Length > 0 ? Asterisk : after);
+        }
+
+        /// <summary>
+        /// The first character the segments after <paramref name="index"/> will write, or
+        /// <see langword="null"/> at the end of the content, which is the end of a line.
+        /// </summary>
+        /// <remarks>
+        /// A segment that carries emphasis really writes a delimiter first, which is punctuation and
+        /// so the friendlier answer. This reports the body's first character instead, because the
+        /// delimiter is only written if the segment's own flanking works out and the two answers
+        /// disagree exactly where guessing wrong is silent: <c>**Sale!***x*</c> emphasises nothing,
+        /// while the pessimistic <c>**Sale**!*x*</c> emphasises both.
+        /// </remarks>
+        private static Rune? NextFirst(List<Segment> segments, int index)
+        {
+            for (var i = index + 1; i < segments.Count; i++)
+            {
+                var segment = segments[i];
+
+                if (segment.Lead.Length > 0)
+                {
+                    return UnitRune(segment.Lead, 0);
+                }
+
+                if (segment.LinkOpen.Length > 0)
+                {
+                    return Bracket;
+                }
+
+                if (segment.Body.Length > 0)
+                {
+                    return UnitRune(segment.Body, 0);
+                }
+
+                if (segment.Trail.Length > 0)
+                {
+                    return UnitRune(segment.Trail, 0);
+                }
+            }
+
+            return null;
         }
 
         /// <summary>Escaped text for one run, with images written as image syntax.</summary>
@@ -1154,6 +1326,159 @@ public sealed class MarkdownExporter : IDocumentExporter
             }
 
             return longest;
+        }
+
+        /// <summary>
+        /// Whether a delimiter run written between <paramref name="before"/> and
+        /// <paramref name="after"/> could open emphasis, per CommonMark 0.31 §6.2.
+        /// </summary>
+        /// <summary>
+        /// Whether a delimiter run written between <paramref name="before"/> and
+        /// <paramref name="after"/> could open emphasis, per CommonMark 0.31 §6.2.
+        /// </summary>
+        /// <remarks>
+        /// <see langword="null"/> is the start or the end of a line, which the rules count as
+        /// whitespace. Only <c>*</c> and <c>~</c> are ever written here, so the extra conditions
+        /// CommonMark puts on <c>_</c> are not needed.
+        /// </remarks>
+        private static bool IsLeftFlanking(Rune? before, Rune? after) =>
+            after is { } a
+            && !IsSpace(a)
+            && (!IsPunctuation(a) || before is not { } b || IsSpace(b) || IsPunctuation(b));
+
+        /// <summary>The mirror of <see cref="IsLeftFlanking"/>: whether it could close.</summary>
+        private static bool IsRightFlanking(Rune? before, Rune? after) =>
+            before is { } b
+            && !IsSpace(b)
+            && (!IsPunctuation(b) || after is not { } a || IsSpace(a) || IsPunctuation(a));
+
+        /// <summary>Unicode whitespace as CommonMark defines it, which is not what .NET does.</summary>
+        /// <remarks>
+        /// <see cref="char.IsWhiteSpace(char)"/> also counts a line tabulation and a next line,
+        /// neither of which CommonMark treats as whitespace — a delimiter beside one of those
+        /// flanks, and a writer that thought otherwise would move text that did not need moving.
+        /// </remarks>
+        private static bool IsSpace(Rune rune) =>
+            rune.Value is '\t' or '\n' or '\f' or '\r'
+            || Rune.GetUnicodeCategory(rune) == UnicodeCategory.SpaceSeparator;
+
+        /// <summary>Unicode punctuation as CommonMark 0.31 defines it: every P and S category.</summary>
+        /// <remarks>
+        /// The S categories are the ones a reader reaching for
+        /// <see cref="char.IsPunctuation(char)"/> loses, and they are not exotic: <c>=</c> is Sm,
+        /// <c>€</c> is Sc and every emoji is So, so the difference decides whether <c>**a**=b</c>
+        /// or <c>**a=**b</c> is written.
+        /// </remarks>
+        private static bool IsPunctuation(Rune rune) => Rune.GetUnicodeCategory(rune) is
+            UnicodeCategory.ConnectorPunctuation or UnicodeCategory.DashPunctuation
+            or UnicodeCategory.OpenPunctuation or UnicodeCategory.ClosePunctuation
+            or UnicodeCategory.InitialQuotePunctuation or UnicodeCategory.FinalQuotePunctuation
+            or UnicodeCategory.OtherPunctuation or UnicodeCategory.MathSymbol
+            or UnicodeCategory.CurrencySymbol or UnicodeCategory.ModifierSymbol
+            or UnicodeCategory.OtherSymbol;
+
+        /// <summary>The character a unit of written text stands for.</summary>
+        /// <remarks>
+        /// A backslash escape is one unit of two characters, and both of them are punctuation — the
+        /// backslash because it is Po and whatever it escapes because nothing else is ever escaped —
+        /// so reading through to the escaped character cannot change the answer while splitting the
+        /// pair would put a lone backslash into the document.
+        /// </remarks>
+        private static Rune UnitRune(string text, int index)
+        {
+            var at = text[index] == '\\' && index + 1 < text.Length ? index + 1 : index;
+
+            return Rune.DecodeFromUtf16(text.AsSpan(at), out var rune, out _) == OperationStatus.Done
+                ? rune
+                : Rune.ReplacementChar;
+        }
+
+        private static int UnitLength(string text, int index) =>
+            text[index] == '\\' && index + 1 < text.Length
+                ? 1 + CharLength(text, index + 1)
+                : CharLength(text, index);
+
+        private static int CharLength(string text, int index) =>
+            char.IsHighSurrogate(text[index]) && index + 1 < text.Length ? 2 : 1;
+
+        private static int LastUnitStart(string text)
+        {
+            var start = 0;
+
+            for (var i = 0; i < text.Length; i += UnitLength(text, i))
+            {
+                start = i;
+            }
+
+            return start;
+        }
+
+        private static Rune? LastRune(StringBuilder written)
+        {
+            if (written.Length == 0)
+            {
+                return null;
+            }
+
+            var last = written[^1];
+
+            if (!char.IsLowSurrogate(last) || written.Length < 2)
+            {
+                return Rune.TryCreate(last, out var single) ? single : Rune.ReplacementChar;
+            }
+
+            return Rune.TryCreate(written[^2], last, out var pair) ? pair : Rune.ReplacementChar;
+        }
+
+        /// <summary>One run of inline content, taken apart so its delimiters can be settled.</summary>
+        /// <remarks>
+        /// Written as <c>Lead LinkOpen Asterisks Tildes Body Tildes Asterisks LinkClose Trail</c>.
+        /// <see cref="Lead"/> and <see cref="Trail"/> hold what has been moved out from the edges of
+        /// <see cref="Body"/> so that the delimiters can flank — see <see cref="Flank"/>.
+        /// </remarks>
+        private sealed class Segment
+        {
+            public string Lead { get; private set; } = string.Empty;
+
+            public string Body { get; set; } = string.Empty;
+
+            public string Trail { get; private set; } = string.Empty;
+
+            public string LinkOpen { get; set; } = string.Empty;
+
+            public string LinkClose { get; set; } = string.Empty;
+
+            public bool Bold { get; set; }
+
+            public bool Italic { get; set; }
+
+            public bool Strike { get; set; }
+
+            /// <summary>Whether text may be moved out of <see cref="Body"/>'s edges.</summary>
+            public bool Movable { get; init; }
+
+            public bool Emphasis => Bold || Italic || Strike;
+
+            public string Asterisks =>
+                Bold && Italic ? "***" : Bold ? "**" : Italic ? "*" : string.Empty;
+
+            public string Tildes => Strike ? "~~" : string.Empty;
+
+            public void MoveLeadingUnitOut()
+            {
+                var length = UnitLength(Body, 0);
+
+                Lead += Body[..length];
+                Body = Body[length..];
+            }
+
+            public void MoveTrailingUnitOut()
+            {
+                var start = LastUnitStart(Body);
+
+                Trail = Body[start..] + Trail;
+                Body = Body[..start];
+            }
         }
     }
 }

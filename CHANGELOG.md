@@ -79,6 +79,18 @@ NuGet; packages are published to a local feed, and
   unreadable everywhere else. The import side undoes the escape inside a code
   span, where Markdig does not, so the two halves still agree.
 
+- **Emphasis is written where it can actually open and close, so styling beside
+  punctuation survives.** CommonMark only lets a delimiter run open where it is
+  left-flanking and close where it is right-flanking, and the two characters
+  touching it decide both. A bold `Ver.` in `Ver.2` was written
+  `**Ver.**2`, where the closing `**` sits between a full stop and a digit
+  and so is neither: the reader saw four literal asterisks and no styling at
+  all. The writer now judges each delimiter against the characters either side
+  and moves edge punctuation outside it — `**Ver**.2` — reporting the one
+  character that loses its mark. Where the obstacle is another delimiter rather
+  than the text, which no edit can separate, the style is dropped with a
+  diagnostic instead of being written unreadably.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires

@@ -98,6 +98,84 @@ public class MarkdownRoundTripTests
     }
 
     /// <summary>
+    /// The reason edge punctuation is worth moving: with it left in place the delimiters cannot
+    /// flank, so nothing is emphasised and four literal asterisks arrive in the text instead. Every
+    /// row here came back as its own source with style <see cref="TextStyle.None"/> before the
+    /// writer took flanking into account.
+    /// </summary>
+    /// <remarks>
+    /// <c>€</c> and <c>😀</c> are the rows that catch a reader using .NET's own
+    /// <see cref="char.IsPunctuation(char)"/>: CommonMark 0.31 counts every Unicode <c>S</c>
+    /// category as punctuation, and the emoji is also the row that catches one indexing chars
+    /// rather than runes.
+    /// </remarks>
+    [Theory]
+    [InlineData("Ver.2", 0, 4, "**Ver**.2\n", 0, 3)]
+    [InlineData("a=b", 0, 2, "**a**=b\n", 0, 1)]
+    [InlineData("5%off", 0, 2, "**5**%off\n", 0, 1)]
+    [InlineData("C#dev", 0, 2, "**C**#dev\n", 0, 1)]
+    [InlineData("10)x", 0, 3, "**10**)x\n", 0, 2)]
+    [InlineData("a...b", 0, 4, "**a..**.b\n", 0, 3)]
+    [InlineData("a\u20acb", 0, 2, "**a**\u20acb\n", 0, 1)]
+    [InlineData("x\U0001f600y", 0, 3, "**x**\U0001f600y\n", 0, 1)]
+    [InlineData("pre(see)", 3, 5, "pre(**see)**\n", 4, 4)]
+    [InlineData("a(b)c", 1, 3, "a(**b**)c\n", 2, 1)]
+    [InlineData("a.b.c", 1, 3, "a.**b**.c\n", 2, 1)]
+    public void Emphasis_beside_punctuation_comes_back_as_emphasis(
+        string text, int start, int length, string expected, int styledStart, int styledLength)
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ParagraphNode(InlineContent.Create(
+                    text,
+                    [new ValueSpan<MarkSet>(start, length, new MarkSet(TextStyle.Bold))],
+                    []))]),
+            expected);
+
+        var content = Para(back, 0).Content;
+
+        Assert.Equal(text, content.Text);
+
+        // The mark keeps every character that was not moved out to let the delimiters flank, and
+        // only those: a run of literal asterisks would style nothing, and a delimiter that swallowed
+        // the moved character would style one too many.
+        for (var i = 0; i < content.Length; i++)
+        {
+            var styled = i >= styledStart && i < styledStart + styledLength;
+
+            Assert.Equal(styled ? TextStyle.Bold : TextStyle.None, content.MarkAt(i).Style);
+        }
+    }
+
+    /// <summary>
+    /// A closing delimiter is judged against the character after it, and that character belongs to
+    /// the run <em>after</em> this one — so the decision cannot be made a run at a time. Emphasis
+    /// that ends in punctuation and is followed by more emphasis is where it shows:
+    /// <c>**Sale\!***x*</c> emphasises neither, and the run of five asterisks arrives as text.
+    /// </summary>
+    [Fact]
+    public void A_closing_delimiter_is_judged_against_the_run_that_follows_it()
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ParagraphNode(InlineContent.Create(
+                    "Sale!x",
+                    [
+                        new ValueSpan<MarkSet>(0, 5, new MarkSet(TextStyle.Bold)),
+                        new ValueSpan<MarkSet>(5, 1, new MarkSet(TextStyle.Italic)),
+                    ],
+                    []))]),
+            "**Sale**\\!*x*\n");
+
+        var content = Para(back, 0).Content;
+
+        Assert.Equal("Sale!x", content.Text);
+        Assert.Equal(TextStyle.Bold, content.MarkAt(3).Style);
+        Assert.Equal(TextStyle.None, content.MarkAt(4).Style);
+        Assert.Equal(TextStyle.Italic, content.MarkAt(5).Style);
+    }
+
+    /// <summary>
     /// Escaping is where a writer that only had to satisfy itself gets caught: every one of these
     /// characters begins a construct, and every one has to come back as the character it was.
     /// </summary>

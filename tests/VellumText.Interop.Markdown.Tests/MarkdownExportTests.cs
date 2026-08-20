@@ -77,6 +77,93 @@ public class MarkdownExportTests
         Assert.Equal("a  c\n", Export(Marked("a  c", 1, 2, new MarkSet(TextStyle.Bold))));
 
     /// <summary>
+    /// A delimiter may only open where it is left-flanking and close where it is right-flanking,
+    /// and punctuation at the edge of the styled text decides both: <c>**</c> between <c>.</c> and
+    /// <c>2</c> is neither, so <c>**Ver.**2</c> is four literal asterisks and no styling at all.
+    /// Moving the edge punctuation outside the delimiters restores both, at the cost of the mark
+    /// over that one character.
+    /// </summary>
+    /// <remarks>
+    /// The cases are the character classes CommonMark 0.31 calls punctuation, which is every
+    /// Unicode <c>P</c> <em>and</em> <c>S</c> category — so a currency sign and an emoji count, and
+    /// a reader that used <see cref="char.IsPunctuation(char)"/> would get both wrong.
+    /// </remarks>
+    [Theory]
+    [InlineData("Ver.2", 0, 4, "**Ver**.2\n")]
+    [InlineData("a=b", 0, 2, "**a**=b\n")]
+    [InlineData("5%off", 0, 2, "**5**%off\n")]
+    [InlineData("C#dev", 0, 2, "**C**#dev\n")]
+    [InlineData("10)x", 0, 3, "**10**)x\n")]
+    [InlineData("a...b", 0, 4, "**a..**.b\n")]
+    [InlineData("a\u20acb", 0, 2, "**a**\u20acb\n")]
+    [InlineData("x\U0001f600y", 0, 3, "**x**\U0001f600y\n")]
+    [InlineData("pre(see)", 3, 5, "pre(**see)**\n")]
+    [InlineData("a(b)c", 1, 3, "a(**b**)c\n")]
+    [InlineData("a.b.c", 1, 3, "a.**b**.c\n")]
+    public void Edge_punctuation_moves_outside_the_delimiters_so_they_can_flank(
+        string text, int start, int length, string expected) =>
+        Assert.Equal(expected, Export(Marked(text, start, length, new MarkSet(TextStyle.Bold))));
+
+    [Theory]
+    [InlineData(TextStyle.Italic, "*Ver*.2\n")]
+    [InlineData(TextStyle.Strikethrough, "~~Ver~~.2\n")]
+    [InlineData(TextStyle.Bold | TextStyle.Italic, "***Ver***.2\n")]
+    public void Every_emphasis_delimiter_flanks_the_same_way(TextStyle style, string expected) =>
+        Assert.Equal(expected, Export(Marked("Ver.2", 0, 4, new MarkSet(style))));
+
+    /// <summary>
+    /// Emphasis whose edge is not punctuation must keep it: a trim that ran unconditionally would
+    /// take the mark off the <c>!</c> of <c>**Sale!**</c>, which needs no help and loses nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("Sale!", 0, 5, "**Sale\\!**\n")]
+    [InlineData("a (b) c", 2, 3, "a **(b)** c\n")]
+    public void Edge_punctuation_that_already_flanks_is_left_where_it_is(
+        string text, int start, int length, string expected) =>
+        Assert.Equal(expected, Export(Marked(text, start, length, new MarkSet(TextStyle.Bold))));
+
+    /// <summary>
+    /// A code span's edges are backticks, which are punctuation that cannot move: no notation puts
+    /// emphasis on <c>`x`</c> between two letters. The emphasis goes rather than the text, and the
+    /// diagnostic is the only way a caller learns of it.
+    /// </summary>
+    [Fact]
+    public void Emphasis_that_cannot_flank_at_all_is_dropped_with_a_diagnostic()
+    {
+        var result = MarkdownExporter.Instance.ExportWithDiagnostics(
+            new DocumentNode([Marked("axb", 1, 1, new MarkSet(TextStyle.Bold | TextStyle.Code))]));
+
+        Assert.Equal("a`x`b\n", result.Text);
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "emphasis-flanking");
+    }
+
+    /// <summary>
+    /// Strikethrough next to emphasis puts a <c>~</c> against the <c>*</c>, and neither can flank
+    /// against the other. Nothing at the edges of the text can fix that, so one style has to go;
+    /// the one that goes is the one that costs least.
+    /// </summary>
+    [Fact]
+    public void Strikethrough_that_blocks_emphasis_is_dropped_rather_than_the_emphasis()
+    {
+        var result = MarkdownExporter.Instance.ExportWithDiagnostics(
+            new DocumentNode(
+            [
+                Marked(
+                    "abc",
+                    1,
+                    1,
+                    new MarkSet(TextStyle.Bold | TextStyle.Italic | TextStyle.Strikethrough)),
+            ]));
+
+        Assert.Equal("a***b***c\n", result.Text);
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "emphasis-flanking");
+    }
+
+    /// <summary>
     /// Backticks inside a code span have to be shorter than the fence around it, and text whose own
     /// edges are backticks needs the padding spaces a reader will strip back off.
     /// </summary>
