@@ -773,6 +773,11 @@ public class MarkdownRoundTripTests
     /// Exporting the imported document again gives the same Markdown, which is the property a user
     /// who opens and saves a file without touching it actually notices.
     /// </summary>
+    /// <remarks>
+    /// One trip is the whole test. A second export of the second import would compare two values
+    /// the first assertion has already pinned to the same string, through code with no state that
+    /// outlives a call — so it could only fail where this assertion already had.
+    /// </remarks>
     [Fact]
     public void A_second_trip_changes_nothing()
     {
@@ -803,9 +808,5 @@ public class MarkdownRoundTripTests
         var once = MarkdownExporter.Instance.Export(MarkdownImporter.Import(markdown).Doc);
 
         Assert.Equal(markdown, once);
-
-        var twice = MarkdownExporter.Instance.Export(MarkdownImporter.Import(once).Doc);
-
-        Assert.Equal(once, twice);
     }
 }

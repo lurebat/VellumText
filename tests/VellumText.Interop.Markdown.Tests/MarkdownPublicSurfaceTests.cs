@@ -119,7 +119,21 @@ public class MarkdownPublicSurfaceTests
         Assert.Equal([], unmapped.Order());
     }
 
-    private static IEnumerable<Type> TypesIn(MemberInfo member) => member switch
+    /// <summary>
+    /// Every type a member's signature names, including the ones nested inside another type.
+    /// </summary>
+    /// <remarks>
+    /// The recursion is the point. A guard that looked only at the outer type reported
+    /// <c>IReadOnlyList&lt;HtmlImportOptions&gt;</c> as living in <c>System.Private.CoreLib</c> and
+    /// let the leak through, while the same leak written as an array or a bare property was caught —
+    /// so the hole was invisible to anyone who tested the guard the obvious way. Element types and
+    /// interfaces are walked for the same reason, and <paramref name="seen"/> is what stops
+    /// <c>string : IComparable&lt;string&gt;</c> recursing forever.
+    /// </remarks>
+    private static IEnumerable<Type> TypesIn(MemberInfo member) =>
+        Expand(Signature(member), []);
+
+    private static IEnumerable<Type> Signature(MemberInfo member) => member switch
     {
         MethodInfo method =>
             [method.ReturnType, .. method.GetParameters().Select(p => p.ParameterType)],
@@ -129,4 +143,28 @@ public class MarkdownPublicSurfaceTests
         EventInfo e when e.EventHandlerType is { } handler => [handler],
         _ => [],
     };
+
+    private static IEnumerable<Type> Expand(IEnumerable<Type> types, HashSet<Type> seen)
+    {
+        foreach (var type in types)
+        {
+            if (!seen.Add(type))
+            {
+                continue;
+            }
+
+            yield return type;
+
+            foreach (var inner in Expand(
+                [
+                    .. type.GetGenericArguments(),
+                    .. type.HasElementType ? new[] { type.GetElementType()! } : [],
+                    .. type.GetInterfaces(),
+                ],
+                seen))
+            {
+                yield return inner;
+            }
+        }
+    }
 }

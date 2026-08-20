@@ -48,10 +48,25 @@ public class MarkdownSecurityTests
     }
 
     /// <summary>
-    /// The dangerous schemes, and the two that are dangerous precisely because they do not look
-    /// like schemes: <c>System.Uri</c> reads <c>//host/path</c> and <c>\\host\share</c> as
+    /// The schemes a destination may not have, and the two forms that are dangerous precisely
+    /// because they do not look like schemes: <c>System.Uri</c> reads <c>//host/path</c> as
     /// <c>file:</c>, which on Windows is an NTLM credential leak to whichever host is named.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <c>\\host\share</c> row does not reach that mechanism and is not here for it. CommonMark
+    /// collapses the two backslashes to one inside a link destination, so what arrives at the URL
+    /// layer is <c>%5Cevil.test%5Cshare</c> — rejected as a relative destination with no base rather
+    /// than as a UNC path. It is kept because <c>\\host\share</c> is what a host pastes and this
+    /// pins that it does not become a link, not because of how.
+    /// </para>
+    /// <para>
+    /// <c>JaVaScRiPt:</c> likewise pins observable behaviour rather than a mechanism: the URL parser
+    /// lowercases the scheme before any allow-list sees it, so the comparer the allow-list uses is
+    /// not what this row tests — mutating both of them to <see cref="StringComparison.Ordinal"/>
+    /// leaves the suite green. What it does pin is that no future reader may compare the raw text.
+    /// </para>
+    /// </remarks>
     [Theory]
     [InlineData("javascript:alert(1)")]
     [InlineData("JaVaScRiPt:alert(1)")]
@@ -105,11 +120,21 @@ public class MarkdownSecurityTests
     /// concerned, so an importer that strips the tag and keeps the children pastes the script into
     /// the document as visible words.
     /// </summary>
+    /// <remarks>
+    /// Only the <c>&lt;div&gt;</c> row isolates the block guard. Script and style are caught twice
+    /// over — here and again by the sanitizer that treats them as non-content — so their rows
+    /// survive either guard failing on its own and go red only when both do. That is defence in
+    /// depth working, and it is also why those rows cannot say which guard broke:
+    /// <see cref="A_raw_inline_non_content_tag_is_removed_with_its_contents"/> is what isolates the
+    /// sanitizer's half. The <c>&lt;iframe&gt;</c> row needs a forbidden string that is real text,
+    /// because no import path turns an attribute into paragraph text and a row asserting the
+    /// absence of one asserts nothing.
+    /// </remarks>
     [Theory]
     [InlineData("<script>alert(1)</script>", "alert(1)")]
     [InlineData("<style>body{display:none}</style>", "display:none")]
     [InlineData("<div onclick=\"steal()\">bait</div>", "bait")]
-    [InlineData("<iframe src=\"https://evil.test/\"></iframe>", "evil.test")]
+    [InlineData("<iframe src=\"https://evil.test/\">fallback</iframe>", "fallback")]
     public void A_raw_html_block_is_removed_with_its_contents(string html, string forbidden)
     {
         var result = Import($"before\n\n{html}\n\nafter");
