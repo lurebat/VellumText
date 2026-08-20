@@ -32,6 +32,7 @@ it is.
 | `VellumText.Interop.Html` | HTML import and export, with a sanitizer. | `VellumText.Core` |
 | `VellumText.Interop.Rtf` | RTF import and export. | `VellumText.Interop.Html` |
 | `VellumText.Interop.Json` | Lossless JSON, for storing documents. | `VellumText.Core` |
+| `VellumText.Interop.Markdown` | Markdown (CommonMark plus GFM pipe tables) import and export. | `VellumText.Interop.Html`, Markdig |
 
 `VellumText.Avalonia` deliberately does not reference the interop packages, so an application that
 wants a text editor does not acquire an HTML parser to get one. You add the formats you want; see
@@ -449,7 +450,55 @@ URL resolves or is dropped.
 
 RTF import takes `RtfImportOptions` — its own type, not the HTML importer's, even though RTF is
 read by way of HTML internally. Naming HTML's options here would make a consumer who only wanted
-RTF depend on the HTML package to configure it.
+RTF depend on the HTML package to configure it. `MarkdownImportOptions` is its sibling, for the
+same reason.
+
+### Markdown
+
+`MarkdownFormat.Instance` reads and writes CommonMark with GitHub-flavoured pipe tables and
+`~~strikethrough~~`. Nothing else: every further extension is a dialect, and a dialect read here is
+a dialect the library then has to keep reading.
+
+```csharp
+view.Formats.Add(MarkdownFormat.Instance);
+```
+
+**Raw HTML in the Markdown is removed by default.** CommonMark says to pass it through, which would
+make every Markdown document a carrier for every HTML hazard — script, event handlers, `iframe`,
+styled overlays — in a format whose whole reputation is for being plain text. Set `AllowRawHtml` to
+read it instead; it then goes through the same sanitizer every HTML import goes through, so it is
+checked rather than trusted:
+
+```csharp
+view.Formats.Add(MarkdownFormat.Instance.With(new MarkdownImportOptions
+{
+    AllowRawHtml = true,        // off by default: CommonMark passes raw HTML through untouched
+    AllowRemoteImages = true,   // off by default: ![](https://…) is a tracking pixel
+}));
+```
+
+Link destinations go through the same allow-list as HTML — `http`, `https`, `mailto`, `tel` — so
+`[click](javascript:alert(1))` keeps its text and loses its destination, and so do `//host/path`
+and `\\host\share`, which are relative addresses however much they look absolute.
+
+**Markdown is smaller than the document model**, which no other format here is. Colour, highlight,
+font family, font size, underline, subscript, superscript, paragraph alignment, indent, merged
+cells and cell backgrounds have no notation at all. `IDocumentExporter` has nowhere to report that,
+so the Markdown exporter offers one extra method that does:
+
+```csharp
+MarkdownExportResult exported = MarkdownExporter.Instance.ExportWithDiagnostics(doc);
+
+Console.WriteLine(exported.Text);
+
+foreach (var diagnostic in exported.Diagnostics)
+{
+    Console.WriteLine(diagnostic);   // Downgraded: Markdown cannot highlight text… (highlight)
+}
+```
+
+`Export` returns exactly the same text; the only difference is that the caller finds out what it
+cost. Import reports in the ordinary way, through `ImportResult.Diagnostics`.
 
 Or use them directly:
 

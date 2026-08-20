@@ -21,7 +21,7 @@ does it, driven by a `v<version>` tag and an API key the repository owner holds.
 dotnet pack -c Release -o G:\packages\VellumText-local
 ```
 
-Five packages plus symbols. The folder is the feed; nothing else is needed.
+Six packages plus symbols. The folder is the feed; nothing else is needed.
 
 Bump `VersionPrefix` in `Directory.Build.props` before packing if consumers need to tell two builds
 apart — a local feed will happily hold `0.1.0` twice, and NuGet caches by id and version, so
@@ -123,7 +123,7 @@ nothing for a consumer who had committed them, and would have broken the build o
 
 A folder on a developer's machine is not visible to a hosted runner. Two options:
 
-- **Commit the `.nupkg` files** into the consuming repository — five files, versioned and immutable,
+- **Commit the `.nupkg` files** into the consuming repository — six files, versioned and immutable,
   and far less invasive than vendoring the source. Point the feed at that folder with a relative
   path.
 - **Push to a feed the runner can reach** — Azure Artifacts, GitHub Packages, or any NuGet server.

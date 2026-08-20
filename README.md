@@ -23,7 +23,7 @@ VellumText is therefore not a text engine. It is a **document model, a transacti
 | `VellumText.Interop.Html` | AngleSharp (MIT) — import, export, sanitizing | working |
 | `VellumText.Interop.Rtf` | RtfPipe (MIT) — import and export | working |
 | `VellumText.Interop.Json` | **nothing** — lossless, versioned, for storage | working |
-| `VellumText.Interop.Markdown` | Markdig (BSD-2) | planned |
+| `VellumText.Interop.Markdown` | Markdig (BSD-2) — CommonMark + GFM pipe tables, both ways | working |
 | `VellumText.Interop.Docx` | DocumentFormat.OpenXml (MIT) | v2.0 |
 
 `VellumText.Core` takes no dependency on `Avalonia.Base` either. It owns the two

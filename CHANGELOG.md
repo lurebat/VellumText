@@ -8,7 +8,58 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
+## [Unreleased]
+
+### Added
+
+- **A new package, `VellumText.Interop.Markdown`: Markdown import and export.**
+  CommonMark plus GitHub-flavoured pipe tables and `~~strikethrough~~`, in both
+  directions. Register `MarkdownFormat.Instance` and copy and paste carry
+  Markdown; `MarkdownImporter` and `MarkdownExporter` are usable directly. This
+  is the last unbuilt clause of `AC8` — Markdown had been named in the
+  acceptance criteria from the start, scheduled once, and then neither built nor
+  knowingly dropped.
+
+  Paragraphs, headings H1–H6, bold, italic, strikethrough, inline code, code
+  blocks, blockquotes, bulleted and numbered lists including nesting and a
+  starting number, horizontal rules, links, images and tables all map both ways.
+
+- **`MarkdownExporter.ExportWithDiagnostics`, because Markdown is the first
+  format smaller than the document model.** HTML, RTF and JSON can hold
+  everything the model can, so `IDocumentExporter` has no diagnostics channel and
+  did not need one. Markdown has no notation at all for colour, highlight, font
+  family, font size, underline, sub/superscript, paragraph alignment, indent,
+  merged cells or cell backgrounds. Rather than discard those in silence — the
+  failure `ContentImported` exists to prevent in the other direction — the
+  Markdown exporter reports each one. `Export` still returns exactly the same
+  text; the extra method just tells the caller what it cost. The shipped
+  interface was not widened: adding a required member to a public interface is
+  the one change that cannot be made after 1.0.
+
+### Security
+
+- **Raw HTML embedded in Markdown is removed by default.** CommonMark requires
+  implementations to pass raw HTML through, which would make every Markdown
+  document a carrier for every HTML hazard — script, event handlers, `iframe`,
+  styled overlays — in a format whose reputation is for being plain text. Every
+  raw block and inline tag is deleted before anything is rendered, and each
+  removal is reported. Set `MarkdownImportOptions.AllowRawHtml` to read it
+  instead, in which case it goes through the same sanitizer every HTML import
+  goes through rather than a second one written for Markdown.
+
+- **Markdown link destinations go through the existing scheme allow-list.**
+  Import runs by way of the HTML reader, so `[click](javascript:alert(1))` keeps
+  its text and loses its destination, and so do `//host/path` and
+  `\\host\share`, which `System.Uri` would otherwise read as `file:` addresses —
+  an NTLM credential leak on Windows. Reused rather than reimplemented, because
+  a second importer with its own idea of which URLs are safe is a second
+  importer to get that wrong in.
+
+- **Remote images are still off by default**, in a format where every image is a
+  URL the document chose.
+
 ## [0.6.0] - 2026-08-19
+
 
 Two features and four fixes. `AC5` — the table acceptance criterion — is complete
 as of this release. No public surface was removed or moved, so upgrading from

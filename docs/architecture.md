@@ -980,6 +980,34 @@ Plain text is the one path that does not go through it. `PasteText` normalizes l
 
 It follows `ImageRefused` (§4.6) rather than inventing a second convention: a host that does not subscribe gets exactly the old behavior.
 
+> **Corrected 2026-08-21 — export is lossy too, and this contract assumed it never could be.**
+> `IDocumentExporter` has no diagnostics channel, and that was not an oversight: HTML, RTF and JSON
+> can all express every construct the model holds, so the exporter's job was to write it and there
+> was nothing to report. Markdown is the first format *smaller* than the model. It has no notation
+> at all for colour, highlight, font family, font size, underline, subscript, superscript,
+> paragraph alignment, indent, merged cells or cell backgrounds, so an export silently discards
+> whatever the document happened to use — which is precisely the failure `ContentImported` exists
+> to prevent in the other direction.
+>
+> **The interface was not widened.** Adding a required member to a shipped public interface is the
+> one change that cannot be made after 1.0, and it would have made every existing exporter carry a
+> channel it has nothing to put in. `VellumText.Interop.Markdown` adds a package-local
+> `MarkdownExportResult` and one extra method instead:
+>
+> ```csharp
+> MarkdownExportResult exported = MarkdownExporter.Instance.ExportWithDiagnostics(doc);
+> ```
+>
+> `Export` returns byte-for-byte the same text — both route through one private writer, so neither
+> can drift from the other — and the diagnostics reuse `ImportDiagnostic` rather than introducing a
+> second vocabulary for the same idea. Reading `Downgraded` as "the format could not hold it"
+> rather than "the source could not be parsed" is the only stretch, and it is a smaller one than a
+> parallel type.
+>
+> **If a second lossy exporter ever appears, promote this rather than copying it.** One package
+> with a local result type is a package-shaped exception; two is a contract that should have been
+> in the interface, and the moment to widen `IDocumentExporter` is before 1.0 rather than after.
+
 ---
 
 ## 5. Alternatives considered
@@ -1542,7 +1570,7 @@ worth using". Comparing it against what VellumText actually had:
 | Toolbar (`EditorToolbar`) | ✅ | — | ❌ → ✅ **closed** (P4) |
 | Selection flyout (`EditorSelectionFlyout`) | ✅ | — | ❌ → ✅ **closed** (P4) floating `RichTextToolbar` in a `VellumText-selection` template, plus a right-click context menu |
 | Read-only viewer (`FlowDocumentScrollViewer`) | ✅ | — | ❌ → ✅ **closed** (P5) `RichTextViewer`, selectable and copyable since 0.5.0 |
-| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ⚠️ HTML + RTF both ways (P2), JSON both ways; no Markdown, DOCX or XAML |
+| Serializers (RTF/DOCX/XAML, separate packages) | ✅ export + import | — | ⚠️ HTML + RTF both ways (P2), JSON both ways, Markdown both ways (P14); no DOCX or XAML |
 | Light & dark theme | ✅ | — | ❌ → ✅ **closed** (P4) light + dark variants |
 | `IsReadOnly`, `UndoLimit`, `AcceptsReturn`/`Tab` | ✅ | — | ❌ → ✅ **closed** (P10) all four public on both controls |
 | Spellcheck | ✅ | — | ❌ no hook — deferred to v2.0 |
@@ -1715,9 +1743,9 @@ P1–P7 are complete. Verified against the tree on 2026-08-16 by search, not rec
 | **P12** | ~~**Column resize by dragging.**~~ **Done** (2026-08-19). The last unbuilt clause of AC5, listed under "Deliberately not built" above since P8. See "As built" below. | — | — |
 | **P13** | ~~**Drag-to-move the selection.**~~ **Done** (2026-08-20). See §10.4.4. | — | — |
 | — | **DOCX / XAML serializers**, **spellcheck hook** | No such files. Both are new packages/features rather than gap-closing. | **Deferred to v2.0** (decided 2026-08-16) |
-| **P14** | **Markdown import and export.** | AC8 requires it in both directions. No `Markdig` reference and no Markdown source anywhere in `src` — confirmed by search 2026-08-20. | **Open, and never decided** |
+| **P14** | ~~**Markdown import and export.**~~ **Done** (2026-08-21). The last unbuilt clause of the last incomplete acceptance criterion. See §10.4.5. | — | — |
 
-**Markdown fell through the record rather than being deferred.** AC8 names it alongside HTML, RTF and DOCX; the v1 scope decision below explicitly excludes DOCX, XAML and spellcheck and says nothing about Markdown. So it is the one clause of one acceptance criterion that is neither built nor knowingly dropped — found on 2026-08-20 while answering "what is left", not by auditing. **It needs a decision: build it, or amend AC8.** It is much smaller than DOCX — Markdig is the obvious dependency, export is a walk of the same block tree the HTML exporter already walks, and the stream members added in §4.9 mean the format contract can hold it either way.
+**Markdown fell through the record rather than being deferred, and is now built.** AC8 names it alongside HTML, RTF and DOCX; the v1 scope decision below explicitly excludes DOCX, XAML and spellcheck and says nothing about Markdown. So it was the one clause of one acceptance criterion that was neither built nor knowingly dropped — found on 2026-08-20 while answering "what is left", not by auditing, and built on 2026-08-21 as `VellumText.Interop.Markdown`. The estimate held: Markdig was the dependency, export is a walk of the same block tree the HTML exporter already walks, and import goes through the HTML stage exactly as RTF does. What the estimate did **not** anticipate is that Markdown is the first format *smaller* than the document model — see §10.4.5 and the correction in §4.9.
 
 **DOCX is deferred but no longer excluded.** It was, structurally, until 2026-08-18: the format contract dealt only in strings, and no amount of later effort could have made a ZIP container fit through it without a `Convert.ToBase64String` fiction. §4.9's stream members are what make the deferral a scheduling decision again rather than a shape the API cannot hold — which mattered enough to fix before 1.0 froze it, because adding a required member to a shipped public interface is the one change that cannot be made afterwards.
 
@@ -2136,6 +2164,91 @@ Code does not do it either. A public threshold: `AutoScrollStep` is the preceden
 gesture constant private, and public surface cannot be withdrawn after 1.0. Hiding the selection
 toolbar mid-move, for consistency with `IsResizingColumn` and `IsResizingImage`, which do not.
 
+### 10.4.5 Markdown import and export (P14)
+
+The last unbuilt clause of the last incomplete acceptance criterion. `VellumText.Interop.Markdown`,
+on Markdig 1.3.2, reading and writing CommonMark plus GFM pipe tables and `~~strikethrough~~`.
+
+**Import goes through the HTML stage, exactly as RTF does, and for the stated reason.** Markdig
+parses to an AST and renders HTML; `HtmlImporter` reads that. `RtfImporter`'s own comment gives the
+argument — *"there is exactly one place that decides what an import is allowed to contain. A second
+importer with its own idea of which URLs are safe is a second importer to get that wrong in"* — and
+this library has paid for that lesson twice, both times in the HTML reader's URL handling. Routing
+Markdown through the same reader means both fixed defects are fixed here by construction rather
+than by remembering to reimplement them: `[x](javascript:alert(1))` loses its destination because
+`javascript` is not in the scheme allow-list, and `[x](//host/p)` and `[x](\\host\share)` lose
+theirs because the guard tests the *scheme* rather than `UriKind.Absolute`.
+
+**The implementation choice is not in the public surface.** `MarkdownImportOptions` is its own
+record with an `internal ToHtmlOptions()`, and `MarkdownPublicSurfaceTests` walks every exported
+member by reflection asserting that none names a type from the HTML assembly *or* from Markdig.
+`RtfImportOptions` exists because `HtmlImportOptions` had leaked into the RTF package's public API,
+which forced every consumer who wanted to configure RTF to depend on the HTML package and froze an
+internal decision where a rewrite could not have changed it. Markdig behind the same wall matters
+more, not less: a `MarkdownPipeline` on the surface would make the parser part of the compatibility
+contract.
+
+**Raw HTML is removed, not sanitized, unless the host asks otherwise.** CommonMark *requires*
+implementations to pass raw HTML through, as blocks and inline, which makes every Markdown document
+a carrier for every HTML hazard in a format whose whole reputation is for being plain text. By
+default every `HtmlBlock` and `HtmlInline` is deleted from the parsed tree before anything is
+rendered, and each removal is reported. The two cases are not equally bad and are not reported as
+if they were: removing an inline tag leaves the text it wrapped, because in Markdig a tag and the
+literal after it are separate nodes, so that is a `Downgraded`; an HTML block *is* its text, so
+that is a `Dropped`. `AllowRawHtml` renders it instead and lets the same sanitizer every HTML
+import goes through decide — checked rather than trusted, and never a second allow-list.
+
+The two guards are independent, and the mutation run proves it. Deleting `script` and `style` from
+`SanitizingReader.NonContentElements` — the second of the two historical defects, where script
+bodies arrived as visible text — leaves `A_raw_html_block_is_removed_with_its_contents` green,
+because the Markdown layer had already removed the block, and turns
+`Allowed_raw_html_still_loses_its_script_and_style` red. Defence in depth is only defence in depth
+if a test can tell the layers apart.
+
+**What Markdown cannot represent is reported rather than dropped in silence** — see the §4.9
+correction for why that needed a method outside `IDocumentExporter`. Twenty-six export diagnostics,
+covering colour, highlight, font family, font size, underline, sub/superscript, paragraph
+alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, and every place a
+table cell or a heading has to be flattened to one line. Import adds five: raw HTML block, raw
+inline tag, a code fence's language, a table column's alignment, and a `Malformed` for the
+pathological input Markdig can still fail on — every string is valid Markdown, but deep enough
+nesting is a stack overflow and an import is not a good place to learn that.
+
+**Column alignment is deliberately write-only, which is the one asymmetry worth naming.** Export
+writes `:---`, `:---:` and `---:` when every cell in a column agrees, because every other Markdown
+reader honours it. Import cannot read it back: the HTML stage does not carry a cell's `text-align`
+onto the paragraphs inside it, and making it do so would change what every HTML paste produces.
+Rather than pretend, the importer reports a `Downgraded` for each explicit alignment. Leading
+whitespace in a paragraph is the same shape of loss for the same reason — written as `&#32;` so
+that four spaces do not become an indented code block, and collapsed on the way back in by HTML's
+own whitespace rule.
+
+**One loss is not reported, on purpose.** An empty body paragraph has no notation — a blank line
+*is* Markdown's block separator — and a document being edited routinely ends with one, so a warning
+on every save would train the user to ignore the whole list. It is pinned by a test rather than
+left to be rediscovered.
+
+**Two bugs the round-trip tests found, both invisible to a round trip that only checked validity.**
+A list written with no blank line above it: legal for a bulleted list, which may interrupt a
+paragraph, and silently wrong for `3. three`, which may not — so an ordered list not starting at 1
+was read back as more of the preceding paragraph's text. And export/import agreeing on a document
+is not the same as either being right, so every round-trip test here asserts the intermediate
+Markdown against a literal *before* importing it. Three round-trip tests in this repository once
+asserted nothing but schema validity and stayed green for weeks while the importer dropped every
+empty table row.
+
+**Fifteen mutants, fifteen killed**, including one for each security guard: raw HTML block kept, raw
+inline tag kept, `AllowRawHtml` defaulting on, `AllowRawHtml` inverted, options never reaching the
+HTML stage, `BaseUri` and `AllowRemoteImages` dropped from the mapping, the scheme test reverted to
+`UriKind.Absolute`, and `script`/`style` removed from the non-content list.
+
+**Declined.** An `IsMarkdown` counterpart to `RtfImporter.IsRtf`: there cannot be one, because every
+string is valid Markdown, so a caller choosing between flavours has to decide on the media type or
+the file extension rather than on the bytes. Recording a code block's language: the model has
+nowhere to put it, and inventing a mark for it would be a schema change driven by one format.
+Markdig extensions beyond pipe tables and strikethrough: each one is a dialect, and a dialect read
+here is a dialect the library then has to keep reading.
+
 ### 10.5 Candidate upstream Avalonia reports
 
 Findings from this project that belong to the framework, not to VellumText. **Searched against the
@@ -2208,12 +2321,13 @@ was shaped from.
 | **Target framework** | **`net10.0`**, single-target. Avalonia 12.1.1 ships `net10.0` assemblies, so nothing is given up on the UI side. Consumers must be on .NET 10 — accepted deliberately for a new library rather than carrying a `net8.0` floor. | 2026-08-11 |
 | **`VellumText.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `VellumText.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
 | **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf` on RtfPipe. | user decision |
-| **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
+| **Markdown (AC8)** | **Built, not amended away.** It was the one clause of AC8 that had been neither built nor knowingly dropped. `VellumText.Interop.Markdown` ships CommonMark plus GFM pipe tables in both directions, on Markdig, with import going through the HTML stage exactly as RTF does. AC8 is now complete except for DOCX, which §12.2 OD3 defers. See §10.4.5. | 2026-08-21 |
+| **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe, Markdown through Markdig. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
 | **A `Selection` member for "is this a rectangle"?** | **No — the type test stays, and closing the hierarchy is why.** 23 sites ask it, but they are 11 refusals with 11 different reasons, 7 dispatches that need a transaction and the presenter's geometry, and 4 reads of a cell index meaningless on the other two shapes. Once the constructor became `private protected` the type test is exhaustive by construction, which is a stronger guarantee than any virtual `bool` could give. `Selection.Map` remains the only member that varies by shape. See §4.5. | 2026-08-18 |
 | **Two-way `Document` binding?** | **No — one way, out of the control.** A view model can observe `Document` and `Selection` and bind them `OneWayToSource`; assigning a document in is not offered. Reconciling an external assignment against in-flight edits and the undo history is a design with real hazards — what an outstanding composition means, whether the history survives, what a stale assignment from a slow view model does to text typed since — and no consumer has asked for it. Loading stays `State`. See §1.1 AC13. | 2026-08-18 |
 | **Should a host be able to veto imported content?** | **Yes, as a second event rather than by making `ContentImported` cancellable.** `ContentImporting` carries the exact document that would be inserted and a `Cancel` flag, is raised only for content that would otherwise land, and treats a refusal as a paste that did not happen. `ContentImported` stays what it is — a report of what an import cost, raised when the undo entry already exists. See §4.9. | 2026-08-18 |
-| **Declarative XAML configuration of `Formats`?** | **No, and the reason is mechanical.** `HtmlFormat` and `RtfFormat` are constructor-less: `Instance` and `With(options)` are the only ways to obtain one, which is what makes the paranoid defaults the default. XAML can only construct types with a public parameterless constructor, so a `<Formats>` collection in markup would require undoing that. Registering in code is one line and does not trade a security default for markup. | 2026-08-18 |
+| **Declarative XAML configuration of `Formats`?** | **No, and the reason is mechanical.** `HtmlFormat`, `RtfFormat` and `MarkdownFormat` are constructor-less: `Instance` and `With(options)` are the only ways to obtain one, which is what makes the paranoid defaults the default. XAML can only construct types with a public parameterless constructor, so a `<Formats>` collection in markup would require undoing that. Registering in code is one line and does not trade a security default for markup. | 2026-08-18 |
 
 ### 12.2 Still open
 
