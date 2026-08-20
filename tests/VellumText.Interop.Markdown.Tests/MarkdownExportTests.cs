@@ -364,6 +364,7 @@ public class MarkdownExportTests
     [InlineData("AT&T", "AT\\&T\n")]
     [InlineData("a|b", "a\\|b\n")]
     [InlineData("a~b", "a\\~b\n")]
+    [InlineData("a!b", "a\\!b\n")]
     public void Inline_markup_characters_are_escaped(string text, string expected) =>
         Assert.Equal(expected, Export(ParagraphNode.FromText(text)));
 

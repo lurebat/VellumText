@@ -296,6 +296,37 @@ public class MarkdownRoundTripTests
         Assert.Equal("inner", ((ParagraphNode)Assert.Single(inner.Items).Blocks[0]).Content.Text);
     }
 
+    /// <summary>
+    /// An unescaped <c>!</c> before a link makes it an image, and an image's <c>[…]</c> is alt text
+    /// rather than content — so the link, and every word of its text, is deleted on the way back.
+    /// </summary>
+    /// <remarks>
+    /// Reachable from an ordinary HTML paste: <c>&lt;p&gt;Sale!&lt;a href="…"&gt;click&lt;/a&gt;
+    /// &lt;/p&gt;</c>. Nothing else in the pipeline notices, because the Markdown is well formed and
+    /// so is the document it reads back as.
+    /// </remarks>
+    [Fact]
+    public void A_bang_before_a_link_does_not_turn_it_into_an_image()
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ParagraphNode(InlineContent.Create(
+                    "Sale!click",
+                    [
+                        new ValueSpan<MarkSet>(
+                            5,
+                            5,
+                            new MarkSet(link: new LinkMark("https://example.test/x"))),
+                    ],
+                    []))]),
+            "Sale\\![click](https://example.test/x)\n");
+
+        var content = Para(back, 0).Content;
+
+        Assert.Equal("Sale!click", content.Text);
+        Assert.Equal("https://example.test/x", content.MarkAt(5).Link?.Href);
+    }
+
     [Fact]
     public void A_link_comes_back_on_the_same_characters()
     {

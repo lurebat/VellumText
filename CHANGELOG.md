@@ -36,6 +36,16 @@ NuGet; packages are published to a local feed, and
   interface was not widened: adding a required member to a public interface is
   the one change that cannot be made after 1.0.
 
+### Fixed
+
+- **A link preceded by `!` is no longer written as an image, which deleted it.**
+  `!` was missing from the export escape set, so a paragraph reading
+  `Sale!` followed by a link — an ordinary HTML paste — was written as
+  `Sale![click](…)`, and an image's brackets hold alt text rather than content,
+  so the link and every word of its text were gone on the way back in. Nothing
+  reported the loss, because the Markdown was well formed and so was the
+  document it read back as.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires

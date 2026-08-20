@@ -916,10 +916,17 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// <remarks>
         /// The set is every character that can begin an inline construct anywhere on a line, not
         /// just the ones that would begin one here. See the type's remarks for why.
+        /// <para>
+        /// <c>!</c> is in the set because of what it does to the construct <em>after</em> it rather
+        /// than to itself: <c>Sale![click](…)</c> is an image, whose brackets hold alt text rather
+        /// than content, so an unescaped <c>!</c> deletes the following link and every word of its
+        /// text on the way back in.
+        /// </para>
         /// </remarks>
         private static void Escape(StringBuilder markdown, char c)
         {
-            if (c is '\\' or '`' or '*' or '_' or '[' or ']' or '<' or '>' or '&' or '|' or '~')
+            if (c is '\\' or '`' or '*' or '_' or '[' or ']' or '<' or '>' or '&' or '|' or '~'
+                or '!')
             {
                 markdown.Append('\\');
             }
