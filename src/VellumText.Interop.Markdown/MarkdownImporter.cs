@@ -133,8 +133,31 @@ public static class MarkdownImporter
         foreach (var table in document.Descendants<Table>())
         {
             ReportColumnAlignment(table, log);
+
+            foreach (var code in table.Descendants<CodeInline>())
+            {
+                UnescapeCellPipes(code);
+            }
         }
     }
+
+    /// <summary>Turns <c>\|</c> back into <c>|</c> inside a code span in a table cell.</summary>
+    /// <remarks>
+    /// GFM removes an escaped pipe from a row before splitting it and before any inline in it is
+    /// parsed, so <c>\|</c> in a cell means a literal pipe wherever it appears — including in a code
+    /// span, where a backslash otherwise escapes nothing. Markdig's table parser is inline-aware and
+    /// splits after parsing instead, so it never performs that step and the backslash survives into
+    /// the text. Undone here rather than left, because <see cref="MarkdownExporter"/> has to write
+    /// the escaped form for any other reader to see the table at all, and a writer and a reader that
+    /// disagree about it would put a backslash into every such cell on every round trip.
+    /// <para>
+    /// A literal backslash-pipe inside a code span in a cell is not expressible in GFM and so cannot
+    /// be asked for. Nothing is lost by the substitution: a backslash that is not followed by a pipe
+    /// is left alone, and an escaped pipe written after one — <c>\\\|</c> — still yields <c>\|</c>.
+    /// </para>
+    /// </remarks>
+    private static void UnescapeCellPipes(CodeInline code) =>
+        code.Content = code.Content.Replace("\\|", "|", StringComparison.Ordinal);
 
     /// <summary>Removes every raw HTML block and inline tag from the tree.</summary>
     /// <remarks>

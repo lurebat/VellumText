@@ -472,6 +472,61 @@ public class MarkdownExportTests
             Export(Table(Row(true, "a"), Row(false, "x | y"))));
 
     /// <summary>
+    /// A pipe inside an inline span in a cell is escaped too, because GFM splits a row on its
+    /// unescaped pipes <em>before</em> anything inside it is parsed as an inline.
+    /// </summary>
+    /// <remarks>
+    /// Markdig's parser is inline-aware and does not split there, so this library's own round trip
+    /// was green either way. It is GitHub and cmark-gfm that read the unescaped form as three cells
+    /// with a stray backtick in each — a table this library wrote and no other reader can see.
+    /// </remarks>
+    [Theory]
+    [InlineData("code", "| a |\n| --- |\n| `x\\|y` |\n")]
+    [InlineData("link", "| a |\n| --- |\n| [t](https://e.test/x\\|y) |\n")]
+    [InlineData("title", "| a |\n| --- |\n| [t](https://e.test/ \"x\\|y\") |\n")]
+    public void A_pipe_inside_an_inline_span_in_a_cell_is_escaped(string kind, string expected)
+    {
+        var content = kind switch
+        {
+            "code" => InlineContent.Create(
+                "x|y",
+                [new ValueSpan<MarkSet>(0, 3, new MarkSet(style: TextStyle.Code))],
+                []),
+            "link" => InlineContent.Create(
+                "t",
+                [new ValueSpan<MarkSet>(0, 1, new MarkSet(link: new LinkMark("https://e.test/x|y")))],
+                []),
+            _ => InlineContent.Create(
+                "t",
+                [
+                    new ValueSpan<MarkSet>(
+                        0,
+                        1,
+                        new MarkSet(link: new LinkMark("https://e.test/", "x|y"))),
+                ],
+                []),
+        };
+
+        Assert.Equal(
+            expected,
+            Export(new TableNode(
+            [
+                new TableRowNode([new TableCellNode([ParagraphNode.FromText("a")], isHeader: true)]),
+                new TableRowNode([new TableCellNode([new ParagraphNode(content)])]),
+            ])));
+    }
+
+    /// <summary>
+    /// Outside a table there is nothing to split on, and a backslash inside a code span is a
+    /// backslash — so escaping there would put one in the document.
+    /// </summary>
+    [Fact]
+    public void A_pipe_inside_a_code_span_outside_a_table_is_not_escaped() =>
+        Assert.Equal(
+            "`x|y`\n",
+            Export(Marked("x|y", 0, 3, new MarkSet(style: TextStyle.Code))));
+
+    /// <summary>
     /// Every character that can begin an inline construct is escaped wherever it appears, rather
     /// than only where it would be read as one. A writer that guesses when a character is inert is
     /// wrong on somebody else's text.

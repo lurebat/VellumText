@@ -107,6 +107,12 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// </remarks>
         private string? _marker;
 
+        /// <summary>
+        /// Whether what is being written is inside a pipe table cell, where a pipe has to be
+        /// escaped even in the spans that escape nothing else. See <see cref="EscapeCellPipes"/>.
+        /// </summary>
+        private bool _inTableCell;
+
         public MarkdownExportResult Result => new(_text.ToString(), _log.Items);
 
         public void WriteBlocks(IEnumerable<BlockNode> blocks, bool insideListItem = false)
@@ -565,6 +571,20 @@ public sealed class MarkdownExporter : IDocumentExporter
 
         /// <summary>One cell's content, flattened to the single line a pipe table allows.</summary>
         private string CellText(TableCellNode cell)
+        {
+            _inTableCell = true;
+
+            try
+            {
+                return CellTextCore(cell);
+            }
+            finally
+            {
+                _inTableCell = false;
+            }
+        }
+
+        private string CellTextCore(TableCellNode cell)
         {
             if (cell.RowSpan > 1 || cell.ColumnSpan > 1)
             {
@@ -1033,8 +1053,26 @@ public sealed class MarkdownExporter : IDocumentExporter
                 ? " "
                 : string.Empty;
 
-            return fence + pad + text + pad + fence;
+            return fence + pad + EscapeCellPipes(text) + pad + fence;
         }
+
+        /// <summary>
+        /// Escapes the pipes in text that is inside a table cell, and leaves any other text alone.
+        /// </summary>
+        /// <remarks>
+        /// GFM splits a row on its unescaped pipes <em>before</em> parsing anything inside it as an
+        /// inline, so a pipe in a code span, a destination or a title breaks the row there — three
+        /// cells with a stray backtick in each. Markdig's parser is inline-aware and does not split,
+        /// which is why this library's own round trip was green while what it wrote was unreadable
+        /// to GitHub and cmark-gfm.
+        /// <para>
+        /// Only inside a cell, because outside one there is nothing to split on and a backslash
+        /// inside a code span is a backslash rather than an escape — escaping there would put one
+        /// into the document.
+        /// </para>
+        /// </remarks>
+        private string EscapeCellPipes(string text) =>
+            _inTableCell ? text.Replace("|", "\\|", StringComparison.Ordinal) : text;
 
         /// <summary>Writes a link or image destination in a form no reader can misread.</summary>
         /// <remarks>
@@ -1043,7 +1081,7 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// the importer's job, and an exporter that quietly rewrote a URL would be lying about what
         /// the document contains.
         /// </remarks>
-        private static string Destination(string href)
+        private string Destination(string href)
         {
             if (href.Length == 0)
             {
@@ -1064,7 +1102,7 @@ public sealed class MarkdownExporter : IDocumentExporter
                     angled.Append(c is '\n' or '\r' ? ' ' : c);
                 }
 
-                return angled.Append('>').ToString();
+                return EscapeCellPipes(angled.Append('>').ToString());
             }
 
             var bare = new StringBuilder();
@@ -1079,10 +1117,10 @@ public sealed class MarkdownExporter : IDocumentExporter
                 bare.Append(c);
             }
 
-            return bare.ToString();
+            return EscapeCellPipes(bare.ToString());
         }
 
-        private static string TitleSuffix(string? title)
+        private string TitleSuffix(string? title)
         {
             if (title is null)
             {
@@ -1101,7 +1139,7 @@ public sealed class MarkdownExporter : IDocumentExporter
                 quoted.Append(c is '\n' or '\r' ? ' ' : c);
             }
 
-            return quoted.Append('"').ToString();
+            return EscapeCellPipes(quoted.Append('"').ToString());
         }
 
         private static int LongestRun(string text, char c)

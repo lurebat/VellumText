@@ -70,6 +70,15 @@ NuGet; packages are published to a local feed, and
   pair now alternates — `-` against `*`, `1.` against `1)`. To a reader
   those are the same bullet and the same number, so nothing else changes.
 
+- **A pipe inside a code span, link destination or link title in a table cell is
+  escaped, so the table is readable outside this library.** GFM splits a row on
+  its unescaped pipes before parsing anything in it as an inline, so an
+  unescaped one there gives GitHub and cmark-gfm three cells with a stray
+  backtick in each. Markdig's parser is inline-aware and does not split, which
+  is why the library's own round trip was green while what it wrote was
+  unreadable everywhere else. The import side undoes the escape inside a code
+  span, where Markdig does not, so the two halves still agree.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires

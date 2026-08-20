@@ -297,6 +297,53 @@ public class MarkdownRoundTripTests
     }
 
     /// <summary>
+    /// A pipe inside an inline span in a table cell survives the round trip, now that the span is
+    /// written the way GFM requires.
+    /// </summary>
+    /// <remarks>
+    /// Markdig's parser is inline-aware, so it neither splits the row on the pipe nor undoes the
+    /// escape inside a code span — which means writing the GFM form without reading it back would
+    /// have traded a table GitHub cannot read for a backslash in the document. cmark-gfm removes
+    /// <c>\|</c> from a row before parsing it, so the two now agree; a literal backslash-pipe inside
+    /// a code span in a cell has no GFM notation and cannot be asked for.
+    /// </remarks>
+    [Theory]
+    [InlineData("x|y", "| a |\n| --- |\n| `x\\|y` |\n")]
+    [InlineData("x\\|y", "| a |\n| --- |\n| `x\\\\|y` |\n")]
+    public void A_pipe_inside_a_code_span_in_a_cell_comes_back_as_a_pipe(
+        string text,
+        string expected)
+    {
+        var back = Trip(
+            new DocumentNode([
+                new TableNode(
+                [
+                    new TableRowNode([
+                        new TableCellNode([ParagraphNode.FromText("a")], isHeader: true)]),
+                    new TableRowNode([
+                        new TableCellNode([
+                            new ParagraphNode(InlineContent.Create(
+                                text,
+                                [
+                                    new ValueSpan<MarkSet>(
+                                        0,
+                                        text.Length,
+                                        new MarkSet(style: TextStyle.Code)),
+                                ],
+                                []))])]),
+                ])]),
+            expected);
+
+        var table = Assert.IsType<TableNode>(Assert.Single(back.Blocks));
+        var cell = Assert.Single(table.Rows[1].Cells);
+        var content = ((ParagraphNode)cell.Blocks[0]).Content;
+
+        Assert.Equal(text, content.Text);
+        Assert.Equal(TextStyle.Code, content.MarkAt(0).Style);
+    }
+
+    /// <summary>
+    /// <summary>
     /// Two sibling lists stay two lists, rather than merging into one on the way back.
     /// </summary>
     /// <remarks>
