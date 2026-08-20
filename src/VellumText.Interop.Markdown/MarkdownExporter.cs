@@ -367,10 +367,17 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// one-directional. It is still worth writing, because every other Markdown reader in the
         /// world honours it and the alternative is to discard the author's intent for everyone.
         /// </para>
+        /// <para>
+        /// Cells are written from the grid <see cref="TableGeometry.Place"/> works out, not from
+        /// each row's cell array. A cell spanning rows leaves the rows below it holding fewer cells
+        /// than the table is wide, and writing those in order puts every one of them under the wrong
+        /// heading — a shift, not a downgrade of the merge. The slots a spanning cell covers are
+        /// written empty, because a pipe table has no notation for a span, but they are written.
+        /// </para>
         /// </remarks>
         private void WriteTable(TableNode table)
         {
-            _ = TableGeometry.Place(table, out var width);
+            var placements = TableGeometry.Place(table, out var width);
 
             if (table.Rows.Length == 0 || width == 0)
             {
@@ -399,17 +406,51 @@ public sealed class MarkdownExporter : IDocumentExporter
                     "table-header-row");
             }
 
-            var alignments = ColumnAlignments(table, width);
+            var grid = Grid(table, placements, width);
+            var alignments = ColumnAlignments(grid, width);
 
             for (var r = 0; r < table.Rows.Length; r++)
             {
-                Line(Row(table.Rows[r].Cells.Select(CellText), width));
+                var row = new string[width];
+
+                for (var c = 0; c < width; c++)
+                {
+                    row[c] = grid[r, c] is { } cell ? CellText(cell) : string.Empty;
+                }
+
+                Line(Row(row, width));
 
                 if (r == 0)
                 {
                     Line(Row(alignments.Select(Delimiter), width));
                 }
             }
+        }
+
+        /// <summary>Lays a table's cells out in the grid slots they occupy.</summary>
+        /// <remarks>
+        /// Only the slot a cell starts in holds it. A slot a cell merely covers stays null, because
+        /// what a covered slot needs is to be written as empty rather than to be written twice.
+        /// </remarks>
+        private static TableCellNode?[,] Grid(
+            TableNode table,
+            ImmutableArray<CellPlacement> placements,
+            int width)
+        {
+            var grid = new TableCellNode?[table.Rows.Length, width];
+            var index = 0;
+
+            foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    var placement = placements[index++];
+
+                    grid[placement.Top, placement.Left] = cell;
+                }
+            }
+
+            return grid;
         }
 
         private static string Row(IEnumerable<string> cells, int width)
@@ -446,8 +487,12 @@ public sealed class MarkdownExporter : IDocumentExporter
         /// Markdown aligns by column and the model aligns by paragraph, so a column whose cells
         /// disagree cannot be written at all. Reporting that is better than picking the first cell's
         /// alignment and applying it to the rest, which would move text the user placed.
+        /// <para>
+        /// Read from the grid for the same reason the rows are: <c>row.Cells[column]</c> asks a
+        /// row shortened by a span for a cell it does not have and gets the next column's.
+        /// </para>
         /// </remarks>
-        private ImmutableArray<TextAlign> ColumnAlignments(TableNode table, int width)
+        private ImmutableArray<TextAlign> ColumnAlignments(TableCellNode?[,] grid, int width)
         {
             var alignments = new TextAlign[width];
 
@@ -456,14 +501,14 @@ public sealed class MarkdownExporter : IDocumentExporter
                 TextAlign? agreed = null;
                 var disagreed = false;
 
-                foreach (var row in table.Rows)
+                for (var row = 0; row < grid.GetLength(0); row++)
                 {
-                    if (column >= row.Cells.Length)
+                    if (grid[row, column] is not { } cell)
                     {
                         continue;
                     }
 
-                    var align = row.Cells[column].Blocks.OfType<ParagraphNode>().FirstOrDefault()
+                    var align = cell.Blocks.OfType<ParagraphNode>().FirstOrDefault()
                         ?.Align ?? TextAlign.Default;
 
                     if (agreed is null)

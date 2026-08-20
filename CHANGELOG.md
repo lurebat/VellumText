@@ -54,6 +54,15 @@ NuGet; packages are published to a local feed, and
   nesting level destroyed permanently, with no diagnostic. Reachable from
   `<ul><li><ul><li>inner</li></ul></li></ul>` as well as from Markdown.
 
+- **A table row shortened by a cell spanning into it no longer shifts every
+  later cell one column left.** Cells were written by position in each row's own
+  array and short rows padded at the end, so a table whose first row is
+  `A` (spanning two rows), `B`, `C` and whose second row holds `D`, `E`
+  wrote `| D | E |  |` instead of `|  | D | E |`: content under the wrong
+  headers, which is not a downgrade of the merge but a different table. Rows and
+  column alignment are now both read from the grid `TableGeometry.Place` works
+  out, the same grid the schema, cell selection and the view already use.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires

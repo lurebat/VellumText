@@ -332,6 +332,128 @@ public class MarkdownExportTests
             ])));
 
     /// <summary>
+    /// Two body cells disagreeing is enough on its own, with no help from the header.
+    /// </summary>
+    /// <remarks>
+    /// The case above has one header cell and one body cell, so it cannot tell whether the header
+    /// was counted: drop the header from the vote and a single body cell agrees with itself.
+    /// </remarks>
+    [Fact]
+    public void Two_body_cells_that_disagree_on_alignment_get_no_marker() =>
+        Assert.Equal(
+            "| a |\n| --- |\n| 1 |\n| 2 |\n",
+            Export(new TableNode(
+            [
+                new TableRowNode([new TableCellNode([ParagraphNode.FromText("a")], isHeader: true)]),
+                new TableRowNode(
+                [
+                    new TableCellNode(
+                        [new ParagraphNode(
+                            InlineContent.FromText("1"),
+                            align: TextAlign.Center)]),
+                ]),
+                new TableRowNode([new TableCellNode([ParagraphNode.FromText("2")])]),
+            ])));
+
+    /// <summary>
+    /// The header cell is one of the cells that has to agree, and here it is the only one that
+    /// disagrees.
+    /// </summary>
+    /// <remarks>
+    /// This is the case that pins the header <em>into</em> the vote rather than merely allowing it:
+    /// two body cells that agree with each other and a header that does not. Skipping the header
+    /// row turns unanimity on and writes a marker for an alignment the header never had. Neither of
+    /// the two tests above can see that, because in both the header is on the winning side of a vote
+    /// that has already been lost.
+    /// </remarks>
+    [Fact]
+    public void A_header_that_disagrees_with_its_body_cells_removes_the_marker() =>
+        Assert.Equal(
+            "| a |\n| --- |\n| 1 |\n| 2 |\n",
+            Export(new TableNode(
+            [
+                new TableRowNode([new TableCellNode([ParagraphNode.FromText("a")], isHeader: true)]),
+                new TableRowNode(
+                [
+                    new TableCellNode(
+                        [new ParagraphNode(
+                            InlineContent.FromText("1"),
+                            align: TextAlign.Center)]),
+                ]),
+                new TableRowNode(
+                [
+                    new TableCellNode(
+                        [new ParagraphNode(
+                            InlineContent.FromText("2"),
+                            align: TextAlign.Center)]),
+                ]),
+            ])));
+
+    /// <summary>
+    /// A row shortened by a cell spanning into it from above keeps its cells under the columns they
+    /// belong to, rather than shifting them all left.
+    /// </summary>
+    /// <remarks>
+    /// A pipe table has no notation for a span, so the slots a spanning cell covers have to be
+    /// written as empty — but they still have to be written. Writing each row's cell array in order
+    /// and padding at the end instead puts <c>D</c> under <c>A</c>'s heading and <c>E</c> under
+    /// <c>B</c>'s, which is not a downgrade of the merge but content under the wrong headers.
+    /// </remarks>
+    [Fact]
+    public void A_row_shortened_by_a_row_span_keeps_its_cells_under_their_own_columns() =>
+        Assert.Equal(
+            "| A | B | C |\n| --- | --- | --- |\n|  | D | E |\n",
+            Export(new TableNode(
+            [
+                new TableRowNode(
+                [
+                    new TableCellNode([ParagraphNode.FromText("A")], isHeader: true, rowSpan: 2),
+                    new TableCellNode([ParagraphNode.FromText("B")], isHeader: true),
+                    new TableCellNode([ParagraphNode.FromText("C")], isHeader: true),
+                ]),
+                new TableRowNode(
+                [
+                    new TableCellNode([ParagraphNode.FromText("D")]),
+                    new TableCellNode([ParagraphNode.FromText("E")]),
+                ]),
+            ])));
+
+    /// <summary>
+    /// Column alignment is read off the same grid, so a spanning cell does not make the column below
+    /// it look like the column beside it.
+    /// </summary>
+    /// <remarks>
+    /// Indexing <c>row.Cells[column]</c> reads <c>D</c> — column 1's cell — as column 0's, so
+    /// column 0 sees <c>A</c> and <c>D</c> disagreeing and column 1 sees only <c>B</c>. Both answers
+    /// belong to columns the cells are not in, and both are wrong in the direction that looks
+    /// plausible: a marker where there should be none, and none where there should be one.
+    /// </remarks>
+    [Fact]
+    public void Column_alignment_is_read_from_the_grid_rather_than_the_row_array() =>
+        Assert.Equal(
+            "| A | B |\n| :---: | --- |\n|  | D |\n",
+            Export(new TableNode(
+            [
+                new TableRowNode(
+                [
+                    new TableCellNode(
+                        [new ParagraphNode(
+                            InlineContent.FromText("A"),
+                            align: TextAlign.Center)],
+                        isHeader: true,
+                        rowSpan: 2),
+                    new TableCellNode([ParagraphNode.FromText("B")], isHeader: true),
+                ]),
+                new TableRowNode(
+                [
+                    new TableCellNode(
+                        [new ParagraphNode(
+                            InlineContent.FromText("D"),
+                            align: TextAlign.Right)]),
+                ]),
+            ])));
+
+    /// <summary>
     /// A short row would otherwise write fewer pipes than the delimiter row promised, and a reader
     /// that counts columns off the delimiter row would misalign every cell after it.
     /// </summary>
