@@ -372,4 +372,43 @@ public class JsonFormatTests
 
         Assert.Equal(doc, RoundTrip(doc));
     }
+
+    /// <summary>
+    /// A link destination survives this format verbatim, including one the interchange formats
+    /// refuse.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Pinning a deliberate asymmetry so it cannot be mistaken for an oversight, and so that
+    /// adding sanitization here fails loudly rather than silently breaking the round-trip
+    /// guarantee this format exists for. HTML, RTF and Markdown all reach the model through
+    /// <c>HtmlImporter</c> and all three drop these destinations; this reader reconstructs what
+    /// the payload says, because a host that stores a document using its own scheme would
+    /// otherwise find storage destroying it.
+    /// </para>
+    /// <para>
+    /// The values are the ones that mattered: <c>//evil.test/steal</c> and the UNC form were a
+    /// real defect in the HTML importer, where <c>UriKind.Absolute</c> was used as a proxy for
+    /// "has a scheme" and let both through as <c>file:</c> links. That fix belongs where
+    /// untrusted input arrives, which is not here.
+    /// </para>
+    /// </remarks>
+    /// <param name="href">The destination to round-trip.</param>
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("file:///c:/windows/win.ini")]
+    [InlineData("//evil.test/steal")]
+    [InlineData(@"\\evil.test\share")]
+    [InlineData("myapp://note/42")]
+    public void A_link_destination_is_stored_verbatim_because_this_format_is_not_interchange(
+        string href)
+    {
+        var content = InlineContent.FromText("click")
+            .ApplyMarks(0, 5, new MarkSet { Link = new LinkMark(href, null) }, MarkFields.Link);
+        var doc = new DocumentNode([new ParagraphNode(content)]);
+
+        var back = Assert.IsType<ParagraphNode>(RoundTrip(doc).Blocks[0]);
+
+        Assert.Equal(href, back.Content.MarkAt(0).Link?.Href);
+    }
 }

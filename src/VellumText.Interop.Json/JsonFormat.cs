@@ -22,6 +22,22 @@ namespace VellumText.Interop.Json;
 /// understand — a preview that quietly loses a table is worse than one that says it cannot open
 /// the file.
 /// </para>
+/// <para>
+/// <b>It is also the one format that does not sanitize, and that is a consequence of being
+/// lossless rather than an oversight.</b> HTML, RTF and Markdown all reach the model through
+/// <c>HtmlImporter</c>, so all three enforce its link-scheme allow-list; a <c>javascript:</c> or
+/// <c>file:</c> destination loses its href on the way in. This reader reconstructs the model
+/// verbatim, so whatever a payload says is a link becomes one. Sanitizing here would contradict
+/// the round-trip guarantee above — a host that legitimately builds a document with its own scheme,
+/// <c>myapp://note/42</c>, would find storage silently destroying it.
+/// </para>
+/// <para>
+/// So <b>treat a JSON payload as you would treat code: import one only from a source you would
+/// trust to construct a <see cref="DocumentNode"/> directly</b>, because that is what it is doing.
+/// A payload that arrived from somewhere else is interchange, and interchange has formats that
+/// sanitize. This is not a licence to skip the final check: a host must validate a link's scheme
+/// before acting on <c>LinkActivated</c> whatever the document's provenance, which the guide shows.
+/// </para>
 /// </remarks>
 public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
 {
