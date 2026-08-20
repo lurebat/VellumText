@@ -8,7 +8,20 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
-## [Unreleased]
+## [0.7.0] - 2026-08-20
+
+A sixth package, `VellumText.Interop.Markdown`. **`AC8` is complete for v1 as of
+this release** — every format the acceptance criteria name for v1 now imports and
+exports. DOCX and XAML remain deferred to v2.0 by an explicit decision rather
+than by omission.
+
+No public surface was removed or moved, so upgrading from 0.6.0 is a version bump
+plus one optional package reference.
+
+Everything below the Markdown entry itself was found by reviewing that entry
+before releasing it: three models over the new package, then a fourth over the
+fixes. Two rounds were needed because the first fix to the raw-text leak was
+incomplete, which is recorded rather than quietly amended.
 
 ### Added
 
