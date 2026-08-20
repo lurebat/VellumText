@@ -81,11 +81,20 @@ public sealed record MarkdownImportOptions
     /// imported an attack surface nobody asked for.
     /// </para>
     /// <para>
-    /// Off, every <c>HtmlBlock</c> and <c>HtmlInline</c> is removed from the parsed tree before
-    /// anything is rendered, and each removal is reported. An inline tag's surrounding text
-    /// survives — the tags are separate nodes from the literals they wrap — but a raw HTML block's
-    /// text goes with it, which is why that case is reported as
+    /// Off, every <c>HtmlBlock</c> is removed from the parsed tree before anything is rendered, and
+    /// so is every <c>HtmlInline</c> whose element can hold ordinary text. An inline tag's
+    /// surrounding text survives — the tags are separate nodes from the literals they wrap — but a
+    /// raw HTML block's text goes with it, which is why that case is reported as
     /// <see cref="DiagnosticSeverity.Dropped"/> rather than as a downgrade.
+    /// </para>
+    /// <para>
+    /// A tag for an element whose body is never content, such as <c>script</c> or <c>style</c>, is
+    /// the exception: it is left in the tree so that the sanitizer below removes the element with
+    /// its subtree. Those elements are <em>raw text</em> in HTML — everything to the matching close
+    /// is text and not markup — and the Markdown parser has no such concept, so the body between
+    /// two such tags can be scattered across containers and blocks that no walk of the tree can
+    /// relate. Deleting the tags here would release that body as prose; handing them on deletes it.
+    /// Nothing reaches the document either way, and both settings agree on every case.
     /// </para>
     /// <para>
     /// On, the raw HTML is rendered and then passes through the same sanitizer every HTML import

@@ -125,8 +125,9 @@ public class MarkdownSecurityTests
     /// over — here and again by the sanitizer that treats them as non-content — so their rows
     /// survive either guard failing on its own and go red only when both do. That is defence in
     /// depth working, and it is also why those rows cannot say which guard broke:
-    /// <see cref="A_raw_inline_non_content_tag_is_removed_with_its_contents"/> is what isolates the
-    /// sanitizer's half. The <c>&lt;iframe&gt;</c> row needs a forbidden string that is real text,
+    /// <see cref="A_non_content_body_is_never_text_however_the_document_splits_it"/> is what isolates
+    /// them, because its two settings run the same input through one layer or through both. The
+    /// <c>&lt;iframe&gt;</c> row needs a forbidden string that is real text,
     /// because no import path turns an attribute into paragraph text and a row asserting the
     /// absence of one asserts nothing.
     /// </remarks>
@@ -154,7 +155,10 @@ public class MarkdownSecurityTests
     /// which only two are tags, so the rule that keeps a formatting tag's words — correct for
     /// <c>&lt;b&gt;</c> — hands a script body to the document as prose. That is the defect
     /// <c>c02d649</c> fixed in the HTML reader in August 2026, arriving through a second importer.
-    /// The element list is the HTML package's, not a copy: a copy is what drifts.
+    /// These four are the single-container shape, where the tags and the body are siblings; see
+    /// <see cref="A_non_content_body_is_never_text_however_the_document_splits_it"/> for the shapes
+    /// where they are not, which is the whole reason the tags are left for the HTML stage rather
+    /// than removed here. The element list is the HTML package's, not a copy: a copy is what drifts.
     /// </remarks>
     [Theory]
     [InlineData("<script>steal()</script>", "steal()", "script")]
@@ -187,6 +191,184 @@ public class MarkdownSecurityTests
             new MarkdownImportOptions { AllowRawHtml = true });
 
         Assert.DoesNotContain("steal()", AllText(result), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every shape in which a non-content element's body can be split by the Markdown around it,
+    /// asserted identically whether or not the host allowed raw HTML.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the second attempt at the same defect, and the rows are chosen against the first
+    /// one's shape rather than against the symptom. That fix walked <em>siblings</em>, deleting
+    /// from an opening tag through the matching close, which is only correct where the tag, the
+    /// body and the close are siblings in one container. Markdig makes no such promise: <c>**</c>
+    /// opens a container, a blank line ends a block, and the two tags then have no relationship in
+    /// the tree at all — so the walk released whatever it could not see as prose.
+    /// <c>a **&lt;script&gt;evil** body &lt;/script&gt; after</c> imported as <c>a body after</c>.
+    /// </para>
+    /// <para>
+    /// The pairs are the ones that make each row able to fail on its own: emphasis opened before
+    /// the tag and after it, one blank line and three, a table cell and a list item and a
+    /// blockquote, and the two spellings a scanner comparing raw text would miss. The nested row's
+    /// surviving <c>tail</c> is not a leak and is the point of the row: HTML's raw text ends at the
+    /// <em>first</em> close, so the body was <c>outer &lt;script&gt;inner</c>, <c>tail</c> is
+    /// ordinary text after it, and the stray close is ignored. Counting nesting, as the first fix
+    /// did, is a rule HTML does not have.
+    /// </para>
+    /// <para>
+    /// Both settings assert the same text on purpose. That is the fix: the removal is now the HTML
+    /// stage's, so <c>AllowRawHtml</c> decides whether raw formatting is <em>applied</em> and has
+    /// never decided what a script body is.
+    /// </para>
+    /// </remarks>
+    public static TheoryData<bool, string, string, string> NonContentBodies() => EitherSetting(
+        ("a **<script>evil** body </script> after", "a after", "script"),
+        ("a <script>evil **body </script> after** c", "a after c", "script"),
+        ("a *<script>evil* body </script> after", "a after", "script"),
+        ("before <script>hidden\n\nleaked </script> after", "before after", "script"),
+        ("one <script>a\n\nb\n\nc\n\nd </script> two", "one two", "script"),
+        ("a <script>evil\n\nmore text", "a", "script"),
+        ("a <script>outer <script>inner</script> tail</script> b", "a tail b", "script"),
+        ("a <SCRIPT>evil</SCRIPT> b", "a b", "script"),
+        ("a <script >evil</script > b", "a b", "script"),
+        ("a <script/> b", "a", "script"),
+        ("x <style>*a* body{q}</style> y", "x y", "style"),
+        ("a **<style>p{x:** y}</style> b", "a b", "style"),
+        ("- a **<script>evil** body </script> after", "a after", "script"),
+        ("> a **<script>evil** body </script> after", "a after", "script"),
+        ("| h |\n| --- |\n| a **<script>evil** body </script> z |", "h\na z", "script"));
+
+    [Theory]
+    [MemberData(nameof(NonContentBodies))]
+    public void A_non_content_body_is_never_text_however_the_document_splits_it(
+        bool allowRawHtml,
+        string markdown,
+        string expected,
+        string context)
+    {
+        var result = MarkdownImporter.Import(
+            markdown,
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+
+        Assert.Equal(expected, AllText(result));
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Dropped && d.Context == context);
+    }
+
+    /// <summary>
+    /// The false-positive direction, which matters as much: inside a code span or a code block a
+    /// tag is text the author wrote, and must arrive intact.
+    /// </summary>
+    /// <remarks>
+    /// It is safe by construction rather than by a rule about code, and that is why it is pinned.
+    /// Markdig escapes every literal it renders, so the only unescaped markup in the HTML handed to
+    /// the next stage is Markdig's own and the raw tags this importer chose to leave — a
+    /// <c>&lt;script&gt;</c> in a code span is never one of them. The last row is the awkward one:
+    /// a quoted opening tag followed by a real closing tag, where a scanner working on the source
+    /// text would pair them and swallow the sentence between.
+    /// <para>
+    /// Nothing may be reported either. A diagnostic here would be the importer saying it removed
+    /// something it did not, which is how a host learns to ignore the list.
+    /// </para>
+    /// </remarks>
+    public static TheoryData<bool, string, string> QuotedScripts() => EitherSetting(
+        ("a `<script>evil</script>` b", "a <script>evil</script> b"),
+        ("```\n<script>fenced</script>\n```", "<script>fenced</script>"),
+        ("    <script>indented</script>", "<script>indented</script>"),
+        ("a `<script>` b </script> c", "a <script> b c"));
+
+    [Theory]
+    [MemberData(nameof(QuotedScripts))]
+    public void A_script_written_as_code_is_text_and_survives(
+        bool allowRawHtml,
+        string markdown,
+        string expected)
+    {
+        var result = MarkdownImporter.Import(
+            markdown,
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+
+        Assert.Contains(expected, AllText(result), StringComparison.Ordinal);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    /// <summary>
+    /// A closing tag with nothing to close ends nothing and hides nothing, so the words either side
+    /// of it are the author's and stay.
+    /// </summary>
+    /// <remarks>
+    /// The row that would fail if the fix had been written as "a tag named <c>script</c> is
+    /// dangerous": treating a stray close as an opener would take the rest of the document, and a
+    /// guard that drops a document is a guard a host turns off.
+    /// </remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_closing_tag_with_no_opener_removes_nothing(bool allowRawHtml)
+    {
+        var result = MarkdownImporter.Import(
+            "a </script> b",
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+
+        Assert.Equal("a b", AllText(result));
+        Assert.Empty(result.Diagnostics);
+    }
+
+    /// <summary>
+    /// An attribute is not text in any of these paths, and the element's own words are.
+    /// </summary>
+    /// <remarks>
+    /// <c>div</c> is not a non-content element, so this is the case that pins the other half of the
+    /// rule: leaving script and style for the HTML stage must not turn into leaving everything for
+    /// it, which would let a raw tag's formatting apply on the path where the host asked for no raw
+    /// HTML at all.
+    /// </remarks>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_attribute_that_carries_script_never_becomes_text(bool allowRawHtml)
+    {
+        var result = MarkdownImporter.Import(
+            "a <div onclick=\"steal()\">bait</div> b",
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+
+        var text = AllText(result);
+
+        Assert.DoesNotContain("steal()", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("onclick", text, StringComparison.Ordinal);
+        Assert.Contains("bait", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Repeats each row under both settings of <c>AllowRawHtml</c>.</summary>
+    private static TheoryData<bool, string, string, string> EitherSetting(
+        params (string Markdown, string Text, string Context)[] rows)
+    {
+        var data = new TheoryData<bool, string, string, string>();
+
+        foreach (var (markdown, text, context) in rows)
+        {
+            data.Add(false, markdown, text, context);
+            data.Add(true, markdown, text, context);
+        }
+
+        return data;
+    }
+
+    /// <summary>Repeats each row under both settings of <c>AllowRawHtml</c>.</summary>
+    private static TheoryData<bool, string, string> EitherSetting(
+        params (string Markdown, string Text)[] rows)
+    {
+        var data = new TheoryData<bool, string, string>();
+
+        foreach (var (markdown, text) in rows)
+        {
+            data.Add(false, markdown, text);
+            data.Add(true, markdown, text);
+        }
+
+        return data;
     }
 
     /// <summary>

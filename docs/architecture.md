@@ -2191,12 +2191,14 @@ contract.
 **Raw HTML is removed, not sanitized, unless the host asks otherwise.** CommonMark *requires*
 implementations to pass raw HTML through, as blocks and inline, which makes every Markdown document
 a carrier for every HTML hazard in a format whose whole reputation is for being plain text. By
-default every `HtmlBlock` and `HtmlInline` is deleted from the parsed tree before anything is
-rendered, and each removal is reported. The cases are not equally bad and are not reported as
-if they were: removing an inline formatting tag leaves the text it wrapped, because in Markdig a tag
-and the literal after it are separate nodes, so that is a `Downgraded`; an HTML block *is* its text,
-so that is a `Dropped`. `AllowRawHtml` renders it instead and lets the same sanitizer every HTML
-import goes through decide — checked rather than trusted, and never a second allow-list.
+default every `HtmlBlock` is deleted from the parsed tree before anything is rendered, and so is
+every `HtmlInline` except one that opens or closes a non-content element, which is handed on to the
+HTML stage to delete instead — see below. Each removal is reported. The cases are not equally bad and
+are not reported as if they were: removing an inline formatting tag leaves the text it wrapped,
+because in Markdig a tag and the literal after it are separate nodes, so that is a `Downgraded`; an
+HTML block *is* its text, so that is a `Dropped`. `AllowRawHtml` renders it instead and lets the same
+sanitizer every HTML import goes through decide — checked rather than trusted, and never a second
+allow-list.
 
 **A fix recorded against one importer did not survive a second importer reaching the same model.**
 `c02d649` stopped script and style bodies becoming document text in the HTML reader in August 2026.
@@ -2209,9 +2211,8 @@ so the covered case could not have failed. **A security case has a shape as well
 covering one shape of it reads as coverage of the name.
 
 The fix keeps the keep-the-text rule, which is correct for `<b>`, and makes it conditional on the
-element: an inline tag whose name is in `SanitizingReader.NonContentElements` takes everything
-through its matching closing tag, unclosed takes the rest of the paragraph, and `<script/>` counts as
-unclosed because that is what a browser does with it. That list is **shared, not copied** —
+element: an inline tag whose name is in `SanitizingReader.NonContentElements` is not treated as a
+formatting tag whose words are worth keeping. That list is **shared, not copied** —
 `VellumText.Interop.Html` widened it from `private static readonly string[]` to
 `internal static readonly ImmutableArray<string>` and added an `InternalsVisibleTo` for
 `VellumText.Interop.Markdown`. `ImmutableArray` because sharing a security list must not mean sharing
@@ -2220,25 +2221,78 @@ drift between two implementations and disagree at every level from 2 down. A sec
 text is never content" is a second copy to forget to extend. Nothing public moved: `SanitizingReader`
 is internal, so `MarkdownPublicSurfaceTests` still sees no HTML type on the Markdown surface.
 
-The two guards are independent, and the mutation run proves it. Deleting `script` and `style` from
+**The first repair of that regression was AST-shaped, and the shape was the defect.** `7fabf15` acted
+on the element by deleting the opening tag's following *siblings* through the matching closing tag,
+counting nesting on the way. That is correct only when the opening tag, the body and the closing tag
+are siblings in one container, and Markdig does not guarantee it: it parses each tag as an ordinary
+inline node wherever the inline parser happens to be, so `**` puts the opener inside a
+`ContainerInline` the closer is outside of, and a blank line puts the two in different blocks
+entirely. The walk lost its open-element state on every recursive call and at every block boundary,
+and released as prose whatever it could not see —
+`a **<script>evil** body </script> after` imported as the text `a body after`, and
+`before <script>hidden` + blank line + `leaked </script> after` as `leaked after`. The single-container
+case the tests covered, `x <style>*a* body{q}</style> y`, was clean throughout. That is the same
+missed-shape failure as the regression itself, one level deeper: the second attempt covered a second
+shape and still not the shape that breaks.
+
+**An AST-shaped guard cannot express a semantics the format does not have.** `script` and `style` are
+HTML *raw text* elements: everything from the opening tag to the matching close is text and not
+markup, full stop. There is no node, edge or ordering in a Markdig tree that spans that, because
+Markdig has no such concept — so a walk that tries to reconstruct it is a tokenizer written by
+accident, which is the same mistake as editing rendered markup with a string replace, one level up.
+It also produces rules HTML does not have: counting nesting, and ending an unclosed element at the
+paragraph rather than at the document.
+
+**The resolution is delegation.** A non-content tag — opener or closer — is *left in the tree*, so it
+survives rendering and reaches `SanitizingReader`, which tokenizes it properly and removes the element
+with its subtree, before `KeepChildNodes` can promote a body to text. That is the same
+implementation, on the same shared list, that `AllowRawHtml = true` has always used; the instruction
+that produced the shared list was "one implementation, not two", and a working raw-text implementation
+plus an AST walk imitating it is two. It is safe to hand raw tags on because Markdig escapes every
+literal it writes, so the only unescaped markup in the HTML that reaches `HtmlImporter` is Markdig's
+own structural tags plus the raw nodes the importer chose to leave. Nothing else may be left: a raw
+`<b>` must still lose its formatting on this path, and in rendered HTML a raw `<b>` is
+indistinguishable from the `<strong>` Markdig produced from `**bold**` — so "let the HTML stage strip
+every tag" is not available, and the guard stays a two-way split made in the tree.
+
+Both settings now agree on every case, which is the property that makes the split checkable: an
+unclosed element takes the rest of the document, a stray closing tag is ignored and reported as
+nothing, and `<script>a<script>b</script> tail</script>` keeps `tail`, in both — because raw text ends
+at the first close and the rest is ordinary text, which is what a browser does.
+
+The layers are independent, and the mutation run proves it. Deleting `script` and `style` from
 `SanitizingReader.NonContentElements` leaves `A_raw_html_block_is_removed_with_its_contents` green,
-because the Markdown layer had already removed the block, and turns
-`Allowed_raw_html_still_loses_its_script_and_style`, `Allowed_raw_inline_html_still_loses_its_script`
-and the HTML package's own `Code_bearing_elements_do_not_leak_their_bodies_as_text` red. Making the
-Markdown inline guard never fire turns only
-`A_raw_inline_non_content_tag_is_removed_with_its_contents` red. Defence in depth is only defence in
-depth if a test can tell the layers apart.
+because the Markdown layer had already removed the block, and turns 36 Markdown tests and the HTML
+package's own `Code_bearing_elements_do_not_leak_their_bodies_as_text` red. Making the Markdown
+non-content guard never fire turns every `AllowRawHtml = false` row of
+`A_non_content_body_is_never_text_however_the_document_splits_it` red and leaves every
+`AllowRawHtml = true` row green; making it always fire turns
+`A_raw_inline_tag_is_removed_but_its_text_is_kept` red instead; passing on only the *opening* tag
+turns the leak rows and `A_closing_tag_with_no_opener_removes_nothing` red together. Defence in depth
+is only defence in depth if a test can tell the layers apart.
+
+**The false-positive direction needed a mutant of the design, not of a line.** Replacing the
+delegation with a scan of the source text for `<script>…</script>` — the obvious alternative, and the
+one that looks like it needs no HTML at all — turns every row of
+`A_script_written_as_code_is_text_and_survives` red, because a `<script>` inside a code span, a fenced
+block or an indented block is literal text that must survive, and a scanner running before the
+Markdown parser cannot know which it is looking at. Delegation gets those right for free: Markdig
+escapes them, so the HTML stage never sees a tag at all. A guard that only ever removes more is not
+obviously safe; it is a different bug in the same file.
 
 **What Markdown cannot represent is reported rather than dropped in silence** — see the §4.9
 correction for why that needed a method outside `IDocumentExporter`. Twenty-eight export diagnostics,
 covering colour, highlight, font family, font size, underline, sub/superscript, paragraph
 alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, the two ways
 emphasis can fail to flank, and every place a
-table cell or a heading has to be flattened to one line. Import adds six: raw HTML block, raw
-inline tag, a raw non-content element removed with its contents, a code fence's language, a table
+table cell or a heading has to be flattened to one line. Import adds five of its own: raw HTML block,
+raw
+inline tag, a code fence's language, a table
 column's alignment, and a `Malformed` for the
 pathological input Markdig can still fail on — every string is valid Markdown, but deep enough
-nesting is a stack overflow and an import is not a good place to learn that.
+nesting is a stack overflow and an import is not a good place to learn that. A raw non-content
+element removed with its contents is reported too, but by the HTML stage, which is now the only place
+that removes one.
 
 **Column alignment is deliberately write-only, which is the one asymmetry worth naming.** Export
 writes `:---`, `:---:` and `---:` when every cell in a column agrees, because every other Markdown
@@ -2307,12 +2361,16 @@ Markdown against a literal *before* importing it. Three round-trip tests in this
 asserted nothing but schema validity and stayed green for weeks while the importer dropped every
 empty table row.
 
-**Thirty-seven mutants, thirty-seven killed**, including one for each security guard: raw HTML block
+**Forty-three mutants, forty-three killed**, including one for each security guard: raw HTML block
 kept, raw
-inline tag kept, the Markdown inline non-content guard never firing, `AllowRawHtml` defaulting on,
+inline tag kept, the Markdown inline non-content guard never firing, that guard *always* firing,
+only the opening non-content tag passed on rather than the closing one too, tag names no longer
+case-folded, `AllowRawHtml` defaulting on,
 `AllowRawHtml` inverted, options never reaching the
 HTML stage, `BaseUri` and `AllowRemoteImages` dropped from the mapping, the scheme test reverted to
-`UriKind.Absolute`, and `script`/`style` removed from the non-content list. The flanking work
+`UriKind.Absolute`, `script`/`style` and separately `noscript` removed from the non-content list, the
+sanitizer's pre-pass subtree removal skipped so `KeepChildNodes` promotes the bodies, and the
+delegation replaced wholesale by a scan of the source text. The flanking work
 accounts for eight on its own, of which the two that matter most are `IsPunctuation` without the `S`
 categories — killed only by the `=`, `€` and emoji rows — and the next-run lookahead replaced by
 end-of-line.
@@ -2322,6 +2380,16 @@ is not a surviving mutant.** Both left a field or a branch unread, which `TreatW
 turns into a build failure, and a test run that never builds prints no failure either — so the
 harness reported them as survivors. Anything that reports "no output" from a mutation run is a
 build error until proven otherwise.
+
+**A mutant can also report the *previous* mutant's result, which is worse, because it looks like
+data.** The harness restored each file with `Copy-Item`, which preserves the backup's timestamp, so
+MSBuild saw the restored source as older than its own output and skipped compiling it: the next
+mutant built against the last one's assembly and produced a kill list belonging to neither. It was
+caught only because a mutant of `SanitizingReader` alone killed a test about `<b>`, which no edit to
+that file can reach. **A mutation run needs a green control run between mutants**, and every write in
+the harness now goes through `File.WriteAllText`, which stamps the file now. The general form: an
+incremental build is a cache keyed on timestamps, and anything that restores a file without
+advancing its timestamp has poisoned that cache.
 
 **Declined.** An `IsMarkdown` counterpart to `RtfImporter.IsRtf`: there cannot be one, because every
 string is valid Markdown, so a caller choosing between flavours has to decide on the media type or

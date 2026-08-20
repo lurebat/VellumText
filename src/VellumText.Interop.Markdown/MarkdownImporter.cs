@@ -170,12 +170,11 @@ public static class MarkdownImporter
     /// </para>
     /// <para>
     /// Keeping the words is right for a tag that only styles them and catastrophic for one whose
-    /// body is program text: applied to <c>a &lt;script&gt;steal()&lt;/script&gt; b</c> it hands the
-    /// script to the document as prose. So an inline tag from
-    /// <see cref="SanitizingReader.NonContentElements"/> takes everything through its matching
-    /// closing tag, which is the same distinction the HTML reader makes and the same list it makes
-    /// it from. An unclosed one takes the rest of its paragraph, and a <c>&lt;script/&gt;</c> counts
-    /// as unclosed, because that is what a browser does with it too.
+    /// body is program text: applied to <c>a &lt;script&gt;steal()&lt;/script&gt; b</c> it would hand
+    /// the script to the document as prose. An inline tag from
+    /// <see cref="SanitizingReader.NonContentElements"/> is therefore left in the tree, so that the
+    /// HTML stage receives it and removes the element with its subtree — see
+    /// <see cref="IsNonContentTag"/> for why that decision cannot be made here.
     /// </para>
     /// </remarks>
     private static void RemoveRawHtml(MarkdownDocument document, DiagnosticLog log)
@@ -202,13 +201,6 @@ public static class MarkdownImporter
     }
 
     /// <summary>Removes the raw HTML among one container's inlines, and inside its children.</summary>
-    /// <remarks>
-    /// Walked by sibling rather than over a materialised <c>Descendants</c> list because removing a
-    /// non-content element removes the nodes that follow it, and a pre-built list would then hold
-    /// nodes that are no longer anywhere — including, in
-    /// <c>&lt;script&gt;x **&lt;/script&gt;** y</c>, a closing tag that has already been consumed
-    /// and would otherwise be processed a second time.
-    /// </remarks>
     private static void RemoveRawHtml(ContainerInline container, DiagnosticLog log)
     {
         var node = container.FirstChild;
@@ -219,10 +211,7 @@ public static class MarkdownImporter
 
             switch (node)
             {
-                case HtmlInline tag
-                    when IsOpeningTag(tag.Tag)
-                        && SanitizingReader.NonContentElements.Contains(TagName(tag.Tag)):
-                    next = RemoveThroughClosingTag(tag, log);
+                case HtmlInline tag when IsNonContentTag(tag.Tag):
                     break;
 
                 case HtmlInline tag:
@@ -244,50 +233,36 @@ public static class MarkdownImporter
     }
 
     /// <summary>
-    /// Removes a non-content element's opening tag, its contents, and its closing tag.
+    /// Whether a raw tag opens or closes an element whose body is never content, and so must be
+    /// left for the HTML stage rather than removed here.
     /// </summary>
-    /// <returns>The first sibling that survives, so the caller's walk can resume there.</returns>
     /// <remarks>
-    /// Nesting is counted rather than assumed absent: an inner <c>&lt;script&gt;</c> inside the text
-    /// of an outer one would otherwise let the inner closing tag end the removal early and release
-    /// the rest of the body as prose.
+    /// <para>
+    /// <c>script</c> and <c>style</c> are <em>raw text</em> elements: everything from the opening tag
+    /// to the matching close is text rather than markup, full stop. Markdig has no such concept. It
+    /// parses each tag as an ordinary inline node wherever the inline parser happens to be, so the
+    /// body between them is scattered across whatever containers the Markdown around it opened —
+    /// <c>a **&lt;script&gt;evil** body &lt;/script&gt; c</c> puts the opening tag inside an emphasis
+    /// and the closing tag outside it, and a blank line puts them in different blocks entirely.
+    /// There is no relationship in the tree that spans them, so no walk of the tree can find the
+    /// body, and the walk that tried released whatever it could not see as prose.
+    /// </para>
+    /// <para>
+    /// Left in place, the tags survive rendering and reach <see cref="SanitizingReader"/>, which
+    /// parses them with a real HTML tokenizer and removes the element with its subtree — the same
+    /// implementation, on the same shared list, that the <see cref="MarkdownImportOptions.AllowRawHtml"/>
+    /// path has always used. Passing a tag on to be deleted rather than deleting it is what makes
+    /// both settings agree: an unclosed element takes the rest of the document and a stray closing
+    /// tag is ignored, in both, because that is what a browser does.
+    /// </para>
+    /// <para>
+    /// Nothing else may be left: every other raw tag is removed here, so that a formatting tag's
+    /// words survive without its formatting, and so that the HTML stage never sees markup the host
+    /// asked not to be read.
+    /// </para>
     /// </remarks>
-    private static Inline? RemoveThroughClosingTag(HtmlInline open, DiagnosticLog log)
-    {
-        var name = TagName(open.Tag);
-        var node = (Inline?)open;
-        var depth = 0;
-
-        while (node is not null)
-        {
-            var next = node.NextSibling;
-
-            if (node is HtmlInline tag && TagName(tag.Tag) == name)
-            {
-                depth += IsOpeningTag(tag.Tag) ? 1 : -1;
-            }
-
-            node.Remove();
-            node = next;
-
-            if (depth == 0)
-            {
-                break;
-            }
-        }
-
-        log.ReportOnce(
-            DiagnosticSeverity.Dropped,
-            "Removed a raw HTML element whose contents a browser would never show as text, "
-                + "along with those contents.",
-            name);
-
-        return node;
-    }
-
-    /// <summary>Whether a raw tag opens an element rather than closing one.</summary>
-    private static bool IsOpeningTag(string? tag) =>
-        tag is { Length: > 1 } && tag[0] == '<' && tag[1] != '/';
+    private static bool IsNonContentTag(string? tag) =>
+        SanitizingReader.NonContentElements.Contains(TagName(tag));
 
     /// <summary>
     /// Strips the <c>language-…</c> class Markdig puts on a fenced block's <c>&lt;code&gt;</c>.

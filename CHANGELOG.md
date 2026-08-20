@@ -97,8 +97,8 @@ NuGet; packages are published to a local feed, and
   implementations to pass raw HTML through, which would make every Markdown
   document a carrier for every HTML hazard — script, event handlers, `iframe`,
   styled overlays — in a format whose reputation is for being plain text. Every
-  raw block and inline tag is deleted before anything is rendered, and each
-  removal is reported. Set `MarkdownImportOptions.AllowRawHtml` to read it
+  raw block and inline tag is removed before anything reaches the document, and
+  each removal is reported. Set `MarkdownImportOptions.AllowRawHtml` to read it
   instead, in which case it goes through the same sanitizer every HTML import
   goes through rather than a second one written for Markdown.
 
@@ -108,13 +108,29 @@ NuGet; packages are published to a local feed, and
   `a <script>steal()</script> b`, which imported as the text `a steal() b`. This
   is the defect `c02d649` fixed in the HTML reader in August 2026, reached again
   through Markdown's default path — the path that runs when a host has *not*
-  opted into raw HTML. An inline tag naming an element whose text a browser never
-  shows now takes everything through its matching closing tag, and reports a
-  `Dropped`. The element list is the HTML package's own, shared rather than
-  copied, because a second copy of a security list is a second copy to forget to
-  extend. The reason the regression was invisible: the tests covered `<script>`
-  as a *block*, where it was already removed with its subtree by ordinary block
-  handling.
+  opted into raw HTML. A tag naming an element whose text a browser never shows
+  is now left in the parsed tree so that the HTML sanitizer removes the element
+  with its subtree, and reports a `Dropped`. The element list is the HTML
+  package's own, shared rather than copied, because a second copy of a security
+  list is a second copy to forget to extend. The reason the regression was
+  invisible: the tests covered `<script>` as a *block*, where it was already
+  removed with its subtree by ordinary block handling.
+
+- **…and it now holds when the body is split across the document, which the
+  first repair of it did not.** That repair deleted the opening tag's following
+  siblings through the matching closing tag, which only works when the tag, the
+  body and the closing tag are siblings in one container. Markdig parses each tag
+  as an ordinary inline node wherever the parser happens to be, so `**` puts the
+  opener inside an emphasis the closer is outside of and a blank line puts them
+  in different blocks: `a **<script>evil** body </script> after` still imported
+  as `a body after`, and `before <script>hidden`, a blank line,
+  `leaked </script> after` as `leaked after`. `script` and `style` are *raw text*
+  elements — everything to the matching close is text and not markup — and no
+  walk of a Markdown syntax tree can express that, so the tags are handed to the
+  one component that already implements it properly. Both `AllowRawHtml`
+  settings now agree on every case: an unclosed element takes the rest of the
+  document, a stray closing tag is ignored, and a `<script>` written inside a
+  code span or a fenced block is still literal text and survives.
 
 - **Markdown link destinations go through the existing scheme allow-list.**
   Import runs by way of the HTML reader, so `[click](javascript:alert(1))` keeps

@@ -62,10 +62,12 @@ internal sealed class SanitizingReader
     /// inside a <c>&lt;div&gt;</c> is still a fragment — and wrong here, where the children are
     /// program text rather than something the user copied. A browser renders none of these.
     /// <para>
-    /// Visible to <c>VellumText.Interop.Markdown</c> rather than copied into it. Markdown's default
-    /// path removes raw HTML before this sanitizer ever exists, so it has to make the same
-    /// non-content distinction itself — and a second copy of this list is a second list to forget
-    /// to extend. It is exposed as an <see cref="ImmutableArray{T}"/> so sharing it cannot mean
+    /// Visible to <c>VellumText.Interop.Markdown</c> rather than copied into it. That importer does
+    /// not remove these elements itself — it cannot, because its parser has no notion of raw text
+    /// and so cannot find their bodies — but it does have to recognise their tags, in order to leave
+    /// them in the tree for this sanitizer instead of deleting them and freeing what they enclosed.
+    /// One implementation of "whose text is never content" and one list to extend, rather than two
+    /// of each. It is exposed as an <see cref="ImmutableArray{T}"/> so sharing it cannot mean
     /// sharing the ability to edit it.
     /// </para>
     /// </remarks>
