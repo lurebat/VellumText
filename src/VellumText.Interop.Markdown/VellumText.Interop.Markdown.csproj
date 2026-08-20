@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>VellumText.Interop.Markdown</RootNamespace>
+    <Description>Markdown (CommonMark plus GFM pipe tables) import and export for the VellumText document model.</Description>
+    <PackageTags>$(PackageTags);markdown;commonmark;gfm;import;export</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.3.2" />
+  </ItemGroup>
+
+  <!-- MarkdownImportOptions.ToHtmlOptions is the one place a new option can be silently forgotten,
+       and it is internal precisely so the HTML type it produces stays out of this package's API. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="VellumText.Interop.Markdown.Tests" />
+  </ItemGroup>
+
+  <!-- Markdown import goes through the HTML importer, for the reason RTF import does: one
+       sanitizer, one scheme allow-list, one place that decides what an import may contain. -->
+  <ItemGroup>
+    <ProjectReference Include="..\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
+  </ItemGroup>
+
+</Project>

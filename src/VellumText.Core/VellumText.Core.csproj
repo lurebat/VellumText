@@ -34,6 +34,7 @@
          every exporter needs. Neither is a model concept, so both stay out of the public API. -->
     <InternalsVisibleTo Include="VellumText.Avalonia" />
     <InternalsVisibleTo Include="VellumText.Interop.Html" />
+    <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
     <InternalsVisibleTo Include="VellumText.Interop.Rtf" />
   </ItemGroup>
 
