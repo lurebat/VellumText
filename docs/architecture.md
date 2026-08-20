@@ -2230,9 +2230,10 @@ Markdown inline guard never fire turns only
 depth if a test can tell the layers apart.
 
 **What Markdown cannot represent is reported rather than dropped in silence** — see the §4.9
-correction for why that needed a method outside `IDocumentExporter`. Twenty-six export diagnostics,
+correction for why that needed a method outside `IDocumentExporter`. Twenty-eight export diagnostics,
 covering colour, highlight, font family, font size, underline, sub/superscript, paragraph
-alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, and every place a
+alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, the two ways
+emphasis can fail to flank, and every place a
 table cell or a heading has to be flattened to one line. Import adds six: raw HTML block, raw
 inline tag, a raw non-content element removed with its contents, a code fence's language, a table
 column's alignment, and a `Malformed` for the
@@ -2248,10 +2249,54 @@ whitespace in a paragraph is the same shape of loss for the same reason — writ
 that four spaces do not become an indented code block, and collapsed on the way back in by HTML's
 own whitespace rule.
 
+**A table's cells are written from the grid, never from the row arrays.** `TableGeometry.Place`
+already resolves spans into a rectangular placement, and the exporter used to call it for the column
+count and throw the placement away — so a row shortened by a `rowSpan` above it wrote its cells one
+column too far left, under the wrong headers, with no diagnostic. The same array indexing decided
+column alignment. Both now read the grid, which is the only representation in which "the cell in
+column *n*" means what it says. Related and separate: a `|` inside a code span, a link destination
+or a link title in a cell is escaped on the way out and unescaped on the way back in, because GFM
+splits a row on its unescaped pipes *before* parsing anything inside it while Markdig's parser is
+inline-aware and splits after — so the library's own round trip was green over a table no other
+reader could see.
+
 **One loss is not reported, on purpose.** An empty body paragraph has no notation — a blank line
 *is* Markdown's block separator — and a document being edited routinely ends with one, so a warning
 on every save would train the user to ignore the whole list. It is pinned by a test rather than
 left to be rediscovered.
+
+**Writing a delimiter is not the same as writing emphasis, and the difference is decided by the two
+characters touching it.** CommonMark lets a delimiter run open only where it is left-flanking and
+close only where it is right-flanking. A closing `**` between punctuation and an alphanumeric is
+neither, so `**Ver.**2` — the obvious way to write a bold `Ver.` — emphasises nothing and delivers
+four literal asterisks into the text. The exporter now settles each run against what is really
+written either side of it, moving edge punctuation outside the delimiters (`**Ver**.2`) at the cost
+of the mark over that one character, and dropping the style with a diagnostic where the obstacle is
+another delimiter that no edit to the text can separate. Three things about it are worth keeping:
+
+- **CommonMark's punctuation is every Unicode `P` *and* `S` category**, so `=`, `€` and every emoji
+  are punctuation and `char.IsPunctuation` is the wrong predicate; its whitespace is *narrower* than
+  `char.IsWhiteSpace`, which also counts a line tabulation and a next line. A writer that reached for
+  the .NET predicates would be wrong in both directions at once.
+- **A closing delimiter is judged against the first character of the next run**, so the decision
+  cannot be made a run at a time — hence two passes. Where the next run itself carries emphasis, the
+  character it really writes first is a delimiter, which is the friendlier answer; the writer
+  deliberately assumes the less friendly one, because `**Sale\!***x*` emphasises nothing while the
+  pessimistic `**Sale**\!*x*` emphasises both, and guessing wrong is silent.
+- **Escaping the neighbour does not help and neither do entities.** `**Ver.**&#50;` stays literal,
+  because Markdig resolves character references *before* it evaluates flanking. `&#8364;` and
+  `&#128512;` appear to work only because what they decode to is itself punctuation, which is what
+  proves the ordering rather than offering a way round it.
+
+**Unbounded input is a property of the library, not of Markdown.** All four text formats read the
+whole source before any guard runs — `MarkdownFormat`, `HtmlFormat`, `RtfFormat` and `JsonFormat`
+each call `DocumentPayload.ReadAllText` on the stream — and `MaxDataImageBytes` bounds only embedded
+images, in `HtmlImportOptions` exactly as in `MarkdownImportOptions`. Markdown then materialises a
+Markdig AST, an HTML string and an AngleSharp DOM, which is more intermediate representations than
+HTML but the same shape of exposure and the same absence of a bound. It is recorded here as known
+rather than fixed in one package, because a limit that exists only on the newest format is a limit
+a caller cannot rely on and a defence an attacker routes around by pasting the same bytes as HTML.
+Whoever adds one should add it at `DocumentPayload`.
 
 **Two bugs the round-trip tests found, both invisible to a round trip that only checked validity.**
 A list written with no blank line above it: legal for a bulleted list, which may interrupt a
@@ -2262,10 +2307,21 @@ Markdown against a literal *before* importing it. Three round-trip tests in this
 asserted nothing but schema validity and stayed green for weeks while the importer dropped every
 empty table row.
 
-**Fifteen mutants, fifteen killed**, including one for each security guard: raw HTML block kept, raw
-inline tag kept, `AllowRawHtml` defaulting on, `AllowRawHtml` inverted, options never reaching the
+**Thirty-seven mutants, thirty-seven killed**, including one for each security guard: raw HTML block
+kept, raw
+inline tag kept, the Markdown inline non-content guard never firing, `AllowRawHtml` defaulting on,
+`AllowRawHtml` inverted, options never reaching the
 HTML stage, `BaseUri` and `AllowRemoteImages` dropped from the mapping, the scheme test reverted to
-`UriKind.Absolute`, and `script`/`style` removed from the non-content list.
+`UriKind.Absolute`, and `script`/`style` removed from the non-content list. The flanking work
+accounts for eight on its own, of which the two that matter most are `IsPunctuation` without the `S`
+categories — killed only by the `=`, `€` and emoji rows — and the next-run lookahead replaced by
+end-of-line.
+
+**Two mutants had to be rewritten because they did not compile, and a mutant that does not compile
+is not a surviving mutant.** Both left a field or a branch unread, which `TreatWarningsAsErrors`
+turns into a build failure, and a test run that never builds prints no failure either — so the
+harness reported them as survivors. Anything that reports "no output" from a mutation run is a
+build error until proven otherwise.
 
 **Declined.** An `IsMarkdown` counterpart to `RtfImporter.IsRtf`: there cannot be one, because every
 string is valid Markdown, so a caller choosing between flavours has to decide on the media type or
