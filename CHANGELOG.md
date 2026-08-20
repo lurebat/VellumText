@@ -47,6 +47,20 @@ NuGet; packages are published to a local feed, and
   instead, in which case it goes through the same sanitizer every HTML import
   goes through rather than a second one written for Markdown.
 
+- **An inline `<script>` or `<style>` in Markdown no longer hands its body to
+  the document as text.** Removing a raw inline tag keeps the words around it,
+  which is right for `<b>bold</b>` and catastrophic for
+  `a <script>steal()</script> b`, which imported as the text `a steal() b`. This
+  is the defect `c02d649` fixed in the HTML reader in August 2026, reached again
+  through Markdown's default path — the path that runs when a host has *not*
+  opted into raw HTML. An inline tag naming an element whose text a browser never
+  shows now takes everything through its matching closing tag, and reports a
+  `Dropped`. The element list is the HTML package's own, shared rather than
+  copied, because a second copy of a security list is a second copy to forget to
+  extend. The reason the regression was invisible: the tests covered `<script>`
+  as a *block*, where it was already removed with its subtree by ordinary block
+  handling.
+
 - **Markdown link destinations go through the existing scheme allow-list.**
   Import runs by way of the HTML reader, so `[click](javascript:alert(1))` keeps
   its text and loses its destination, and so do `//host/path` and

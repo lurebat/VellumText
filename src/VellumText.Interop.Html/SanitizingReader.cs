@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using Ganss.Xss;
@@ -59,8 +61,15 @@ internal sealed class SanitizingReader
     /// their bodies to visible text. The setting is right for an unrecognised wrapper — a fragment
     /// inside a <c>&lt;div&gt;</c> is still a fragment — and wrong here, where the children are
     /// program text rather than something the user copied. A browser renders none of these.
+    /// <para>
+    /// Visible to <c>VellumText.Interop.Markdown</c> rather than copied into it. Markdown's default
+    /// path removes raw HTML before this sanitizer ever exists, so it has to make the same
+    /// non-content distinction itself — and a second copy of this list is a second list to forget
+    /// to extend. It is exposed as an <see cref="ImmutableArray{T}"/> so sharing it cannot mean
+    /// sharing the ability to edit it.
+    /// </para>
     /// </remarks>
-    private static readonly string[] NonContentElements =
+    internal static readonly ImmutableArray<string> NonContentElements =
     [
         "script", "style", "template", "noscript", "noframes", "noembed", "title",
     ];

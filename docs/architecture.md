@@ -2192,25 +2192,50 @@ contract.
 implementations to pass raw HTML through, as blocks and inline, which makes every Markdown document
 a carrier for every HTML hazard in a format whose whole reputation is for being plain text. By
 default every `HtmlBlock` and `HtmlInline` is deleted from the parsed tree before anything is
-rendered, and each removal is reported. The two cases are not equally bad and are not reported as
-if they were: removing an inline tag leaves the text it wrapped, because in Markdig a tag and the
-literal after it are separate nodes, so that is a `Downgraded`; an HTML block *is* its text, so
-that is a `Dropped`. `AllowRawHtml` renders it instead and lets the same sanitizer every HTML
+rendered, and each removal is reported. The cases are not equally bad and are not reported as
+if they were: removing an inline formatting tag leaves the text it wrapped, because in Markdig a tag
+and the literal after it are separate nodes, so that is a `Downgraded`; an HTML block *is* its text,
+so that is a `Dropped`. `AllowRawHtml` renders it instead and lets the same sanitizer every HTML
 import goes through decide — checked rather than trusted, and never a second allow-list.
 
+**A fix recorded against one importer did not survive a second importer reaching the same model.**
+`c02d649` stopped script and style bodies becoming document text in the HTML reader in August 2026.
+When Markdown's default path shipped, it reached the same model by a route that reader never sees:
+its own removal of raw HTML, which ran *before* the sanitizer existed and kept the words around every
+inline tag. `a <script>steal()</script> b` therefore imported as the text `a steal() b` again.
+The reason it was missed is worth more than the defect: `MarkdownSecurityTests` covered `<script>`
+as a *block* only, and a block is removed with its subtree by the same code path as any other block,
+so the covered case could not have failed. **A security case has a shape as well as a name**, and
+covering one shape of it reads as coverage of the name.
+
+The fix keeps the keep-the-text rule, which is correct for `<b>`, and makes it conditional on the
+element: an inline tag whose name is in `SanitizingReader.NonContentElements` takes everything
+through its matching closing tag, unclosed takes the rest of the paragraph, and `<script/>` counts as
+unclosed because that is what a browser does with it. That list is **shared, not copied** —
+`VellumText.Interop.Html` widened it from `private static readonly string[]` to
+`internal static readonly ImmutableArray<string>` and added an `InternalsVisibleTo` for
+`VellumText.Interop.Markdown`. `ImmutableArray` because sharing a security list must not mean sharing
+the ability to edit it, and shared at all because this repository has already watched a heading ramp
+drift between two implementations and disagree at every level from 2 down. A second copy of "whose
+text is never content" is a second copy to forget to extend. Nothing public moved: `SanitizingReader`
+is internal, so `MarkdownPublicSurfaceTests` still sees no HTML type on the Markdown surface.
+
 The two guards are independent, and the mutation run proves it. Deleting `script` and `style` from
-`SanitizingReader.NonContentElements` — the second of the two historical defects, where script
-bodies arrived as visible text — leaves `A_raw_html_block_is_removed_with_its_contents` green,
+`SanitizingReader.NonContentElements` leaves `A_raw_html_block_is_removed_with_its_contents` green,
 because the Markdown layer had already removed the block, and turns
-`Allowed_raw_html_still_loses_its_script_and_style` red. Defence in depth is only defence in depth
-if a test can tell the layers apart.
+`Allowed_raw_html_still_loses_its_script_and_style`, `Allowed_raw_inline_html_still_loses_its_script`
+and the HTML package's own `Code_bearing_elements_do_not_leak_their_bodies_as_text` red. Making the
+Markdown inline guard never fire turns only
+`A_raw_inline_non_content_tag_is_removed_with_its_contents` red. Defence in depth is only defence in
+depth if a test can tell the layers apart.
 
 **What Markdown cannot represent is reported rather than dropped in silence** — see the §4.9
 correction for why that needed a method outside `IDocumentExporter`. Twenty-six export diagnostics,
 covering colour, highlight, font family, font size, underline, sub/superscript, paragraph
 alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, and every place a
-table cell or a heading has to be flattened to one line. Import adds five: raw HTML block, raw
-inline tag, a code fence's language, a table column's alignment, and a `Malformed` for the
+table cell or a heading has to be flattened to one line. Import adds six: raw HTML block, raw
+inline tag, a raw non-content element removed with its contents, a code fence's language, a table
+column's alignment, and a `Malformed` for the
 pathological input Markdig can still fail on — every string is valid Markdown, but deep enough
 nesting is a stack overflow and an import is not a good place to learn that.
 

@@ -138,11 +138,22 @@ public static class MarkdownImporter
 
     /// <summary>Removes every raw HTML block and inline tag from the tree.</summary>
     /// <remarks>
-    /// The two cases are not equally bad and are not reported as if they were. Removing an inline
-    /// tag leaves the text it wrapped, because in Markdig a tag and the text after it are separate
-    /// nodes — <c>a &lt;b&gt;word&lt;/b&gt; b</c> keeps "word". Removing an HTML block takes its
-    /// entire contents, because the block <em>is</em> the text. So the first is a downgrade and the
-    /// second is a loss.
+    /// <para>
+    /// The cases are not equally bad and are not reported as if they were. Removing an inline
+    /// formatting tag leaves the text it wrapped, because in Markdig a tag and the text after it are
+    /// separate nodes — <c>a &lt;b&gt;word&lt;/b&gt; b</c> keeps "word". Removing an HTML block takes
+    /// its entire contents, because the block <em>is</em> the text. So the first is a downgrade and
+    /// the second is a loss.
+    /// </para>
+    /// <para>
+    /// Keeping the words is right for a tag that only styles them and catastrophic for one whose
+    /// body is program text: applied to <c>a &lt;script&gt;steal()&lt;/script&gt; b</c> it hands the
+    /// script to the document as prose. So an inline tag from
+    /// <see cref="SanitizingReader.NonContentElements"/> takes everything through its matching
+    /// closing tag, which is the same distinction the HTML reader makes and the same list it makes
+    /// it from. An unclosed one takes the rest of its paragraph, and a <c>&lt;script/&gt;</c> counts
+    /// as unclosed, because that is what a browser does with it too.
+    /// </para>
     /// </remarks>
     private static void RemoveRawHtml(MarkdownDocument document, DiagnosticLog log)
     {
@@ -158,16 +169,102 @@ public static class MarkdownImporter
                 "html-block");
         }
 
-        foreach (var inline in document.Descendants<HtmlInline>().ToList())
+        foreach (var leaf in document.Descendants<LeafBlock>().ToList())
         {
-            inline.Remove();
-
-            log.ReportOnce(
-                DiagnosticSeverity.Downgraded,
-                "Removed a raw HTML tag embedded in the Markdown; the text around it was kept.",
-                TagName(inline.Tag));
+            if (leaf.Inline is { } inlines)
+            {
+                RemoveRawHtml(inlines, log);
+            }
         }
     }
+
+    /// <summary>Removes the raw HTML among one container's inlines, and inside its children.</summary>
+    /// <remarks>
+    /// Walked by sibling rather than over a materialised <c>Descendants</c> list because removing a
+    /// non-content element removes the nodes that follow it, and a pre-built list would then hold
+    /// nodes that are no longer anywhere — including, in
+    /// <c>&lt;script&gt;x **&lt;/script&gt;** y</c>, a closing tag that has already been consumed
+    /// and would otherwise be processed a second time.
+    /// </remarks>
+    private static void RemoveRawHtml(ContainerInline container, DiagnosticLog log)
+    {
+        var node = container.FirstChild;
+
+        while (node is not null)
+        {
+            var next = node.NextSibling;
+
+            switch (node)
+            {
+                case HtmlInline tag
+                    when IsOpeningTag(tag.Tag)
+                        && SanitizingReader.NonContentElements.Contains(TagName(tag.Tag)):
+                    next = RemoveThroughClosingTag(tag, log);
+                    break;
+
+                case HtmlInline tag:
+                    tag.Remove();
+
+                    log.ReportOnce(
+                        DiagnosticSeverity.Downgraded,
+                        "Removed a raw HTML tag embedded in the Markdown; the text around it was kept.",
+                        TagName(tag.Tag));
+                    break;
+
+                case ContainerInline child:
+                    RemoveRawHtml(child, log);
+                    break;
+            }
+
+            node = next;
+        }
+    }
+
+    /// <summary>
+    /// Removes a non-content element's opening tag, its contents, and its closing tag.
+    /// </summary>
+    /// <returns>The first sibling that survives, so the caller's walk can resume there.</returns>
+    /// <remarks>
+    /// Nesting is counted rather than assumed absent: an inner <c>&lt;script&gt;</c> inside the text
+    /// of an outer one would otherwise let the inner closing tag end the removal early and release
+    /// the rest of the body as prose.
+    /// </remarks>
+    private static Inline? RemoveThroughClosingTag(HtmlInline open, DiagnosticLog log)
+    {
+        var name = TagName(open.Tag);
+        var node = (Inline?)open;
+        var depth = 0;
+
+        while (node is not null)
+        {
+            var next = node.NextSibling;
+
+            if (node is HtmlInline tag && TagName(tag.Tag) == name)
+            {
+                depth += IsOpeningTag(tag.Tag) ? 1 : -1;
+            }
+
+            node.Remove();
+            node = next;
+
+            if (depth == 0)
+            {
+                break;
+            }
+        }
+
+        log.ReportOnce(
+            DiagnosticSeverity.Dropped,
+            "Removed a raw HTML element whose contents a browser would never show as text, "
+                + "along with those contents.",
+            name);
+
+        return node;
+    }
+
+    /// <summary>Whether a raw tag opens an element rather than closing one.</summary>
+    private static bool IsOpeningTag(string? tag) =>
+        tag is { Length: > 1 } && tag[0] == '<' && tag[1] != '/';
 
     /// <summary>
     /// Strips the <c>language-…</c> class Markdig puts on a fenced block's <c>&lt;code&gt;</c>.

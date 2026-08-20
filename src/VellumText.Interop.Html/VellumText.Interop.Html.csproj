@@ -20,6 +20,12 @@
     <!-- CssStyles.TryColor parses percentage channels that AngleSharp resolves to numbers before
          the importer sees them, so that branch is only reachable from a direct test. -->
     <InternalsVisibleTo Include="VellumText.Interop.Html.Tests" />
+
+    <!-- SanitizingReader.NonContentElements is the one answer to "whose text is never content", and
+         Markdown needs it before this package's sanitizer exists: its default path deletes raw HTML
+         from the parsed Markdown, so nothing downstream is left to make the distinction. Shared
+         rather than copied - a copy of a security list is a copy to forget to extend. -->
+    <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
   </ItemGroup>
 
 </Project>

@@ -121,6 +121,50 @@ public class MarkdownSecurityTests
     }
 
     /// <summary>
+    /// The same two elements reached inline rather than as a block, which is the form the block
+    /// guard above never sees.
+    /// </summary>
+    /// <remarks>
+    /// Markdig splits <c>a &lt;script&gt;steal()&lt;/script&gt; b</c> into five inline nodes, of
+    /// which only two are tags, so the rule that keeps a formatting tag's words — correct for
+    /// <c>&lt;b&gt;</c> — hands a script body to the document as prose. That is the defect
+    /// <c>c02d649</c> fixed in the HTML reader in August 2026, arriving through a second importer.
+    /// The element list is the HTML package's, not a copy: a copy is what drifts.
+    /// </remarks>
+    [Theory]
+    [InlineData("<script>steal()</script>", "steal()", "script")]
+    [InlineData("<style>body{display:none}</style>", "display:none", "style")]
+    [InlineData("<title>secret</title>", "secret", "title")]
+    [InlineData("<noscript>fallback</noscript>", "fallback", "noscript")]
+    public void A_raw_inline_non_content_tag_is_removed_with_its_contents(
+        string html,
+        string forbidden,
+        string context)
+    {
+        var result = Import($"a {html} b");
+
+        Assert.DoesNotContain(forbidden, AllText(result), StringComparison.Ordinal);
+        Assert.Equal("a b", AllText(result));
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Dropped && d.Context == context);
+    }
+
+    /// <summary>
+    /// Allowing raw HTML must not restore the inline form either — the sanitizer is the second of
+    /// the two guards, and this is the case that asks it on its own.
+    /// </summary>
+    [Fact]
+    public void Allowed_raw_inline_html_still_loses_its_script()
+    {
+        var result = MarkdownImporter.Import(
+            "a <script>steal()</script> b",
+            new MarkdownImportOptions { AllowRawHtml = true });
+
+        Assert.DoesNotContain("steal()", AllText(result), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// An inline tag is a node of its own, separate from the literal text around it, so removing
     /// the tag keeps the words. Only the formatting the tag would have applied is lost.
     /// </summary>
