@@ -46,6 +46,14 @@ NuGet; packages are published to a local feed, and
   reported the loss, because the Markdown was well formed and so was the
   document it read back as.
 
+- **A list item whose first block is a nested list no longer loses its own
+  marker.** The marker for an item is held pending until a line consumes it, and
+  a nested list that was the item's *first* block wrote its own marker over the
+  pending one before it had ever been flushed. `- - inner` came back out as
+  `  - inner`, which reads as a single list with the outer level gone — a
+  nesting level destroyed permanently, with no diagnostic. Reachable from
+  `<ul><li><ul><li>inner</li></ul></li></ul>` as well as from Markdown.
+
 ### Security
 
 - **Raw HTML embedded in Markdown is removed by default.** CommonMark requires

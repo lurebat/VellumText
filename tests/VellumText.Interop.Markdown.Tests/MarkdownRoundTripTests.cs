@@ -297,6 +297,46 @@ public class MarkdownRoundTripTests
     }
 
     /// <summary>
+    /// An item whose first block is itself a list still gets its own marker, so the nesting level
+    /// it stands for survives.
+    /// </summary>
+    /// <remarks>
+    /// The marker for an item is held pending until a line consumes it. When the item's first block
+    /// was a nested list, the inner list wrote its own marker over the pending one before it had
+    /// ever been flushed, so the outer item disappeared and the two levels flattened into one —
+    /// permanently, with no diagnostic. Also reachable from
+    /// <c>&lt;ul&gt;&lt;li&gt;&lt;ul&gt;&lt;li&gt;inner&lt;/li&gt;&lt;/ul&gt;&lt;/li&gt;
+    /// &lt;li&gt;after&lt;/li&gt;&lt;/ul&gt;</c>.
+    /// </remarks>
+    [Fact]
+    public void An_item_beginning_with_a_nested_list_keeps_its_own_marker()
+    {
+        var back = Trip(
+            new DocumentNode([
+                new ListNode(
+                    [
+                        new ListItemNode([
+                            new ListNode(
+                                [ListItemNode.FromText("first"), ListItemNode.FromText("second")],
+                                ListKind.Unordered)]),
+                        ListItemNode.FromText("after"),
+                    ],
+                    ListKind.Unordered)]),
+            "- - first\n  - second\n- after\n");
+
+        var outer = Assert.IsType<ListNode>(Assert.Single(back.Blocks));
+
+        Assert.Equal(2, outer.Items.Length);
+
+        var inner = Assert.IsType<ListNode>(outer.Items[0].Blocks[0]);
+
+        Assert.Equal(
+            ["first", "second"],
+            inner.Items.Select(i => ((ParagraphNode)i.Blocks[0]).Content.Text));
+        Assert.Equal("after", ((ParagraphNode)outer.Items[1].Blocks[0]).Content.Text);
+    }
+
+    /// <summary>
     /// An unescaped <c>!</c> before a link makes it an image, and an image's <c>[…]</c> is alt text
     /// rather than content — so the link, and every word of its text, is deleted on the way back.
     /// </summary>

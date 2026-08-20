@@ -305,10 +305,22 @@ public sealed class MarkdownExporter : IDocumentExporter
             Line(fence);
         }
 
+        /// <summary>Writes a list, one marker per item.</summary>
+        /// <remarks>
+        /// A pending marker belonging to the item this list is the <em>first</em> block of has to be
+        /// taken over rather than overwritten: nothing has consumed it yet, and writing a marker of
+        /// this list's own would leave the outer item with none at all, flattening two levels into
+        /// one. Taking it over is safe because it and <c>_indent</c> are the same length by
+        /// construction — the indent is the marker's width in spaces — so the inner markers below it
+        /// still line up.
+        /// </remarks>
         private void WriteList(ListNode list)
         {
             var number = list.Start;
             var outer = _indent;
+            var pending = _marker;
+
+            _marker = null;
 
             foreach (var item in list.Items)
             {
@@ -318,7 +330,8 @@ public sealed class MarkdownExporter : IDocumentExporter
 
                 number++;
 
-                _marker = outer + marker;
+                _marker = (pending ?? outer) + marker;
+                pending = null;
 
                 // Continuation lines line up under the text, not under the marker, or a second
                 // paragraph in the item is read as a new block outside the list.
