@@ -326,6 +326,22 @@ public static class HtmlImporter
                     AddImage(element, mark, sink);
                     return;
 
+                case "figure" when mark.Link is null && LoneImage(element) is { } lone:
+                    // A figure that is nothing but its image is how a block image is written. A
+                    // link around it belongs to the image and a block image cannot carry one, so
+                    // that case falls through and the image stays inline with its link.
+                    if (ImageOf(lone) is { } image)
+                    {
+                        var figureStyle = CssStyles.StyleOf(element, _styles);
+                        var figureBlock = figureStyle is null
+                            ? block
+                            : CssStyles.ApplyBlock(block, figureStyle);
+
+                        sink.AddBlock(block, new BlockImageNode(image, figureBlock.Align));
+                    }
+
+                    return;
+
                 case "ul":
                 case "ol":
                     AddList(element, mark, block, sink, depth);
@@ -490,23 +506,57 @@ public static class HtmlImporter
 
         private void AddImage(IElement element, MarkSet mark, BlockSink sink)
         {
+            if (ImageOf(element) is { } image)
+            {
+                sink.AddEmbed(image, mark);
+            }
+        }
+
+        /// <summary>The image an <c>img</c> element describes, or null when it has no source.</summary>
+        private ImageEmbed? ImageOf(IElement element)
+        {
             var source = element.GetAttribute("src");
 
             if (string.IsNullOrWhiteSpace(source))
             {
                 // The sanitizer took the source away, and has already said why.
-                return;
+                return null;
             }
 
             var alt = element.GetAttribute("alt");
 
-            sink.AddEmbed(
-                new ImageEmbed(
-                    source,
-                    Dimension(element, "width"),
-                    Dimension(element, "height"),
-                    string.IsNullOrWhiteSpace(alt) ? null : alt),
-                mark);
+            return new ImageEmbed(
+                source,
+                Dimension(element, "width"),
+                Dimension(element, "height"),
+                string.IsNullOrWhiteSpace(alt) ? null : alt);
+        }
+
+        /// <summary>
+        /// The figure's only content when that is a single image, and null when there is anything
+        /// else in it — a caption, text, a second image.
+        /// </summary>
+        private static IElement? LoneImage(IElement figure)
+        {
+            IElement? image = null;
+
+            foreach (var child in figure.ChildNodes)
+            {
+                switch (child)
+                {
+                    case IText text when string.IsNullOrWhiteSpace(text.Data):
+                        continue;
+
+                    case IElement { LocalName: "img" } img when image is null:
+                        image = img;
+                        continue;
+
+                    default:
+                        return null;
+                }
+            }
+
+            return image;
         }
 
         /// <summary>The largest width or height, in pixels, an image is allowed to declare.</summary>

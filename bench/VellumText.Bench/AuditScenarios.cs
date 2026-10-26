@@ -479,14 +479,14 @@ internal static class AuditScenarios
         {
             var html = Html(p);
             Console.WriteLine($"   {p:N0} paragraphs = {html.Length / 1024.0 / 1024.0:F2} M chars of HTML");
-            return Measure.Run(() => html, h => HtmlFormat.Instance.Import(h), p, rounds: 3, warmup: 1);
+            return Measure.Run(() => html, h => HtmlFormat.Instance.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1);
         }).ToList();
 
         Measure.Report("AUDIT HTML import (HtmlFormat.Import) of N paragraphs", "paragraphs", import);
 
         var land = sizes.Select(p =>
         {
-            var result = HtmlFormat.Instance.Import(Html(p));
+            var result = HtmlFormat.Instance.ImportAsync(Html(p)).GetAwaiter().GetResult();
             var host = Document(1);
             return Measure.Run(
                 () =>
@@ -509,7 +509,7 @@ internal static class AuditScenarios
 
         var direct = sizes.Select(p =>
         {
-            var result = HtmlFormat.Instance.Import(Html(p));
+            var result = HtmlFormat.Instance.ImportAsync(Html(p)).GetAwaiter().GetResult();
             var host = Document(1);
             return Measure.Run(
                 () =>
@@ -533,7 +533,7 @@ internal static class AuditScenarios
 
         var into = Big.Take(3).Select(n =>
         {
-            var result = HtmlFormat.Instance.Import(Html(10));
+            var result = HtmlFormat.Instance.ImportAsync(Html(10)).GetAwaiter().GetResult();
             var host = Document(n);
             return Measure.Run(
                 () =>
@@ -607,7 +607,7 @@ internal static class AuditScenarios
         {
             var rtf = Rtf(p, null);
             Console.WriteLine($"   {p:N0} paragraphs = {rtf.Length / 1024.0 / 1024.0:F2} M chars of RTF");
-            return Measure.Run(() => rtf, r => RtfFormat.Instance.Import(r), p, rounds: 3, warmup: 1);
+            return Measure.Run(() => rtf, r => RtfFormat.Instance.ImportAsync(r).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1);
         }).ToList();
 
         Measure.Report("AUDIT RTF import, N paragraphs, no images", "paragraphs", text);
@@ -624,8 +624,8 @@ internal static class AuditScenarios
         {
             var png = NoisePng(side);
             var rtf = Rtf(1_000, png);
-            var p = Measure.Run(() => rtf, r => RtfFormat.Instance.Import(r), side, rounds: 3, warmup: 1);
-            var res = RtfFormat.Instance.Import(rtf);
+            var p = Measure.Run(() => rtf, r => RtfFormat.Instance.ImportAsync(r).GetAwaiter().GetResult(), side, rounds: 3, warmup: 1);
+            var res = RtfFormat.Instance.ImportAsync(rtf).GetAwaiter().GetResult();
             var imgs = res.Doc.Blocks.OfType<ParagraphNode>().Sum(b => b.Content.Embeds.Length)
                 + res.Doc.Blocks.OfType<BlockImageNode>().Count();
             Console.WriteLine($"   RTF 1,000 paragraphs + one {png.Length / 1024.0:F0} KB PNG ({rtf.Length / 1024.0 / 1024.0:F2} M chars): {p.Milliseconds:F1} ms, {p.Bytes:N0} B allocated, images kept: {imgs}, diagnostics: {res.Diagnostics.Length}");
@@ -944,10 +944,10 @@ internal static class AuditScenarios
             var rows = new (string, Point)[]
             {
                 ($"hand HTML {html.Length / 1024}K chars: AngleSharp parse only", Measure.Run(() => html, h => parser.ParseDocument(h), p, rounds: 3, warmup: 1)),
-                ($"hand HTML: full HtmlFormat.Import", Measure.Run(() => html, h => HtmlFormat.Instance.Import(h), p, rounds: 3, warmup: 1)),
+                ($"hand HTML: full HtmlFormat.Import", Measure.Run(() => html, h => HtmlFormat.Instance.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
                 ($"RtfPipe HTML {rtfHtml.Length / 1024}K chars: AngleSharp parse only", Measure.Run(() => rtfHtml, h => parser.ParseDocument(h), p, rounds: 3, warmup: 1)),
-                ($"RtfPipe HTML: full HtmlImporter.Import", Measure.Run(() => rtfHtml, h => HtmlImporter.Import(h), p, rounds: 3, warmup: 1)),
-                ($"RtfPipe HTML, style attrs stripped {rtfHtmlNoStyle.Length / 1024}K: full import", Measure.Run(() => rtfHtmlNoStyle, h => HtmlImporter.Import(h), p, rounds: 3, warmup: 1)),
+                ($"RtfPipe HTML: full HtmlImporter.Import", Measure.Run(() => rtfHtml, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
+                ($"RtfPipe HTML, style attrs stripped {rtfHtmlNoStyle.Length / 1024}K: full import", Measure.Run(() => rtfHtmlNoStyle, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
             };
 
             Console.WriteLine();

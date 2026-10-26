@@ -107,6 +107,15 @@ awaits `PasteAsync`.
   or a 64-byte BMP 2 GB, through a paste and one render. Their declared
   dimensions are now read from the header and checked first. A format the
   header reader does not recognise is still checked after decoding, as before.
+- **HTML export can no longer turn an imported font name back into CSS the
+  sanitizer removed.** A pasted
+  `font-family:"x\" ;background-image:url(http://tracker.invalid/p.png);"` kept
+  its CSS escape in the model, and the exporter escaped the quote but not the
+  backslash, so a copy carried a live `background-image` — a tracking fetch the
+  import had stripped. Import now reads the family the CSS actually states, and
+  export writes every family name through one CSS string serializer that
+  escapes `\`, `"` and control characters. A host's list of fallbacks
+  (`Segoe UI, Arial`) stays a list.
 
 ### Fixed
 
@@ -265,6 +274,72 @@ awaits `PasteAsync`.
   than 80 characters allocated 17 MB and took 15 ms, against the method's own
   promise to cost about the budget. It now counts the container paragraph by
   paragraph, exactly as its plain text would be laid out, and stops there.
+- **Markdown export no longer throws, or silently changes text, around
+  emphasis.** One styled escaped or astral character — the italic `&` in
+  "R&D", a bold 👍 — threw `IndexOutOfRangeException` out of
+  `MarkdownFormat.Export` (and on copy the Markdown flavour was silently
+  missing). A run's closing delimiter and the next run's opening one could
+  touch and merge, so bold "Price" beside italic "$5" came back as bold
+  "Price" and the literal text `*$5*`, with no diagnostic. The inline writer
+  now judges every delimiter against what is really written beside it,
+  including the neighbouring run's delimiters, and writes `**Price**_$5_`.
+  Bold text that changes colour no longer closes and reopens its bold.
+- **A Markdown paragraph ending in a line break no longer comes back ending in
+  a backslash.** The break has no notation there; it is dropped with a
+  `Downgraded` diagnostic. A break at the end of a link's text is written just
+  after the link instead of being lost.
+- **Inline code straight after a literal backtick stays code.** The backtick
+  was written as a backslash escape directly before the code span's fence,
+  which a reader refuses to open there, so the code came back as plain text
+  with two extra backticks; the literal backtick is now written `&#96;`.
+- **Exporting a styled run with long whitespace at its edges is linear.** 40,000
+  trailing spaces in a bold run took 2.3 s and 3.2 GB of allocation.
+- **A numbered list nested in a list item keeps its start number in Markdown.**
+  One starting anywhere but 1 was written straight under its item's paragraph,
+  which it cannot interrupt, so `- Steps` / `2. second` came back as the one
+  paragraph "Steps 2. second". It now gets the blank line a top-level one does.
+- **RTF export writes tables from the grid.** A cell spanning two rows left the
+  row below one cell short, and its cells were written a column too far left;
+  a cell's paragraphs ran together ("Hello" and "World" became "HelloWorld");
+  and a list, rule or image in a cell was written outside the table and split
+  it in two. Row spans are now written as `\clvmgf`/`\clvmrg` merges, every
+  paragraph in a cell is marked `\intbl` and keeps its alignment, and two
+  tables written back to back get the empty paragraph RTF needs between them
+  instead of running together. A table inside a cell is written as the cell's
+  paragraphs, row by row: nested tables are not understood consistently by RTF
+  readers.
+- **A quote or a backslash in a link no longer breaks the RTF hyperlink, and a
+  semicolon no longer cuts a font name short.** A quote ended the HYPERLINK
+  field's argument, so the link was dropped — and
+  `https://ok.example/" "javascript:alert(1)` became a second argument, which
+  RtfPipe-based readers take as the target. A quote in an address is now
+  written `%22` and a backslash is escaped for the field. `Weird;Font` was the
+  font "Weird" followed by stray text; the semicolon is left out of the name.
+- **A block image comes back a block image through HTML and Markdown.** No
+  importer ever built one, so every copy or save turned a block image into a
+  paragraph holding an inline picture — no block selection, no resize — with
+  no diagnostic. HTML export now writes a block image as a `<figure>` holding
+  only the image, and HTML import reads such a figure (with its alignment) as a
+  block image; a figure with a caption, or inside a link, is unchanged.
+  Markdown import reads a paragraph that is nothing but one image as a block
+  image, so Markdown export now reports an inline image that is the whole of
+  its paragraph (`image-paragraph`), since that one comes back as a block image
+  too. RTF is unchanged: its reader cannot tell the two apart.
+- **An explicit font size inside a heading no longer grows on every RTF copy
+  and paste.** It was multiplied by the heading's scale on the way out and read
+  back as the explicit size, so 12 px in a Heading 1 became 24, then 48, then
+  96. The heading's scale now applies only to text that asked for no size.
+- **RTF lists keep their nesting, their boundaries and their start number.**
+  Depth was carried only by the indent and every paragraph repeated an
+  old-style `\pn` numbering with no level and no identity, so a nested list
+  came back flat and two lists written back to back came back as one. Lists are
+  now written with a `\listtable`: each top-level list has its own `\ls`,
+  nested lists are its deeper `\ilvl` levels with their own kind and start, and
+  the marker is still written as literal `\listtext` for readers that know no
+  list table. A heading inside a list item now keeps its `\outlinelevel`.
+- **RTF export writes a link's title and an image's alternative text.** Neither
+  was in the RTF at all. A title is now the HYPERLINK field's `\o` tooltip, and
+  alt text is the picture's `wzDescription` property, which Word reads.
 
 ### Changed
 
