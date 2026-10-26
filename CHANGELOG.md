@@ -98,6 +98,13 @@ NuGet; packages are published to a local feed, and
   instead of running together. A table inside a cell is written as the cell's
   paragraphs, row by row: nested tables are not understood consistently by RTF
   readers.
+- **A quote or a backslash in a link no longer breaks the RTF hyperlink, and a
+  semicolon no longer cuts a font name short.** A quote ended the HYPERLINK
+  field's argument, so the link was dropped — and
+  `https://ok.example/" "javascript:alert(1)` became a second argument, which
+  RtfPipe-based readers take as the target. A quote in an address is now
+  written `%22` and a backslash is escaped for the field. `Weird;Font` was the
+  font "Weird" followed by stray text; the semicolon is left out of the name.
 
 ## [0.7.0] - 2026-08-20
 

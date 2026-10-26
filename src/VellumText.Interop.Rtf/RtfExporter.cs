@@ -138,8 +138,10 @@ public sealed class RtfExporter : IDocumentExporter
                     .Append(@"\fnil ");
 
                 // A font name is text like any other: it can contain a brace, a backslash or a
-                // character outside the code page, and Word's own output regularly does.
-                Text.Write(rtf, _fonts[i]);
+                // character outside the code page, and Word's own output regularly does. A
+                // semicolon is the exception: it ends the entry, and no escape un-ends it, so
+                // "Weird;Font" was the font "Weird" followed by stray text. It is left out.
+                Text.Write(rtf, _fonts[i].Replace(";", string.Empty, StringComparison.Ordinal));
 
                 rtf.Append(";}");
             }
@@ -204,6 +206,46 @@ public sealed class RtfExporter : IDocumentExporter
             foreach (var c in text)
             {
                 Write(rtf, c);
+            }
+        }
+
+        /// <summary>Writes a quoted argument of a field instruction.</summary>
+        /// <param name="rtf">The output.</param>
+        /// <param name="value">The argument.</param>
+        /// <param name="address">
+        /// Whether it is a URL, where a quote is percent-encoded rather than escaped.
+        /// </param>
+        /// <remarks>
+        /// A field instruction has its own quoting inside RTF's: a quote ends the argument and a
+        /// backslash escapes the next character. Written as plain text, <c>a\b</c> came back as
+        /// <c>ab</c>, and a quote ended the address — dropping the link, or, for
+        /// <c>" "javascript:…</c>, starting a second argument that RtfPipe-based readers take as
+        /// the target. A backslash is doubled for the field and again for RTF. A quote in an address
+        /// is <c>%22</c>, which every URL parser reads as the same address and no field reader can
+        /// mistake; a quote in other text has to stay a quote, so it is escaped.
+        /// </remarks>
+        internal static void WriteFieldArgument(StringBuilder rtf, string value, bool address)
+        {
+            foreach (var c in value)
+            {
+                switch (c)
+                {
+                    case '"' when address:
+                        rtf.Append("%22");
+                        break;
+
+                    case '"':
+                        rtf.Append(@"\\""");
+                        break;
+
+                    case '\\':
+                        rtf.Append(@"\\\\");
+                        break;
+
+                    default:
+                        Write(rtf, c);
+                        break;
+                }
             }
         }
 
@@ -409,7 +451,7 @@ public sealed class RtfExporter : IDocumentExporter
                 if (link is not null)
                 {
                     rtf.Append(@"{\field{\*\fldinst{HYPERLINK """);
-                    Text.Write(rtf, link.Href);
+                    Text.WriteFieldArgument(rtf, link.Href, address: true);
                     rtf.Append(@"""}}{\fldrslt");
                 }
 
