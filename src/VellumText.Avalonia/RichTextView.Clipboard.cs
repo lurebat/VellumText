@@ -282,38 +282,35 @@ public partial class RichTextView
         // The range is settled before the await, and the delete refuses if the selection moved
         // while the clipboard was busy. Awaiting first and deleting "the selection" afterwards
         // cuts whatever the user happened to select in the meantime.
-        var before = _state.Selection;
+        var origin = CurrentOrigin();
 
         // Read-only is checked here and not only in the delete. The copy runs first, so gating
         // the delete alone left a read-only cut writing the clipboard and leaving the document
         // alone -- half of the operation, with nothing to tell the user which half.
-        if (IsReadOnly || before.IsEmpty || !await CopyAsync().ConfigureAwait(true))
+        if (IsReadOnly || _state.Selection.IsEmpty || !await CopyAsync().ConfigureAwait(true))
         {
             return false;
         }
 
-        return DeleteCutRange(before);
+        return DeleteCutRange(origin);
     }
 
     /// <summary>
     /// Removes the range a cut was started on, refusing if the selection moved meanwhile.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Separate from <see cref="CutAsync"/> because it is the only part of a cut that can be
     /// tested: the headless clipboard completes synchronously, so no test can drive the await
     /// this exists to defend.
+    /// </para>
+    /// <para>
+    /// The same <see cref="StillAt"/> test a paste uses, document included. Comparing offsets
+    /// alone let a cut delete from a document the host had swapped in during the await, whenever
+    /// its selection happened to sit at the same numbers.
+    /// </para>
     /// </remarks>
-    internal bool DeleteCutRange(Selection before)
-    {
-        var after = _state.Selection;
-
-        if (after.From != before.From || after.To != before.To)
-        {
-            return false;
-        }
-
-        return DeleteSelection();
-    }
+    internal bool DeleteCutRange(EditOrigin origin) => StillAt(origin) && DeleteSelection();
 
     /// <summary>The document and selection an asynchronous edit was started against.</summary>
     /// <remarks>

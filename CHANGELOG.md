@@ -82,6 +82,10 @@ NuGet; packages are published to a local feed, and
   view was first created, so typing one character in a highlighted code block —
   in the document or in a table cell — or replacing a `RichTextViewer`'s
   document with one of the same shape drew the code plain.
+- **A cut no longer deletes from a document swapped in while the clipboard was
+  busy.** Its guard compared selection offsets only, so a host that loaded a
+  different clip with a selection at the same numbers lost text it never copied.
+  It now uses the same document-and-selection check a paste does.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

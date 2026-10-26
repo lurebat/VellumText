@@ -260,7 +260,7 @@ public class RichTextViewClipboardTests
         view.MoveTo(1, extend: false);
         view.MoveTo(6, extend: true);
 
-        var started = view.State.Selection;
+        var started = view.CurrentOrigin();
 
         view.MoveTo(7, extend: false);
         view.MoveTo(12, extend: true);
@@ -277,8 +277,46 @@ public class RichTextViewClipboardTests
         view.MoveTo(1, extend: false);
         view.MoveTo(7, extend: true);
 
-        Assert.True(view.DeleteCutRange(view.State.Selection));
+        Assert.True(view.DeleteCutRange(view.CurrentOrigin()));
         Assert.Equal("world", Text(view));
+    }
+
+    /// <summary>
+    /// A host that loads a different clip while the clipboard is busy can leave a selection at
+    /// the same offsets; the cut must not delete from the document it never copied.
+    /// </summary>
+    [AvaloniaFact]
+    public void CuttingRefusesADocumentSwappedForOneWithTheSameSelection()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+        view.MoveTo(6, extend: true);
+
+        var started = view.CurrentOrigin();
+        var other = DocumentNode.FromParagraphs("other clip text");
+
+        view.State = EditorState.Create(other, TextSelection.Create(other, 1, 6));
+
+        Assert.False(view.DeleteCutRange(started));
+        Assert.Equal("other clip text", Text(view));
+    }
+
+    /// <summary>Moving only the end of the selection — Shift+Right during the await — refuses too.</summary>
+    [AvaloniaFact]
+    public void CuttingRefusesIfOnlyTheEndOfTheSelectionMoved()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("hello world"));
+
+        view.MoveTo(1, extend: false);
+        view.MoveTo(6, extend: true);
+
+        var started = view.CurrentOrigin();
+
+        view.MoveTo(9, extend: true);
+
+        Assert.False(view.DeleteCutRange(started));
+        Assert.Equal("hello world", Text(view));
     }
     [AvaloniaFact]
     public void TwoPastesAreTwoUndos()
