@@ -282,7 +282,7 @@ public static class HtmlImporter
 
         internal List<BlockNode> Run(INode root)
         {
-            var sink = new BlockSink();
+            var sink = new BlockSink(Downgrade);
 
             WalkChildren(root, MarkSet.Empty, BlockStyle.Default, sink, 0);
             sink.Flush(BlockStyle.Default);
@@ -614,7 +614,7 @@ public static class HtmlImporter
                     continue;
                 }
 
-                var inner = new BlockSink();
+                var inner = new BlockSink(Downgrade);
                 var itemStyle = block with { Kind = ParagraphKind.Body };
 
                 WalkChildren(child, mark, itemStyle, inner, depth);
@@ -815,7 +815,7 @@ public static class HtmlImporter
             int depth,
             bool isHeader)
         {
-            var inner = new BlockSink();
+            var inner = new BlockSink(Downgrade);
 
             // A cell starts a fresh formatting context: an indent from outside the table would
             // otherwise be applied again inside every cell of it.
@@ -885,6 +885,9 @@ public static class HtmlImporter
                 }
             }
         }
+
+        private void Downgrade(string message, string context) =>
+            Report(DiagnosticSeverity.Downgraded, message, context);
 
         private void Report(DiagnosticSeverity severity, string message, string context)
         {

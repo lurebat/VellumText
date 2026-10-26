@@ -86,6 +86,17 @@ NuGet; packages are published to a local feed, and
   turned it into a stray backslash. A break that ends a block now only ends it:
   `<p>a<br></p>` is "a", `<p><br></p>` is an empty paragraph, and a break in the
   middle of a paragraph is still a line break.
+- **One bad character or one absurd margin no longer empties a whole paste.**
+  The model refuses text that is not well-formed UTF-16 and formatting that
+  starts or ends inside a surrogate pair, and HTML, Markdown and RTF (where
+  `\u-10240?` is a lone surrogate) could deliver both; the refusal was caught
+  and the entire import came back empty with a `Malformed` diagnostic. The
+  importer now repairs these where paragraphs are built: an unpaired surrogate
+  becomes U+FFFD and a formatting edge inside a character moves to the start of
+  that character, each with a `Downgraded` diagnostic, and the rest of the
+  paste survives. Likewise a nested `margin-left:1e300px` computed an indent of
+  `int.MaxValue`, which wrapped negative once the enclosing indent was added and
+  discarded everything; the level is now capped at 8 before it is added.
 
 ## [0.7.0] - 2026-08-20
 
