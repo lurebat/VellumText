@@ -77,6 +77,12 @@ NuGet; packages are published to a local feed, and
   viewer ran every registered importer on untrusted content for a paste that
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
+- **A dropped or pasted image file larger than the image store accepts is no
+  longer read whole first.** With the default `DataUriImageStore` (4 MB), a
+  64 MB file allocated 192 MB only to be refused. The file is now read only up
+  to the store's `MaximumBytes`; past that, the drop stops reading and raises
+  `ImageRefused` with the file's size. A custom `IImageStore`, whose limit the
+  editor cannot know, still receives the whole file.
 
 ## [0.7.0] - 2026-08-20
 
