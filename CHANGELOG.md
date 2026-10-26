@@ -81,6 +81,13 @@ NuGet; packages are published to a local feed, and
   recorded, for typing, Backspace and Delete alike, so the undo costs the same
   however long the burst was. What is grouped is unchanged; a split, a join or
   any other structural step in a burst keeps its own step.
+- **A frame painted with a search open no longer walks every match in the
+  document.** Each frame — a caret blink, a scroll step, a keystroke — looked at
+  every match and, for each, at every realized block: 81 ms a frame for a
+  query of "e" at 50,000 paragraphs, 21 ms for one match per paragraph. The
+  painter now binary-searches the matches for the ones inside the realized
+  blocks, so its cost no longer depends on the document's size, and works out a
+  block's position only for the blocks a range actually reaches.
 
 ### Changed
 

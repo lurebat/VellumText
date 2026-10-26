@@ -1,4 +1,6 @@
 using global::Avalonia;
+using global::Avalonia.Controls;
+using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
 using VellumText.Avalonia;
 
@@ -147,6 +149,43 @@ public class ScalingGuardTests
             });
 
         Growth.AssertFlat(bytes, "bytes allocated by one undo of a typing burst, by burst length");
+    }
+
+    /// <summary>
+    /// F-13: with a find query open, painting a frame looks only at the matches on screen.
+    /// </summary>
+    /// <remarks>
+    /// Every match in the document was walked on every frame — caret blink, scroll, keystroke —
+    /// and each walked the realized blocks: 81 ms per frame at 50,000 paragraphs for a query of
+    /// "e". The bench scenario is <c>a-findrender</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingFindHighlightsLooksOnlyAtTheMatchesOnScreen()
+    {
+        var examined = Growth.Measure(
+            [2_000, 4_000, 8_000],
+            n =>
+            {
+                var view = new RichTextView { State = EditorState.Create(Growth.Paragraphs(n)) };
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                view.Find("e");
+                view.Offset = new Vector(0, view.Extent.Height / 2);
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                view.FindMatchesExamined = 0;
+
+                using var frame = window.CaptureRenderedFrame();
+
+                Assert.NotNull(frame);
+                Assert.True(view.FindMatchesExamined > 0, "no match was painted");
+
+                return view.FindMatchesExamined;
+            });
+
+        Growth.AssertFlat(examined, "matches examined to paint one frame");
     }
 
     private static RichTextView Shown(DocumentNode doc)

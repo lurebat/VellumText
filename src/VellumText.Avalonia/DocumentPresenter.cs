@@ -323,7 +323,6 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         for (var i = _first; i <= _last; i++)
         {
             var slot = _slots[i];
-            var origin = BlockOrigin(i);
 
             if (slot.Node.IsLeaf)
             {
@@ -333,7 +332,7 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
                 // reaches past the block on both sides.
                 if (from <= slot.Start && to >= slot.Start + slot.Node.NodeSize)
                 {
-                    onRect(new Rect(origin, _views[i].Size));
+                    onRect(new Rect(BlockOrigin(i), _views[i].Size));
                 }
 
                 continue;
@@ -343,12 +342,15 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
             // both ends so that a range merely touching a boundary is skipped here rather
             // than asked for a zero-length range; GetSelectionRects answers that with nothing,
             // so this is a short-circuit, not the thing that keeps an empty sliver off screen.
+            // Tested before the block's origin is worked out, because most blocks are skipped
+            // and the origin is a walk of the height index.
             if (to <= slot.Start || from >= slot.End)
             {
                 continue;
             }
 
             var view = _views[i];
+            var origin = BlockOrigin(i);
 
             foreach (var rect in view.GetSelectionRects(
                 Math.Max(0, from - slot.Start),
