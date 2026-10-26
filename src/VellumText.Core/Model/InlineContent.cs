@@ -217,6 +217,8 @@ public sealed class InlineContent : IEquatable<InlineContent>
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(offset, Length);
 
+        WorkCounters.MarkLookups++;
+
         var index = IndexOfSpanContaining(offset);
 
         return index < 0 ? MarkSet.Empty : Marks[index].Value;
@@ -238,20 +240,26 @@ public sealed class InlineContent : IEquatable<InlineContent>
     /// </remarks>
     internal IEnumerable<ValueSpan<MarkSet>> Runs()
     {
-        var start = 0;
+        // Read off the spans rather than by asking for the formatting of every character, which
+        // was a binary search per character of every paragraph an exporter wrote. The spans are
+        // canonical, so this is the same answer: no two touching spans share a value, and a span
+        // never carries the empty value, so an unformatted gap is always a run of its own.
+        var at = 0;
 
-        while (start < Length)
+        foreach (var span in Marks)
         {
-            var mark = MarkAt(start);
-            var end = start + 1;
-
-            while (end < Length && MarkAt(end) == mark)
+            if (span.Start > at)
             {
-                end++;
+                yield return new ValueSpan<MarkSet>(at, span.Start - at, MarkSet.Empty);
             }
 
-            yield return new ValueSpan<MarkSet>(start, end - start, mark);
-            start = end;
+            yield return span;
+            at = span.End;
+        }
+
+        if (at < Length)
+        {
+            yield return new ValueSpan<MarkSet>(at, Length - at, MarkSet.Empty);
         }
     }
 

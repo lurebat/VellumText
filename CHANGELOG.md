@@ -103,6 +103,15 @@ NuGet; packages are published to a local feed, and
   0.6 MB at 50,000 paragraphs, and Enter and a join about the same — the one
   copy of the document's block array an immutable edit makes, which stays
   linear in the document by design.
+- **Reading a large selection's formatting no longer looks at every
+  character.** The toolbar asks what formatting the selection shares on every
+  state change, and with everything selected that was a lookup per character:
+  143 ms at 50,000 paragraphs, paid again by Ctrl+B. It now walks the
+  selection's stretches of formatting from the first block the selection
+  reaches, and stops as soon as nothing is shared, so a mixed selection costs a
+  few lookups whatever its size. The HTML, RTF and Markdown exporters read
+  formatting runs the same way, off the mark spans instead of one lookup per
+  character.
 
 ### Changed
 

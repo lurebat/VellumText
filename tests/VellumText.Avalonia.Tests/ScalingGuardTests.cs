@@ -306,6 +306,79 @@ public class ScalingGuardTests
         Assert.True(bytes <= Ac12Budget, $"a join allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
     }
 
+    /// <summary>
+    /// F-32: working out what formatting a selection shares looks at stretches of formatting, not
+    /// characters, and stops once nothing is shared.
+    /// </summary>
+    /// <remarks>
+    /// The toolbar reads this on every state change, and with everything selected it looked up
+    /// the formatting of every selected character: 143 ms at 50,000 paragraphs, and Ctrl+B on a
+    /// select-all paid it again. The bench scenario is <c>a-selectall</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheSelectionsFormattingIsReadByStretchNotByCharacter()
+    {
+        int[] sizes = [500, 1_000, 2_000];
+
+        foreach (var shape in new[] { "plain", "every other word bold", "all bold", "the middle paragraph of a bold document" })
+        {
+            var lookups = new long[sizes.Length];
+            var examined = Growth.Measure(
+                sizes,
+                n =>
+                {
+                    var doc = shape switch
+                    {
+                        "plain" => Growth.Paragraphs(n),
+                        "every other word bold" => Growth.MarkedParagraphs(n),
+                        _ => Bold(Growth.Paragraphs(n)),
+                    };
+                    var view = Shown(doc);
+
+                    if (shape == "the middle paragraph of a bold document")
+                    {
+                        var middle = doc.Resolve(DocumentBlocks.Flatten(doc)[n / 2].Start);
+
+                        view.MoveTo(middle.Start(1), false);
+                        view.MoveTo(middle.End(1), true);
+                    }
+                    else
+                    {
+                        view.SelectAll();
+                    }
+
+                    view.MarkRunsExamined = 0;
+                    WorkCounters.MarkLookups = 0;
+
+                    var marks = view.SelectionMarks;
+
+                    Assert.Equal(shape is "all bold" or "the middle paragraph of a bold document", marks.Has(TextStyle.Bold));
+                    lookups[Array.IndexOf(sizes, n)] = WorkCounters.MarkLookups;
+
+                    return view.MarkRunsExamined;
+                });
+
+            // Whole-document bold is the one shape that cannot stop early: every paragraph is a
+            // single bold stretch, so the walk is one look at each paragraph and its stretch. The
+            // others give up as soon as two stretches disagree, or never leave the paragraph.
+            if (shape == "all bold")
+            {
+                Growth.AssertAtMostLinear(examined, $"leaves and stretches examined, {shape}");
+                Assert.True(examined[^1] <= 2 * sizes[^1], $"{shape}: examined {examined[^1]}");
+            }
+            else
+            {
+                Growth.AssertFlat(examined, $"leaves and stretches examined, {shape}");
+            }
+
+            Assert.True(lookups.All(l => l <= 1), $"{shape}: {string.Join(", ", lookups)} per-character lookups");
+        }
+
+        static DocumentNode Bold(DocumentNode doc) =>
+            new AddMarkStep(0, doc.ContentSize, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold)
+                .Apply(doc).Doc!;
+    }
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };

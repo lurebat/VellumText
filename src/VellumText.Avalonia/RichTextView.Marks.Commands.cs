@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Avalonia.Input;
 
 namespace VellumText.Avalonia;
@@ -21,6 +22,17 @@ namespace VellumText.Avalonia;
 /// </remarks>
 public partial class RichTextView
 {
+    /// <summary>
+    /// How many leaf blocks and stretches of formatting working out the selection's shared
+    /// formatting has looked at, ever.
+    /// </summary>
+    /// <remarks>
+    /// A work counter for the tests that pin that walk's shape without a clock. Looking at a
+    /// stretch allocates nothing, so a walk over every character is invisible to anything but a
+    /// count.
+    /// </remarks>
+    internal long MarkRunsExamined { get; set; }
+
     /// <summary>The formatting the whole selection shares.</summary>
     /// <remarks>
     /// Only what <em>every</em> character has: a selection that is half bold reports not bold,
@@ -281,26 +293,116 @@ public partial class RichTextView
         EnsureSlots();
 
         MarkSet? common = null;
+        var leaves = Leaves;
 
-        foreach (var slot in Leaves)
+        // From the first leaf the range reaches, by binary search, to the first one past it,
+        // and within each paragraph by stretch of formatting rather than by character: the
+        // toolbar asks this on every state change, and with everything selected it was a
+        // lookup per character of the document (143 ms at 50,000 paragraphs).
+        for (var i = FirstLeafEndingAtOrAfter(leaves, from); i < leaves.Length && leaves[i].Start < to; i++)
         {
+            var slot = leaves[i];
+
+            MarkRunsExamined++;
+
             if (slot.Node is not ParagraphNode paragraph)
             {
                 continue;
             }
 
-            var start = Math.Max(from, slot.Start);
-            var end = Math.Min(to, slot.End);
+            var start = Math.Max(from, slot.Start) - slot.Start;
+            var end = Math.Min(to, slot.End) - slot.Start;
 
-            for (var offset = start; offset < end; offset++)
+            common = SharedAcross(paragraph.Content, start, end, common);
+
+            // Once nothing is shared, nothing further can be: intersecting with anything leaves
+            // nothing.
+            if (common is { IsEmpty: true })
             {
-                var mark = paragraph.Content.MarkAt(offset - slot.Start);
-
-                common = common is { } far ? Intersect(far, mark) : mark;
+                return common;
             }
         }
 
         return common;
+    }
+
+    /// <summary>
+    /// What <paramref name="common"/> and every character of a stretch of text share, or
+    /// <paramref name="common"/> itself if the stretch is empty.
+    /// </summary>
+    private MarkSet? SharedAcross(InlineContent content, int start, int end, MarkSet? common)
+    {
+        var marks = content.Marks;
+        var span = FirstSpanEndingAfter(marks, start);
+        var at = start;
+
+        while (at < end)
+        {
+            MarkRunsExamined++;
+
+            MarkSet mark;
+
+            if (span < marks.Length && marks[span].Start <= at)
+            {
+                mark = marks[span].Value;
+                at = Math.Min(marks[span].End, end);
+                span++;
+            }
+            else
+            {
+                // A gap between spans is unformatted text.
+                mark = MarkSet.Empty;
+                at = span < marks.Length ? Math.Min(marks[span].Start, end) : end;
+            }
+
+            common = common is { } far ? Intersect(far, mark) : mark;
+        }
+
+        return common;
+    }
+
+    private static int FirstSpanEndingAfter(ImmutableArray<ValueSpan<MarkSet>> marks, int offset)
+    {
+        var low = 0;
+        var high = marks.Length;
+
+        while (low < high)
+        {
+            var mid = low + ((high - low) / 2);
+
+            if (marks[mid].End > offset)
+            {
+                high = mid;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
+        return low;
+    }
+
+    private static int FirstLeafEndingAtOrAfter(ImmutableArray<BlockSlot> leaves, int position)
+    {
+        var low = 0;
+        var high = leaves.Length;
+
+        while (low < high)
+        {
+            var mid = low + ((high - low) / 2);
+
+            if (leaves[mid].End >= position)
+            {
+                high = mid;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
+        return low;
     }
 
     /// <summary>Keeps only what two mark sets agree on.</summary>

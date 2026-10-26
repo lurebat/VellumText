@@ -25,4 +25,8 @@ internal static class WorkCounters
     /// </summary>
     [ThreadStatic]
     internal static long RestoredSpanVisits;
+
+    /// <summary>Calls to <see cref="InlineContent.MarkAt"/>, each a search of the mark spans.</summary>
+    [ThreadStatic]
+    internal static long MarkLookups;
 }
