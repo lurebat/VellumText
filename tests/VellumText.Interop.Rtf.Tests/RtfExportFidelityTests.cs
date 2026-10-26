@@ -144,4 +144,48 @@ public class RtfExportFidelityTests
 
         Assert.Contains(@"\outlinelevel1", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
     }
+
+    private static DocumentNode Linked(LinkMark link) =>
+        new([new ParagraphNode(InlineContent.Create(
+            "click",
+            [new ValueSpan<MarkSet>(0, 5, new MarkSet { Link = link })],
+            []))]);
+
+    /// <summary>F-60: a link's title was never written, so every copy dropped it.</summary>
+    [Theory]
+    [InlineData("Tip")]
+    [InlineData("a \"q\" b")]
+    [InlineData("a\\b")]
+    public void A_link_title_survives(string title)
+    {
+        var back = Assert.IsType<ParagraphNode>(Assert.Single(Trip(Linked(new LinkMark("https://e.test/", title))).Blocks));
+        var link = back.Content.MarkAt(0).Link;
+
+        Assert.Equal("https://e.test/", link?.Href);
+        Assert.Equal(title, link?.Title);
+    }
+
+    /// <summary>
+    /// F-59: an embedded picture's alternative text was never written. It is now the picture's
+    /// <c>wzDescription</c> property, which Word reads as alt text. RtfPipe drops picture
+    /// properties, so this pins the control words; the Phase 8 reader is re-verified.
+    /// </summary>
+    [Fact]
+    public void An_images_alt_text_is_written_with_the_picture()
+    {
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+                altText: "a {pic}\\"))),
+        ]);
+
+        var rtf = RtfExporter.Instance.Export(doc);
+
+        Assert.Contains(@"{\pict{\*\picprop{\sp{\sn wzDescription}{\sv a \{pic\}\\}}}\pngblip", rtf, StringComparison.Ordinal);
+
+        // The picture itself still arrives.
+        var back = Assert.IsType<ParagraphNode>(Assert.Single(Trip(doc).Blocks));
+
+        Assert.IsType<ImageEmbed>(Assert.Single(back.Content.Embeds));
+    }
 }

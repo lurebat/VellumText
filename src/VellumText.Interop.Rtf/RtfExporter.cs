@@ -575,7 +575,17 @@ public sealed class RtfExporter : IDocumentExporter
                 {
                     rtf.Append(@"{\field{\*\fldinst{HYPERLINK """);
                     Text.WriteFieldArgument(rtf, link.Href, address: true);
-                    rtf.Append(@"""}}{\fldrslt");
+                    rtf.Append('"');
+
+                    // The \o switch is the link's tooltip, which is what a title is.
+                    if (link.Title is { } title)
+                    {
+                        rtf.Append(@" \\o """);
+                        Text.WriteFieldArgument(rtf, title, address: false);
+                        rtf.Append('"');
+                    }
+
+                    rtf.Append(@"}}{\fldrslt");
                 }
 
                 rtf.Append('{');
@@ -973,7 +983,18 @@ public sealed class RtfExporter : IDocumentExporter
                 return;
             }
 
-            rtf.Append(@"{\pict").Append(kind);
+            rtf.Append(@"{\pict");
+
+            // Word reads a picture's alternative text from its wzDescription shape property.
+            // Without it the alt text was simply not in the RTF.
+            if (image.AltText is { Length: > 0 } description)
+            {
+                rtf.Append(@"{\*\picprop{\sp{\sn wzDescription}{\sv ");
+                Text.Write(rtf, description);
+                rtf.Append("}}}");
+            }
+
+            rtf.Append(kind);
 
             if (image.Width is { } width)
             {

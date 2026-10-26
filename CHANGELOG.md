@@ -136,6 +136,9 @@ NuGet; packages are published to a local feed, and
   nested lists are its deeper `\ilvl` levels with their own kind and start, and
   the marker is still written as literal `\listtext` for readers that know no
   list table. A heading inside a list item now keeps its `\outlinelevel`.
+- **RTF export writes a link's title and an image's alternative text.** Neither
+  was in the RTF at all. A title is now the HYPERLINK field's `\o` tooltip, and
+  alt text is the picture's `wzDescription` property, which Word reads.
 
 ## [0.7.0] - 2026-08-20
 
