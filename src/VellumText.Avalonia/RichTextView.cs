@@ -162,6 +162,12 @@ public partial class RichTextView : DocumentPresenter
         if (!derived && !ReferenceEquals(previous.Doc, value.Doc))
         {
             History = History.With(_history.Policy);
+
+            // The goal column is an x position measured in the previous document's layout; kept,
+            // it sent the next Up or Down to a column from the clip the host just replaced. Only a
+            // different document clears it: caret moves arrive through the same setter and a
+            // vertical run depends on the column surviving them.
+            _goalX = null;
         }
 
         OnStateChanged();

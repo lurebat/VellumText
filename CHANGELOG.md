@@ -89,6 +89,8 @@ NuGet; packages are published to a local feed, and
 - **An IME composition over a selection that crosses paragraphs is drawn where
   the commit lands** — at the start of the selection, in the first paragraph —
   rather than at the start of the paragraph holding the head.
+- The vertical-move goal column no longer survives a host loading a different
+  document, and `RichTextViewer` repaints when `SelectionBrush` changes.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a
