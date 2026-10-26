@@ -47,6 +47,13 @@ NuGet; packages are published to a local feed, and
   (default 100,000 per import) on `HtmlImportOptions`, `MarkdownImportOptions`
   and `RtfImportOptions`. A table over budget becomes paragraphs with a
   `Downgraded` diagnostic.
+- **The decoded-image cache is bounded by memory, not only by count.** A GIF
+  states its canvas size in its header and decodes to it whatever its frames
+  hold, so 1 KB of pasted HTML naming 7999×7999 GIFs pinned gigabytes in
+  `BitmapEmbedRenderer.Shared`, which is process-wide. The renderer now evicts
+  the least recently used images until the rest fit `CacheBudgetBytes` (new,
+  default 256 MiB); `CacheLimit` stays as a second cap. An image larger than the
+  whole budget is still kept, alone, so it is not decoded on every frame.
 
 ### Fixed
 

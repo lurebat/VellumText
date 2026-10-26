@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -116,7 +115,13 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 /// </remarks>
 public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 {
-    private readonly ConcurrentDictionary<string, Bitmap?> _cache = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
+    private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cache = new(StringComparer.Ordinal);
+
+    /// <summary>Every cached entry, most recently used first.</summary>
+    private readonly LinkedList<CacheEntry> _recency = new();
+
+    private long _cachedBytes;
     private readonly IEmbedRenderer _fallback = new PlaceholderEmbedRenderer();
     private readonly bool _shared;
     private bool _disposed;
@@ -152,6 +157,35 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// with it.
     /// </remarks>
     public int CacheLimit { get; init; } = 64;
+
+    /// <summary>How many bytes of decoded pixels to keep. Defaults to 256 MiB.</summary>
+    /// <remarks>
+    /// <para>
+    /// The bound that actually limits memory. <see cref="CacheLimit"/> counts images, and an image
+    /// can be tiny on the wire and enormous decoded: a forty-byte GIF states a 7999×7999 canvas
+    /// and decodes to a quarter of a gigabyte, so 64 of them — about 1 KB of pasted HTML — pinned
+    /// sixteen. The shared renderer is process-wide, so that accumulated across every document a
+    /// clipboard history had shown.
+    /// </para>
+    /// <para>
+    /// The least recently drawn images are evicted, and disposed, until the rest fit. An image
+    /// larger than the whole budget is still kept, alone: one the cache does not own is decoded
+    /// again on every layout pass and never freed.
+    /// </para>
+    /// </remarks>
+    public long CacheBudgetBytes { get; init; } = 256L * 1024 * 1024;
+
+    /// <summary>How many bytes of decoded pixels are currently held.</summary>
+    internal long CachedBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _cachedBytes;
+            }
+        }
+    }
 
     /// <summary>The largest encoded payload to decode, in bytes.</summary>
     public int MaximumSourceBytes { get; init; } = 16 * 1024 * 1024;
@@ -238,12 +272,17 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// </remarks>
     public void Invalidate()
     {
-        foreach (var entry in _cache.Values)
+        lock (_gate)
         {
-            entry?.Dispose();
-        }
+            foreach (var entry in _recency)
+            {
+                entry.Bitmap?.Dispose();
+            }
 
-        _cache.Clear();
+            _cache.Clear();
+            _recency.Clear();
+            _cachedBytes = 0;
+        }
     }
 
     /// <inheritdoc/>
@@ -262,7 +301,16 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     }
 
     /// <summary>How many sources are currently decoded and held.</summary>
-    internal int CachedCount => _cache.Count;
+    internal int CachedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _cache.Count;
+            }
+        }
+    }
 
     /// <summary>How many times a source has actually been decoded.</summary>
     /// <remarks>
@@ -281,36 +329,79 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
             return null;
         }
 
-        if (_cache.TryGetValue(source, out var cached))
+        lock (_gate)
         {
-            return cached;
+            if (_cache.TryGetValue(source, out var cached))
+            {
+                Touch(cached);
+
+                return cached.Value.Bitmap;
+            }
         }
 
+        // Decoded outside the lock: it is the slow part, and a second thread drawing a different
+        // image should not wait for it.
         var bitmap = Decode(source);
 
         Interlocked.Increment(ref _decodes);
 
-        // Make room rather than handing back a bitmap the cache does not own. An uncached one has
-        // no owner and nothing ever disposes it, so a document with more distinct images than the
-        // limit would leak one per image per layout pass - in native memory, where it does not
-        // even show up as managed pressure.
-        while (_cache.Count >= CacheLimit && _cache.Keys.FirstOrDefault() is { } victim)
+        lock (_gate)
         {
-            if (_cache.TryRemove(victim, out var evicted))
+            if (_disposed)
             {
-                evicted?.Dispose();
+                bitmap?.Dispose();
+
+                return null;
             }
+
+            if (_cache.TryGetValue(source, out var raced))
+            {
+                bitmap?.Dispose();
+                Touch(raced);
+
+                return raced.Value.Bitmap;
+            }
+
+            var bytes = bitmap is null ? 0L : (long)bitmap.PixelSize.Width * bitmap.PixelSize.Height * 4;
+            var node = _recency.AddFirst(new CacheEntry(source, bitmap, bytes));
+
+            _cache.Add(source, node);
+            _cachedBytes += bytes;
+
+            // Make room rather than handing back a bitmap the cache does not own. An uncached one
+            // has no owner and nothing ever disposes it, so a document with more distinct images
+            // than the cache holds would leak one per image per layout pass - in native memory,
+            // where it does not even show up as managed pressure. So the entry just added is never
+            // the one evicted, even when it alone is over the budget.
+            while ((_cache.Count > CacheLimit || _cachedBytes > CacheBudgetBytes)
+                && _recency.Last is { } victim
+                && victim != node)
+            {
+                _recency.RemoveLast();
+                _cache.Remove(victim.Value.Source);
+                _cachedBytes -= victim.Value.Bytes;
+                victim.Value.Bitmap?.Dispose();
+            }
+
+            return bitmap;
         }
-
-        if (!_cache.TryAdd(source, bitmap))
-        {
-            bitmap?.Dispose();
-
-            return _cache.TryGetValue(source, out var raced) ? raced : null;
-        }
-
-        return bitmap;
     }
+
+    /// <summary>Marks an entry as the most recently used. Call under the lock.</summary>
+    private void Touch(LinkedListNode<CacheEntry> node)
+    {
+        if (node != _recency.First)
+        {
+            _recency.Remove(node);
+            _recency.AddFirst(node);
+        }
+    }
+
+    /// <summary>One decoded source, or a remembered failure to decode it.</summary>
+    /// <param name="Source">The source, as the key it is cached under.</param>
+    /// <param name="Bitmap">The decoded image, or null if it could not or may not be shown.</param>
+    /// <param name="Bytes">What its pixels cost, counted against <see cref="CacheBudgetBytes"/>.</param>
+    private sealed record CacheEntry(string Source, Bitmap? Bitmap, long Bytes);
 
     private Bitmap? Decode(string source)
     {
