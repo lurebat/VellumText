@@ -94,6 +94,19 @@ awaits `PasteAsync`.
   (default 100,000 per import) on `HtmlImportOptions`, `MarkdownImportOptions`
   and `RtfImportOptions`. A table over budget becomes paragraphs with a
   `Downgraded` diagnostic.
+- **The decoded-image cache is bounded by memory, not only by count.** A GIF
+  states its canvas size in its header and decodes to it whatever its frames
+  hold, so 1 KB of pasted HTML naming 7999×7999 GIFs pinned gigabytes in
+  `BitmapEmbedRenderer.Shared`, which is process-wide. The renderer now evicts
+  the least recently used images until the rest fit `CacheBudgetBytes` (new,
+  default 256 MiB); `CacheLimit` stays as a second cap. An image larger than the
+  whole budget is still kept, alone, so it is not decoded on every frame.
+- **Image decompression bombs are refused from their header in every common
+  format, not just PNG.** GIF, BMP, JPEG and WebP were decoded in full before
+  `MaximumPixels` was checked: a 38-byte WebP cost 642 MB, and a 287-byte JPEG
+  or a 64-byte BMP 2 GB, through a paste and one render. Their declared
+  dimensions are now read from the header and checked first. A format the
+  header reader does not recognise is still checked after decoding, as before.
 
 ### Fixed
 
@@ -146,6 +159,12 @@ awaits `PasteAsync`.
   viewer ran every registered importer on untrusted content for a paste that
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
+- **A dropped or pasted image file larger than the image store accepts is no
+  longer read whole first.** With the default `DataUriImageStore` (4 MB), a
+  64 MB file allocated 192 MB only to be refused. The file is now read only up
+  to the store's `MaximumBytes`; past that, the drop stops reading and raises
+  `ImageRefused` with the file's size. A custom `IImageStore`, whose limit the
+  editor cannot know, still receives the whole file.
 
 ## [0.7.0] - 2026-08-20
 
