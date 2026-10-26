@@ -97,6 +97,16 @@ NuGet; packages are published to a local feed, and
   paste survives. Likewise a nested `margin-left:1e300px` computed an indent of
   `int.MaxValue`, which wrapped negative once the enclosing indent was added and
   discarded everything; the level is now capped at 8 before it is added.
+- **An inline image the importer accepts is one the editor can draw.** The
+  sanitizer, the image renderer and the RTF exporter each parsed `data:` URLs by
+  their own rules, so `<img src=" data:image/png;base64,…">` (leading
+  whitespace), `…;base64;x=y,…` and `…;base64x,…` were imported without a
+  diagnostic and then drawn as a missing-image box, and the RTF exporter wrote
+  `image/pngx` as a PNG. All of them, and the data-URL image store, now share
+  one reading: `;base64` must end the header and the media type is matched
+  exactly. The importer strips the whitespace HTML strips around any URL and
+  stores the clean URL, so the first case now imports and draws; the others are
+  refused with a `Dropped` diagnostic.
 
 ## [0.7.0] - 2026-08-20
 

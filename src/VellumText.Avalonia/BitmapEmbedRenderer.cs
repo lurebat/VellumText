@@ -74,7 +74,7 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 
         return bytes.Length == 0 || bytes.Length > MaximumBytes
             ? null
-            : $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}";
+            : DataUri.Format(mediaType, bytes);
     }
 }
 
@@ -318,7 +318,7 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
         {
             if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
-                return DecodeDataUri(source);
+                return DataUri.TryParse(source, out _, out var base64) ? DecodeBase64(base64) : null;
             }
 
             // Everything below reaches outside the document. See the type's remarks: by default a
@@ -372,30 +372,16 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
         return null;
     }
 
-    private Bitmap? DecodeDataUri(string source)
+    private Bitmap? DecodeBase64(ReadOnlyMemory<char> base64)
     {
-        var comma = source.IndexOf(',', StringComparison.Ordinal);
-
-        if (comma < 0)
-        {
-            return null;
-        }
-
-        var header = source.AsSpan(0, comma);
-
-        if (!header.EndsWith(";base64", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
         // Checked before decoding rather than after: base64 is four characters per three bytes, so
         // the length of the payload bounds its size without allocating anything.
-        if ((long)(source.Length - comma - 1) / 4 * 3 > MaximumSourceBytes)
+        if ((long)base64.Length / 4 * 3 > MaximumSourceBytes)
         {
             return null;
         }
 
-        var payload = Convert.FromBase64String(source[(comma + 1)..]);
+        var payload = Convert.FromBase64String(base64.ToString());
 
         // A PNG states its dimensions in the IHDR chunk at a fixed offset, so the commonest
         // decompression bomb is refused before anything is allocated for it. Other formats are
