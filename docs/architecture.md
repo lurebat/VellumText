@@ -2281,10 +2281,10 @@ escapes them, so the HTML stage never sees a tag at all. A guard that only ever 
 obviously safe; it is a different bug in the same file.
 
 **What Markdown cannot represent is reported rather than dropped in silence** — see the §4.9
-correction for why that needed a method outside `IDocumentExporter`. Twenty-eight export diagnostics,
+correction for why that needed a method outside `IDocumentExporter`. Thirty export diagnostics,
 covering colour, highlight, font family, font size, underline, sub/superscript, paragraph
 alignment, indent, merged cells, cell backgrounds, image size, non-image embeds, the two ways
-emphasis can fail to flank, and every place a
+emphasis can fail to flank, a paragraph-final line break, two code spans that would touch, and every place a
 table cell or a heading has to be flattened to one line. Import adds five of its own: raw HTML block,
 raw
 inline tag, a code fence's language, a table
@@ -2333,14 +2333,37 @@ another delimiter that no edit to the text can separate. Three things about it a
   `char.IsWhiteSpace`, which also counts a line tabulation and a next line. A writer that reached for
   the .NET predicates would be wrong in both directions at once.
 - **A closing delimiter is judged against the first character of the next run**, so the decision
-  cannot be made a run at a time — hence two passes. Where the next run itself carries emphasis, the
+  cannot be made a run at a time. Where the next run itself carries emphasis, the
   character it really writes first is a delimiter, which is the friendlier answer; the writer
   deliberately assumes the less friendly one, because `**Sale\!***x*` emphasises nothing while the
   pessimistic `**Sale**\!*x*` emphasises both, and guessing wrong is silent.
+- **An opener is judged against what is really written before it — including the previous run's
+  closer.** The two touch, and a reader sees one run, not two: bold "Price" beside italic "$5" was
+  written `**Price***$5*`, whose merged `***` cannot open before `$`, so the italic arrived as the
+  literal text `*$5*` (audit F-22, 268 of 6,000 random paragraphs). The serializer now judges the
+  merged run as the one run it is — kept where it can close and open (`**Price***Tag*s`, between two
+  letters) and where the rule of three allows the match (`**\[****~~#~~**` is two plus four between
+  punctuation, which no reader matches) — and otherwise writes the run with the other emphasis
+  character (`**Price**_$5_`) before falling back to the remedies above.
+- **A paragraph is cut where a mark Markdown can write changes, not where any mark does.** Bold text
+  that changes colour midway used to close and reopen its bold, `**Hello****World**`; the colour is
+  reported either way and the bold is now one run.
 - **Escaping the neighbour does not help and neither do entities.** `**Ver.**&#50;` stays literal,
   because Markdig resolves character references *before* it evaluates flanking. `&#8364;` and
   `&#128512;` appear to work only because what they decode to is itself punctuation, which is what
   proves the ordering rather than offering a way round it.
+
+**Two things have no Markdown notation at a block's or a link's end, and one at a code span's
+start.** A hard break is read only between two lines of one inline container, so a paragraph-final
+break came back as a literal `\` (F-25): it is now dropped and reported (`trailing-break`), and a
+break at the end of a link's text is written just after the link, where it still separates the same
+lines. A code span cannot open straight after a backtick, even an escaped one — Markdig checks the
+character before the fence — so a literal backtick there is written `&#96;` (F-27); two code spans
+that would touch, because a style between them could not be written, write the second as text and
+say so (`code-span-adjacent`). The regression net for all of it is a seeded round-trip property
+(`MarkdownRoundTripPropertyTests`): over generated documents with links, images, code, lists, tables
+and adjacent differently-styled runs, an export that reports no loss must import back to the same
+text and marks.
 
 **Unbounded input is a property of the library, not of Markdown.** All four text formats read the
 whole source before any guard runs — `MarkdownFormat`, `HtmlFormat`, `RtfFormat` and `JsonFormat`

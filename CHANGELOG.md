@@ -64,6 +64,26 @@ NuGet; packages are published to a local feed, and
   viewer ran every registered importer on untrusted content for a paste that
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
+- **Markdown export no longer throws, or silently changes text, around
+  emphasis.** One styled escaped or astral character — the italic `&` in
+  "R&D", a bold 👍 — threw `IndexOutOfRangeException` out of
+  `MarkdownFormat.Export` (and on copy the Markdown flavour was silently
+  missing). A run's closing delimiter and the next run's opening one could
+  touch and merge, so bold "Price" beside italic "$5" came back as bold
+  "Price" and the literal text `*$5*`, with no diagnostic. The inline writer
+  now judges every delimiter against what is really written beside it,
+  including the neighbouring run's delimiters, and writes `**Price**_$5_`.
+  Bold text that changes colour no longer closes and reopens its bold.
+- **A Markdown paragraph ending in a line break no longer comes back ending in
+  a backslash.** The break has no notation there; it is dropped with a
+  `Downgraded` diagnostic. A break at the end of a link's text is written just
+  after the link instead of being lost.
+- **Inline code straight after a literal backtick stays code.** The backtick
+  was written as a backslash escape directly before the code span's fence,
+  which a reader refuses to open there, so the code came back as plain text
+  with two extra backticks; the literal backtick is now written `&#96;`.
+- **Exporting a styled run with long whitespace at its edges is linear.** 40,000
+  trailing spaces in a bold run took 2.3 s and 3.2 GB of allocation.
 
 ## [0.7.0] - 2026-08-20
 
