@@ -212,12 +212,31 @@ public partial class RichTextView
 
     /// <summary>Writes <paramref name="replacement"/> over <paramref name="match"/>.</summary>
     /// <remarks>
+    /// <para>
     /// An empty replacement needs no special case: a slice of empty inline content is a valid
     /// replacement and deletes the range, which was verified rather than assumed.
+    /// </para>
+    /// <para>
+    /// The replacement takes the formatting of the match's first character, link included, as
+    /// typing over the same selection does. Written plain, a bold word came back plain and a
+    /// linked word silently lost its address. Read from the document before the replace, which in
+    /// <see cref="ReplaceAll"/> is the original at every match, since matches are put back to
+    /// front.
+    /// </para>
     /// </remarks>
-    private static void Put(Transaction transaction, SearchMatch match, string replacement) =>
+    private void Put(Transaction transaction, SearchMatch match, string replacement) =>
         transaction.Replace(
-            match.From, match.To, Slice.OfInline(InlineContent.FromText(replacement)));
+            match.From, match.To, Slice.OfInline(InlineContent.FromText(replacement, MarkAtMatch(match))));
+
+    /// <summary>The formatting of the first character a match covers.</summary>
+    private MarkSet MarkAtMatch(SearchMatch match)
+    {
+        var at = _state.Doc.Resolve(match.From);
+
+        return at.Paragraph is { } paragraph && at.ParentOffset < paragraph.Content.Length
+            ? paragraph.Content.MarkAt(at.ParentOffset)
+            : MarkSet.Empty;
+    }
 
     /// <summary>Brings the match list back into step with the document.</summary>
     /// <remarks>

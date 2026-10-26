@@ -98,6 +98,9 @@ NuGet; packages are published to a local feed, and
   the drawn blocks, and a table is one drawn block, so Ctrl+1–6, Ctrl+L/E/R/J,
   the toolbar's buttons and its lit state all did nothing inside a table. They
   now walk the paragraphs, as character formatting already did.
+- **Find-and-replace keeps the formatting and link of the text it replaces**,
+  taking the marks of the match's first character, as typing over it does. It
+  used to write plain text, so a linked word silently lost its address.
 
 ### Changed
 
