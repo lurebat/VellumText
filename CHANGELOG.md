@@ -112,6 +112,12 @@ NuGet; packages are published to a local feed, and
   few lookups whatever its size. The HTML, RTF and Markdown exporters read
   formatting runs the same way, off the mark spans instead of one lookup per
   character.
+- **Whole-word search no longer treats letters outside the basic plane as word
+  boundaries.** The characters either side of a match were read one UTF-16 code
+  unit at a time, and neither half of a surrogate pair is a letter, so "cat"
+  matched as a whole word inside "𝐀cat" or next to a Deseret letter. The
+  neighbours are now read as whole characters (`Rune`); an emoji is still a
+  boundary and an astral digit is still part of the word.
 
 ### Changed
 
