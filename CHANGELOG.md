@@ -79,6 +79,13 @@ NuGet; packages are published to a local feed, and
   markers and the elements around them, so the range keeps its rows, columns
   and merged cells. A single copied cell, which Excel marks as just the cell,
   still pastes as its text, as Excel's own RTF of the same copy does.
+- **A blank line pasted as `<p><br></p>` is one empty paragraph, not two lines.**
+  Browsers, mail clients and RtfPipe (for `\par\par`) all write a blank line as
+  a paragraph holding only `<br>`, and the importer kept that break as a newline
+  character, so every blank line arrived twice as tall and a Markdown save
+  turned it into a stray backslash. A break that ends a block now only ends it:
+  `<p>a<br></p>` is "a", `<p><br></p>` is an empty paragraph, and a break in the
+  middle of a paragraph is still a line break.
 
 ## [0.7.0] - 2026-08-20
 

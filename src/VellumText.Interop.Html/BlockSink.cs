@@ -19,6 +19,9 @@ internal sealed class BlockSink
     private bool _pendingSpace;
     private MarkSet _pendingSpaceMark;
 
+    /// <summary>Whether the last character written is a newline that came from a <c>&lt;br&gt;</c>.</summary>
+    private bool _endsWithBreak;
+
     /// <summary>The blocks produced so far.</summary>
     internal IReadOnlyList<BlockNode> Blocks => _blocks;
 
@@ -120,6 +123,7 @@ internal sealed class BlockSink
         _pendingSpace = false;
         Append("\n", mark);
         _pendingSpace = false;
+        _endsWithBreak = true;
     }
 
     /// <summary>Whether a character is whitespace that HTML collapses.</summary>
@@ -176,6 +180,7 @@ internal sealed class BlockSink
     {
         var start = _text.Length;
         _text.Append(text);
+        _endsWithBreak = false;
 
         if (mark.IsEmpty)
         {
@@ -207,6 +212,15 @@ internal sealed class BlockSink
     /// </param>
     internal void Flush(BlockStyle style, bool force = false)
     {
+        // A break that ends a block only gives its line a height, which the paragraph has anyway:
+        // <p>a<br></p> is one line and <p><br></p> is one blank line. Kept as a character, every
+        // blank line arrived two lines tall. The paragraph it was in is still a paragraph.
+        if (_endsWithBreak)
+        {
+            DropTrailingBreak();
+            force = true;
+        }
+
         if (_text.Length == 0 && !force)
         {
             Reset();
@@ -217,6 +231,20 @@ internal sealed class BlockSink
 
         _blocks.Add(new ParagraphNode(content, style.Kind, style.Align, style.Indent));
         Reset();
+    }
+
+    private void DropTrailingBreak()
+    {
+        _text.Length--;
+
+        // Spans arrive in order and merge as they go, so only the last can cover the break. One
+        // left empty is dropped by InlineContent.Create.
+        if (_marks.Count > 0 && _marks[^1].End > _text.Length)
+        {
+            var last = _marks[^1];
+
+            _marks[^1] = new ValueSpan<MarkSet>(last.Start, last.Length - 1, last.Value);
+        }
     }
 
     /// <summary>Closes any pending content, then adds a block of its own.</summary>
@@ -234,5 +262,6 @@ internal sealed class BlockSink
         _marks.Clear();
         _embeds.Clear();
         _pendingSpace = false;
+        _endsWithBreak = false;
     }
 }

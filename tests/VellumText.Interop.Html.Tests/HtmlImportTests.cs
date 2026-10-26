@@ -249,6 +249,65 @@ public class HtmlImportTests
     }
 
     [Fact]
+    public void A_paragraph_holding_only_a_break_is_one_blank_line()
+    {
+        // <p><br></p> is how browsers, mail clients and RtfPipe spell an empty line. The break
+        // only gives the paragraph a height; kept as a character it made the blank line two lines.
+        var blocks = Import("<p>a</p><p><br></p><p>b</p>").Doc.Blocks;
+
+        Assert.Equal(3, blocks.Length);
+        Assert.Equal("a", Assert.IsType<ParagraphNode>(blocks[0]).Content.Text);
+        Assert.Equal("", Assert.IsType<ParagraphNode>(blocks[1]).Content.Text);
+        Assert.Equal("b", Assert.IsType<ParagraphNode>(blocks[2]).Content.Text);
+    }
+
+    [Fact]
+    public void A_break_that_ends_a_block_does_not_add_a_line()
+    {
+        Assert.Equal("a", OnlyPara(Import("<p>a<br></p>")).Content.Text);
+        Assert.Equal("a", OnlyPara(Import("<div>a<br> </div>")).Content.Text);
+
+        // Only one: the second break is a line of its own, as a browser draws it.
+        Assert.Equal("a\n", OnlyPara(Import("<p>a<br><br></p>")).Content.Text);
+    }
+
+    [Fact]
+    public void A_formatted_break_that_ends_a_block_takes_its_formatting_with_it()
+    {
+        var p = OnlyPara(Import("<p><b>a<br></b></p>"));
+
+        Assert.Equal("a", p.Content.Text);
+        Assert.Equal(TextStyle.Bold, StyleAt(p, 0));
+        Assert.Single(p.Content.Marks);
+        Assert.Equal(1, p.Content.Marks[0].Length);
+
+        // And a break outside the formatting leaves the formatting alone.
+        var outside = OnlyPara(Import("<p><b>a</b><br></p>"));
+
+        Assert.Equal("a", outside.Content.Text);
+        Assert.Equal(TextStyle.Bold, StyleAt(outside, 0));
+        Assert.Equal(1, Assert.Single(outside.Content.Marks).Length);
+    }
+
+    [Fact]
+    public void A_bold_blank_line_is_an_empty_paragraph_without_marks()
+    {
+        var blocks = Import("<p>a</p><p><b><br></b></p>").Doc.Blocks;
+
+        Assert.Equal(2, blocks.Length);
+        var blank = Assert.IsType<ParagraphNode>(blocks[1]);
+        Assert.Equal("", blank.Content.Text);
+        Assert.Empty(blank.Content.Marks);
+    }
+
+    [Fact]
+    public void A_newline_that_ends_preformatted_text_is_content_not_a_break()
+    {
+        // Only a break the importer made from <br> is dropped; a newline in <pre> is text.
+        Assert.Equal("a\n", OnlyPara(Import("<pre>a\n</pre>")).Content.Text);
+    }
+
+    [Fact]
     public void A_rule_becomes_a_rule_and_ends_the_paragraph_before_it()
     {
         var blocks = Import("<p>a</p><hr><p>b</p>").Doc.Blocks;
