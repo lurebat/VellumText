@@ -202,7 +202,7 @@ public class RichTextToolbar : TemplatedControl
         SetForegroundCommand = Command<object?>(colour => _view?.SetForeground(Colour(colour)));
         SetHighlightCommand = Command<object?>(colour => _view?.SetHighlight(Colour(colour)));
         SetFontFamilyCommand = Command<string?>(family => _view?.SetFontFamily(family));
-        SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size)));
+        SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size) * PixelsPerPoint));
         IndentCommand = Command(() => _view?.Indent());
         OutdentCommand = Command(() => _view?.Outdent());
         ClearFormattingCommand = Command(() => _view?.ClearFormatting());
@@ -259,8 +259,18 @@ public class RichTextToolbar : TemplatedControl
     /// <summary>The font family the whole selection shares, or null for the document default.</summary>
     public string? SelectionFontFamily => _family;
 
-    /// <summary>The font size the whole selection shares, or null for the document default.</summary>
+    /// <summary>
+    /// The font size the whole selection shares, in points, or null for the document default.
+    /// </summary>
+    /// <remarks>
+    /// Points, like the size box and <see cref="SetFontSizeCommand"/>, and like every word
+    /// processor: a 20-point heading pasted from Word reads 20 here. The model stores
+    /// device-independent pixels, 96 to the inch against 72 points, so the heading is 26⅔ there.
+    /// </remarks>
     public double? SelectionFontSize => _size;
+
+    /// <summary>Device-independent pixels per typographic point: 96 per inch against 72.</summary>
+    private const double PixelsPerPoint = 96.0 / 72.0;
 
     /// <summary>The colour the whole selection shares, or null for the document default.</summary>
     public Rgba? SelectionForeground => _foreground;
@@ -307,6 +317,10 @@ public class RichTextToolbar : TemplatedControl
     public ICommand SetFontFamilyCommand { get; }
 
     /// <summary>Sets the selection's font size in points; a null or unparseable parameter clears it.</summary>
+    /// <remarks>
+    /// Converted to the model's device-independent pixels, so picking 12 gives 12-point text — 16
+    /// pixels — as it does in a word processor.
+    /// </remarks>
     public ICommand SetFontSizeCommand { get; }
 
     /// <summary>Indents every selected paragraph one level.</summary>
@@ -468,7 +482,7 @@ public class RichTextToolbar : TemplatedControl
         Set(IsLinkProperty, ref _isLink, marks.Link is not null);
 
         Set(SelectionFontFamilyProperty, ref _family, marks.FontFamily);
-        Set(SelectionFontSizeProperty, ref _size, marks.FontSize);
+        Set(SelectionFontSizeProperty, ref _size, marks.FontSize is { } pixels ? Math.Round(pixels / PixelsPerPoint, 2) : null);
         Set(SelectionForegroundProperty, ref _foreground, marks.Foreground);
         Set(SelectionHighlightProperty, ref _highlight, marks.Highlight);
 

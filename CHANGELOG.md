@@ -100,6 +100,13 @@ NuGet; packages are published to a local feed, and
   for an editable editor, wherever the caret is: disabling half the bar on an
   awkward caret reads as broken, but on a locked document every command is
   refused, so the bar offering them offered nothing.
+- **The toolbar's font sizes are in points, as its box, list and command were
+  always documented.** The number went to the model, which stores
+  device-independent pixels, unconverted: picking 12 gave 9-point text, and a
+  20-point heading pasted from Word showed as "26.7". `SetFontSizeCommand` now
+  converts points to pixels (12 sets 16) and `SelectionFontSize` reports points
+  (that heading reads 20). A host that read `SelectionFontSize` as pixels needs
+  to multiply by 4/3.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a
