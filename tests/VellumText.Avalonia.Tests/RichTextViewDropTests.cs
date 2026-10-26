@@ -157,21 +157,18 @@ public class RichTextViewDropTests
 
     /// <summary>Raises a drop and runs it to completion.</summary>
     /// <remarks>
-    /// <c>OnDrop</c> is <c>async void</c>, so raising the event only starts it. The dispatcher has
-    /// to be pumped until the continuations behind each file read have run, or every assertion
-    /// below would be made against a drop that had not happened yet — and would pass for a
-    /// control that does nothing at all.
+    /// Raising the event only starts a drop: the import runs on a background thread and the file
+    /// reads are awaited. The test awaits the drop's own task, or every assertion below would be
+    /// made against a drop that had not happened yet — and would pass for a control that does
+    /// nothing at all.
     /// </remarks>
-    private static DragEventArgs Drop(RichTextView view, DataTransfer data)
+    private static async Task<DragEventArgs> Drop(RichTextView view, DataTransfer data)
     {
         var e = new DragEventArgs(DragDrop.DropEvent, data, view, new Point(4, 4), KeyModifiers.None);
 
         view.RaiseEvent(e);
 
-        for (var i = 0; i < 64; i++)
-        {
-            Dispatcher.UIThread.RunJobs();
-        }
+        await view.PendingDrop;
 
         return e;
     }
@@ -182,7 +179,7 @@ public class RichTextViewDropTests
             .OfType<ImageEmbed>()];
 
     [AvaloniaFact]
-    public void AMultiFileDropInsertsEveryImageItCanRead()
+    public async Task AMultiFileDropInsertsEveryImageItCanRead()
     {
         // The control every test below needs: without it a drop path that silently did nothing
         // would satisfy all of them.
@@ -191,7 +188,7 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(
+        await Drop(view, Files(
             DroppedFile.Named("a.png", Png(2, 1)),
             DroppedFile.Named("b.png", Png(3, 1)),
             DroppedFile.Named("c.png", Png(4, 1))));
@@ -201,7 +198,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void AMultiFileDropKeepsGoingAfterOneFileIsRejected()
+    public async Task AMultiFileDropKeepsGoingAfterOneFileIsRejected()
     {
         // Dropping a folder's worth of pictures where one is locked, on a volume that went away,
         // or is not an image at all must not cost the user the other five.
@@ -210,7 +207,7 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(
+        await Drop(view, Files(
             DroppedFile.Named("first.png", Png(2, 1)),
             DroppedFile.Named("gone.png", bytes: null),
             DroppedFile.Named("notes.txt", [1, 2, 3]),
@@ -227,7 +224,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void AMultiFileDropStopsWhenTheDocumentIsSwappedUnderneathIt()
+    public async Task AMultiFileDropStopsWhenTheDocumentIsSwappedUnderneathIt()
     {
         // The defect: a drop of several files takes long enough for the host to switch documents,
         // and every file after that point landed in whichever one was showing when its read
@@ -238,7 +235,7 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(
+        await Drop(view, Files(
             DroppedFile.Named("before.png", Png(2, 1)),
             DroppedFile.Named("during.png", Png(3, 1), opening: () => view.State = swapped),
             DroppedFile.Named("after.png", Png(4, 1))));
@@ -252,7 +249,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void ASingleFileDropThatArrivesAfterTheSwapLandsNowhereAndStoresNothing()
+    public async Task ASingleFileDropThatArrivesAfterTheSwapLandsNowhereAndStoresNothing()
     {
         var view = Shown("first document");
         var store = new RecordingStore();
@@ -260,7 +257,7 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(DroppedFile.Named("late.png", Png(2, 1), opening: () => view.State = swapped)));
+        await Drop(view, Files(DroppedFile.Named("late.png", Png(2, 1), opening: () => view.State = swapped)));
 
         Assert.Same(swapped.Doc, view.State.Doc);
         Assert.Empty(ImagesIn(view));
@@ -271,7 +268,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void ADropThatMovedTheCaretIsStillRefusedIfTheDocumentChanged()
+    public async Task ADropThatMovedTheCaretIsStillRefusedIfTheDocumentChanged()
     {
         // The origin is the document by reference, not its text: a host that replaced the document
         // with an identical one is still a host that switched files, and offsets alone cannot see
@@ -282,7 +279,7 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(DroppedFile.Named("late.png", Png(2, 1), opening: () => view.State = identical)));
+        await Drop(view, Files(DroppedFile.Named("late.png", Png(2, 1), opening: () => view.State = identical)));
 
         Assert.Empty(ImagesIn(view));
         Assert.Empty(store.Saved);
@@ -291,7 +288,7 @@ public class RichTextViewDropTests
     [AvaloniaTheory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public void ADropOntoAnUnwillingEditorNeverReachesTheStore(bool readOnly, bool optedOut)
+    public async Task ADropOntoAnUnwillingEditorNeverReachesTheStore(bool readOnly, bool optedOut)
     {
         var view = Shown("text");
         var store = new RecordingStore();
@@ -303,7 +300,7 @@ public class RichTextViewDropTests
         view.IsReadOnly = readOnly;
         view.AcceptsDrop = !optedOut;
 
-        var e = Drop(view, Files(DroppedFile.Named("a.png", Png(2, 1))));
+        var e = await Drop(view, Files(DroppedFile.Named("a.png", Png(2, 1))));
 
         Assert.Same(before, view.State.Doc);
         Assert.Empty(store.Saved);
@@ -313,7 +310,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void ADroppedImageTheStoreRefusesSaysSoRatherThanVanishing()
+    public async Task ADroppedImageTheStoreRefusesSaysSoRatherThanVanishing()
     {
         var view = Shown("text");
         var refused = new List<RichTextView.ImageRefusedEventArgs>();
@@ -322,7 +319,7 @@ public class RichTextViewDropTests
         view.ImageStore = new RecordingStore(refuseOver: 4);
         view.ImageRefused += (_, e) => refused.Add(e);
 
-        Drop(view, Files(DroppedFile.Named("big.png", Png(8, 8))));
+        await Drop(view, Files(DroppedFile.Named("big.png", Png(8, 8))));
 
         Assert.Same(before, view.State.Doc);
 
@@ -333,7 +330,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void ADropOfContentTheSanitiserRejectsBringsNothingAcrossAndSaysSo()
+    public async Task ADropOfContentTheSanitiserRejectsBringsNothingAcrossAndSaysSo()
     {
         // A drop is the likeliest way hostile markup arrives: dragging a selection out of a
         // browser hands over that page's HTML verbatim.
@@ -343,7 +340,7 @@ public class RichTextViewDropTests
         view.Formats.Add(HtmlFormat.Instance);
         view.ContentImported += (_, e) => seen.Add(e);
 
-        Drop(view, Transfer(
+        await Drop(view, Transfer(
             "html",
             "<p>kept<script>alert(1)</script></p><p><a href='javascript:alert(2)'>link</a></p>"));
 
@@ -368,7 +365,7 @@ public class RichTextViewDropTests
     }
 
     [AvaloniaFact]
-    public void ADropThatGoesReadOnlyMidFlightLeavesNothingInTheStore()
+    public async Task ADropThatGoesReadOnlyMidFlightLeavesNothingInTheStore()
     {
         // The other defect: the store was written first and the edit applied second, so an edit
         // the document then refused left behind bytes nothing references, and IImageStore has no
@@ -380,14 +377,14 @@ public class RichTextViewDropTests
 
         view.ImageStore = store;
 
-        Drop(view, Files(DroppedFile.Named("a.png", Png(2, 1), opening: () => view.IsReadOnly = true)));
+        await Drop(view, Files(DroppedFile.Named("a.png", Png(2, 1), opening: () => view.IsReadOnly = true)));
 
         Assert.Same(before, view.State.Doc);
         Assert.Empty(store.Saved);
     }
 
     [AvaloniaFact]
-    public void ADropWhoseWholePayloadIsRejectedStillSaysSoRatherThanLookingClean()
+    public async Task ADropWhoseWholePayloadIsRejectedStillSaysSoRatherThanLookingClean()
     {
         // A payload with nothing left after sanitising is the case where a host is most likely to
         // be told an import went fine: no text changed, so there is nothing to notice. It has to
@@ -401,7 +398,7 @@ public class RichTextViewDropTests
         view.Formats.Add(HtmlFormat.Instance);
         view.ContentImported += (_, e) => seen.Add(e);
 
-        Drop(view, Transfer("html", "<script>alert(1)</script>"));
+        await Drop(view, Transfer("html", "<script>alert(1)</script>"));
 
         Assert.Equal("text", DocumentText.Of(view.State.Doc));
 

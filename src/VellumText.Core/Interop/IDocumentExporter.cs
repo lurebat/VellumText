@@ -26,7 +26,7 @@ public interface IDocumentExporter : IDocumentFormat
     /// <remarks>
     /// <para>
     /// <b>This is the member every format has to write, and the string overload is derived from
-    /// it.</b> See <see cref="IDocumentImporter.Import(Stream)"/> for why bytes rather than text
+    /// it.</b> See <see cref="IDocumentImporter.ImportAsync(Stream, CancellationToken)"/> for why bytes rather than text
     /// is the primitive.
     /// </para>
     /// <para>

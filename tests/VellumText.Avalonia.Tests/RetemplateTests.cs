@@ -21,7 +21,7 @@ namespace VellumText.Tests.Avalonia;
 /// </remarks>
 public class RetemplateTests
 {
-    private static FuncControlTemplate<RichTextEditor> Chrome() =>
+    internal static FuncControlTemplate<RichTextEditor> Chrome() =>
         new((_, scope) =>
         {
             var view = new RichTextView { Name = RichTextEditor.ViewPart };

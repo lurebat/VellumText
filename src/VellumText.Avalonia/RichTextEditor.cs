@@ -751,6 +751,10 @@ public class RichTextEditor : TemplatedControl
     /// </remarks>
     private void MoveSetup(RichTextView old, RichTextView view)
     {
+        // An import still running in the old view belongs to a view that is about to stop being
+        // this editor's; landing it there would edit a document nobody is looking at.
+        old.CancelImport();
+
         view.Formats.Clear();
 
         foreach (var format in old.Formats)

@@ -63,11 +63,18 @@ public sealed class RtfFormat : IDocumentImporter, IDocumentExporter
     public Encoding? TextEncoding => Encoding.Latin1;
 
     /// <inheritdoc/>
-    public ImportResult Import(string text) => RtfImporter.Import(text, ImportOptions);
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) =>
+        RtfImporter.ImportAsync(text, ImportOptions, cancellationToken);
 
     /// <inheritdoc/>
-    public ImportResult Import(Stream source) =>
-        RtfImporter.Import(DocumentPayload.ReadAllText(source, Encoding.Latin1), ImportOptions);
+    public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+    {
+        var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.Latin1, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await RtfImporter.ImportAsync(text, ImportOptions, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     public string Export(DocumentNode doc) => RtfExporter.Instance.Export(doc);

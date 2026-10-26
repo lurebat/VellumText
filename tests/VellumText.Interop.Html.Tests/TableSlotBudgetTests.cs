@@ -7,12 +7,12 @@ namespace VellumText.Interop.Html.Tests;
 /// </summary>
 public sealed class TableSlotBudgetTests
 {
-    private static (ImportResult Result, long Ms, long AllocatedMb) Measure(string html, HtmlImportOptions? options = null)
+    private static async Task<(ImportResult Result, long Ms, long AllocatedMb)> Measure(string html, HtmlImportOptions? options = null)
     {
         // The import runs on its own thread, so the process-wide count is the one that sees it.
         var before = GC.GetTotalAllocatedBytes(precise: true);
         var watch = Stopwatch.StartNew();
-        var result = HtmlImporter.Import(html, options);
+        var result = await HtmlImporter.ImportAsync(html, options);
         var ms = watch.ElapsedMilliseconds;
         var allocated = (GC.GetTotalAllocatedBytes(precise: true) - before) / (1024 * 1024);
 
@@ -24,12 +24,12 @@ public sealed class TableSlotBudgetTests
     /// because placing the table marked every slot each span named.
     /// </summary>
     [Fact]
-    public void Huge_spans_on_one_row_import_quickly()
+    public async Task Huge_spans_on_one_row_import_quickly()
     {
         var html = "<table><tr>" + string.Concat(Enumerable.Repeat("<td colspan=1000 rowspan=1000>x", 32)) + "</table>";
 
-        Measure(html);
-        var (result, ms, allocated) = Measure(html);
+        await Measure(html);
+        var (result, ms, allocated) = (await Measure(html));
 
         Assert.True(ms < 500, $"took {ms} ms");
         Assert.True(allocated < 100, $"allocated {allocated} MB");
@@ -41,15 +41,15 @@ public sealed class TableSlotBudgetTests
     /// table into paragraphs before anything lays it out.
     /// </summary>
     [Fact]
-    public void A_table_over_the_slot_budget_becomes_paragraphs_quickly()
+    public async Task A_table_over_the_slot_budget_becomes_paragraphs_quickly()
     {
         var html = "<table><tr>"
             + string.Concat(Enumerable.Repeat("<td colspan=1000 rowspan=1000>x", 32))
             + string.Concat(Enumerable.Repeat("<tr>", 999))
             + "</table>";
 
-        Measure(html);
-        var (result, ms, allocated) = Measure(html);
+        await Measure(html);
+        var (result, ms, allocated) = (await Measure(html));
 
         Assert.True(ms < 1_000, $"took {ms} ms");
         Assert.True(allocated < 100, $"allocated {allocated} MB");
@@ -60,24 +60,24 @@ public sealed class TableSlotBudgetTests
     }
 
     [Fact]
-    public void The_slot_budget_is_honoured()
+    public async Task The_slot_budget_is_honoured()
     {
         const string html = "<table><tr><td>a<td>b<tr><td>c<td>d</table>";
 
-        Assert.IsType<TableNode>(Assert.Single(HtmlImporter.Import(html).Doc.Blocks));
+        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html)).Doc.Blocks));
 
-        var limited = HtmlImporter.Import(html, HtmlImportOptions.Default with { MaxTableSlots = 3 });
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 3 });
 
         Assert.DoesNotContain(limited.Doc.Blocks, b => b is TableNode);
         Assert.Equal("a\nb\nc\nd", DocumentText.Of(limited.Doc));
     }
 
     [Fact]
-    public void The_budget_is_shared_by_every_table_in_one_import()
+    public async Task The_budget_is_shared_by_every_table_in_one_import()
     {
         const string table = "<table><tr><td>a<td>b<tr><td>c<td>d</table>";
 
-        var result = HtmlImporter.Import(table + table, HtmlImportOptions.Default with { MaxTableSlots = 6 });
+        var result = await HtmlImporter.ImportAsync(table + table, HtmlImportOptions.Default with { MaxTableSlots = 6 });
 
         Assert.Single(result.Doc.Blocks.OfType<TableNode>());
         Assert.IsType<TableNode>(result.Doc.Blocks[0]);

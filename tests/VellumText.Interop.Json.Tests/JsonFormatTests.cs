@@ -12,30 +12,30 @@ namespace VellumText.Tests.Interop.Json;
 /// </remarks>
 public class JsonFormatTests
 {
-    private static DocumentNode RoundTrip(DocumentNode doc) =>
-        JsonFormat.Instance.Import(JsonFormat.Instance.Export(doc)).Doc;
+    private static async Task<DocumentNode> RoundTrip(DocumentNode doc) =>
+        (await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc))).Doc;
 
     [Fact]
-    public void PlainParagraphsSurvive()
+    public async Task PlainParagraphsSurvive()
     {
         var doc = DocumentNode.FromParagraphs("one", "two", "three");
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void EveryParagraphKindSurvives()
+    public async Task EveryParagraphKindSurvives()
     {
         foreach (var kind in Enum.GetValues<ParagraphKind>())
         {
             var doc = new DocumentNode([new ParagraphNode(InlineContent.FromText("text"), kind)]);
 
-            Assert.Equal(doc, RoundTrip(doc));
+            Assert.Equal(doc, await RoundTrip(doc));
         }
     }
 
     [Fact]
-    public void AlignmentAndIndentSurvive()
+    public async Task AlignmentAndIndentSurvive()
     {
         foreach (var align in Enum.GetValues<TextAlign>())
         {
@@ -43,12 +43,12 @@ public class JsonFormatTests
                 new ParagraphNode(InlineContent.FromText("text"), ParagraphKind.Body, align, 3),
             ]);
 
-            Assert.Equal(doc, RoundTrip(doc));
+            Assert.Equal(doc, await RoundTrip(doc));
         }
     }
 
     [Fact]
-    public void EveryCharacterStyleSurvives()
+    public async Task EveryCharacterStyleSurvives()
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
@@ -65,11 +65,11 @@ public class JsonFormatTests
                 [])),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void CombinedStylesOnOneSpanSurvive()
+    public async Task CombinedStylesOnOneSpanSurvive()
     {
         // The style is a flags enum, so this is the case a naive single-name encoding loses.
         var doc = new DocumentNode([
@@ -82,11 +82,11 @@ public class JsonFormatTests
                 [])),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void ColoursFontsAndLinksSurvive()
+    public async Task ColoursFontsAndLinksSurvive()
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
@@ -100,11 +100,11 @@ public class JsonFormatTests
                 [])),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void ATranslucentColourKeepsItsAlpha()
+    public async Task ATranslucentColourKeepsItsAlpha()
     {
         // Alpha rides in the top byte, so an encoding that dropped it would still look right for
         // every opaque colour and be wrong for every highlight.
@@ -115,13 +115,13 @@ public class JsonFormatTests
                 [])),
         ]);
 
-        var mark = ((ParagraphNode)RoundTrip(doc).Blocks[0]).Content.MarkAt(0);
+        var mark = ((ParagraphNode)(await RoundTrip(doc)).Blocks[0]).Content.MarkAt(0);
 
         Assert.Equal(new Rgba(1, 2, 3, 4), mark.Highlight);
     }
 
     [Fact]
-    public void ListsAndTheirNestingSurvive()
+    public async Task ListsAndTheirNestingSurvive()
     {
         var doc = new DocumentNode([
             new ListNode(
@@ -138,11 +138,11 @@ public class JsonFormatTests
                 5),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void TablesKeepTheirSpansHeadersColoursAndWidths()
+    public async Task TablesKeepTheirSpansHeadersColoursAndWidths()
     {
         var doc = new DocumentNode([
             new TableNode(
@@ -160,7 +160,7 @@ public class JsonFormatTests
                 [80.5, 120, 40]),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     /// <summary>
@@ -169,7 +169,7 @@ public class JsonFormatTests
     /// the proportions a little on every save, and the sum would stop being one.
     /// </summary>
     [Fact]
-    public void ProportionalColumnWidthsSurviveToTheirLastDigit()
+    public async Task ProportionalColumnWidthsSurviveToTheirLastDigit()
     {
         var widths = new[] { 0.28374659812734, 0.41283746501927, 1 - 0.28374659812734 - 0.41283746501927 };
         var doc = new DocumentNode([
@@ -184,25 +184,25 @@ public class JsonFormatTests
                 widths),
         ]);
 
-        var read = (TableNode)RoundTrip(doc).Blocks[0];
+        var read = (TableNode)(await RoundTrip(doc)).Blocks[0];
 
         Assert.Equal(widths, read.ColumnWidths.AsEnumerable());
         Assert.Equal(1.0, read.ColumnWidths.Sum(), 12);
     }
 
     [Fact]
-    public void RulesAndBlockImagesSurvive()
+    public async Task RulesAndBlockImagesSurvive()
     {
         var doc = new DocumentNode([
             RuleNode.Instance,
             new BlockImageNode(new ImageEmbed("a.png", 640, 480, "alt text"), TextAlign.Center),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void InlineImagesSurviveWithTheirPlaceholder()
+    public async Task InlineImagesSurviveWithTheirPlaceholder()
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
@@ -211,15 +211,15 @@ public class JsonFormatTests
                 [new ImageEmbed("inline.png", 16, 16)])),
         ]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     [Fact]
-    public void AnEmptyDocumentSurvives()
+    public async Task AnEmptyDocumentSurvives()
     {
         var doc = new DocumentNode([]);
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     // ---- the compatibility contract -----------------------------------------------------------
@@ -244,7 +244,7 @@ public class JsonFormatTests
     /// </para>
     /// </remarks>
     [Fact]
-    public void SchemaVersionOneIsExactlyThisPayload()
+    public async Task SchemaVersionOneIsExactlyThisPayload()
     {
         const string Golden =
             """
@@ -263,7 +263,7 @@ public class JsonFormatTests
         ]);
 
         // The reader cannot drift: a file written by this version must still load as this.
-        var read = JsonFormat.Instance.Import(Golden);
+        var read = await JsonFormat.Instance.ImportAsync(Golden);
 
         Assert.Empty(read.Diagnostics);
         Assert.Equal(expected, read.Doc);
@@ -280,23 +280,23 @@ public class JsonFormatTests
     }
 
     [Fact]
-    public void ADocumentFromANewerVersionIsRefusedRatherThanPartlyRead()
+    public async Task ADocumentFromANewerVersionIsRefusedRatherThanPartlyRead()
     {
         // The failure mode this prevents: a reader that ignored the version would parse the blocks
         // it recognised, drop the ones it did not, and hand back a document that looks complete.
         var payload = $"{{\"VellumText\":{JsonFormat.SchemaVersion + 1},\"blocks\":[" +
             "{\"type\":\"paragraph\",\"content\":{\"text\":\"hello\"}}]}";
 
-        var result = JsonFormat.Instance.Import(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload);
 
         Assert.True(result.Doc.Blocks.IsEmpty);
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("newer version"));
     }
 
     [Fact]
-    public void APayloadWithNoVersionIsNotTakenForOne()
+    public async Task APayloadWithNoVersionIsNotTakenForOne()
     {
-        var result = JsonFormat.Instance.Import("{\"blocks\":[]}");
+        var result = await JsonFormat.Instance.ImportAsync("{\"blocks\":[]}");
 
         Assert.NotEmpty(result.Diagnostics);
     }
@@ -312,24 +312,24 @@ public class JsonFormatTests
     [InlineData("{\"VellumText\":1,\"blocks\":[{\"type\":\"paragraph\",\"content\":{\"text\":\"hi\",\"marks\":[{\"start\":0,\"length\":99,\"mark\":{}}]}}]}")]
     [InlineData("{\"VellumText\":1,\"blocks\":[{\"type\":\"table\",\"rows\":[{\"cells\":[{\"rowSpan\":-5,\"blocks\":[]}]}]}]}")]
     [InlineData("{\"VellumText\":1,\"blocks\":[{\"type\":\"table\",\"columns\":[\"wide\"],\"rows\":[]}]}")]
-    public void ABadPayloadIsReportedRatherThanThrown(string payload)
+    public async Task ABadPayloadIsReportedRatherThanThrown(string payload)
     {
         // Importers never throw. A store full of files written by something else has to degrade
         // into "cannot open these", not into an unhandled exception on a background thread.
-        var result = JsonFormat.Instance.Import(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload);
 
         Assert.NotNull(result);
         Assert.NotEmpty(result.Diagnostics);
     }
 
     [Fact]
-    public void AnUnknownBlockTypeIsSkippedRatherThanFatal()
+    public async Task AnUnknownBlockTypeIsSkippedRatherThanFatal()
     {
         var payload = $"{{\"VellumText\":{JsonFormat.SchemaVersion},\"blocks\":[" +
             "{\"type\":\"from-the-future\"}," +
             "{\"type\":\"paragraph\",\"content\":{\"text\":\"kept\"}}]}";
 
-        var result = JsonFormat.Instance.Import(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload);
 
         Assert.Equal("kept", ((ParagraphNode)Assert.Single(result.Doc.Blocks)).Content.Text);
     }
@@ -362,7 +362,7 @@ public class JsonFormatTests
     }
 
     [Fact]
-    public void TextThatBreaksNaiveEncodersSurvives()
+    public async Task TextThatBreaksNaiveEncodersSurvives()
     {
         var doc = DocumentNode.FromParagraphs(
             "quotes \" and \\ backslash",
@@ -370,7 +370,7 @@ public class JsonFormatTests
             "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 and e\u0301",
             "line\tseparated\u2028and\u2029paragraph");
 
-        Assert.Equal(doc, RoundTrip(doc));
+        Assert.Equal(doc, await RoundTrip(doc));
     }
 
     /// <summary>
@@ -400,14 +400,14 @@ public class JsonFormatTests
     [InlineData("//evil.test/steal")]
     [InlineData(@"\\evil.test\share")]
     [InlineData("myapp://note/42")]
-    public void A_link_destination_is_stored_verbatim_because_this_format_is_not_interchange(
+    public async Task A_link_destination_is_stored_verbatim_because_this_format_is_not_interchange(
         string href)
     {
         var content = InlineContent.FromText("click")
             .ApplyMarks(0, 5, new MarkSet { Link = new LinkMark(href, null) }, MarkFields.Link);
         var doc = new DocumentNode([new ParagraphNode(content)]);
 
-        var back = Assert.IsType<ParagraphNode>(RoundTrip(doc).Blocks[0]);
+        var back = Assert.IsType<ParagraphNode>((await RoundTrip(doc)).Blocks[0]);
 
         Assert.Equal(href, back.Content.MarkAt(0).Link?.Href);
     }

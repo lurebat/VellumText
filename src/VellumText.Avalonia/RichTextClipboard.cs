@@ -13,7 +13,7 @@ namespace VellumText.Avalonia;
 /// <remarks>
 /// A flavour is the platform slot and nothing else. How the payload's bytes are made is the
 /// format's business, not the clipboard's: <see cref="IDocumentExporter.Export(Stream, DocumentNode)"/>
-/// writes them and <see cref="IDocumentImporter.Import(Stream)"/> reads them, so a format that is
+/// writes them and <see cref="IDocumentImporter.ImportAsync(Stream, CancellationToken)"/> reads them, so a format that is
 /// not text at all — a container like DOCX — travels here exactly as HTML does. This used to carry
 /// an <see cref="Encoding"/> as well, which forced every payload through a string and made a
 /// binary flavour impossible to express.
@@ -36,7 +36,7 @@ public sealed record ClipboardFlavor(string Format, DataFormat<byte[]> DataForma
 /// <para>
 /// <see cref="ReadAsync(IClipboard, IEnumerable{IDocumentImporter})"/> and <see cref="WriteAsync"/>
 /// are the whole API for an ordinary
-/// application, and neither exposes a byte. <see cref="Decode"/> and <see cref="Encode"/> exist
+/// application, and neither exposes a byte. <see cref="DecodeAsync"/> and <see cref="Encode"/> exist
 /// for applications that hold the payload themselves — a clipboard manager storing what it
 /// captured, to parse later or never — and <see cref="Flavors"/> gives them the platform formats
 /// to capture under, including for formats they do not intend to parse at all.
@@ -144,30 +144,58 @@ public static class RichTextClipboard
         return buffer.ToArray();
     }
 
-    /// <summary>Reads a clipboard payload back into a document.</summary>
+    /// <summary>Reads a clipboard payload back into a document, off the calling thread.</summary>
     /// <param name="importer">The importer to read with.</param>
     /// <param name="payload">The bytes exactly as they came off the clipboard.</param>
+    /// <param name="cancellationToken">Abandons the import.</param>
     /// <returns>The result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="importer"/> is <see langword="null"/>.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled.
+    /// </exception>
     /// <remarks>
     /// <para>
     /// This is the method a clipboard manager wants: it stored the bytes when the capture
     /// happened, and parses them later or never.
     /// </para>
     /// <para>
-    /// There is no overload taking the payload as a <see cref="string"/>, deliberately. Handing
-    /// the bytes to the importer is this method's job precisely because decoding them at the call
-    /// site is the mistake this type exists to prevent.
+    /// The importer always runs on a background thread, whatever its own implementation does —
+    /// see <see cref="IDocumentImporter"/>. There is no overload taking the payload as a
+    /// <see cref="string"/>, deliberately. Handing the bytes to the importer is this method's job
+    /// precisely because decoding them at the call site is the mistake this type exists to
+    /// prevent.
     /// </para>
     /// </remarks>
-    public static ImportResult Decode(IDocumentImporter importer, ReadOnlySpan<byte> payload)
+    public static Task<ImportResult> DecodeAsync(
+        IDocumentImporter importer,
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(importer);
 
-        using var source = new MemoryStream(payload.ToArray(), writable: false);
-
-        return importer.Import(source);
+        return ImportOnBackgroundAsync(importer, payload.ToArray(), cancellationToken);
     }
+
+    /// <summary>
+    /// Runs an importer on a thread-pool thread, never the caller's — the one way the editor and
+    /// this type call an importer.
+    /// </summary>
+    /// <remarks>
+    /// The hop is unconditional. An importer that is genuinely asynchronous would release the
+    /// caller at its first await anyway, but one that does its work before that await — every
+    /// synchronous parser wrapped in a task does — would run it on the UI thread and freeze it.
+    /// The payload has already been read on the caller's thread; only decoding moves.
+    /// </remarks>
+    internal static Task<ImportResult> ImportOnBackgroundAsync(
+        IDocumentImporter importer, byte[] payload, CancellationToken cancellationToken) =>
+        Task.Run(
+            async () =>
+            {
+                using var source = new MemoryStream(payload, writable: false);
+
+                return await importer.ImportAsync(source, cancellationToken).ConfigureAwait(false);
+            },
+            cancellationToken);
 
     /// <summary>
     /// The clipboard payload for a document: plain text, plus a flavour for each exporter that has
@@ -319,7 +347,8 @@ public static class RichTextClipboard
                     continue;
                 }
 
-                var result = Decode(importer, bytes);
+                var result = await ImportOnBackgroundAsync(importer, bytes, CancellationToken.None)
+                    .ConfigureAwait(true);
 
                 if (!result.Doc.Blocks.IsEmpty)
                 {
@@ -335,48 +364,88 @@ public static class RichTextClipboard
         }
     }
 
-    /// <summary>Reads the richest readable flavour of a transfer as a document.</summary>
-    /// <param name="data">A transfer whose contents are already in hand, as a drop's are.</param>
+    /// <summary>
+    /// Decides what a paste or a drop inserts: the one rule both of them follow.
+    /// </summary>
+    /// <param name="source">The transfer's flavours.</param>
     /// <param name="importers">The formats to try, in any order.</param>
-    /// <returns>
-    /// The result, or <see langword="null"/> when the transfer holds nothing any of them could
-    /// read. Plain text counts: it arrives as a document of one paragraph per line.
-    /// </returns>
-    /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <param name="cancellationToken">Abandons the imports.</param>
+    /// <returns>What to insert.</returns>
     /// <remarks>
-    /// The synchronous half of the pair, for <see cref="DragEventArgs.DataTransfer"/>, which hands
-    /// over data that has already crossed the process boundary and so needs no awaiting.
+    /// <para>
+    /// Rich formats first, richest first, and the first that imports to anything wins — except
+    /// that an image on the transfer wins over a rich import that lost an image to the sanitizer,
+    /// or over none at all (owner decision OD-4b). A browser's "Copy image" puts the bitmap and an
+    /// <c>&lt;img&gt;</c> pointing at the network on the clipboard; the sanitizer removes the
+    /// remote image, and taking the rich flavour anyway pasted nothing while reporting success.
+    /// An image is not preferred over a rich import that lost nothing: a spreadsheet copies a
+    /// picture of its cells as well as the table, and the table is what was meant.
+    /// </para>
+    /// <para>
+    /// Plain text comes last and is returned as text rather than as a document, so that a paste
+    /// and a drop both put it through the same seam and it lands with the formatting of where it
+    /// lands. Paste and drop used to resolve the same transfer differently: a drop took the image
+    /// first and built text into body paragraphs, so the same clip landed differently by gesture.
+    /// </para>
+    /// <para>
+    /// "Lost an image" is read from the sanitizer's diagnostics: a <see cref="DiagnosticSeverity.Dropped"/>
+    /// in context <c>img</c> (a network image) or <c>data:</c> (an inline image it refused).
+    /// </para>
     /// </remarks>
-    public static ImportResult? Read(IDataTransfer data, IEnumerable<IDocumentImporter> importers)
+    internal static async Task<TransferResolution> ResolveAsync(
+        TransferSource source,
+        IEnumerable<IDocumentImporter> importers,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(data);
-        ArgumentNullException.ThrowIfNull(importers);
+        ImportResult? rich = null;
 
-        try
+        foreach (var importer in InPreferenceOrder(importers))
         {
-            foreach (var importer in InPreferenceOrder(importers))
+            // Bytes, deliberately, and never as a string. See the type's remarks.
+            if (await source.BytesAsync(FlavorFor(importer.Format).DataFormat).ConfigureAwait(true)
+                is not { Length: > 0 } bytes)
             {
-                // Bytes, deliberately, and never as a string. See the type's remarks.
-                if (data.TryGetValue(FlavorFor(importer.Format).DataFormat) is not { Length: > 0 } bytes)
-                {
-                    continue;
-                }
-
-                var result = Decode(importer, bytes);
-
-                if (!result.Doc.Blocks.IsEmpty)
-                {
-                    return result;
-                }
+                continue;
             }
 
-            return FromPlainText(data.TryGetText());
+            var result = await ImportOnBackgroundAsync(importer, bytes, cancellationToken)
+                .ConfigureAwait(true);
+
+            if (!result.Doc.Blocks.IsEmpty)
+            {
+                rich = result;
+                break;
+            }
         }
-        catch (Exception)
+
+        if (rich is not null && !LostAnImage(rich))
         {
-            return null;
+            return new TransferResolution(Document: rich);
         }
+
+        if (await source.BitmapPngAsync().ConfigureAwait(true) is { } png)
+        {
+            return new TransferResolution(ImagePng: png);
+        }
+
+        if (await source.FilesAsync().ConfigureAwait(true) is { } files
+            && files.Any(file => RichTextView.MediaTypeOf(file.Name) is not null))
+        {
+            return new TransferResolution(ImageFiles: files);
+        }
+
+        if (rich is not null)
+        {
+            return new TransferResolution(Document: rich);
+        }
+
+        return await source.TextAsync().ConfigureAwait(true) is { Length: > 0 } text
+            ? new TransferResolution(Text: text)
+            : TransferResolution.Nothing;
     }
+
+    private static bool LostAnImage(ImportResult result) =>
+        result.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Dropped && d.Context is "img" or "data:");
 
     /// <summary>Plain text as a document of one paragraph per line, or null if there is none.</summary>
     /// <remarks>

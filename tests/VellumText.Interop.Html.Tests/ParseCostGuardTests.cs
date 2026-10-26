@@ -15,6 +15,10 @@ public sealed class ParseCostGuardTests
     private static string ManyAttributes(int count) =>
         "<p " + string.Join(" ", Enumerable.Range(0, count).Select(i => $"a{i}=1")) + ">x</p>";
 
+    /// <remarks>
+    /// Times the import stage itself, on this thread, so that the measurement is the parse and not
+    /// the hand-off to the thread the public entry point runs it on.
+    /// </remarks>
     private static long BestOfThreeMs(Func<ImportResult> import)
     {
         import();
@@ -48,8 +52,8 @@ public sealed class ParseCostGuardTests
         var small = NestedDivs(10_000);
         var large = NestedDivs(40_000);
 
-        var smallMs = Math.Max(1, BestOfThreeMs(() => HtmlImporter.Import(small)));
-        var largeMs = BestOfThreeMs(() => HtmlImporter.Import(large));
+        var smallMs = Math.Max(1, BestOfThreeMs(() => HtmlImporter.ImportOnCurrentStack(small, null)));
+        var largeMs = BestOfThreeMs(() => HtmlImporter.ImportOnCurrentStack(large, null));
 
         Assert.True(
             largeMs < 8 * smallMs + 50,
@@ -58,22 +62,22 @@ public sealed class ParseCostGuardTests
 
     /// <summary>One element with 40,000 attributes (349 KB) took twelve seconds to parse.</summary>
     [Fact]
-    public void Many_attributes_on_one_element_import_quickly()
+    public async Task Many_attributes_on_one_element_import_quickly()
     {
         var html = ManyAttributes(40_000);
 
-        var ms = BestOfThreeMs(() => HtmlImporter.Import(html));
+        var ms = BestOfThreeMs(() => HtmlImporter.ImportOnCurrentStack(html, null));
 
         Assert.True(ms < 2_000, $"349 KB of attributes took {ms} ms");
-        Assert.Equal("x", TextOf(HtmlImporter.Import(html).Doc));
+        Assert.Equal("x", TextOf((await HtmlImporter.ImportAsync(html)).Doc));
     }
 
     [Fact]
-    public void Text_below_the_nesting_limit_is_kept_in_order()
+    public async Task Text_below_the_nesting_limit_is_kept_in_order()
     {
         var html = string.Concat(Enumerable.Range(0, 700).Select(i => $"<div>{i % 10}"));
 
-        var result = HtmlImporter.Import(html);
+        var result = await HtmlImporter.ImportAsync(html);
 
         Assert.Equal(
             string.Concat(Enumerable.Range(0, 700).Select(i => (i % 10).ToString())),
@@ -82,7 +86,7 @@ public sealed class ParseCostGuardTests
     }
 
     [Fact]
-    public void Element_depth_limit_is_honoured()
+    public async Task Element_depth_limit_is_honoured()
     {
         var options = HtmlImportOptions.Default with { MaxElementDepth = 3 };
         var html = "<div><div><div><div><div><b>deep</b></div></div></div></div></div><p>after</p>";
@@ -92,7 +96,7 @@ public sealed class ParseCostGuardTests
         Assert.True(guarded.DroppedDeepTags);
         Assert.Equal(3, MaxDepthOf(guarded.Html));
 
-        var result = HtmlImporter.Import(html, options);
+        var result = await HtmlImporter.ImportAsync(html, options);
 
         Assert.Equal("deep\nafter", TextOf(result.Doc));
         Assert.Contains(result.Diagnostics, d => d.Context == "element-depth" && d.Severity == DiagnosticSeverity.Downgraded);
@@ -107,12 +111,12 @@ public sealed class ParseCostGuardTests
     }
 
     [Fact]
-    public void Attribute_limit_is_honoured()
+    public async Task Attribute_limit_is_honoured()
     {
         var html = "<p><a title=\"t\" href=\"https://example.test/\">link</a></p>";
 
-        var unlimited = HtmlImporter.Import(html);
-        var limited = HtmlImporter.Import(html, HtmlImportOptions.Default with { MaxAttributesPerElement = 1 });
+        var unlimited = await HtmlImporter.ImportAsync(html);
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxAttributesPerElement = 1 });
 
         Assert.NotNull(LinkOf(unlimited.Doc));
         Assert.Null(LinkOf(limited.Doc));
@@ -121,12 +125,12 @@ public sealed class ParseCostGuardTests
     }
 
     [Fact]
-    public void Style_nesting_limit_is_honoured()
+    public async Task Style_nesting_limit_is_honoured()
     {
         var html = "<p><span style=\"color:#ff0000; width:calc(((1px)))\">red</span></p>";
 
-        var unlimited = HtmlImporter.Import(html);
-        var limited = HtmlImporter.Import(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
+        var unlimited = await HtmlImporter.ImportAsync(html);
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
 
         Assert.Equal(new Rgba(255, 0, 0, 255), ForegroundOf(unlimited.Doc));
         Assert.Null(ForegroundOf(limited.Doc));
@@ -135,15 +139,15 @@ public sealed class ParseCostGuardTests
     }
 
     [Fact]
-    public void A_style_removed_for_nesting_keeps_the_tags_other_attributes()
+    public async Task A_style_removed_for_nesting_keeps_the_tags_other_attributes()
     {
         var html = "<p><a href=\"https://example.test/?a=1&amp;b=&quot;2&quot;\" title=\"T&lt;\" style=\"width:calc(((1px)))\">x</a></p>";
         var withoutStyle = html.Replace(" style=\"width:calc(((1px)))\"", string.Empty, StringComparison.Ordinal);
 
-        var result = HtmlImporter.Import(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
+        var result = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
 
         Assert.Equal("https://example.test/?a=1&b=\"2\"", LinkOf(result.Doc)?.Href);
-        Assert.Equal(LinkOf(HtmlImporter.Import(withoutStyle).Doc), LinkOf(result.Doc));
+        Assert.Equal(LinkOf((await HtmlImporter.ImportAsync(withoutStyle)).Doc), LinkOf(result.Doc));
     }
 
     /// <summary>
@@ -155,12 +159,12 @@ public sealed class ParseCostGuardTests
     [InlineData("<script>hidden</script>")]
     [InlineData("<style>hidden</style>")]
     [InlineData("<template><template>x</template><p>hidden</p></template>")]
-    public void Non_content_past_the_depth_limit_does_not_become_text(string body)
+    public async Task Non_content_past_the_depth_limit_does_not_become_text(string body)
     {
         var options = HtmlImportOptions.Default with { MaxElementDepth = 2 };
         var html = "<div><div><div>" + body + "</div></div></div><p>after</p>";
 
-        var result = HtmlImporter.Import(html, options);
+        var result = await HtmlImporter.ImportAsync(html, options);
 
         Assert.DoesNotContain("hidden", TextOf(result.Doc), StringComparison.Ordinal);
         Assert.Contains("after", TextOf(result.Doc), StringComparison.Ordinal);
@@ -171,7 +175,7 @@ public sealed class ParseCostGuardTests
     /// rows are flat and must not be mistaken for deep nesting.
     /// </summary>
     [Fact]
-    public void Unclosed_list_items_paragraphs_and_cells_are_not_counted_as_nesting()
+    public async Task Unclosed_list_items_paragraphs_and_cells_are_not_counted_as_nesting()
     {
         var list = "<ul>" + string.Concat(Enumerable.Range(0, 600).Select(i => $"<li>{i}")) + "</ul>";
         var paragraphs = string.Concat(Enumerable.Range(0, 600).Select(i => $"<p>{i}"));
@@ -186,7 +190,7 @@ public sealed class ParseCostGuardTests
             Assert.Same(html, guarded.Html);
         }
 
-        var imported = HtmlImporter.Import(list).Doc;
+        var imported = (await HtmlImporter.ImportAsync(list)).Doc;
         Assert.Equal(600, Assert.IsType<ListNode>(Assert.Single(imported.Blocks)).Items.Length);
     }
 

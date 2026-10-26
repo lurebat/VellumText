@@ -14,10 +14,10 @@ namespace VellumText.Tests.Interop.Json;
 public class JsonEmptyRowTests
 {
     [Fact]
-    public void ARowCoveredEntirelyByAMergeSurvivesTheRoundTrip()
+    public async Task ARowCoveredEntirelyByAMergeSurvivesTheRoundTrip()
     {
         var doc = Merged();
-        var back = JsonFormat.Instance.Import(JsonFormat.Instance.Export(doc));
+        var back = await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc));
 
         Assert.False(back.AnythingDropped, string.Join("; ", back.Diagnostics));
         Assert.Equal(doc, back.Doc);

@@ -23,7 +23,7 @@ namespace VellumText.Tests.Interop.Markdown;
 /// </remarks>
 public class MarkdownSecurityTests
 {
-    private static ImportResult Import(string markdown) => MarkdownImporter.Import(markdown);
+    private static async Task<ImportResult> Import(string markdown) => await MarkdownImporter.ImportAsync(markdown);
 
     private static ParagraphNode OnlyPara(ImportResult result) =>
         Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks));
@@ -75,9 +75,9 @@ public class MarkdownSecurityTests
     [InlineData("file:///c:/windows/win.ini")]
     [InlineData("//evil.test/steal")]
     [InlineData(@"\\evil.test\share")]
-    public void A_link_whose_scheme_is_not_allowed_loses_its_destination(string href)
+    public async Task A_link_whose_scheme_is_not_allowed_loses_its_destination(string href)
     {
-        var result = Import($"[click]({href})");
+        var result = await Import($"[click]({href})");
         var paragraph = OnlyPara(result);
 
         Assert.Equal("click", paragraph.Content.Text);
@@ -90,9 +90,9 @@ public class MarkdownSecurityTests
     [InlineData("http://example.test/a")]
     [InlineData("mailto:someone@example.test")]
     [InlineData("tel:+441234567890")]
-    public void A_link_whose_scheme_is_allowed_keeps_its_destination(string href)
+    public async Task A_link_whose_scheme_is_allowed_keeps_its_destination(string href)
     {
-        var paragraph = OnlyPara(Import($"[click]({href})"));
+        var paragraph = OnlyPara(await Import($"[click]({href})"));
 
         Assert.Equal(href, paragraph.Content.MarkAt(0).Link?.Href);
     }
@@ -102,11 +102,11 @@ public class MarkdownSecurityTests
     /// the host says what it should be relative to.
     /// </summary>
     [Fact]
-    public void A_relative_destination_is_resolved_only_against_a_base_the_host_supplied()
+    public async Task A_relative_destination_is_resolved_only_against_a_base_the_host_supplied()
     {
-        Assert.Null(OnlyPara(Import("[click](page.html)")).Content.MarkAt(0).Link);
+        Assert.Null(OnlyPara(await Import("[click](page.html)")).Content.MarkAt(0).Link);
 
-        var resolved = MarkdownImporter.Import(
+        var resolved = await MarkdownImporter.ImportAsync(
             "[click](page.html)",
             new MarkdownImportOptions { BaseUri = new Uri("https://example.test/dir/index.html") });
 
@@ -136,9 +136,9 @@ public class MarkdownSecurityTests
     [InlineData("<style>body{display:none}</style>", "display:none")]
     [InlineData("<div onclick=\"steal()\">bait</div>", "bait")]
     [InlineData("<iframe src=\"https://evil.test/\">fallback</iframe>", "fallback")]
-    public void A_raw_html_block_is_removed_with_its_contents(string html, string forbidden)
+    public async Task A_raw_html_block_is_removed_with_its_contents(string html, string forbidden)
     {
-        var result = Import($"before\n\n{html}\n\nafter");
+        var result = await Import($"before\n\n{html}\n\nafter");
 
         Assert.DoesNotContain(forbidden, AllText(result), StringComparison.Ordinal);
         Assert.Contains("before", AllText(result), StringComparison.Ordinal);
@@ -165,12 +165,12 @@ public class MarkdownSecurityTests
     [InlineData("<style>body{display:none}</style>", "display:none", "style")]
     [InlineData("<title>secret</title>", "secret", "title")]
     [InlineData("<noscript>fallback</noscript>", "fallback", "noscript")]
-    public void A_raw_inline_non_content_tag_is_removed_with_its_contents(
+    public async Task A_raw_inline_non_content_tag_is_removed_with_its_contents(
         string html,
         string forbidden,
         string context)
     {
-        var result = Import($"a {html} b");
+        var result = await Import($"a {html} b");
 
         Assert.DoesNotContain(forbidden, AllText(result), StringComparison.Ordinal);
         Assert.Equal("a b", AllText(result));
@@ -184,9 +184,9 @@ public class MarkdownSecurityTests
     /// the two guards, and this is the case that asks it on its own.
     /// </summary>
     [Fact]
-    public void Allowed_raw_inline_html_still_loses_its_script()
+    public async Task Allowed_raw_inline_html_still_loses_its_script()
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             "a <script>steal()</script> b",
             new MarkdownImportOptions { AllowRawHtml = true });
 
@@ -241,13 +241,13 @@ public class MarkdownSecurityTests
 
     [Theory]
     [MemberData(nameof(NonContentBodies))]
-    public void A_non_content_body_is_never_text_however_the_document_splits_it(
+    public async Task A_non_content_body_is_never_text_however_the_document_splits_it(
         bool allowRawHtml,
         string markdown,
         string expected,
         string context)
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             markdown,
             new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
 
@@ -281,12 +281,12 @@ public class MarkdownSecurityTests
 
     [Theory]
     [MemberData(nameof(QuotedScripts))]
-    public void A_script_written_as_code_is_text_and_survives(
+    public async Task A_script_written_as_code_is_text_and_survives(
         bool allowRawHtml,
         string markdown,
         string expected)
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             markdown,
             new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
 
@@ -306,9 +306,9 @@ public class MarkdownSecurityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void A_closing_tag_with_no_opener_removes_nothing(bool allowRawHtml)
+    public async Task A_closing_tag_with_no_opener_removes_nothing(bool allowRawHtml)
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             "a </script> b",
             new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
 
@@ -328,9 +328,9 @@ public class MarkdownSecurityTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void An_attribute_that_carries_script_never_becomes_text(bool allowRawHtml)
+    public async Task An_attribute_that_carries_script_never_becomes_text(bool allowRawHtml)
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             "a <div onclick=\"steal()\">bait</div> b",
             new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
 
@@ -376,9 +376,9 @@ public class MarkdownSecurityTests
     /// the tag keeps the words. Only the formatting the tag would have applied is lost.
     /// </summary>
     [Fact]
-    public void A_raw_inline_tag_is_removed_but_its_text_is_kept()
+    public async Task A_raw_inline_tag_is_removed_but_its_text_is_kept()
     {
-        var result = Import("a <b>bold</b> c");
+        var result = await Import("a <b>bold</b> c");
         var paragraph = OnlyPara(result);
 
         Assert.Equal("a bold c", paragraph.Content.Text);
@@ -393,17 +393,17 @@ public class MarkdownSecurityTests
     /// whitespace rule rather than anything to do with the comment.
     /// </summary>
     [Fact]
-    public void A_raw_html_comment_is_removed() =>
-        Assert.Equal("a c", OnlyPara(Import("a <!-- secret --> c")).Content.Text);
+    public async Task A_raw_html_comment_is_removed() =>
+        Assert.Equal("a c", OnlyPara(await Import("a <!-- secret --> c")).Content.Text);
 
     /// <summary>
     /// With raw HTML allowed the markup is read rather than discarded — and it is read by the same
     /// sanitizer every HTML import goes through, not by a second one written for Markdown.
     /// </summary>
     [Fact]
-    public void Allowed_raw_html_is_read_through_the_html_sanitizer()
+    public async Task Allowed_raw_html_is_read_through_the_html_sanitizer()
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             "a <b>bold</b> c",
             new MarkdownImportOptions { AllowRawHtml = true });
 
@@ -420,9 +420,9 @@ public class MarkdownSecurityTests
     [Theory]
     [InlineData("<script>alert(1)</script>", "alert(1)")]
     [InlineData("<style>body{display:none}</style>", "display:none")]
-    public void Allowed_raw_html_still_loses_its_script_and_style(string html, string forbidden)
+    public async Task Allowed_raw_html_still_loses_its_script_and_style(string html, string forbidden)
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             $"before\n\n{html}\n\nafter",
             new MarkdownImportOptions { AllowRawHtml = true });
 
@@ -431,9 +431,9 @@ public class MarkdownSecurityTests
     }
 
     [Fact]
-    public void Allowed_raw_html_still_loses_a_dangerous_link_scheme()
+    public async Task Allowed_raw_html_still_loses_a_dangerous_link_scheme()
     {
-        var result = MarkdownImporter.Import(
+        var result = await MarkdownImporter.ImportAsync(
             "<a href=\"javascript:alert(1)\">click</a>",
             new MarkdownImportOptions { AllowRawHtml = true });
 
@@ -446,9 +446,9 @@ public class MarkdownSecurityTests
     /// the document that it was opened, from where and when.
     /// </summary>
     [Fact]
-    public void A_remote_image_needs_the_host_to_ask_for_it()
+    public async Task A_remote_image_needs_the_host_to_ask_for_it()
     {
-        var result = Import("![](https://tracker.test/pixel.gif)");
+        var result = await Import("![](https://tracker.test/pixel.gif)");
 
         Assert.Empty(OnlyPara(result).Content.Embeds);
         Assert.True(result.AnythingDropped);

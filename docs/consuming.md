@@ -131,3 +131,9 @@ A folder on a developer's machine is not visible to a hosted runner. Two options
 
 Vendoring the source is the last resort. It forks a library under active development, and it drifts
 faster than people expect: the first consumer to try it was five commits stale within an hour.
+
+## Upgrading across a breaking release
+
+0.8.0 made importing asynchronous, which changes the signature of every import call and of
+`IDocumentImporter` itself. [Migrating to 0.8](migration-0.8.md) lists every replaced member and how
+a host that vendors a 0.7 build moves over; the [changelog](../CHANGELOG.md) records the rest.

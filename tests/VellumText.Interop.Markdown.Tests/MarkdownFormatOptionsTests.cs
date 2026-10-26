@@ -56,12 +56,12 @@ public class MarkdownFormatOptionsTests
     /// ever makes.
     /// </summary>
     [Fact]
-    public void Raw_html_is_read_when_the_registered_format_says_so()
+    public async Task Raw_html_is_read_when_the_registered_format_says_so()
     {
         IDocumentImporter configured = MarkdownFormat.Instance.With(
             new MarkdownImportOptions { AllowRawHtml = true });
 
-        var paragraph = (ParagraphNode)configured.Import("a <b>bold</b> c").Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await configured.ImportAsync("a <b>bold</b> c")).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.Bold, paragraph.Content.MarkAt(2).Style);
     }
@@ -71,23 +71,23 @@ public class MarkdownFormatOptionsTests
     /// gives a different answer for the same input.
     /// </summary>
     [Fact]
-    public void Raw_html_is_still_dropped_by_the_shared_instance()
+    public async Task Raw_html_is_still_dropped_by_the_shared_instance()
     {
         IDocumentImporter shared = MarkdownFormat.Instance;
 
-        var paragraph = (ParagraphNode)shared.Import("a <b>bold</b> c").Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await shared.ImportAsync("a <b>bold</b> c")).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.None, paragraph.Content.MarkAt(2).Style);
     }
 
     [Fact]
-    public void The_stream_overload_carries_the_options_as_well()
+    public async Task The_stream_overload_carries_the_options_as_well()
     {
         IDocumentImporter configured = MarkdownFormat.Instance.With(
             new MarkdownImportOptions { AllowRawHtml = true });
 
         using var source = new MemoryStream(Encoding.UTF8.GetBytes("a <b>bold</b> c"));
-        var paragraph = (ParagraphNode)configured.Import(source).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await configured.ImportAsync(source)).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.Bold, paragraph.Content.MarkAt(2).Style);
     }
@@ -97,11 +97,11 @@ public class MarkdownFormatOptionsTests
     /// literal is here so the test is not merely comparing the reader with the writer.
     /// </summary>
     [Fact]
-    public void The_stream_overload_reads_utf8()
+    public async Task The_stream_overload_reads_utf8()
     {
         using var source = new MemoryStream(Encoding.UTF8.GetBytes("héllo — wörld"));
 
-        var paragraph = (ParagraphNode)MarkdownFormat.Instance.Import(source).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await MarkdownFormat.Instance.ImportAsync(source)).Doc.Blocks[0];
 
         Assert.Equal("héllo — wörld", paragraph.Content.Text);
     }
@@ -149,10 +149,10 @@ public class MarkdownFormatOptionsTests
     }
 
     [Fact]
-    public void Importing_null_says_so()
+    public async Task Importing_null_says_so()
     {
-        Assert.Throws<ArgumentNullException>(() => MarkdownImporter.Import(null!));
-        Assert.Throws<ArgumentNullException>(() => MarkdownFormat.Instance.Import((Stream)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownImporter.ImportAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownFormat.Instance.ImportAsync((Stream)null!));
     }
 
     private static ParagraphNode Paragraph(string text) =>

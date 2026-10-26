@@ -117,7 +117,7 @@ public partial class RichTextView
     /// <b>A handler that throws loses the paste, not the document.</b> Nothing has been applied
     /// when this runs, so there is no half-inserted state to unwind. On the keyboard, menu and drop
     /// paths the exception meets the same handler a failing clipboard does and the paste is simply
-    /// dropped; a host calling <see cref="PasteImport"/> itself sees its own exception, because
+    /// dropped; a host calling <see cref="PasteImport(ImportResult)"/> itself sees its own exception, because
     /// swallowing it there would hide the host's bug from the host.
     /// </para>
     /// <para>
@@ -131,10 +131,19 @@ public partial class RichTextView
     /// <summary>Asks the host whether content from outside may be inserted.</summary>
     /// <remarks>
     /// The choke point, called from the two seams that insert imported content and from nowhere
-    /// else, for the reason <see cref="PasteImport"/> gives: a gate at each call site is a gate
+    /// else, for the reason <see cref="PasteImport(ImportResult)"/> gives: a gate at each call site is a gate
     /// the next call site will forget.
     /// </remarks>
-    private bool ContentAllowed(DocumentNode content, ImmutableArray<ImportDiagnostic> diagnostics)
+    /// <param name="content">What would be inserted.</param>
+    /// <param name="diagnostics">What the import gave up.</param>
+    /// <param name="gesture">
+    /// Whether this is a paste the user started, where a policy that throws refuses the paste
+    /// rather than reaching the window: nothing has been applied yet, so "this paste did not
+    /// happen" is exactly true, and a bug in a host's policy should cost one paste, not the
+    /// window. A host calling <see cref="PasteImport(ImportResult)"/> itself gets the exception.
+    /// </param>
+    private bool ContentAllowed(
+        DocumentNode content, ImmutableArray<ImportDiagnostic> diagnostics, bool gesture = false)
     {
         if (ContentImporting is not { } handlers)
         {
@@ -143,7 +152,14 @@ public partial class RichTextView
 
         var refusal = new ContentImportingEventArgs(content, diagnostics);
 
-        handlers(this, refusal);
+        try
+        {
+            handlers(this, refusal);
+        }
+        catch (Exception) when (gesture)
+        {
+            return false;
+        }
 
         return !refusal.Cancel;
     }
@@ -162,14 +178,25 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(result);
 
+        return PasteImport(result, CurrentOrigin());
+    }
+
+    /// <summary>
+    /// <see cref="PasteImport(ImportResult)"/> for an import that started at
+    /// <paramref name="origin"/>, which a <see cref="ContentImporting"/> handler may have moved.
+    /// </summary>
+    internal bool PasteImport(ImportResult result, EditOrigin origin, bool gesture = false)
+    {
         // Asked before anything is applied, and only when there is something to ask about: a
         // policy is only shown content that would otherwise be in the document a moment later.
-        if (!WouldPaste(result.Doc) || !ContentAllowed(result.Doc, result.Diagnostics))
+        if (!WouldPaste(result.Doc) || !ContentAllowed(result.Doc, result.Diagnostics, gesture))
         {
             return false;
         }
 
-        if (!PasteDocument(result.Doc))
+        // A handler is host code and can do anything, including load another document. The
+        // content was judged against the state it was shown; it does not land in a different one.
+        if (!StillAt(origin) || !PasteDocument(result.Doc))
         {
             return false;
         }
@@ -339,11 +366,23 @@ public partial class RichTextView
     /// <summary>Replaces the selection with the clipboard's richest readable flavour.</summary>
     /// <returns><see langword="true"/> if the document changed.</returns>
     /// <remarks>
+    /// <para>
     /// Ctrl+V starts this without awaiting it, so everything after the first await runs at a
     /// moment the caller no longer controls. The origin is settled before that await and checked
     /// again at each point the document would be changed: a paste that arrives to find a
     /// different document, or a moved caret, is dropped rather than applied somewhere the user
     /// did not ask for. This is the guard <see cref="DeleteCutRange"/> already gives a cut.
+    /// </para>
+    /// <para>
+    /// The importers run on a background thread (see <see cref="IDocumentImporter"/>) and the
+    /// result is applied back here, on the UI thread, behind the same origin check. A newer paste
+    /// or drop, or the host loading another document, cancels an import still running.
+    /// </para>
+    /// <para>
+    /// Only reading and decoding are guarded. An exception from a <see cref="ContentImporting"/>
+    /// or <see cref="ContentImported"/> handler is the host's own and reaches it: swallowing one
+    /// after the paste had landed returned <see langword="false"/> for an edit that happened.
+    /// </para>
     /// </remarks>
     public async Task<bool> PasteAsync()
     {
@@ -353,51 +392,86 @@ public partial class RichTextView
         }
 
         var origin = CurrentOrigin();
+        var cancellation = BeginImport();
+        TransferResolution resolution;
 
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
+
             if (data is null)
             {
                 return false;
             }
 
-            foreach (var importer in ReadableFormats())
-            {
-                // Bytes, deliberately, and never as a string: a clipboard backend handed a native
-                // format to decode as text will guess an encoding, and its guess for RTF produces
-                // convincing mojibake that then parses to nothing.
-                if (await data.TryGetValueAsync(RichTextClipboard.FlavorFor(importer.Format).DataFormat)
-                    .ConfigureAwait(true) is not { Length: > 0 } bytes)
-                {
-                    continue;
-                }
-
-                var result = RichTextClipboard.Decode(importer, bytes);
-
-                if (!result.Doc.Blocks.IsEmpty)
-                {
-                    return StillAt(origin) && PasteImport(result);
-                }
-            }
-
-            // After the rich formats and before plain text. A screenshot on the clipboard often
-            // carries a text flavour too - a filename, or nothing useful - so taking text first
-            // would paste the label instead of the picture.
-            if (StillAt(origin) && await InsertImageFrom(data, origin).ConfigureAwait(true))
-            {
-                return true;
-            }
-
-            var text = await data.TryGetTextAsync().ConfigureAwait(true);
-
-            return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text);
+            resolution = await RichTextClipboard
+                .ResolveAsync(TransferSource.From(data), ReadableFormats(), cancellation)
+                .ConfigureAwait(true);
         }
         catch (Exception)
         {
             // A clipboard owned by another process can fail for reasons none of which are this
-            // control's business. Losing a paste is bad; taking the application down is worse.
+            // control's business, and a cancelled import is a paste that was superseded. Losing a
+            // paste is bad; taking the application down is worse.
             return false;
+        }
+
+        return await Insert(resolution, origin, cancellation).ConfigureAwait(true);
+    }
+
+    /// <summary>Inserts what a paste or a drop resolved to, if the editor is still where it was.</summary>
+    /// <remarks>
+    /// Two checks, because they answer different questions. The token says whether anything has
+    /// since abandoned this import — a newer paste, the host loading a document, the view being
+    /// retemplated away — and an importer that ignores cancellation still hands back a result.
+    /// The origin says whether the document and selection are the ones it started against.
+    /// </remarks>
+    private async Task<bool> Insert(
+        TransferResolution resolution, EditOrigin origin, CancellationToken cancellation)
+    {
+        if (cancellation.IsCancellationRequested || !StillAt(origin))
+        {
+            return false;
+        }
+
+        return resolution switch
+        {
+            { Document: { } document } => PasteImport(document, origin, gesture: true),
+            { ImagePng: { } png } => InsertImage(png, "image/png"),
+            { ImageFiles: { } files } => await InsertImageFiles(files, origin).ConfigureAwait(true),
+            { Text: { } text } => PasteImportedText(text, origin, gesture: true),
+            _ => false,
+        };
+    }
+
+    private CancellationTokenSource? _importCancellation;
+
+    /// <summary>Starts an import, cancelling any still running.</summary>
+    /// <remarks>
+    /// One at a time: a second Ctrl+V while a large first one decodes means the user wants the
+    /// second, and the first's result would be refused by its origin check anyway.
+    /// </remarks>
+    private CancellationToken BeginImport()
+    {
+        CancelImport();
+
+        _importCancellation = new CancellationTokenSource();
+
+        return _importCancellation.Token;
+    }
+
+    /// <summary>Cancels an import still running, if there is one.</summary>
+    /// <remarks>
+    /// Internal for the editor shell, which abandons the old view's import when a new template
+    /// replaces it.
+    /// </remarks>
+    internal void CancelImport()
+    {
+        if (_importCancellation is { } running)
+        {
+            _importCancellation = null;
+            running.Cancel();
+            running.Dispose();
         }
     }
 
@@ -418,6 +492,7 @@ public partial class RichTextView
         }
 
         var origin = CurrentOrigin();
+        string? text;
 
         try
         {
@@ -428,16 +503,16 @@ public partial class RichTextView
                 return false;
             }
 
-            var text = await data.TryGetTextAsync().ConfigureAwait(true);
-
-            return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text);
+            text = await data.TryGetTextAsync().ConfigureAwait(true);
         }
         catch (Exception)
         {
             // Same reasoning as PasteAsync: a clipboard owned by another process can fail for
-            // reasons that are not this control's business.
+            // reasons that are not this control's business. Only the read is guarded.
             return false;
         }
+
+        return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text, origin, gesture: true);
     }
 
     /// <summary>Whether a paste could land at all, asked before anything is read.</summary>
@@ -460,14 +535,14 @@ public partial class RichTextView
 
     /// <summary>Pastes plain text that arrived from outside, and reports it as an import.</summary>
     /// <remarks>
-    /// Not routed through <see cref="PasteImport"/>, which would have to build a document out of
+    /// Not routed through <see cref="PasteImport(ImportResult)"/>, which would have to build a document out of
     /// the lines first: <see cref="PasteText"/> normalizes the line breaks and takes out the
     /// reserved embed placeholder, and <c>DocumentNode.FromParagraphs</c> does neither — it throws
     /// on the placeholder, into the broad handler above, which is how a whole clip once pasted
     /// nothing. There are no diagnostics because there is no importer; plain text is still content
     /// from outside, and a host clearing a previous notice needs to hear about it.
     /// </remarks>
-    private bool PasteImportedText(string text)
+    private bool PasteImportedText(string text, EditOrigin origin, bool gesture)
     {
         if (TextSlice(text) is not { } slice || !WouldPasteSlice(slice))
         {
@@ -476,12 +551,12 @@ public partial class RichTextView
 
         // Shown as the document it will become rather than as the string it arrived as, so a
         // policy written once works the same on both seams.
-        if (!ContentAllowed(new DocumentNode(TextParagraphs(text)), []))
+        if (!ContentAllowed(new DocumentNode(TextParagraphs(text)), [], gesture))
         {
             return false;
         }
 
-        if (!PasteText(text))
+        if (!StillAt(origin) || !PasteText(text))
         {
             return false;
         }

@@ -20,8 +20,14 @@ public interface IDocumentImporter : IDocumentFormat
 {
     /// <summary>Reads a document out of <paramref name="source"/>.</summary>
     /// <param name="source">The payload, positioned at its first byte.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the import. Cancellation is the one way the returned task may fault.
+    /// </param>
     /// <returns>What was understood, and what had to be given up to understand it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled.
+    /// </exception>
     /// <remarks>
     /// <para>
     /// <b>This is the member every format has to write, and the string overload is derived from
@@ -36,29 +42,37 @@ public interface IDocumentImporter : IDocumentFormat
     /// network stream cannot.
     /// </para>
     /// <para>
-    /// Must not throw for any input at all, including input that is not this format. A paste is
-    /// handed whatever another application put on the clipboard, and an application that dies
-    /// on a malformed paste is worse than one that pastes nothing.
+    /// Must not throw, or fault the task, for any input at all, including input that is not this
+    /// format; cancellation is the only exception. A paste is handed whatever another application
+    /// put on the clipboard, and an application that dies on a malformed paste is worse than one
+    /// that pastes nothing.
     /// </para>
     /// <para>
-    /// <b>Do not implement this by calling <see cref="Import(string)"/>.</b> The default
-    /// implementation of that overload calls this one, so a format that has no string
-    /// implementation of its own and writes one in terms of the other recurses forever. Text
-    /// formats implement both, with each calling the underlying parser directly.
+    /// <b>Do not implement this by calling
+    /// <see cref="ImportAsync(string, CancellationToken)"/>.</b> The default implementation of that
+    /// overload calls this one, so a format that has no string implementation of its own and
+    /// writes one in terms of the other recurses forever. Text formats implement both, with each
+    /// calling the underlying parser directly.
     /// </para>
     /// </remarks>
-    ImportResult Import(Stream source);
+    Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default);
 
     /// <summary>Reads <paramref name="text"/> in.</summary>
     /// <param name="text">The document in this importer's format.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the import. Cancellation is the one way the returned task may fault.
+    /// </param>
     /// <returns>What was understood, and what had to be given up to understand it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled.
+    /// </exception>
     /// <remarks>
     /// <para>
     /// Kept because HTML and RTF genuinely are text, and forcing a caller who has a string to
     /// wrap it in a stream to hand it over would be pure ceremony. A text format overrides this
     /// with its parser; the default encodes through <see cref="IDocumentFormat.TextEncoding"/>
-    /// and defers to <see cref="Import(Stream)"/>.
+    /// and defers to <see cref="ImportAsync(Stream, CancellationToken)"/>.
     /// </para>
     /// <para>
     /// Meaningful only when <see cref="IDocumentFormat.TextEncoding"/> is not
@@ -67,12 +81,11 @@ public interface IDocumentImporter : IDocumentFormat
     /// throws is exactly what <see cref="ImportResult"/> exists to avoid.
     /// </para>
     /// <para>
-    /// Must not throw for any input at all, including input that is not this format. A paste is
-    /// handed whatever another application put on the clipboard, and an application that dies
-    /// on a malformed paste is worse than one that pastes nothing.
+    /// Must not throw, or fault the task, for any input at all, including input that is not this
+    /// format; cancellation is the only exception.
     /// </para>
     /// </remarks>
-    ImportResult Import(string text)
+    async Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
 
@@ -91,6 +104,6 @@ public interface IDocumentImporter : IDocumentFormat
 
         using var source = new MemoryStream(encoding.GetBytes(text), writable: false);
 
-        return Import(source);
+        return await ImportAsync(source, cancellationToken).ConfigureAwait(false);
     }
 }

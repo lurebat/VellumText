@@ -33,9 +33,9 @@ public class ToolbarFontSizeTests
         editor.Document.Blocks.OfType<ParagraphNode>().First().Content.MarkAt(0).FontSize;
 
     [AvaloniaFact]
-    public void A_pasted_twenty_point_heading_shows_twenty()
+    public async Task A_pasted_twenty_point_heading_shows_twenty()
     {
-        var doc = RtfImporter.Import(@"{\rtf1\ansi {\fs40 Heading}\par}").Doc;
+        var doc = (await RtfImporter.ImportAsync(@"{\rtf1\ansi {\fs40 Heading}\par}")).Doc;
         var (editor, toolbar) = Shown(doc);
 
         Assert.Equal(80.0 / 3, SizeOf(editor)!.Value, 6);

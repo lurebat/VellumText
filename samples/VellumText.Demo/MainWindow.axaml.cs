@@ -66,8 +66,8 @@ public partial class MainWindow : Window
         HistoryList.SelectionChanged += OnHistorySelected;
 
         SampleButton.Click += (_, _) => LoadSample();
-        ImportHtmlButton.Click += (_, _) => Show(HtmlImporter.Import(SourceBox.Text ?? string.Empty), "HTML");
-        ImportRtfButton.Click += (_, _) => Show(RtfImporter.Import(SourceBox.Text ?? string.Empty), "RTF");
+        ImportHtmlButton.Click += async (_, _) => Show(await HtmlImporter.ImportAsync(SourceBox.Text ?? string.Empty), "HTML");
+        ImportRtfButton.Click += async (_, _) => Show(await RtfImporter.ImportAsync(SourceBox.Text ?? string.Empty), "RTF");
         PasteButton.Click += OnPaste;
         FormatsButton.Click += OnListFormats;
 
@@ -228,7 +228,7 @@ public partial class MainWindow : Window
             if (await ReadAsync(data, ClipboardRtf, Encoding.Latin1) is { Length: > 0 } rtf)
             {
                 SourceBox.Text = rtf;
-                Show(RtfImporter.Import(rtf), "clipboard RTF");
+                Show(await RtfImporter.ImportAsync(rtf), "clipboard RTF");
                 return;
             }
 
@@ -237,7 +237,7 @@ public partial class MainWindow : Window
                 if (await ReadAsync(data, format, Encoding.UTF8) is { Length: > 0 } html)
                 {
                     SourceBox.Text = html;
-                    Show(HtmlImporter.ImportClipboard(html), "clipboard HTML");
+                    Show(await HtmlImporter.ImportClipboardAsync(html), "clipboard HTML");
                     return;
                 }
             }
@@ -387,7 +387,7 @@ public partial class MainWindow : Window
     /// The starting document is produced by the HTML importer rather than assembled by hand, so the
     /// demo exercises the import path before anyone touches a button.
     /// </summary>
-    private void LoadSample()
+    private async void LoadSample()
     {
         var html = new StringBuilder()
             .Append("<h1>VellumText</h1>")
@@ -420,7 +420,7 @@ public partial class MainWindow : Window
             .Append("<pre>var editor = new RichTextView();\neditor.State = EditorState.Create(doc);</pre>")
             .ToString();
 
-        Show(HtmlImporter.Import(html), "sample");
+        Show(await HtmlImporter.ImportAsync(html), "sample");
         SourceBox.Text = html;
     }
 }

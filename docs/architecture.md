@@ -855,7 +855,7 @@ Two things changed against the sketch above, both forced by decision 3 in §12.1
 
 `HtmlFormat` and `RtfFormat` were constructor-less singletons. That made `HtmlImportOptions`
 unreachable from the path the bullet above tells a host to use: the control holds an
-`IDocumentImporter` and calls `Import`, so `HtmlImporter.Import(html, options)` — a static method on
+`IDocumentImporter` and calls `ImportAsync`, so `HtmlImporter.ImportAsync(html, options)` — a static method on
 a type in a package the control cannot name — is not a seam an application using the control can
 reach at all. `AllowRemoteImages` is a privacy control and `BaseUri` decides whether a relative
 image URL resolves or is dropped, and neither did anything for anyone using the editor.
@@ -884,8 +884,11 @@ public interface IDocumentFormat
 
 public interface IDocumentImporter : IDocumentFormat
 {
-    ImportResult Import(Stream source);            // every format implements this
-    ImportResult Import(string text) => …;         // default: encode, then defer
+    // every format implements this
+    Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default);
+
+    // default: encode, then defer
+    Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) => …;
 }
 
 public interface IDocumentExporter : IDocumentFormat
@@ -897,14 +900,61 @@ public interface IDocumentExporter : IDocumentFormat
 
 Four decisions in that shape:
 
-- **Streams are required and strings are derived**, not the other way round. A DOCX importer must not be made to write a nonsense `Import(string)` to satisfy the interface, whereas a text format's `Export(Stream, doc)` is one line over its existing writer. The string members stay because HTML and RTF genuinely are text and forcing a caller holding a string to wrap it in a `MemoryStream` would be pure ceremony.
-- **The string members are default interface members**, so exactly one member of each pair is mandatory and the text formats override both, each calling its parser directly. The hazard is writing `Import(Stream)` in terms of `Import(string)` without declaring the latter — that recurses forever, and it is called out on both members.
+- **Streams are required and strings are derived**, not the other way round. A DOCX importer must not be made to write a nonsense `ImportAsync(string)` to satisfy the interface, whereas a text format's `Export(Stream, doc)` is one line over its existing writer. The string members stay because HTML and RTF genuinely are text and forcing a caller holding a string to wrap it in a `MemoryStream` would be pure ceremony.
+- **The string members are default interface members**, so exactly one member of each pair is mandatory and the text formats override both, each calling its parser directly. The hazard is writing `ImportAsync(Stream)` in terms of `ImportAsync(string)` without declaring the latter — that recurses forever, and it is called out on both members.
 - **`TextEncoding` is required, not defaulted.** It is not derivable from `MediaType`: `text/rtf` is Latin1 by construction while `text/html` on the clipboard is UTF-8 by definition, and a wrong default is silent mojibake rather than a compile error. It is also the honest place for a format to say it has no text form at all.
-- **A binary format's string members fail loudly and asymmetrically.** `Import(string)` returns an empty result with a `Malformed` diagnostic, because an importer that throws is what `ImportResult` exists to avoid; `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest string and `""` would be a document silently lost on the way to a file.
+- **A binary format's string members fail loudly and asymmetrically.** `ImportAsync(string)` returns an empty result with a `Malformed` diagnostic, because an importer that throws is what `ImportResult` exists to avoid; `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest string and `""` would be a document silently lost on the way to a file.
 
-`DocumentPayload.ReadAllText`/`WriteAllText` are the two-line bridge every text format's stream members use. They are public because the formats that need them are separate assemblies that cannot see each other, and so is any format a host writes. `WriteAllText` emits no BOM — `CF_HTML`'s byte offsets are computed over a payload without one and an RTF reader rejects a document preceded by `EF BB BF` — and `ReadAllText` leaves the stream open, because the caller owns it.
+`DocumentPayload.ReadAllTextAsync`/`WriteAllText` are the two-line bridge every text format's stream members use. They are public because the formats that need them are separate assemblies that cannot see each other, and so is any format a host writes. `WriteAllText` emits no BOM — `CF_HTML`'s byte offsets are computed over a payload without one and an RTF reader rejects a document preceded by `EF BB BF` — and `ReadAllTextAsync` leaves the stream open, because the caller owns it.
 
-The clipboard carries bytes end to end as a result: `RichTextClipboard.Encode` asks the exporter to write into a `MemoryStream` and `Decode` hands the payload straight back as one, so a registered binary format survives copy and paste unchanged. `ClipboardFlavor` no longer carries an `Encoding` — `IDocumentFormat.TextEncoding` is the single source of truth, and a flavour minted with a hard-coded UTF-8 would be a lie for a format that is not text.
+The clipboard carries bytes end to end as a result: `RichTextClipboard.Encode` asks the exporter to write into a `MemoryStream` and `DecodeAsync` hands the payload straight back as one, so a registered binary format survives copy and paste unchanged. `ClipboardFlavor` no longer carries an `Encoding` — `IDocumentFormat.TextEncoding` is the single source of truth, and a flavour minted with a hard-coded UTF-8 would be a lie for a format that is not text.
+
+#### Import is asynchronous, and the editor always runs it off the UI thread (0.8.0)
+
+**Decided 2026-10-26 by the owner (OD-2, Q-1), replacing the synchronous contract above.** The
+importer contract was synchronous, with the string member derived from the stream member. It is
+now asynchronous and nothing else:
+
+- **`ImportAsync(Stream, CancellationToken)` is the member every format writes**, and
+  `ImportAsync(string, CancellationToken)` is derived for text formats exactly as `Import(string)`
+  was. There is no synchronous import member anywhere in the library — not on the interface, the
+  format types, the static `HtmlImporter`, `MarkdownImporter` and `RtfImporter`, nor
+  `RichTextClipboard` (whose `Read` and `Decode` went; `ReadAsync` and `DecodeAsync` remain). One
+  import shape, so a host cannot pick the one that freezes. Exporters are unchanged: the decision
+  covers import only.
+- **"Must not throw" stays, with cancellation the one exception.** A task that faults is an
+  importer that threw. The built-in importers cannot stop a parser part-way, so cancelling
+  abandons the wait and the result is discarded when it arrives; a parse is never torn.
+- **The built-in importers are asynchronous all the way through.** They already parsed on a
+  thread with a large reserved stack (`LargeStack`, Phase 1); `LargeStack.RunAsync` hands the
+  caller a task at once instead of parking a thread on `Join` for the length of the parse.
+- **The editor always dispatches an importer to a background thread** (`RichTextClipboard`'s
+  internal `ImportOnBackgroundAsync`, a `Task.Run`), whatever the importer's own implementation
+  does. An importer that is "async" but does its work before its first await — every synchronous
+  parser wrapped in `Task.FromResult` — would otherwise run on the UI thread. The payload's bytes
+  are read on the UI thread first; only decoding moves.
+- **The result is applied on the UI thread, behind two checks.** The import's cancellation token
+  says whether anything has abandoned it — a newer paste or drop, the host loading another
+  document, the view being retemplated away — and `StillAt(origin)` says whether the document and
+  selection are still the ones it started against. `ContentImporting` and `ContentImported` are
+  raised on the UI thread after the background import completes; `StillAt` is checked again after
+  `ContentImporting` returns, because a handler is host code and can change the document.
+  Read-only and rectangle refusals still happen before anything is read (Phase 1, F-21).
+- **Paste and drop resolve a transfer by one rule** (`RichTextClipboard.ResolveAsync`, F-10,
+  OD-4b): rich formats richest first; an image on the transfer wins when the rich import lost an
+  image to the sanitizer or produced nothing; plain text last, through the same seam for both
+  gestures. A drop reads every flavour synchronously inside the drop event, because drag data is
+  not promised to outlive the handler; the import that follows is asynchronous.
+- **Only reading and decoding are guarded** (F-41). An exception from a host's `ContentImported`
+  handler after the paste landed reaches the host instead of turning into `false` for an edit
+  that happened. A `ContentImporting` policy that throws on a paste the user started still costs
+  that paste and not the window, because nothing has been applied yet.
+
+What this cost: every host that called an importer directly must await it — see
+[migrating to 0.8](migration-0.8.md) — and the sync-over-async a host might reach for is exactly
+the freeze the change removes. What it bought: a paste of a Word document no longer stops the
+window (F-16's 6.7 s per MB was all on the UI thread), and the race between an import and the user
+became real, which is why the two checks above are staged in tests rather than argued for.
 
 > **Corrected 2026-08-18 — one implementation, not three.** `RichTextView` and `RichTextViewer` each built their own clipboard payload beside this helper's, and the copies drifted until the difference was user-visible (§4.9, plain text). All three are now one call: `RichTextClipboard.Build` and `WriteAsync` take the plain text flavour from the caller, because a control already knows what it shows selected and a rectangle of table cells is copied as a rebuilt document rather than a cut of the original.
 >

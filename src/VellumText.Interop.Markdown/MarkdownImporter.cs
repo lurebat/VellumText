@@ -64,21 +64,28 @@ public static class MarkdownImporter
     /// <summary>Reads a Markdown document.</summary>
     /// <param name="markdown">The Markdown source.</param>
     /// <param name="options">How much to trust it, or null for the paranoid defaults.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the wait. The parse itself cannot be stopped part-way; its result is discarded.
+    /// </param>
     /// <returns>The document, and everything that could not be brought across.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="markdown"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
+    /// </exception>
     /// <remarks>
-    /// Never throws for bad input. Markdown has no invalid form — every string parses — but the
+    /// Never faults for bad input. Markdown has no invalid form — every string parses — but the
     /// parser can still run out of stack on pathological nesting, and an import is not a good place
     /// to learn that.
     /// </remarks>
-    public static ImportResult Import(string markdown, MarkdownImportOptions? options = null)
+    public static Task<ImportResult> ImportAsync(
+        string markdown, MarkdownImportOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(markdown);
 
         options ??= MarkdownImportOptions.Default;
 
         // Markdig and the HTML stage both recurse per level of nesting; see LargeStack.
-        return LargeStack.Run(() => ImportOnCurrentStack(markdown, options));
+        return LargeStack.RunAsync(() => ImportOnCurrentStack(markdown, options), cancellationToken);
     }
 
     /// <summary>The import itself, on whatever stack the caller is using.</summary>
@@ -112,7 +119,7 @@ public static class MarkdownImporter
                 ]);
         }
 
-        var result = HtmlImporter.Import(html, options.ToHtmlOptions());
+        var result = HtmlImporter.ImportOnCurrentStack(html, options.ToHtmlOptions());
 
         return log.IsEmpty
             ? result

@@ -68,32 +68,41 @@ public static class RtfImporter
     /// <summary>Reads an RTF document.</summary>
     /// <param name="rtf">The RTF payload.</param>
     /// <param name="options">How much to trust it, or null for the paranoid defaults.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the wait. The parse itself cannot be stopped part-way; its result is discarded.
+    /// </param>
     /// <returns>The document, and everything that could not be brought across.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="rtf"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
+    /// </exception>
     /// <remarks>
-    /// Never throws for bad input. What arrives on a clipboard is whatever the last application
+    /// Never faults for bad input. What arrives on a clipboard is whatever the last application
     /// put there, including truncated payloads and things that are not RTF at all.
     /// </remarks>
-    public static ImportResult Import(string rtf, RtfImportOptions? options = null)
+    public static Task<ImportResult> ImportAsync(
+        string rtf, RtfImportOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(rtf);
 
         if (!IsRtf(rtf))
         {
-            return new ImportResult(
+            return Task.FromResult(new ImportResult(
                 DocumentNode.Empty,
                 [
                     new ImportDiagnostic(
                         DiagnosticSeverity.Malformed,
                         "The text does not begin with an RTF header, so it was not read as RTF.",
                         "rtf"),
-                ]);
+                ]));
         }
 
         EnsureCodePages();
 
         // RtfPipe walks groups recursively, and the HTML stage after it does too; see LargeStack.
-        return LargeStack.Run(() => ImportOnLargeStack(rtf, options ?? RtfImportOptions.Default));
+        return LargeStack.RunAsync(
+            () => ImportOnLargeStack(rtf, options ?? RtfImportOptions.Default),
+            cancellationToken);
     }
 
     private static ImportResult ImportOnLargeStack(string rtf, RtfImportOptions options)
@@ -118,7 +127,7 @@ public static class RtfImporter
                 ]);
         }
 
-        return HtmlImporter.Import(html, options.ToHtmlOptions());
+        return HtmlImporter.ImportOnCurrentStack(html, options.ToHtmlOptions());
     }
 
     /// <summary>

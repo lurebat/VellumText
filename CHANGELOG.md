@@ -10,6 +10,53 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
+These changes ship as 0.8.0 (`VersionPrefix` is set; nothing is published until
+the release is made). Importing became asynchronous, which breaks every caller
+and implementer of an importer — see [Migrating](#migrating) below and
+[migrating to 0.8](docs/migration-0.8.md).
+
+### Migrating
+
+Await an import instead of calling it:
+
+```csharp
+// 0.7
+ImportResult result = HtmlFormat.Instance.Import(html);
+
+// 0.8
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
+```
+
+Implement the asynchronous members in a custom importer — a synchronous parser
+wrapped in `Task.FromResult` is fine, because the editor runs every importer on a
+background thread regardless:
+
+```csharp
+// 0.7
+public ImportResult Import(Stream source) => Parse(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+
+// 0.8
+public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+    Parse(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
+```
+
+Replace `RichTextClipboard.Read(transfer, importers)` with
+`await RichTextClipboard.ReadAsync(transfer, importers)`. `ContentImporting` and
+`ContentImported` still run on the UI thread, but after the background import,
+and other UI work can run in between: a handler must not assume the editor is as
+it was when the paste began, and a host that needs the paste to have landed
+awaits `PasteAsync`.
+
+### Removed from the public API
+
+- `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
+  on `HtmlFormat`, `MarkdownFormat`, `RtfFormat` and `JsonFormat` — replaced by
+  `ImportAsync(…, CancellationToken)`.
+- `HtmlImporter.Import` and `ImportClipboard`, `MarkdownImporter.Import` and
+  `RtfImporter.Import` — replaced by their `…Async` forms.
+- `RichTextClipboard.Read(IDataTransfer, …)` and `Decode` — use `ReadAsync` and
+  `DecodeAsync`.
+- `DocumentPayload.ReadAllText` — use `ReadAllTextAsync`.
 ### Security
 
 - **Importing can no longer crash the host with a stack overflow inside a
@@ -50,74 +97,29 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
-- **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
-  longer throws out of the key handler.** A pasted
-  `<ol start="2147483646">` (48 bytes) made the next split compute a negative
-  start, which `ListNode` refuses by throwing; without a dispatcher exception
-  handler the host process ended. Imported starts are now clamped to
-  999,999,999 (CommonMark's nine digits) with a `Downgraded` diagnostic, and the
-  list commands continue numbering with saturating arithmetic, so a model built
-  with a start at the top of the range is safe too.
-- **Keys and typing work while a cell rectangle or a block image is
-  selected.** Both input handlers returned early when no paragraph was under the
-  caret, so a mouse-made rectangle could not be cleared, formatted or copied
-  from the keyboard, and a clicked picture could not be deleted, typed over or
-  undone. Only Home, End and the arrow keys still need a paragraph; Delete and
-  Backspace remove a selected block image, and typing replaces it with a
-  paragraph holding the text.
-- **Retemplating `RichTextEditor` keeps what the host set up.** Configuring
-  the editor in code applies the default template to get a view, so an
-  application style that then gave the editor its own chrome made a new view and
-  every forwarded setting reverted: registered formats, the image store, the
-  renderer and style resolvers, the syntax properties, the `ContentImporting`
-  veto (vetoed content landed), the reporting events, and the undo history. The
-  shell now carries all of them to the new view, keeps the handlers it was given
-  so the discarded view stops raising them, and unbinds the discarded template's
-  floating toolbar.
-- **`RichTextEditor` raises `DocumentChanged` and `SelectionChanged` after its
-  view holds the new state.** They were raised first, so a handler reading the
-  view saw the old document, and one that selected all on load wrote the old
-  document back over the one the host had just set.
-- **Syntax highlighting survives edits.** It was applied only when a block's
-  view was first created, so typing one character in a highlighted code block —
-  in the document or in a table cell — or replacing a `RichTextViewer`'s
-  document with one of the same shape drew the code plain.
-- **A cut no longer deletes from a document swapped in while the clipboard was
-  busy.** Its guard compared selection offsets only, so a host that loaded a
-  different clip with a selection at the same numbers lost text it never copied.
-  It now uses the same document-and-selection check a paste does.
-- **An IME composition over a selection that crosses paragraphs is drawn where
-  the commit lands** — at the start of the selection, in the first paragraph —
-  rather than at the start of the paragraph holding the head.
-- The vertical-move goal column no longer survives a host loading a different
-  document, and `RichTextViewer` repaints when `SelectionBrush` changes.
-- **Typing, an IME commit or a find-and-replace carrying U+FFFC no longer
-  throws out of the input handler.** The embed placeholder is dropped from such
-  text, as paste already did.
-- **Heading, alignment and indent commands work in a table cell.** They walked
-  the drawn blocks, and a table is one drawn block, so Ctrl+1–6, Ctrl+L/E/R/J,
-  the toolbar's buttons and its lit state all did nothing inside a table. They
-  now walk the paragraphs, as character formatting already did.
-- **Find-and-replace keeps the formatting and link of the text it replaces**,
-  taking the marks of the match's first character, as typing over it does. It
-  used to write plain text, so a linked word silently lost its address.
-- With the caret where two links meet, Ctrl+K's dialog and `ApplyLink` /
-  `RemoveLink` now act on the same link; they picked opposite sides, so the
-  link shown stayed and its neighbour was rewritten.
-- **Automation:** `SetValue` replaces the whole document in one transaction. It
-  selected all and pasted, which did nothing on a document that is one table
-  (select-all is then a cell rectangle) and left a block image at either edge
-  behind. A block image's alt text is now part of `DocumentText` — and so of the
-  automation value and the plain-text clipboard flavour — on a line of its own,
-  as an inline image's already was. The peer raises the value pattern's
-  `IsReadOnly` change when `IsReadOnly` toggles.
-- A position or cell rectangle mapped through `TableEdits.InsertRows` or
-  `InsertColumns` in a host's own transaction stays in its row and column. The
-  step's map matched rows and cells by value, and an inserted empty cell equals
-  its empty neighbours, so the caret landed one column left or one row up.
-
+- **A browser's "Copy image" pastes the image.** Chrome puts an `<img>` pointing
+  at the network beside the bitmap; the sanitizer removed the remote image and
+  the paste inserted nothing while returning `true`. Paste and drop now resolve a
+  transfer by one rule: rich formats first, but an image on the transfer wins
+  when the rich import lost one to the sanitizer or produced nothing, and plain
+  text last. Drop used to prefer the image and build plain text into body
+  paragraphs, so the same clip landed differently by gesture.
+- **A `ContentImported` handler that throws reaches the host** instead of being
+  swallowed while `PasteAsync` returned `false` for a paste that had landed. A
+  `ContentImporting` policy that throws on a paste the user started still only
+  refuses that paste.
 ### Changed
 
+- **Importing is asynchronous, and only asynchronous.** A paste of a large web
+  page or Word document froze whatever waited for it — the UI thread, in the
+  editor — for seconds, and a synchronous import member invites exactly that
+  wait. Importers still never throw for bad input; cancellation is the only way
+  their task faults. Exporters are unchanged.
+- **The editor runs every importer on a background thread**, built-in or not,
+  and applies the result on the UI thread only if nothing has moved: a newer
+  paste or drop, the host loading another document, or a retemplate abandons
+  an import still running, and a moved caret or swapped document refuses its
+  result. A document a `ContentImporting` handler changes is not pasted into.
 - **`RichTextToolbar` disables its commands while the editor it is bound to is
   read-only** (`CanExecute` is false and `CanExecuteChanged` is raised when
   `IsReadOnly` toggles). The rule that commands are always enabled still holds

@@ -65,7 +65,7 @@ public class RichTextClipboardTests
     }
 
     [AvaloniaFact]
-    public void WhatEncodeWritesDecodeReadsBack()
+    public async Task WhatEncodeWritesDecodeReadsBack()
     {
         foreach (var format in new IDocumentFormat[] { HtmlFormat.Instance, RtfFormat.Instance })
         {
@@ -73,7 +73,7 @@ public class RichTextClipboardTests
 
             Assert.NotNull(payload);
 
-            var result = RichTextClipboard.Decode((IDocumentImporter)format, payload);
+            var result = await RichTextClipboard.DecodeAsync((IDocumentImporter)format, payload);
 
             Assert.NotNull(result);
             Assert.Equal("bold and plain", DocumentText.Of(result.Doc).Trim());
@@ -81,35 +81,35 @@ public class RichTextClipboardTests
     }
 
     [AvaloniaFact]
-    public void DecodingRtfBytesAsUtf16IsWhatDecodeStopsYouDoingByHand()
+    public async Task DecodingRtfBytesAsUtf16IsWhatDecodeStopsYouDoingByHand()
     {
         // Not a test of VellumText so much as of the reason its API has no string overload: the same
         // bytes read the way a string-shaped API would read them parse to nothing at all.
         var payload = RichTextClipboard.Encode(RtfFormat.Instance, Styled)!;
 
-        var correct = RichTextClipboard.Decode(RtfFormat.Instance, payload);
-        var mojibake = RtfFormat.Instance.Import(Encoding.Unicode.GetString(payload));
+        var correct = await RichTextClipboard.DecodeAsync(RtfFormat.Instance, payload);
+        var mojibake = await RtfFormat.Instance.ImportAsync(Encoding.Unicode.GetString(payload));
 
         Assert.Equal("bold and plain", DocumentText.Of(correct!.Doc).Trim());
         Assert.NotEqual("bold and plain", DocumentText.Of(mojibake.Doc).Trim());
     }
 
     [AvaloniaFact]
-    public void EncodeAndDecodeWorkForAFormatWithNoPlatformConvention()
+    public async Task EncodeAndDecodeWorkForAFormatWithNoPlatformConvention()
     {
         var format = new Nowhere();
         var payload = RichTextClipboard.Encode(format, Styled);
 
         Assert.NotNull(payload);
-        Assert.NotNull(RichTextClipboard.Decode(format, payload));
+        Assert.NotNull(await RichTextClipboard.DecodeAsync(format, payload));
     }
 
     [AvaloniaFact]
-    public void EncodeAndDecodeRejectNulls()
+    public async Task EncodeAndDecodeRejectNulls()
     {
         Assert.Throws<ArgumentNullException>(() => RichTextClipboard.Encode(null!, Styled));
         Assert.Throws<ArgumentNullException>(() => RichTextClipboard.Encode(HtmlFormat.Instance, null!));
-        Assert.Throws<ArgumentNullException>(() => RichTextClipboard.Decode(null!, default));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => RichTextClipboard.DecodeAsync(null!, default));
     }
 
     [AvaloniaFact]
@@ -136,7 +136,7 @@ public class RichTextClipboardTests
     /// otherwise passed with JSON removed from the list.
     /// </remarks>
     [AvaloniaFact]
-    public void ARegisteredFormatWithNoPlatformConventionStillTravels()
+    public async Task ARegisteredFormatWithNoPlatformConventionStillTravels()
     {
         IDocumentFormat[] formats = [HtmlFormat.Instance, JsonFormat.Instance];
 
@@ -147,7 +147,7 @@ public class RichTextClipboardTests
         Assert.NotNull(data.Items[0].TryGetValue(flavour.DataFormat));
 
         // And it can be read back through that flavour alone.
-        var jsonOnly = RichTextClipboard.Read(data, [JsonFormat.Instance]);
+        var jsonOnly = await RichTextClipboard.ReadAsync(data, [JsonFormat.Instance]);
 
         Assert.NotNull(jsonOnly);
         Assert.Equal(Styled, jsonOnly.Doc);
@@ -268,8 +268,8 @@ public class RichTextClipboardTests
 
         public ImportResult Import(string text) => new(new DocumentNode([]));
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
 
         public string Export(DocumentNode doc) => "{}";
 

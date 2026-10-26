@@ -23,13 +23,13 @@ public class MarkdownRoundTripTests
     /// Writes <paramref name="doc"/>, checks the Markdown is exactly
     /// <paramref name="expectedMarkdown"/>, then reads it back.
     /// </summary>
-    private static DocumentNode Trip(DocumentNode doc, string expectedMarkdown)
+    private static async Task<DocumentNode> Trip(DocumentNode doc, string expectedMarkdown)
     {
         var markdown = MarkdownExporter.Instance.Export(doc);
 
         Assert.Equal(expectedMarkdown, markdown);
 
-        var result = MarkdownImporter.Import(markdown);
+        var result = await MarkdownImporter.ImportAsync(markdown);
 
         Assert.DoesNotContain(
             result.Diagnostics,
@@ -42,9 +42,9 @@ public class MarkdownRoundTripTests
         Assert.IsType<ParagraphNode>(doc.Blocks[index]);
 
     [Fact]
-    public void Paragraphs_come_back_as_paragraphs()
+    public async Task Paragraphs_come_back_as_paragraphs()
     {
-        var back = Trip(
+        var back = await Trip(
             DocumentNode.FromParagraphs("first", "second", "third"),
             "first\n\nsecond\n\nthird\n");
 
@@ -61,11 +61,11 @@ public class MarkdownRoundTripTests
     [InlineData(ParagraphKind.Heading4, "#### Title\n")]
     [InlineData(ParagraphKind.Heading5, "##### Title\n")]
     [InlineData(ParagraphKind.Heading6, "###### Title\n")]
-    public void Every_heading_level_comes_back_at_its_own_level(
+    public async Task Every_heading_level_comes_back_at_its_own_level(
         ParagraphKind kind,
         string expected)
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([new ParagraphNode(InlineContent.FromText("Title"), kind)]),
             expected);
 
@@ -79,9 +79,9 @@ public class MarkdownRoundTripTests
     [InlineData(TextStyle.Strikethrough, "a ~~b~~ c\n")]
     [InlineData(TextStyle.Code, "a `b` c\n")]
     [InlineData(TextStyle.Bold | TextStyle.Italic, "a ***b*** c\n")]
-    public void Inline_styles_come_back_on_the_same_characters(TextStyle style, string expected)
+    public async Task Inline_styles_come_back_on_the_same_characters(TextStyle style, string expected)
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.Create(
                     "a b c",
@@ -121,10 +121,10 @@ public class MarkdownRoundTripTests
     [InlineData("pre(see)", 3, 5, "pre(**see)**\n", 4, 4)]
     [InlineData("a(b)c", 1, 3, "a(**b**)c\n", 2, 1)]
     [InlineData("a.b.c", 1, 3, "a.**b**.c\n", 2, 1)]
-    public void Emphasis_beside_punctuation_comes_back_as_emphasis(
+    public async Task Emphasis_beside_punctuation_comes_back_as_emphasis(
         string text, int start, int length, string expected, int styledStart, int styledLength)
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.Create(
                     text,
@@ -154,9 +154,9 @@ public class MarkdownRoundTripTests
     /// <c>**Sale\!***x*</c> emphasises neither, and the run of five asterisks arrives as text.
     /// </summary>
     [Fact]
-    public void A_closing_delimiter_is_judged_against_the_run_that_follows_it()
+    public async Task A_closing_delimiter_is_judged_against_the_run_that_follows_it()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.Create(
                     "Sale!x",
@@ -191,9 +191,9 @@ public class MarkdownRoundTripTests
     [InlineData("- not a list", "\\- not a list\n")]
     [InlineData("1. not a list", "1\\. not a list\n")]
     [InlineData("a `code` b", "a \\`code\\` b\n")]
-    public void Punctuation_that_means_something_comes_back_as_text(string text, string expected)
+    public async Task Punctuation_that_means_something_comes_back_as_text(string text, string expected)
     {
-        var back = Trip(new DocumentNode([ParagraphNode.FromText(text)]), expected);
+        var back = await Trip(new DocumentNode([ParagraphNode.FromText(text)]), expected);
 
         Assert.Equal(text, Para(back, 0).Content.Text);
         Assert.Equal(TextStyle.None, Para(back, 0).Content.MarkAt(0).Style);
@@ -212,9 +212,9 @@ public class MarkdownRoundTripTests
     /// whitespace, which would change what every HTML paste produces.
     /// </remarks>
     [Fact]
-    public void Leading_whitespace_is_written_but_does_not_survive_the_return_trip()
+    public async Task Leading_whitespace_is_written_but_does_not_survive_the_return_trip()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([ParagraphNode.FromText("    indented")]),
             "&#32;&#32;&#32;&#32;indented\n");
 
@@ -222,9 +222,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_hard_break_stays_a_hard_break()
+    public async Task A_hard_break_stays_a_hard_break()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([ParagraphNode.FromText("line one\nline two")]),
             "line one\\\nline two\n");
 
@@ -232,9 +232,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_quote_comes_back_a_quote()
+    public async Task A_quote_comes_back_a_quote()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.FromText("quoted"), ParagraphKind.Quote)]),
             "> quoted\n");
@@ -244,9 +244,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_code_block_keeps_its_line_breaks_and_its_style()
+    public async Task A_code_block_keeps_its_line_breaks_and_its_style()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(
                     InlineContent.FromText("if (x) {\n    y();\n}"),
@@ -262,9 +262,9 @@ public class MarkdownRoundTripTests
     /// the user's own text.
     /// </summary>
     [Fact]
-    public void A_code_block_containing_a_fence_survives()
+    public async Task A_code_block_containing_a_fence_survives()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.FromText("```\nnested\n```"), ParagraphKind.Code)]),
             "````\n```\nnested\n```\n````\n");
@@ -273,9 +273,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_rule_comes_back_a_rule()
+    public async Task A_rule_comes_back_a_rule()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 ParagraphNode.FromText("above"),
                 RuleNode.Instance,
@@ -287,9 +287,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_bulleted_list_comes_back_bulleted()
+    public async Task A_bulleted_list_comes_back_bulleted()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode(
                     [ListItemNode.FromText("one"), ListItemNode.FromText("two")],
@@ -305,9 +305,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_numbered_list_keeps_the_number_it_started_at()
+    public async Task A_numbered_list_keeps_the_number_it_started_at()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode(
                     [ListItemNode.FromText("three"), ListItemNode.FromText("four")],
@@ -327,9 +327,9 @@ public class MarkdownRoundTripTests
     /// without the blank line <c>3. three</c> is read as more of the paragraph's text.
     /// </summary>
     [Fact]
-    public void A_numbered_list_after_a_paragraph_is_still_a_list()
+    public async Task A_numbered_list_after_a_paragraph_is_still_a_list()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 ParagraphNode.FromText("Some prose."),
                 new ListNode(
@@ -348,9 +348,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_nested_list_comes_back_nested()
+    public async Task A_nested_list_comes_back_nested()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode(
                     [
@@ -388,11 +388,11 @@ public class MarkdownRoundTripTests
     [Theory]
     [InlineData("x|y", "| a |\n| --- |\n| `x\\|y` |\n")]
     [InlineData("x\\|y", "| a |\n| --- |\n| `x\\\\|y` |\n")]
-    public void A_pipe_inside_a_code_span_in_a_cell_comes_back_as_a_pipe(
+    public async Task A_pipe_inside_a_code_span_in_a_cell_comes_back_as_a_pipe(
         string text,
         string expected)
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new TableNode(
                 [
@@ -434,9 +434,9 @@ public class MarkdownRoundTripTests
     [Theory]
     [InlineData(ListKind.Unordered, "- a\n\n* b\n")]
     [InlineData(ListKind.Ordered, "1. a\n\n1) b\n")]
-    public void Two_sibling_lists_do_not_merge_into_one(ListKind kind, string expected)
+    public async Task Two_sibling_lists_do_not_merge_into_one(ListKind kind, string expected)
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode([ListItemNode.FromText("a")], kind),
                 new ListNode([ListItemNode.FromText("b")], kind),
@@ -459,9 +459,9 @@ public class MarkdownRoundTripTests
     /// first marker, and a list after a paragraph starts again from it.
     /// </summary>
     [Fact]
-    public void The_marker_alternates_only_against_the_list_before_it()
+    public async Task The_marker_alternates_only_against_the_list_before_it()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode([ListItemNode.FromText("a")], ListKind.Unordered),
                 new ListNode([ListItemNode.FromText("b")], ListKind.Unordered),
@@ -487,9 +487,9 @@ public class MarkdownRoundTripTests
     /// than "a list that would otherwise be swallowed by the one before it".
     /// </remarks>
     [Fact]
-    public void A_list_of_the_other_kind_keeps_its_own_marker()
+    public async Task A_list_of_the_other_kind_keeps_its_own_marker()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode([ListItemNode.FromText("a")], ListKind.Unordered),
                 new ListNode([ListItemNode.FromText("b")], ListKind.Ordered),
@@ -513,9 +513,9 @@ public class MarkdownRoundTripTests
     /// &lt;li&gt;after&lt;/li&gt;&lt;/ul&gt;</c>.
     /// </remarks>
     [Fact]
-    public void An_item_beginning_with_a_nested_list_keeps_its_own_marker()
+    public async Task An_item_beginning_with_a_nested_list_keeps_its_own_marker()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ListNode(
                     [
@@ -550,9 +550,9 @@ public class MarkdownRoundTripTests
     /// so is the document it reads back as.
     /// </remarks>
     [Fact]
-    public void A_bang_before_a_link_does_not_turn_it_into_an_image()
+    public async Task A_bang_before_a_link_does_not_turn_it_into_an_image()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.Create(
                     "Sale!click",
@@ -572,9 +572,9 @@ public class MarkdownRoundTripTests
     }
 
     [Fact]
-    public void A_link_comes_back_on_the_same_characters()
+    public async Task A_link_comes_back_on_the_same_characters()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.Create(
                     "see here now",
@@ -600,7 +600,7 @@ public class MarkdownRoundTripTests
     /// is asserted with the option a host that wanted images would have set.
     /// </summary>
     [Fact]
-    public void An_image_comes_back_with_its_source_and_alt_text()
+    public async Task An_image_comes_back_with_its_source_and_alt_text()
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
@@ -612,7 +612,7 @@ public class MarkdownRoundTripTests
 
         Assert.Equal("![a picture](https://example.test/a.png)\n", markdown);
 
-        var back = MarkdownImporter.Import(
+        var back = await MarkdownImporter.ImportAsync(
             markdown,
             new MarkdownImportOptions { AllowRemoteImages = true });
 
@@ -628,9 +628,9 @@ public class MarkdownRoundTripTests
     /// did.
     /// </summary>
     [Fact]
-    public void A_table_comes_back_with_its_cells_where_they_were()
+    public async Task A_table_comes_back_with_its_cells_where_they_were()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new TableNode([
                     new TableRowNode([
@@ -660,9 +660,9 @@ public class MarkdownRoundTripTests
     /// counts only non-empty things cannot see it.
     /// </summary>
     [Fact]
-    public void A_table_with_empty_cells_keeps_the_shape()
+    public async Task A_table_with_empty_cells_keeps_the_shape()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new TableNode([
                     new TableRowNode([
@@ -690,9 +690,9 @@ public class MarkdownRoundTripTests
     /// A pipe inside a cell would end the cell if it were written bare.
     /// </summary>
     [Fact]
-    public void A_pipe_inside_a_cell_stays_inside_the_cell()
+    public async Task A_pipe_inside_a_cell_stays_inside_the_cell()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new TableNode([
                     new TableRowNode([
@@ -714,9 +714,9 @@ public class MarkdownRoundTripTests
     /// bookkeeping between blocks is its own way to be wrong.
     /// </summary>
     [Fact]
-    public void A_mixed_document_comes_back_block_for_block()
+    public async Task A_mixed_document_comes_back_block_for_block()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 new ParagraphNode(InlineContent.FromText("Title"), ParagraphKind.Heading1),
                 ParagraphNode.FromText("Some prose."),
@@ -779,7 +779,7 @@ public class MarkdownRoundTripTests
     /// outlives a call — so it could only fail where this assertion already had.
     /// </remarks>
     [Fact]
-    public void A_second_trip_changes_nothing()
+    public async Task A_second_trip_changes_nothing()
     {
         const string Source = """
             # Title
@@ -805,7 +805,7 @@ public class MarkdownRoundTripTests
             """;
 
         var markdown = Source.ReplaceLineEndings("\n");
-        var once = MarkdownExporter.Instance.Export(MarkdownImporter.Import(markdown).Doc);
+        var once = MarkdownExporter.Instance.Export((await MarkdownImporter.ImportAsync(markdown)).Doc);
 
         Assert.Equal(markdown, once);
     }

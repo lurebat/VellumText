@@ -26,6 +26,8 @@
          from the parsed Markdown, so nothing downstream is left to make the distinction. Shared
          rather than copied - a copy of a security list is a copy to forget to extend. -->
     <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
+    <InternalsVisibleTo Include="VellumText.Interop.Rtf" />
+    <InternalsVisibleTo Include="VellumText.Interop.Rtf.Tests" />
   </ItemGroup>
 
 </Project>

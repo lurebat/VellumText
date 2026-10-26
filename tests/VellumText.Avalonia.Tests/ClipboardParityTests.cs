@@ -47,13 +47,13 @@ public class ClipboardParityTests
     private const string WithPlaceholder = "before\ufffcafter";
 
     [AvaloniaFact]
-    public void Reading_plain_text_survives_the_reserved_placeholder()
+    public async Task Reading_plain_text_survives_the_reserved_placeholder()
     {
         // U+FFFC is the object-replacement character the model reserves for embeds, so building a
         // paragraph out of it throws - into the broad handler this method has, which returned null
         // and lost the whole clip. The view's own paste path had already learned this; the shared
         // helper had not, so a clip a paste accepted was a clip a drop silently dropped.
-        var result = RichTextClipboard.Read(TextTransfer(WithPlaceholder), []);
+        var result = await RichTextClipboard.ReadAsync(TextTransfer(WithPlaceholder), []);
 
         Assert.NotNull(result);
         Assert.Equal("beforeafter", DocumentText.Of(result.Doc).Trim());
@@ -71,7 +71,7 @@ public class ClipboardParityTests
     }
 
     [AvaloniaFact]
-    public void A_drop_of_text_carrying_the_placeholder_still_lands()
+    public async Task A_drop_of_text_carrying_the_placeholder_still_lands()
     {
         // The user-visible half of the same defect: this text dropped nothing at all.
         var view = Shown("hello");
@@ -82,6 +82,8 @@ public class ClipboardParityTests
             view,
             new Point(4, 4),
             KeyModifiers.None));
+
+        await view.PendingDrop;
 
         var text = DocumentText.Of(view.State.Doc);
 
@@ -109,7 +111,7 @@ public class ClipboardParityTests
     }
 
     [AvaloniaFact]
-    public void Both_paths_normalize_the_same_line_breaks()
+    public async Task Both_paths_normalize_the_same_line_breaks()
     {
         // The paste path used to normalize CRLF and CR only. A drop already went through
         // ReplaceLineEndings, which also takes the form feed, NEL and the Unicode line and
@@ -117,7 +119,7 @@ public class ClipboardParityTests
         // through a paste, with raw control characters in the middle of them.
         const string Mixed = "a\r\nb\rc\nd\u000ce\u2028f\u0085g";
 
-        var dropped = RichTextClipboard.Read(TextTransfer(Mixed), []);
+        var dropped = await RichTextClipboard.ReadAsync(TextTransfer(Mixed), []);
 
         Assert.NotNull(dropped);
         Assert.Equal(7, dropped.Doc.Blocks.Length);
