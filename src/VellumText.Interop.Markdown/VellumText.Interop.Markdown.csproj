@@ -14,6 +14,7 @@
        and it is internal precisely so the HTML type it produces stays out of this package's API. -->
   <ItemGroup>
     <InternalsVisibleTo Include="VellumText.Interop.Markdown.Tests" />
+    <InternalsVisibleTo Include="VellumText.ImportProbe" />
   </ItemGroup>
 
   <!-- Markdown import goes through the HTML importer, for the reason RTF import does: one

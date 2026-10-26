@@ -22,6 +22,10 @@ NuGet; packages are published to a local feed, and
   reserved stack, inside the importer, so a host that calls one directly from a
   thread-pool thread is protected as well as the editor. Pinned by tests that
   import in a child process and assert its exit code.
+- **8 KB of `[` in Markdown no longer overflows the stack** in the importer's
+  own walk of the parsed tree, which recursed once per level and now uses an
+  explicit stack. Markdig caps its own nesting at some depths and not others,
+  and 8,000 brackets got through.
 
 ## [0.7.0] - 2026-08-20
 

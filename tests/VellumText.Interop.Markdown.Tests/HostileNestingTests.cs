@@ -26,4 +26,34 @@ public sealed class HostileNestingTests
 
         Assert.True(result.ExitCode == 0, result.ToString());
     }
+
+    /// <summary>
+    /// The importer's own walk of Markdig's inline tree must not recurse per level of nesting.
+    /// </summary>
+    /// <remarks>
+    /// Run on the caller's ordinary stack, deliberately bypassing the large-stack thread: that
+    /// thread would hide a recursive walk at every depth Markdig lets through, and this walk is
+    /// code this library owns. Markdig caps its own nesting at some depths and not others — 8,000
+    /// <c>[</c> got past it and overflowed in <c>RemoveRawHtml</c>, 7,000 and 12,000 did not — so
+    /// the theory sweeps the range rather than trusting one number.
+    /// </remarks>
+    [Theory]
+    [InlineData('[', 4_000)]
+    [InlineData('[', 8_000)]
+    [InlineData('[', 10_000)]
+    [InlineData('[', 16_000)]
+    [InlineData('>', 4_000)]
+    [InlineData('>', 8_000)]
+    [InlineData('>', 16_000)]
+    [InlineData('*', 4_000)]
+    [InlineData('*', 8_000)]
+    [InlineData('*', 16_000)]
+    public void Deep_markdown_nesting_does_not_overflow_the_importers_own_walk(char opener, int count)
+    {
+        var markdown = new string(opener, count) + " x";
+
+        var result = ProbeRunner.Run("markdown-current-stack", markdown);
+
+        Assert.True(result.ExitCode == 0, result.ToString());
+    }
 }

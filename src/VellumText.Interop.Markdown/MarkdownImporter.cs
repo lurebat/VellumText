@@ -78,10 +78,16 @@ public static class MarkdownImporter
         options ??= MarkdownImportOptions.Default;
 
         // Markdig and the HTML stage both recurse per level of nesting; see LargeStack.
-        return LargeStack.Run(() => ImportOnLargeStack(markdown, options));
+        return LargeStack.Run(() => ImportOnCurrentStack(markdown, options));
     }
 
-    private static ImportResult ImportOnLargeStack(string markdown, MarkdownImportOptions options)
+    /// <summary>The import itself, on whatever stack the caller is using.</summary>
+    /// <remarks>
+    /// Internal so that the hostile-nesting tests can run this stage on an ordinary stack: with
+    /// <see cref="LargeStack"/> in front of it, an unbounded recursion here would go unnoticed
+    /// until an input deep enough to exhaust 256 MiB came along.
+    /// </remarks>
+    internal static ImportResult ImportOnCurrentStack(string markdown, MarkdownImportOptions options)
     {
         var log = new DiagnosticLog();
         string html;
@@ -207,34 +213,47 @@ public static class MarkdownImporter
     }
 
     /// <summary>Removes the raw HTML among one container's inlines, and inside its children.</summary>
-    private static void RemoveRawHtml(ContainerInline container, DiagnosticLog log)
+    /// <remarks>
+    /// Iterative, with an explicit stack, for the same reason as the HTML importer's
+    /// <c>FlattenText</c>: the depth of this tree is the input's to choose. Markdig caps its own
+    /// nesting at some depths and not others, and 8,000 <c>[</c> got through to a recursive version
+    /// of this walk and overflowed the stack.
+    /// </remarks>
+    private static void RemoveRawHtml(ContainerInline root, DiagnosticLog log)
     {
-        var node = container.FirstChild;
+        var pending = new Stack<ContainerInline>();
 
-        while (node is not null)
+        pending.Push(root);
+
+        while (pending.Count > 0)
         {
-            var next = node.NextSibling;
+            var node = pending.Pop().FirstChild;
 
-            switch (node)
+            while (node is not null)
             {
-                case HtmlInline tag when IsNonContentTag(tag.Tag):
-                    break;
+                var next = node.NextSibling;
 
-                case HtmlInline tag:
-                    tag.Remove();
+                switch (node)
+                {
+                    case HtmlInline tag when IsNonContentTag(tag.Tag):
+                        break;
 
-                    log.ReportOnce(
-                        DiagnosticSeverity.Downgraded,
-                        "Removed a raw HTML tag embedded in the Markdown; the text around it was kept.",
-                        TagName(tag.Tag));
-                    break;
+                    case HtmlInline tag:
+                        tag.Remove();
 
-                case ContainerInline child:
-                    RemoveRawHtml(child, log);
-                    break;
+                        log.ReportOnce(
+                            DiagnosticSeverity.Downgraded,
+                            "Removed a raw HTML tag embedded in the Markdown; the text around it was kept.",
+                            TagName(tag.Tag));
+                        break;
+
+                    case ContainerInline child:
+                        pending.Push(child);
+                        break;
+                }
+
+                node = next;
             }
-
-            node = next;
         }
     }
 

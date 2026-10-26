@@ -13,7 +13,8 @@ namespace VellumText.ImportProbe;
 /// <remarks>
 /// <para>
 /// Usage: <c>VellumText.ImportProbe &lt;format&gt; &lt;input-file&gt;</c>, where format is one of
-/// <c>html</c>, <c>html-clipboard</c>, <c>markdown</c>, <c>rtf</c> or <c>json</c>.
+/// <c>html</c>, <c>html-clipboard</c>, <c>markdown</c>, <c>markdown-current-stack</c>, <c>rtf</c>
+/// or <c>json</c>.
 /// </para>
 /// <para>
 /// The import is called from a thread with a 1 MiB stack — what a Windows main thread or a
@@ -87,6 +88,9 @@ public static class Program
         "html" => HtmlImporter.Import(input),
         "html-clipboard" => HtmlImporter.ImportClipboard(input),
         "markdown" => MarkdownImporter.Import(input),
+
+        // The Markdown stage without the large stack in front of it; see ImportOnCurrentStack.
+        "markdown-current-stack" => MarkdownImporter.ImportOnCurrentStack(input, MarkdownImportOptions.Default),
         "rtf" => RtfImporter.Import(input),
         "json" => JsonFormat.Instance.Import(input),
         _ => throw new ArgumentException($"unknown format '{format}'"),
