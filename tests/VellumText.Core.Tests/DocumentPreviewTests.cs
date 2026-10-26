@@ -146,6 +146,79 @@ public class DocumentPreviewTests
         Assert.True(DocumentPreview.IsLongerThan(DocumentNode.FromParagraphs("abcd"), 3));
     }
 
+    /// <remarks>
+    /// F-71. A leading table or list was measured by building its whole plain text and taking the
+    /// length, so asking whether a document with a 50,000-row table first was longer than eighty
+    /// characters allocated 17.4 MB — against the remark's promise that it costs eighty
+    /// characters. The container is now walked paragraph by paragraph and the walk stops inside
+    /// it once the budget is beaten.
+    /// </remarks>
+    [Fact]
+    public void ALeadingTableIsMeasuredOnlyUntilTheBudgetIsBeaten()
+    {
+        var doc = new DocumentNode(
+        [
+            new TableNode(Enumerable.Range(0, 50_000).Select(i =>
+                new TableRowNode([TableCellNode.FromText($"Row {i}"), TableCellNode.FromText("value")]))),
+            ParagraphNode.FromText("After the table."),
+        ]);
+
+        Assert.True(DocumentPreview.IsLongerThan(doc, 80));
+
+        WorkCounters.PreviewParagraphsMeasured = 0;
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var longer = DocumentPreview.IsLongerThan(doc, 80);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(longer);
+        Assert.True(allocated < 64 * 1024, $"allocated {allocated:N0} bytes");
+        Assert.True(
+            WorkCounters.PreviewParagraphsMeasured <= 20,
+            $"measured {WorkCounters.PreviewParagraphsMeasured} paragraphs to beat a budget of 80");
+    }
+
+    /// <remarks>
+    /// Stopping early must not change the count it stops on. A container still counts as its
+    /// plain text — paragraphs joined by a newline, an image as its fallback text — and a
+    /// top-level paragraph still counts its own length, so the answer is checked against that
+    /// definition at every budget either side of the true length.
+    /// </remarks>
+    [Fact]
+    public void AContainerCountsExactlyItsPlainText()
+    {
+        var image = new ImageEmbed("data:image/png;base64,AA==", altText: "a picture");
+        var withImage = InlineContent.Create($"x{InlineContent.Placeholder}y", [], [image]);
+        DocumentNode[] documents =
+        [
+            new([new TableNode([new TableRowNode([TableCellNode.FromText("ab"), TableCellNode.FromText("cd")])])]),
+            new([
+                ParagraphNode.FromText("lead"),
+                new ListNode([
+                    ListItemNode.FromText("one"),
+                    new ListItemNode([new ParagraphNode(withImage), ParagraphNode.Empty]),
+                ]),
+                RuleNode.Instance,
+                new ParagraphNode(withImage),
+                new TableNode([new TableRowNode([new TableCellNode([ParagraphNode.Empty, ParagraphNode.FromText("z")])])]),
+            ]),
+        ];
+
+        foreach (var doc in documents)
+        {
+            var length = doc.Blocks.Sum(block => block is ParagraphNode paragraph
+                ? paragraph.Content.Length
+                : DocumentText.Of([block]).Length);
+
+            for (var budget = 0; budget <= length + 1; budget++)
+            {
+                Assert.True(
+                    DocumentPreview.IsLongerThan(doc, budget) == length > budget,
+                    $"length {length}, budget {budget}");
+            }
+        }
+    }
+
     [Fact]
     public void TheArgumentsAreChecked()
     {

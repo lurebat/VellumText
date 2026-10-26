@@ -628,6 +628,80 @@ public class InlineContentTests
         Assert.Equal(original, restored);
         Assert.Equal(original.Marks, restored.Marks.ToList());
     }
+
+    /// <remarks>
+    /// F-47. Runs are read off the mark spans now, rather than by asking for the formatting of
+    /// every character and grouping equal neighbours. That is the same answer only because the
+    /// spans are canonical, so it is checked against the per-character definition over contents
+    /// built the way the editor builds them: by applying and clearing formatting over random
+    /// ranges, which is what can leave gaps, touching spans and spans at either end.
+    /// </remarks>
+    [Fact]
+    public void Runs_are_the_maximal_stretches_of_equal_formatting()
+    {
+        var random = new Random(47);
+        MarkSet[] values =
+        [
+            new MarkSet(TextStyle.Bold),
+            new MarkSet(TextStyle.Italic),
+            new(foreground: new Rgba(200, 0, 0, 255)),
+            new(link: new LinkMark("https://example.com/")),
+            MarkSet.Empty,
+        ];
+
+        for (var trial = 0; trial < 300; trial++)
+        {
+            var length = random.Next(0, 40);
+            var content = InlineContent.FromText(new string('x', length));
+
+            for (var edit = random.Next(6); edit > 0 && length > 0; edit--)
+            {
+                var start = random.Next(length);
+                var count = random.Next(1, length - start + 1);
+
+                content = content.ApplyMarks(
+                    start, count, values[random.Next(values.Length)], MarkFields.All);
+            }
+
+            var expected = new List<ValueSpan<MarkSet>>();
+
+            for (var at = 0; at < content.Length;)
+            {
+                var mark = content.MarkAt(at);
+                var end = at + 1;
+
+                while (end < content.Length && content.MarkAt(end) == mark)
+                {
+                    end++;
+                }
+
+                expected.Add(new ValueSpan<MarkSet>(at, end - at, mark));
+                at = end;
+            }
+
+            Assert.Equal(expected, content.Runs().ToList());
+        }
+    }
+
+    /// <remarks>
+    /// F-47. Runs are what the HTML, RTF and Markdown exporters walk, and finding them by looking
+    /// up the formatting of every character was a binary search per character of the document.
+    /// </remarks>
+    [Fact]
+    public void Runs_do_not_look_up_formatting_character_by_character()
+    {
+        var content = InlineContent.Create(
+            new string('x', 10_000),
+            [new ValueSpan<MarkSet>(100, 50, new MarkSet(TextStyle.Bold)), new ValueSpan<MarkSet>(5_000, 10, new MarkSet(TextStyle.Italic))],
+            []);
+
+        WorkCounters.MarkLookups = 0;
+
+        var runs = content.Runs().ToList();
+
+        Assert.Equal(5, runs.Count);
+        Assert.Equal(0, WorkCounters.MarkLookups);
+    }
 }
 
 public class ImageEmbedTests

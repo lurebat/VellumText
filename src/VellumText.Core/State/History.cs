@@ -328,7 +328,7 @@ public sealed class History
             var merged = previous with
             {
                 // The new steps undo first, because they happened last.
-                Undo = [.. tr.Invert(), .. previous.Undo],
+                Undo = Folded(tr, previous.Undo),
                 SelectionAfter = tr.SelectionAfter,
                 Time = tr.Time,
                 ChangedFrom = Math.Min(previousFrom, from),
@@ -422,6 +422,46 @@ public sealed class History
         }
 
         return trimmed;
+    }
+
+    /// <summary>
+    /// The steps that undo a transaction folded into the event before it: the transaction's own
+    /// inverse first, then the event's, with the two steps where they meet made one when they are
+    /// neighbouring edits of one paragraph's text.
+    /// </summary>
+    /// <param name="tr">The transaction being folded in.</param>
+    /// <param name="earlier">The steps that undo the event it joins.</param>
+    /// <remarks>
+    /// <para>
+    /// Without this, undoing a burst of typing replayed one step per keystroke, and each step
+    /// rebuilds the spine of the document: 100 characters at 50,000 paragraphs took 0.6 s to undo,
+    /// and the cost grew with every character. Folding as each keystroke arrives keeps the event
+    /// one step long however long the burst.
+    /// </para>
+    /// <para>
+    /// What is grouped does not change — that is <see cref="HistoryPolicy"/>'s decision, made
+    /// before this runs. Only how the grouped event is replayed does. The last of the
+    /// transaction's inverse steps undoes its first step, so it produces the document the
+    /// transaction started from, and that is the document the earlier event's first step applies
+    /// to: both are checked against it.
+    /// </para>
+    /// </remarks>
+    private static ImmutableArray<Step> Folded(Transaction tr, ImmutableArray<Step> earlier)
+    {
+        var later = tr.Invert();
+
+        if (earlier.IsEmpty
+            || later[^1] is not ReplaceStep last
+            || earlier[0] is not ReplaceStep first
+            || tr.Steps[0] is not ReplaceStep forward
+            || !forward.IsTextEditIn(tr.Before.Doc)
+            || !first.IsTextEditIn(tr.Before.Doc)
+            || last.FollowedBy(first) is not { } folded)
+        {
+            return [.. later, .. earlier];
+        }
+
+        return [.. later[..^1], folded, .. earlier[1..]];
     }
 
     /// <summary>Undoes the most recent event, or does nothing if there is none.</summary>

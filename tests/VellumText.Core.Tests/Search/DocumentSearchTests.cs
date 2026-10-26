@@ -141,6 +141,30 @@ public class DocumentSearchTests
     }
 
     /// <remarks>
+    /// F-70. A letter outside the basic plane is two code units, and neither half of a surrogate
+    /// pair is a letter, so judging the neighbour one <c>char</c> at a time took 𝐀 (U+1D400,
+    /// mathematical bold capital A) and 𐐀 (U+10400, Deseret) for word boundaries. The neighbours
+    /// are whole characters now. An astral character that is not a letter, an emoji, is still a
+    /// boundary, and an astral digit is still part of the word.
+    /// </remarks>
+    [Theory]
+    [InlineData("\U0001D400cat", 0)]
+    [InlineData("cat\U0001D400", 0)]
+    [InlineData("\U00010400cat\U00010400", 0)]
+    [InlineData("cat\U0001D7CE", 0)]
+    [InlineData("\U0001F600cat\U0001F600", 1)]
+    [InlineData("\U0001D400 cat \U0001D400", 1)]
+    [InlineData("cat", 1)]
+    public void WholeWordJudgesItsNeighboursAsWholeCharacters(string text, int expected)
+    {
+        var doc = DocumentNode.FromParagraphs(text);
+
+        Assert.Equal(
+            expected,
+            DocumentSearch.Find(doc, "cat", new SearchOptions { WholeWord = true }).Length);
+    }
+
+    /// <remarks>
     /// Overlapping matches cannot both be replaced. Three would be worse than one.
     /// </remarks>
     [Fact]

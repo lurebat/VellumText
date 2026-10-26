@@ -175,7 +175,6 @@ awaits `PasteAsync`.
   `InsertColumns` in a host's own transaction stays in its row and column. The
   step's map matched rows and cells by value, and an inserted empty cell equals
   its empty neighbours, so the caret landed one column left or one row up.
-
 - **A browser's "Copy image" pastes the image.** Chrome puts an `<img>` pointing
   at the network beside the bitmap; the sanitizer removed the remote image and
   the paste inserted nothing while returning `true`. Paste and drop now resolve a
@@ -194,6 +193,78 @@ awaits `PasteAsync`.
   styles. The DOM is now built without CSS support, each distinct style value is
   sanitized once by the same sanitizer and parsed once, and the import allocates
   about 110 MB.
+- **A read-only view, or one with a cell rectangle selected, no longer reads and
+  parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
+  was checked only when the decoded document was about to be applied, so a
+  viewer ran every registered importer on untrusted content for a paste that
+  could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
+  refuse before the first clipboard read.
+- **A dropped or pasted image file larger than the image store accepts is no
+  longer read whole first.** With the default `DataUriImageStore` (4 MB), a
+  64 MB file allocated 192 MB only to be refused. The file is now read only up
+  to the store's `MaximumBytes`; past that, the drop stops reading and raises
+  `ImageRefused` with the file's size. A custom `IImageStore`, whose limit the
+  editor cannot know, still receives the whole file.
+- **Undoing a format applied to a large selection is no longer quadratic.**
+  Ctrl+A, Ctrl+I, Ctrl+Z put the recorded formatting back by trying every
+  recorded span against every paragraph: 272 ms at 8,000 plain paragraphs and
+  4 s with every other word bold, growing 3.5× per doubling (minutes at
+  50,000). Each paragraph now looks only at the spans that reach into it, found
+  by binary search, so the undo is linear like the command it undoes; redo
+  shares the fix. A hand-built `RestoreMarksStep` whose spans are out of order
+  or overlap is still applied exactly as before.
+- **Ctrl+Z after a burst of typing replays one step, not one per keystroke.**
+  Typing without a 500 ms pause is still one undo, but each keystroke's inverse
+  was kept and replayed separately, every one a rebuild of the document's
+  spine: 100 characters took 0.6 s (104 MB) to undo at 50,000 paragraphs and
+  400 took 2.3 s, growing with every character. History now folds neighbouring
+  text edits within one paragraph into a single step as each keystroke is
+  recorded, for typing, Backspace and Delete alike, so the undo costs the same
+  however long the burst was. What is grouped is unchanged; a split, a join or
+  any other structural step in a burst keeps its own step.
+- **A frame painted with a search open no longer walks every match in the
+  document.** Each frame — a caret blink, a scroll step, a keystroke — looked at
+  every match and, for each, at every realized block: 81 ms a frame for a
+  query of "e" at 50,000 paragraphs, 21 ms for one match per paragraph. The
+  painter now binary-searches the matches for the ones inside the realized
+  blocks, so its cost no longer depends on the document's size, and works out a
+  block's position only for the blocks a range actually   reaches.
+- **Typing, Enter and Backspace at 50,000 paragraphs no longer allocate
+  megabytes a keystroke.** Every change re-flattened the whole document into a
+  new block list (3.2 MB), Enter and a join fell back to cutting the whole
+  document in two and splicing it back (2.4 MB), a join also listed every leaf
+  block to find its neighbour (3.2 MB), and the height index was reallocated
+  for each block added or removed (1 MB): 4.2 MB for a keystroke, 6.9 MB for
+  Enter and 10.1 MB for a join, with a gen-2 collection every few keys. The
+  block list is now patched in place for just the top-level blocks an edit
+  replaced; Enter and a join rebuild only the blocks they touch and splice the
+  document's block array once; the join finds its neighbour by walking out from
+  the caret; the height index shifts in place; and typing sets the document's
+  top-level entry without a second copy. A keystroke now allocates about
+  0.6 MB at 50,000 paragraphs, and Enter and a join about the same — the one
+  copy of the document's block array an immutable edit makes, which stays
+  linear in the document by design.
+- **Reading a large selection's formatting no longer looks at every
+  character.** The toolbar asks what formatting the selection shares on every
+  state change, and with everything selected that was a lookup per character:
+  143 ms at 50,000 paragraphs, paid again by Ctrl+B. It now walks the
+  selection's stretches of formatting from the first block the selection
+  reaches, and stops as soon as nothing is shared, so a mixed selection costs a
+  few lookups whatever its size. The HTML, RTF and Markdown exporters read
+  formatting runs the same way, off the mark spans instead of one lookup per
+  character.
+- **Whole-word search no longer treats letters outside the basic plane as word
+  boundaries.** The characters either side of a match were read one UTF-16 code
+  unit at a time, and neither half of a surrogate pair is a letter, so "cat"
+  matched as a whole word inside "𝐀cat" or next to a Deseret letter. The
+  neighbours are now read as whole characters (`Rune`); an emoji is still a
+  boundary and an astral digit is still part of the word.
+- **`DocumentPreview.IsLongerThan` stops inside a leading table or list once
+  the budget is beaten.** A container was measured by building its whole plain
+  text, so asking whether a document opening with a 50,000-row table was longer
+  than 80 characters allocated 17 MB and took 15 ms, against the method's own
+  promise to cost about the budget. It now counts the container paragraph by
+  paragraph, exactly as its plain text would be laid out, and stops there.
 
 ### Changed
 
@@ -220,18 +291,15 @@ awaits `PasteAsync`.
   converts points to pixels (12 sets 16) and `SelectionFontSize` reports points
   (that heading reads 20). A host that read `SelectionFontSize` as pixels needs
   to multiply by 4/3.
-- **A read-only view, or one with a cell rectangle selected, no longer reads and
-  parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
-  was checked only when the decoded document was about to be applied, so a
-  viewer ran every registered importer on untrusted content for a paste that
-  could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
-  refuse before the first clipboard read.
-- **A dropped or pasted image file larger than the image store accepts is no
-  longer read whole first.** With the default `DataUriImageStore` (4 MB), a
-  64 MB file allocated 192 MB only to be refused. The file is now read only up
-  to the store's `MaximumBytes`; past that, the drop stops reading and raises
-  `ImageRefused` with the file's size. A custom `IImageStore`, whose limit the
-  editor cannot know, still receives the whole file.
+- **The benchmark now carries the codebase audit's reproductions, and the test
+  suite pins their shape without a clock.** `bench/VellumText.Bench` gains the
+  `a-*` scenarios each performance finding was confirmed with (`a-undo`,
+  `a-undofmt`, `a-findrender`, `a-structure`, `a-stages`, `a-sustained`,
+  `a-selectall`, `a-exports`, `a-preview` and the rest), so a fix is
+  re-measured against the shape that found the problem. Timings still need a
+  quiet machine, so CI runs `ScalingGuardTests` instead: each row measures
+  bytes allocated or a work counter at doubling sizes and fails on growth above
+  2.5× per doubling, or allocates against a budget at AC12's 50,000 paragraphs.
 
 ## [0.7.0] - 2026-08-20
 
