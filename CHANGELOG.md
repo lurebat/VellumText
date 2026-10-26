@@ -91,6 +91,15 @@ NuGet; packages are published to a local feed, and
   rather than at the start of the paragraph holding the head.
 - The vertical-move goal column no longer survives a host loading a different
   document, and `RichTextViewer` repaints when `SelectionBrush` changes.
+
+### Changed
+
+- **`RichTextToolbar` disables its commands while the editor it is bound to is
+  read-only** (`CanExecute` is false and `CanExecuteChanged` is raised when
+  `IsReadOnly` toggles). The rule that commands are always enabled still holds
+  for an editable editor, wherever the caret is: disabling half the bar on an
+  awkward caret reads as broken, but on a locked document every command is
+  refused, so the bar offering them offered nothing.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

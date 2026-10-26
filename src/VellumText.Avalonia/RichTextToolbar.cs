@@ -31,11 +31,13 @@ namespace VellumText.Avalonia;
 /// selection reports not bold rather than lying about it.
 /// </para>
 /// <para>
-/// <b>Commands never throw and are always enabled.</b> A formatting command that cannot apply —
-/// no editor attached, no template yet, a selection holding nothing it can change — does nothing.
-/// Disabling half the bar every time the caret lands somewhere awkward reads as broken, and the
-/// two commands where "nothing to do" is worth showing, undo and redo, say so through
-/// <see cref="CanUndo"/> and <see cref="CanRedo"/> instead.
+/// <b>Commands never throw, and are enabled whenever the editor accepts edits.</b> A formatting
+/// command that cannot apply — no editor attached, no template yet, a selection holding nothing
+/// it can change — does nothing. Disabling half the bar every time the caret lands somewhere
+/// awkward reads as broken, and the two commands where "nothing to do" is worth showing, undo and
+/// redo, say so through <see cref="CanUndo"/> and <see cref="CanRedo"/> instead. A read-only
+/// editor is different: every command is refused, so every command reports itself disabled until
+/// <see cref="RichTextEditor.IsReadOnly"/> is turned off again.
 /// </para>
 /// </remarks>
 public class RichTextToolbar : TemplatedControl
@@ -170,6 +172,7 @@ public class RichTextToolbar : TemplatedControl
 
     private RichTextEditor? _attached;
     private RichTextView? _view;
+    private readonly List<ToolbarCommand> _commands = [];
 
     private bool _isBold;
     private bool _isItalic;
@@ -381,9 +384,28 @@ public class RichTextToolbar : TemplatedControl
         };
     }
 
-    private static ICommand Command(Func<bool?> run) => new Action(run);
+    private ICommand Command(Func<bool?> run) => Track(new Action(run, IsEditable));
 
-    private static ICommand Command<T>(Func<T, bool?> run) => new Action<T>(run);
+    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, IsEditable));
+
+    private ToolbarCommand Track(ToolbarCommand command)
+    {
+        _commands.Add(command);
+
+        return command;
+    }
+
+    /// <summary>Whether the bound editor accepts edits. True with no editor, as before.</summary>
+    private bool IsEditable() => _attached?.IsReadOnly != true;
+
+    /// <summary>Tells every command's subscribers that whether it can run may have changed.</summary>
+    private void RaiseCanExecuteChanged()
+    {
+        foreach (var command in _commands)
+        {
+            command.RaiseCanExecuteChanged();
+        }
+    }
 
     private void Attach(RichTextEditor? editor)
     {
@@ -401,10 +423,17 @@ public class RichTextToolbar : TemplatedControl
 
         _view = _attached?.View;
         Sync();
+        RaiseCanExecuteChanged();
     }
 
     private void OnEditorPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        if (e.Property == RichTextEditor.IsReadOnlyProperty)
+        {
+            RaiseCanExecuteChanged();
+            return;
+        }
+
         if (e.Property == RichTextEditor.ViewProperty)
         {
             // The view arrives when the editor is templated, which is after the toolbar was
@@ -454,37 +483,41 @@ public class RichTextToolbar : TemplatedControl
     private void Set<T>(DirectPropertyBase<T> property, ref T field, T value) =>
         SetAndRaise(property, ref field, value);
 
-    /// <summary>A command that is always enabled and reports nothing back.</summary>
+    /// <summary>A command that is enabled exactly while the bound editor accepts edits.</summary>
     /// <remarks>
     /// The formatting commands return whether they changed anything, and the toolbar deliberately
     /// discards it: a button that reported failure by doing nothing visible is the same button
     /// either way, and the state properties already say what the document looks like afterwards.
     /// </remarks>
-    private sealed class Action(Func<bool?> run) : ICommand
+    private abstract class ToolbarCommand(Func<bool> enabled) : ICommand
     {
-        public event EventHandler? CanExecuteChanged
+        public event EventHandler? CanExecuteChanged;
+
+        public bool CanExecute(object? parameter) => enabled();
+
+        public void Execute(object? parameter)
         {
-            add { }
-            remove { }
+            if (enabled())
+            {
+                Run(parameter);
+            }
         }
 
-        public bool CanExecute(object? parameter) => true;
+        public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 
-        public void Execute(object? parameter) => run();
+        protected abstract void Run(object? parameter);
+    }
+
+    /// <summary>A command with no parameter.</summary>
+    private sealed class Action(Func<bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
+    {
+        protected override void Run(object? parameter) => run();
     }
 
     /// <summary>A command taking one typed parameter, tolerant of markup handing it the wrong thing.</summary>
-    private sealed class Action<T>(Func<T, bool?> run) : ICommand
+    private sealed class Action<T>(Func<T, bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
     {
-        public event EventHandler? CanExecuteChanged
-        {
-            add { }
-            remove { }
-        }
-
-        public bool CanExecute(object? parameter) => true;
-
-        public void Execute(object? parameter)
+        protected override void Run(object? parameter)
         {
             // A parameter of the wrong type is a markup mistake, and throwing from a click
             // handler tears down the application. Nothing happening is the recoverable failure.
