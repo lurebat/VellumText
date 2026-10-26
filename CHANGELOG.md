@@ -26,6 +26,17 @@ NuGet; packages are published to a local feed, and
   own walk of the parsed tree, which recursed once per level and now uses an
   explicit stack. Markdig caps its own nesting at some depths and not others,
   and 8,000 brackets got through.
+- **HTML whose parse cost grows faster than its size is bounded before it is
+  parsed.** AngleSharp's tree builder is quadratic in element nesting (200 KB of
+  nested `<div>` took 7 s) and its tokenizer in attributes per element (one
+  element with 40,000 attributes, 349 KB, took 12 s). A linear pre-scan with
+  AngleSharp's own tokenizer now drops tags nested deeper than
+  `HtmlImportOptions.MaxElementDepth` (default 512) and keeps their text,
+  removes a `style` attribute nested deeper than `MaxStyleNesting` (default 32
+  brackets; the CSS parser recurses per bracket during parsing), and caps
+  attributes at `MaxAttributesPerElement` (default 256). Each reports a
+  `Downgraded` diagnostic. Markup within the limits is passed to the parser
+  untouched.
 
 ## [0.7.0] - 2026-08-20
 

@@ -56,6 +56,43 @@ public sealed record HtmlImportOptions
     public int MaxDepth { get; init; } = 256;
 
     /// <summary>
+    /// The deepest the markup may nest before the parser sees it. Defaults to 512 open elements.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A separate, earlier bound than <see cref="MaxDepth"/>, for a different cost: the HTML
+    /// parser's tree builder scans its stack of open elements for each block it opens, so its time
+    /// grows with the square of the nesting — 200 KB of nested <c>&lt;div&gt;</c> took seven
+    /// seconds. Tags nested deeper than this are dropped before parsing and their text is kept,
+    /// with a <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. It is above
+    /// <see cref="MaxDepth"/> so that it never changes a document that walk would have kept.
+    /// </para>
+    /// </remarks>
+    public int MaxElementDepth { get; init; } = 512;
+
+    /// <summary>
+    /// The most attributes one element may carry. Defaults to 256.
+    /// </summary>
+    /// <remarks>
+    /// The parser checks each attribute against all the earlier ones on its element, so one
+    /// element with 40,000 attributes took twelve seconds. Attributes past the limit are ignored,
+    /// with a <see cref="DiagnosticSeverity.Downgraded"/> diagnostic.
+    /// </remarks>
+    public int MaxAttributesPerElement { get; init; } = 256;
+
+    /// <summary>
+    /// The deepest a <c>style</c> attribute may nest brackets. Defaults to 32.
+    /// </summary>
+    /// <remarks>
+    /// The CSS parser reads <c>calc(</c> and its relatives by recursion, one level per bracket, and
+    /// it does so while the document is being parsed, before anything here can look at the result.
+    /// A style attribute nested deeper than this is removed before parsing, with a
+    /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. Real stylesheets nest two or three
+    /// levels.
+    /// </remarks>
+    public int MaxStyleNesting { get; init; } = 32;
+
+    /// <summary>
     /// The address relative URLs are resolved against, or null to drop relative URLs.
     /// </summary>
     /// <remarks>

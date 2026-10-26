@@ -13,8 +13,8 @@ namespace VellumText.ImportProbe;
 /// <remarks>
 /// <para>
 /// Usage: <c>VellumText.ImportProbe &lt;format&gt; &lt;input-file&gt;</c>, where format is one of
-/// <c>html</c>, <c>html-clipboard</c>, <c>markdown</c>, <c>markdown-current-stack</c>, <c>rtf</c>
-/// or <c>json</c>.
+/// <c>html</c>, <c>html-unbounded</c>, <c>html-clipboard</c>, <c>markdown</c>,
+/// <c>markdown-current-stack</c>, <c>rtf</c> or <c>json</c>.
 /// </para>
 /// <para>
 /// The import is called from a thread with a 1 MiB stack — what a Windows main thread or a
@@ -83,9 +83,19 @@ public static class Program
         return 0;
     }
 
+    private static readonly HtmlImportOptions Unbounded = HtmlImportOptions.Default with
+    {
+        MaxElementDepth = int.MaxValue,
+        MaxStyleNesting = int.MaxValue,
+        MaxAttributesPerElement = int.MaxValue,
+    };
+
     private static ImportResult Import(string format, string input) => format switch
     {
         "html" => HtmlImporter.Import(input),
+
+        // The pre-parse limits lifted, so that the large stack is the only protection left.
+        "html-unbounded" => HtmlImporter.Import(input, Unbounded),
         "html-clipboard" => HtmlImporter.ImportClipboard(input),
         "markdown" => MarkdownImporter.Import(input),
 

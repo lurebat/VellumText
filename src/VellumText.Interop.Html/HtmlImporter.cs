@@ -5,6 +5,7 @@ using AngleSharp.Css;
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
+using AngleSharp.Html.Parser.Tokens.Struct;
 
 namespace VellumText.Interop.Html;
 
@@ -117,10 +118,23 @@ public static class HtmlImporter
         // has no style declaration, and the sanitizer would then find nothing to sanitize in a
         // style attribute rather than finding it clean.
         var context = BrowsingContext.New(Configuration.Default.WithCss());
-        var parser = context.GetService<IHtmlParser>()
-            ?? throw new InvalidOperationException("AngleSharp did not provide an HTML parser.");
 
-        var document = parser.ParseDocument(html);
+        var guarded = HtmlInputGuard.Bound(html, options);
+
+        ReportGuard(guarded, options, diagnostics);
+
+        var maxAttributes = options.MaxAttributesPerElement;
+        var parser = new HtmlParser(
+            new HtmlParserOptions
+            {
+                // The guard has already reported these; capping here as well is what keeps the
+                // parser's own duplicate check linear.
+                ShouldEmitAttribute = (ref StructHtmlToken token, ReadOnlyMemory<char> name) =>
+                    token.Attributes.Count < maxAttributes,
+            },
+            context);
+
+        var document = parser.ParseDocument(guarded.Html);
 
         new SanitizingReader(options, diagnostics).Sanitize(document);
 
@@ -131,6 +145,39 @@ public static class HtmlImporter
         return blocks.Count == 0
             ? DocumentNode.Empty
             : new DocumentNode(blocks);
+    }
+
+    private static void ReportGuard(
+        HtmlInputGuard.Outcome guarded,
+        HtmlImportOptions options,
+        List<ImportDiagnostic> diagnostics)
+    {
+        if (guarded.DroppedDeepTags)
+        {
+            diagnostics.Add(new ImportDiagnostic(
+                DiagnosticSeverity.Downgraded,
+                $"The markup nested deeper than {options.MaxElementDepth} elements; the tags below "
+                + "that were dropped and their text was kept.",
+                "element-depth"));
+        }
+
+        if (guarded.DroppedAttributes)
+        {
+            diagnostics.Add(new ImportDiagnostic(
+                DiagnosticSeverity.Downgraded,
+                $"An element carried more than {options.MaxAttributesPerElement} attributes; the rest "
+                + "were ignored.",
+                "attributes"));
+        }
+
+        if (guarded.DroppedStyles)
+        {
+            diagnostics.Add(new ImportDiagnostic(
+                DiagnosticSeverity.Downgraded,
+                $"A style attribute nested brackets deeper than {options.MaxStyleNesting} levels and "
+                + "was removed.",
+                "style-nesting"));
+        }
     }
 
     private sealed class Walker(HtmlImportOptions options, List<ImportDiagnostic> diagnostics)
