@@ -160,6 +160,37 @@ public class RtfExportTests
     public async Task Text_outside_the_code_page_survives(string text) =>
         await Survives(DocumentNode.FromParagraphs(text));
 
+    /// <summary>
+    /// Everything beyond printable ASCII is written as <c>\u</c>, so the file is seven-bit and
+    /// means the same whatever code page or byte encoding it is carried in. Latin-1 is the range
+    /// a writer is tempted to pass through raw, and U+0080 is where doing so changes the text:
+    /// read in the header's code page 1252, that byte is the euro sign.
+    /// </summary>
+    [Fact]
+    public async Task Text_beyond_ascii_is_written_as_seven_bit_escapes()
+    {
+        var doc = DocumentNode.FromParagraphs("caf\u00e9 \u00a0\u00ff \u0080");
+        var rtf = RtfExporter.Instance.Export(doc);
+
+        Assert.All(rtf, c => Assert.True(c < 0x80, $"U+{(int)c:X4} written raw"));
+        Assert.Contains(@"\u233?", rtf, StringComparison.Ordinal);
+        Assert.Contains(@"\u128?", rtf, StringComparison.Ordinal);
+        await Survives(DocumentNode.FromParagraphs("caf\u00e9 \u00ff"));
+    }
+
+    /// <summary>
+    /// <c>\u</c> takes a signed 16-bit number, so a character above U+7FFF is written negative.
+    /// Readers that hold the number in a short read the unsigned form as something else.
+    /// </summary>
+    [Fact]
+    public void A_character_above_u7fff_is_written_as_a_negative_number()
+    {
+        var rtf = RtfExporter.Instance.Export(DocumentNode.FromParagraphs("\ud55c"));
+
+        Assert.Contains(@"\u-10916?", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\u54620", rtf, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_line_break_inside_a_paragraph_stays_a_line_break() =>
         await Survives(DocumentNode.FromParagraphs("one\ntwo\nthree"));
@@ -524,6 +555,20 @@ public class RtfExportTests
             rtf,
             StringComparison.Ordinal);
         Assert.Equal(1, rtf.Split("ALT").Length - 1);
+    }
+
+    /// <summary>
+    /// A picture's size is written in twips at 96 pixels to the inch, the same reference the
+    /// model's pixels and every CSS length use — fifteen twips to the pixel.
+    /// </summary>
+    [Fact]
+    public void An_images_size_is_written_in_twips()
+    {
+        var rtf = RtfExporter.Instance.Export(new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed("data:image/png;base64,AAEC", 100, 50))),
+        ]));
+
+        Assert.Contains(@"\picwgoal1500\pichgoal750", rtf, StringComparison.Ordinal);
     }
 
     [Theory]

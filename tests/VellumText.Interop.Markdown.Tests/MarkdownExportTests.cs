@@ -195,6 +195,15 @@ public class MarkdownExportTests
                 "text",
                 new MarkSet(link: new LinkMark("https://example.test/a", "tip"))))));
 
+    /// <summary>A quote inside a title would end it early; it is escaped, as is the backslash.</summary>
+    [Fact]
+    public void A_quote_in_a_link_title_is_escaped() =>
+        Assert.Equal(
+            "[text](https://example.test/a \"say \\\"hi\\\" \\\\o/\")\n",
+            Export(new ParagraphNode(InlineContent.FromText(
+                "text",
+                new MarkSet(link: new LinkMark("https://example.test/a", "say \"hi\" \\o/"))))));
+
     /// <summary>
     /// A destination with a space in it cannot be written bare at all — the reader stops at the
     /// space and treats the rest as a title.
@@ -229,6 +238,17 @@ public class MarkdownExportTests
             "![a picture](https://example.test/i.png)\n",
             Export(new ParagraphNode(InlineContent.FromEmbed(
                 new ImageEmbed("https://example.test/i.png", altText: "a picture")))));
+
+    /// <summary>
+    /// Alt text is inline text inside <c>![…]</c>: a bracket would close it and an asterisk would
+    /// start emphasis, so both are escaped as they are in any other text.
+    /// </summary>
+    [Fact]
+    public void Markup_in_alt_text_is_escaped() =>
+        Assert.Equal(
+            "![a\\]b \\*x\\*](https://example.test/i.png)\n",
+            Export(new ParagraphNode(InlineContent.FromEmbed(
+                new ImageEmbed("https://example.test/i.png", altText: "a]b *x*")))));
 
     [Fact]
     public void A_block_image_is_written_as_a_paragraph_of_its_own() =>
