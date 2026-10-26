@@ -101,6 +101,9 @@ NuGet; packages are published to a local feed, and
 - **Find-and-replace keeps the formatting and link of the text it replaces**,
   taking the marks of the match's first character, as typing over it does. It
   used to write plain text, so a linked word silently lost its address.
+- With the caret where two links meet, Ctrl+K's dialog and `ApplyLink` /
+  `RemoveLink` now act on the same link; they picked opposite sides, so the
+  link shown stayed and its neighbour was rewritten.
 
 ### Changed
 

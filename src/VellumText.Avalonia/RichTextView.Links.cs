@@ -146,8 +146,19 @@ public partial class RichTextView
     /// </remarks>
     public LinkMark? SelectionLink =>
         _state.Selection.IsEmpty
-            ? LinkAt(Math.Max(0, _state.Selection.From - 1)) ?? LinkAt(_state.Selection.From)
+            ? LinkAt(LinkedCharacterAt(_state.Selection.From))
             : SelectionMarks.Link;
+
+    /// <summary>The character whose link a caret counts as being on.</summary>
+    /// <remarks>
+    /// The one before it if that is linked — a caret at the end of a link is still inside it as far
+    /// as the user is concerned — and otherwise the one after. One rule for what the dialog shows
+    /// and what <see cref="ApplyLink"/> and <see cref="RemoveLink"/> edit: with the two links of
+    /// <c>&lt;a&gt;x&lt;/a&gt;&lt;a&gt;y&lt;/a&gt;</c> meeting at the caret, they used to pick
+    /// opposite sides, and the dialog opened on one link while the other was rewritten.
+    /// </remarks>
+    private int LinkedCharacterAt(int caret) =>
+        caret > 0 && LinkAt(caret - 1) is not null ? caret - 1 : caret;
 
     /// <summary>Removes the link from the selection, or from the link the caret is inside.</summary>
     /// <remarks>
@@ -191,9 +202,7 @@ public partial class RichTextView
     /// <param name="position">A document position inside the link.</param>
     private (int From, int To)? LinkRangeAt(int position)
     {
-        // A caret sits between two characters, and the one that matters is the one before it —
-        // a caret at the end of a link is still inside it as far as the user is concerned.
-        var inside = LinkAt(position) is not null ? position : position - 1;
+        var inside = LinkedCharacterAt(position);
 
         if (LinkAt(inside) is not { } link || ParagraphAt(inside) is not { } at)
         {
