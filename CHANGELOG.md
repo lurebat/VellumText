@@ -88,6 +88,16 @@ NuGet; packages are published to a local feed, and
   One starting anywhere but 1 was written straight under its item's paragraph,
   which it cannot interrupt, so `- Steps` / `2. second` came back as the one
   paragraph "Steps 2. second". It now gets the blank line a top-level one does.
+- **RTF export writes tables from the grid.** A cell spanning two rows left the
+  row below one cell short, and its cells were written a column too far left;
+  a cell's paragraphs ran together ("Hello" and "World" became "HelloWorld");
+  and a list, rule or image in a cell was written outside the table and split
+  it in two. Row spans are now written as `\clvmgf`/`\clvmrg` merges, every
+  paragraph in a cell is marked `\intbl` and keeps its alignment, and two
+  tables written back to back get the empty paragraph RTF needs between them
+  instead of running together. A table inside a cell is written as the cell's
+  paragraphs, row by row: nested tables are not understood consistently by RTF
+  readers.
 
 ## [0.7.0] - 2026-08-20
 

@@ -256,12 +256,39 @@ public sealed class RtfExporter : IDocumentExporter
     /// <summary>Walks the document, holding the state RTF needs to be told about explicitly.</summary>
     private sealed class Writer(StringBuilder rtf, FontTable fonts, ColourTable colours)
     {
+        /// <summary>How many table cells the block being written is inside.</summary>
+        /// <remarks>
+        /// Every paragraph in a cell has to say so with <c>\intbl</c>, and a reader that meets one
+        /// without it ends the table there: a list or a second paragraph in a cell used to be
+        /// written as ordinary paragraphs and split the table in two.
+        /// </remarks>
+        private int _cellDepth;
+
+        /// <summary>Whether the cell being written is a header cell, whose text is bold.</summary>
+        private bool _headerCell;
+
+        /// <summary>Whether the last block written was a table, which the next table cannot touch.</summary>
+        private bool _afterTable;
+
         internal void WriteBlocks(IEnumerable<BlockNode> blocks)
         {
             foreach (var block in blocks)
             {
                 WriteBlock(block);
             }
+        }
+
+        /// <summary>Starts a paragraph, inside a table if one is being written.</summary>
+        private void Pard()
+        {
+            rtf.Append(@"\pard");
+
+            if (_cellDepth > 0)
+            {
+                rtf.Append(@"\intbl");
+            }
+
+            _afterTable = false;
         }
 
         private void WriteBlock(BlockNode block)
@@ -276,18 +303,30 @@ public sealed class RtfExporter : IDocumentExporter
                     WriteList(list, depth: 0);
                     return;
 
+                case TableNode table when _cellDepth > 0:
+                    FlattenTable(table);
+                    return;
+
                 case TableNode table:
                     WriteTable(table);
                     return;
 
                 case RuleNode:
                     // There is no horizontal rule in RTF, only a paragraph with a rule drawn under
-                    // it. \pard afterwards is what keeps the border off the paragraph that follows.
-                    rtf.Append(@"\pard\brdrb\brdrs\brdrw10\brsp20\par\pard");
+                    // it. \pard afterwards is what keeps the border off the paragraph that follows;
+                    // inside a cell the next paragraph or the end of the cell resets it anyway.
+                    Pard();
+                    rtf.Append(@"\brdrb\brdrs\brdrw10\brsp20\par");
+
+                    if (_cellDepth == 0)
+                    {
+                        rtf.Append(@"\pard");
+                    }
+
                     return;
 
                 case BlockImageNode image:
-                    rtf.Append(@"\pard");
+                    Pard();
                     WriteAlignment(image.Align);
                     WriteImage(image.Image);
                     rtf.Append(@"\par");
@@ -303,9 +342,12 @@ public sealed class RtfExporter : IDocumentExporter
 
         private void WriteParagraph(ParagraphNode paragraph)
         {
-            rtf.Append(@"\pard");
+            Pard();
             WriteParagraphProperties(paragraph);
-            WriteContent(paragraph.Content, HeadingScale(paragraph.Kind), Emphasised(paragraph.Kind));
+            WriteContent(
+                paragraph.Content,
+                HeadingScale(paragraph.Kind),
+                Emphasised(paragraph.Kind) || _headerCell);
             rtf.Append(@"\par");
         }
 
@@ -514,7 +556,7 @@ public sealed class RtfExporter : IDocumentExporter
 
                 var indent = ((depth + 1) * IndentTwips) + (paragraph.IndentLevel * IndentTwips);
 
-                rtf.Append(@"\pard");
+                Pard();
                 WriteAlignment(paragraph.Align);
                 rtf.Append(@"\li").Append(indent.ToString(CultureInfo.InvariantCulture));
 
@@ -543,7 +585,10 @@ public sealed class RtfExporter : IDocumentExporter
                     rtf.Append(@"\tab}");
                 }
 
-                WriteContent(paragraph.Content, HeadingScale(paragraph.Kind), Emphasised(paragraph.Kind));
+                WriteContent(
+                    paragraph.Content,
+                    HeadingScale(paragraph.Kind),
+                    Emphasised(paragraph.Kind) || _headerCell);
                 rtf.Append(@"\par");
                 first = false;
             }
@@ -551,25 +596,82 @@ public sealed class RtfExporter : IDocumentExporter
 
         /// <summary>Writes a table as rows of cells, each row declaring its own geometry.</summary>
         /// <remarks>
+        /// <para>
         /// RTF has no table element. A row is a run of paragraphs that happens to be preceded by
         /// a row definition and punctuated by <c>\cell</c>, and the definition has to be repeated
         /// in front of every row because a reader keeps no memory of the last one.
+        /// </para>
+        /// <para>
+        /// The rows are written from the grid <see cref="TableGeometry.Place"/> works out, never from
+        /// each row's cell array. A cell spanning rows leaves the rows below it holding fewer cells
+        /// than the table is wide; written in order, every one of them landed a column too far left.
+        /// From the grid, the first row of a span is <c>\clvmgf</c> and each covered slot below it is
+        /// an empty <c>\clvmrg</c> cell of the same width, so everything after it stays in its
+        /// column. A column span is the width of its <c>\cellx</c>, which readers line up across
+        /// rows; <c>\clmgf</c> is not used, because RtfPipe reads it as a span of the wrong cell.
+        /// </para>
+        /// <para>
+        /// A table inside a cell is flattened into that cell's paragraphs, row by row: nested
+        /// tables need RTF 1.8's <c>\itap</c> and <c>\nesttableprops</c>, which readers handle
+        /// inconsistently — RtfPipe turns one into an extra row of the outer table. The text and
+        /// its formatting survive; the inner grid does not.
+        /// </para>
         /// </remarks>
         private void WriteTable(TableNode table)
         {
             const int DefaultCellTwips = 1440;
 
+            // Two tables with nothing between them are one table to every reader: the second's
+            // rows simply continue the first. An empty paragraph is the separator Word itself uses.
+            if (_afterTable)
+            {
+                rtf.Append(@"\pard\par");
+            }
+
+            var placements = TableGeometry.Place(table, out var width);
+            var rows = table.Rows.Length;
+            var owner = new (TableCellNode Cell, CellPlacement Place)?[rows, width];
+            var index = 0;
+
             foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    var place = placements[index++];
+
+                    for (var r = place.Top; r < Math.Min(place.Bottom, rows); r++)
+                    {
+                        for (var c = place.Left; c < Math.Min(place.Right, width); c++)
+                        {
+                            owner[r, c] = (cell, place);
+                        }
+                    }
+                }
+            }
+
+            for (var r = 0; r < rows; r++)
             {
                 rtf.Append(@"\trowd\trgaph108\trleft0");
 
-                var edge = 0;
+                var slots = new List<(TableCellNode Cell, bool Continued)>();
 
-                foreach (var cell in row.Cells)
+                for (var c = 0; c < width;)
                 {
-                    var width = cell.ColumnSpan * DefaultCellTwips;
+                    if (owner[r, c] is not { } slot)
+                    {
+                        // A row shorter than the table, with nothing below a span to fill it. The
+                        // row simply ends; padding it would invent cells the document never had.
+                        break;
+                    }
 
-                    edge += width;
+                    var (cell, place) = slot;
+                    var continued = place.Top < r;
+                    var spansRows = Math.Min(place.Bottom, rows) - place.Top > 1;
+
+                    if (spansRows)
+                    {
+                        rtf.Append(continued ? @"\clvmrg" : @"\clvmgf");
+                    }
 
                     if (cell.Background is { } background)
                     {
@@ -577,36 +679,92 @@ public sealed class RtfExporter : IDocumentExporter
                             .Append(colours.IndexOf(background).ToString(CultureInfo.InvariantCulture));
                     }
 
+                    var right = Math.Min(place.Right, width);
+
                     rtf.Append(@"\clbrdrt\brdrs\clbrdrl\brdrs\clbrdrb\brdrs\clbrdrr\brdrs");
-                    rtf.Append(@"\cellx").Append(edge.ToString(CultureInfo.InvariantCulture));
+                    rtf.Append(@"\cellx").Append((right * DefaultCellTwips).ToString(CultureInfo.InvariantCulture));
+
+                    slots.Add((cell, continued));
+                    c = right;
                 }
 
-                foreach (var cell in row.Cells)
+                foreach (var (cell, continued) in slots)
                 {
-                    rtf.Append(@"\pard\intbl");
-
-                    foreach (var block in cell.Blocks)
+                    if (continued)
                     {
-                        if (block is ParagraphNode paragraph)
-                        {
-                            WriteContent(
-                                paragraph.Content,
-                                HeadingScale(paragraph.Kind),
-                                Emphasised(paragraph.Kind) || cell.IsHeader);
-                        }
-                        else
-                        {
-                            WriteBlock(block);
-                        }
+                        rtf.Append(@"\pard\intbl\cell");
+                        continue;
                     }
 
-                    rtf.Append(@"\cell");
+                    WriteCell(cell);
                 }
 
                 rtf.Append(@"\row");
             }
 
             rtf.Append(@"\pard");
+            _afterTable = true;
+        }
+
+        /// <summary>Writes one cell's blocks, each one a paragraph inside the table.</summary>
+        /// <remarks>
+        /// Paragraphs inside a cell are separated by <c>\par</c> and the last one is ended by
+        /// <c>\cell</c> instead — a cell's text written without either ran its paragraphs together,
+        /// "Hello" and "World" arriving as "HelloWorld".
+        /// </remarks>
+        private void WriteCell(TableCellNode cell)
+        {
+            var header = _headerCell;
+            var start = rtf.Length;
+
+            _cellDepth++;
+            _headerCell = cell.IsHeader;
+
+            try
+            {
+                WriteBlocks(cell.Blocks);
+            }
+            finally
+            {
+                _cellDepth--;
+                _headerCell = header;
+            }
+
+            const string Par = @"\par";
+
+            if (rtf.Length - start >= Par.Length
+                && rtf.ToString(rtf.Length - Par.Length, Par.Length) == Par)
+            {
+                rtf.Length -= Par.Length;
+                rtf.Append(@"\cell");
+            }
+            else
+            {
+                rtf.Append(@"\pard\intbl\cell");
+            }
+        }
+
+        /// <summary>Writes a table that is inside a cell as the cell's own paragraphs.</summary>
+        private void FlattenTable(TableNode table)
+        {
+            foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    var header = _headerCell;
+
+                    _headerCell = header || cell.IsHeader;
+
+                    try
+                    {
+                        WriteBlocks(cell.Blocks);
+                    }
+                    finally
+                    {
+                        _headerCell = header;
+                    }
+                }
+            }
         }
 
         /// <summary>Writes an image, when its bytes are something RTF can be given.</summary>
