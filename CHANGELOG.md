@@ -54,6 +54,12 @@ NuGet; packages are published to a local feed, and
   the least recently used images until the rest fit `CacheBudgetBytes` (new,
   default 256 MiB); `CacheLimit` stays as a second cap. An image larger than the
   whole budget is still kept, alone, so it is not decoded on every frame.
+- **Image decompression bombs are refused from their header in every common
+  format, not just PNG.** GIF, BMP, JPEG and WebP were decoded in full before
+  `MaximumPixels` was checked: a 38-byte WebP cost 642 MB, and a 287-byte JPEG
+  or a 64-byte BMP 2 GB, through a paste and one render. Their declared
+  dimensions are now read from the header and checked first. A format the
+  header reader does not recognise is still checked after decoding, as before.
 
 ### Fixed
 

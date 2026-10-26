@@ -27,4 +27,9 @@
 *.docx      binary
 *.png       binary
 *.jpg       binary
+*.gif       binary
+*.bmp       binary
+*.webp      binary
+*.ico       binary
+*.bin       binary
 *.ico       binary

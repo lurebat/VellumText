@@ -103,9 +103,10 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 /// <para>
 /// Payloads are bounded by <see cref="MaximumSourceBytes"/> and decoded images by
 /// <see cref="MaximumPixels"/>, because a small compressed image can describe an enormous one.
-/// PNG dimensions are checked before decoding, from the header; other formats are checked after,
-/// so a bomb in one of those still costs a transient allocation. A host taking wholly untrusted
-/// documents should screen them itself rather than rely on that.
+/// For PNG, GIF, BMP, JPEG and WebP the dimensions are read from the header and checked before
+/// decoding. A format the header reader does not recognise is checked after decoding, so a bomb
+/// in one of those still costs a transient allocation; decoded images are also held to
+/// <see cref="CacheBudgetBytes"/> in total.
 /// </para>
 /// <para>
 /// Nothing here throws. An image that cannot be decoded, or is refused, draws as the outlined box
@@ -322,6 +323,15 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 
     private int _decodes;
 
+    /// <summary>How many payloads were handed to the image decoder.</summary>
+    /// <remarks>
+    /// The test-visible difference between refusing a decompression bomb from its header and
+    /// refusing it from the bitmap it made the decoder allocate: both end at the same fallback.
+    /// </remarks>
+    internal int PixelDecodes => _pixelDecodes;
+
+    private int _pixelDecodes;
+
     private Bitmap? Resolve(string source)
     {
         if (_disposed || string.IsNullOrWhiteSpace(source))
@@ -488,39 +498,33 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 
         var payload = Convert.FromBase64String(source[(comma + 1)..]);
 
-        // A PNG states its dimensions in the IHDR chunk at a fixed offset, so the commonest
-        // decompression bomb is refused before anything is allocated for it. Other formats are
-        // caught by Accept, after the allocation they were designed to provoke.
-        if (IsOversizedPng(payload))
+        // Every common format states its dimensions near the start, so a decompression bomb is
+        // refused before anything is allocated for it. Formats the header reader does not know
+        // are still caught by Accept, after the allocation.
+        if (IsOversized(payload))
         {
             return null;
         }
 
         using var stream = new MemoryStream(payload);
 
+        Interlocked.Increment(ref _pixelDecodes);
+
         return Accept(new Bitmap(stream));
     }
 
-    /// <summary>Whether a payload is a PNG whose header alone says it is too large to show.</summary>
+    /// <summary>Whether a payload's header alone says it is too large to show.</summary>
     /// <remarks>
     /// Internal because it is the only observable difference between refusing a decompression bomb
     /// from its header and refusing it from the bitmap it was designed to make you allocate:
     /// both end at the same fallback size, so an end-to-end measurement cannot tell them apart.
     /// </remarks>
     /// <param name="payload">The undecoded image bytes.</param>
-    /// <returns>Whether the payload is a PNG claiming more pixels than <see cref="MaximumPixels"/>.</returns>
-    internal bool IsOversizedPng(ReadOnlySpan<byte> payload)
-    {
-        ReadOnlySpan<byte> signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
-        if (payload.Length < 24 || !payload[..8].SequenceEqual(signature))
-        {
-            return false;
-        }
-
-        var width = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(payload[16..20]);
-        var height = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(payload[20..24]);
-
-        return (long)width * height > MaximumPixels;
-    }
+    /// <returns>
+    /// Whether the payload is in a format <see cref="ImageHeader"/> reads and declares more pixels
+    /// than <see cref="MaximumPixels"/>. False for a format it does not recognise.
+    /// </returns>
+    internal bool IsOversized(ReadOnlySpan<byte> payload) =>
+        ImageHeader.TryReadSize(payload, out var width, out var height)
+        && width * height > MaximumPixels;
 }
