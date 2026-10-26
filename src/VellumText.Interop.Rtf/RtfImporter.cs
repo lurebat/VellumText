@@ -92,6 +92,12 @@ public static class RtfImporter
 
         EnsureCodePages();
 
+        // RtfPipe walks groups recursively, and the HTML stage after it does too; see LargeStack.
+        return LargeStack.Run(() => ImportOnLargeStack(rtf, options ?? RtfImportOptions.Default));
+    }
+
+    private static ImportResult ImportOnLargeStack(string rtf, RtfImportOptions options)
+    {
         string html;
 
         try
@@ -112,7 +118,7 @@ public static class RtfImporter
                 ]);
         }
 
-        return HtmlImporter.Import(html, (options ?? RtfImportOptions.Default).ToHtmlOptions());
+        return HtmlImporter.Import(html, options.ToHtmlOptions());
     }
 
     /// <summary>

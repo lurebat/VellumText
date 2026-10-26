@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VellumText.Interop.Markdown\VellumText.Interop.Markdown.csproj" />
+    <ProjectReference Include="..\VellumText.ImportProbe\VellumText.ImportProbe.csproj" />
   </ItemGroup>
 
 </Project>

@@ -77,6 +77,12 @@ public static class MarkdownImporter
 
         options ??= MarkdownImportOptions.Default;
 
+        // Markdig and the HTML stage both recurse per level of nesting; see LargeStack.
+        return LargeStack.Run(() => ImportOnLargeStack(markdown, options));
+    }
+
+    private static ImportResult ImportOnLargeStack(string markdown, MarkdownImportOptions options)
+    {
         var log = new DiagnosticLog();
         string html;
 

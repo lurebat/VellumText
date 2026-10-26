@@ -36,6 +36,14 @@ public static class HtmlImporter
 
         options ??= HtmlImportOptions.Default;
 
+        // The parser and the CSS parser recurse per level of nesting in the input, so they get a
+        // stack the input cannot exhaust; see LargeStack. A nested call from the Markdown or RTF
+        // importer is already on one and runs inline.
+        return LargeStack.Run(() => ImportOnLargeStack(html, options));
+    }
+
+    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options)
+    {
         var diagnostics = new List<ImportDiagnostic>();
 
         try

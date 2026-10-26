@@ -119,6 +119,12 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
             return Failed("The payload was empty.");
         }
 
+        // The block reader recurses once per level of list and table nesting; see LargeStack.
+        return LargeStack.Run(() => ImportOnLargeStack(text));
+    }
+
+    private static ImportResult ImportOnLargeStack(string text)
+    {
         try
         {
             using var document = JsonDocument.Parse(text);

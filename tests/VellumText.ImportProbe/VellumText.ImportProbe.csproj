@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A console host the hostile-input tests launch as a child process. A stack overflow cannot be
+    caught: it ends the process, and a test host that dies can still report "Passed!" for the tests
+    it finished. Running the import here and asserting on this process's exit code is the only way
+    such a test can fail honestly.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Markdown\VellumText.Interop.Markdown.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Rtf\VellumText.Interop.Rtf.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Json\VellumText.Interop.Json.csproj" />
+  </ItemGroup>
+
+</Project>

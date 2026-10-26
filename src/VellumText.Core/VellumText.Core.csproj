@@ -36,6 +36,7 @@
     <InternalsVisibleTo Include="VellumText.Interop.Html" />
     <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
     <InternalsVisibleTo Include="VellumText.Interop.Rtf" />
+    <InternalsVisibleTo Include="VellumText.Interop.Json" />
   </ItemGroup>
 
 </Project>

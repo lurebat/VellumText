@@ -8,6 +8,21 @@ VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
 NuGet; packages are published to a local feed, and
 [`docs/consuming.md`](docs/consuming.md) explains how to reference them.
 
+## [Unreleased]
+
+### Security
+
+- **Importing can no longer crash the host with a stack overflow inside a
+  parser.** AngleSharp.Css parses a nested `calc(` by recursion, and 3.3 KB of
+  it overflowed an ordinary 1 MiB stack; about 50 KB of nested `<template>` did
+  the same in AngleSharp's tree builder, reachable from HTML and from Markdown
+  with the default options. A stack overflow cannot be caught, so a paste — or a
+  clipboard manager's capture — ended the process. Every built-in importer
+  (HTML, Markdown, RTF, JSON) now parses on its own thread with a 256 MiB
+  reserved stack, inside the importer, so a host that calls one directly from a
+  thread-pool thread is protected as well as the editor. Pinned by tests that
+  import in a child process and assert its exit code.
+
 ## [0.7.0] - 2026-08-20
 
 A sixth package, `VellumText.Interop.Markdown`. **`AC8` is complete for v1 as of
