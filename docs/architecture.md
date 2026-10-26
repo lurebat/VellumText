@@ -529,7 +529,7 @@ internal sealed class ParagraphView : BlockView
 > **Correction (2026-08-18, viewer selection).** The sentence above — *"Text is not selectable in the
 > viewer yet"* — is no longer true. The viewer now supports pointer selection (drag, double-click
 > word, triple-click paragraph), keyboard selection (Shift+arrows, Shift+Home/End, Ctrl+A) and
-> copy (Ctrl+C / Ctrl+Insert), and takes focus (`Focusable = true`) while staying out of the tab
+> copy (Ctrl+C — not Ctrl+Insert, which nothing binds; see §10.2), and takes focus (`Focusable = true`) while staying out of the tab
 > order (`IsTabStop = false`) so a viewer embedded in a list does not become a tab stop.
 >
 > The estimate that closing it "is larger than the control itself" was wrong, and the reason is
@@ -766,6 +766,13 @@ internal sealed class ParagraphView : BlockView
 > wholesale rebuild. It is bounded by paragraph length rather than document length, so it does not
 > get worse as a document grows, and virtualization keeps it off screen entirely for paragraphs that
 > are not visible. Fixing it needs upstream support for partial invalidation, not a change here.
+>
+> **Re-opened 2026-10-26 (audit F-33).** The figure above is for an unformatted ~400-word
+> paragraph. Measured with ordinary formatting, a keystroke in one paragraph costs 23.6 ms at 12,500
+> characters, 58 ms at 25,000 and 175 ms at 50,000 — 2.6× per doubling, so the cost is superlinear in
+> paragraph length and well over the frame budget long before a document is large. The owner decided
+> (OD-6) to replace the wholesale rebuild for long paragraphs with line-range sub-layouts, after
+> profiling which term is superlinear; §12.4 records the decision.
 
 ### 4.7 The text source
 
@@ -1125,6 +1132,16 @@ deliberately smaller: `MaxDepth` is absent because the HTML it would apply to is
 rather than authored, so there is no reason for a host to loosen a stack-overflow bound on markup it
 did not write. The project reference stays; only the leak is closed.
 
+> **Re-opened 2026-10-26 (audit F-03, F-04).** The reason given above was wrong, though the
+> conclusion survives. "The HTML is generated here" did not bound its depth: raw `<template>` tags
+> pass through Markdown untouched, and about 50 KB of them overflowed AngleSharp's tree builder; and
+> the Markdown importer's own walk over the Markdig tree recursed, so 8 KB of `[` overflowed the stack
+> before any HTML existed. Since then the Markdown walk is iterative, every parse runs on a thread
+> whose stack the input cannot exhaust (`LargeStack`), and the generated HTML passes through the HTML
+> importer's own `MaxDepth` and `MaxElementDepth` defaults. A host still has no reason to loosen
+> those for markup it did not write, so the options stay off `RtfImportOptions` and
+> `MarkdownImportOptions` — because the bound is applied downstream, not because none is needed.
+
 > **Corrected 2026-08-18.** This paragraph also listed `PreserveIdentifiers` among the options
 > `RtfImportOptions` deliberately omits. That option has since been deleted from
 > `HtmlImportOptions` too — it was declared, defaulted and documented, and no code path ever read
@@ -1242,13 +1259,13 @@ Flat tables are unaffected: for them the two searches agree.
 |---|---|
 | Schema validity | `Step.Apply` returns `StepResult.Failed` rather than producing an invalid document. A failed step is **skipped and recorded in `Transaction.Failures`**; the remaining steps still apply. Every step that does apply produces a schema-valid tree, so the document is never invalid — but a transaction is **best-effort, not atomic**, and a host that needs all-or-nothing must check `Failures` before committing. See "Why not atomic" below. |
 | Import robustness | Importers return `ImportResult(Document, IReadOnlyList<Diagnostic>)`. Never throw into the UI. Unsupported constructs downgrade to the nearest supported node; each downgrade is a diagnostic. |
-| HTML paste | Strict allow-list of elements/attributes/CSS properties. Script, event handlers, embedded objects, and `javascript:`/`data:` URLs removed. Remote images off by default. |
-| Image size | Configurable cap (default 16 MB decoded) — reject with a diagnostic rather than OOM. |
-| Huge paste | Cap (default 10 MB) with a confirm hook. |
-| Position mapping | All externally-held positions must be routed through `Mapping`; a debug-build assertion catches stale positions. |
+| HTML paste | Strict allow-list of elements/attributes/CSS properties. Script, event handlers, embedded objects and `javascript:` URLs are removed, and so is a `data:` URL anywhere but an image's source — `data:text/html` in a link is a navigable document. An inline `data:` image is **kept by default** (`AllowDataImages`), but only as a raster type that actually decodes (never SVG, which can carry script) and no larger than `MaxDataImageBytes` (8 MB decoded); anything else is dropped with a diagnostic. Remote images are off by default (`AllowRemoteImages`). |
+| Image size | Bounded at each layer rather than by one cap. Import drops a `data:` image over `MaxDataImageBytes` with a diagnostic. The default `DataUriImageStore` refuses an inserted or dropped image over 4 MB and raises `ImageRefused`, and a dropped file is read no further than that. `BitmapEmbedRenderer` does not decode a source over `MaximumSourceBytes` (16 MB) or an image whose header declares more than `MaximumPixels` (64 M), whatever its format, and keeps decoded bitmaps within `CacheBudgetBytes` (256 MiB) by least-recently-used eviction. |
+| Huge paste | No size cap and no confirm hook; the length of a paste is not what makes it dangerous. Its cost is bounded instead: the import budgets on `HtmlImportOptions` (`MaxDepth`, `MaxElementDepth`, `MaxAttributesPerElement`, `MaxStyleNesting`, `MaxTableSlots`, forwarded by the Markdown and RTF options where they apply) degrade an over-budget construct with a diagnostic, parsing runs on a thread with a stack the input cannot exhaust, and the editor runs every import off the UI thread (§4.9). A host that wants to refuse large content does it in `ContentImporting`, which sees the decoded document before it lands. |
+| Position mapping | Positions held across an edit are routed through `Mapping`. There is no debug-build assertion for a stale position. The paths that await before they edit — paste, drop and cut — capture an origin before their first await and refuse to apply anything once `StillAt(origin)` no longer holds. |
 | Undo integrity | Property test: for any random transaction sequence, `undo*` returns to the exact initial document; `redo*` returns to the exact final document. |
 | IME | Preedit never reaches the model or history. |
-| Read-only | Enforced at the single `RichTextEditor.Dispatch(Transaction)` chokepoint, not per-command. |
+| Read-only | Enforced where every edit lands: `RichTextView.Apply(Transaction)` refuses while `IsReadOnly`. Operations that would cost something or have a side effect before a transaction exists refuse again at their entry — paste and Ctrl+Shift+V before reading the clipboard, undo and redo, drag-move — and `RichTextToolbar` disables its commands. (Earlier drafts named a `RichTextEditor.Dispatch` chokepoint; nothing was built under that name.) |
 | External side effects | An irreversible side effect an edit needs — writing bytes to `IImageStore` — is arranged **after** the edit is known to be acceptable, never before. See "Ordering an edit against a side effect" below. |
 
 ### Why a transaction is not atomic
@@ -1966,7 +1983,8 @@ Nothing else blocks v1.
 **Not fixable here.** One paragraph of ~400 words still costs 7–12 ms per keystroke. This is A1's
 documented consequence — Avalonia 12.1.1 cannot reshape a paragraph incrementally, so the fallback
 is a wholesale rebuild. It is bounded by *paragraph* length rather than document length and is
-virtualized off screen. Closing it needs upstream partial invalidation, not a change here.
+virtualized off screen. Closing it needs upstream partial invalidation, not a change here. (Re-opened
+2026-10-26 by measurement with formatting — see the note in §4.6 and §12.4.)
 
 ### 10.4.1 After P11: what an integration found
 
@@ -2435,7 +2453,7 @@ text and marks.
 
 **Unbounded input is a property of the library, not of Markdown.** All four text formats read the
 whole source before any guard runs — `MarkdownFormat`, `HtmlFormat`, `RtfFormat` and `JsonFormat`
-each call `DocumentPayload.ReadAllText` on the stream — and `MaxDataImageBytes` bounds only embedded
+each call `DocumentPayload.ReadAllTextAsync` on the stream — and `MaxDataImageBytes` bounds only embedded
 images, in `HtmlImportOptions` exactly as in `MarkdownImportOptions`. Markdown then materialises a
 Markdig AST, an HTML string and an AngleSharp DOM, which is more intermediate representations than
 HTML but the same shape of exposure and the same absence of a bound. It is recorded here as known
@@ -2587,3 +2605,32 @@ Tables being firm changes three things in this design, and they should be treate
 
 **Held.** Column resize (P12, §10.4.3) is a proportional resize: it redistributes the share between two adjacent columns and never measures content. Auto-fit remains unbuilt, and it is the width-only clause of R2 that made the resize a day rather than a month.
 
+### 12.4 Decisions re-opened by the 2026-10 audit
+
+The codebase audit of `0282015` (2026-10-25, with a late end-to-end pass on 2026-10-26) measured the
+assumptions behind several settled decisions, and the owner reversed others outright. Each is listed
+with the basis it rests on now. The plan that carried them out is
+`docs/plans/2026-10-25-codebase-audit-remediation.md`.
+
+**Re-opened by measurement**
+
+| Decision | What re-opened it | Basis now |
+|---|---|---|
+| The HTML `colspan`/`rowspan` clamp (1–1,000 per cell) bounds what a table costs. | F-02: the clamp bounds one cell's area, not the sum. One kilobyte of spanned cells took 11.5 s and 1.27 GB. | A row span covers only rows that exist, and `MaxTableSlots` (100,000 per import, on the HTML, Markdown and RTF options) budgets the total; an over-budget table becomes paragraphs with a `Downgraded` diagnostic. |
+| Markdown and RTF need no depth bound, because the HTML they produce is generated. | F-03, F-04: Markdown's own walk overflowed the stack on 8 KB of `[`, and raw `<template>` tags carried about 50 KB of nesting through to AngleSharp. | The walk is iterative, every parse runs on `LargeStack`, and the generated HTML meets the HTML importer's `MaxDepth` and `MaxElementDepth`. See the note in §5.4. |
+| The renderer's per-image limits (`CacheLimit` 64, `MaximumPixels`) bound its memory. | F-06: a kilobyte of pasted tiny GIFs that each decode large pinned gigabytes. The limits bounded each image; 64 cached images at the pixel limit are still gigabytes. | `CacheBudgetBytes` (256 MiB of decoded pixels, least-recently-used eviction), and `MaximumPixels` read from the header in every format before decoding. |
+| `DocumentBlocks.Flatten` is 6% of a keystroke and not worth making incremental. | F-14: at AC12's 50,000 paragraphs it was 3.2 MB of a 4.2 MB keystroke and drove gen-2 collections. | The view's block list is patched in place; see the dated notes in §4.6. |
+| Enter and Backspace-join at 50,000 paragraphs cost about 8 ms. | F-15: 14.4 ms and 16.0 ms, with 6.9 MB and 10.1 MB allocated. | They rebuild only the blocks they touch and copy the root once; about 0.6 MB each. |
+| Importers are "linear-ish" (`SECURITY.md`). | F-31: AngleSharp is quadratic in element nesting (200 KB of nested `<div>` took 7.5 s) and in attributes per element. | `MaxElementDepth` and `MaxAttributesPerElement` are enforced before parsing; `SECURITY.md` states the bounds instead of the hope. |
+| A very long paragraph costs 7–12 ms per keystroke, bounded by its length. | F-33: with ordinary formatting, 23.6 ms at 12,500 characters and 2.6× per doubling. | Owner decision OD-6, below. |
+| With find open, re-running the search on every edit is the same order as layout (`RichTextView.Find.cs`). | F-36: 19.3 ms per keystroke at 50,000 paragraphs in the audit's run. | **Kept.** The late end-to-end pass measured 11.8 ms with find open against 7.9–8.6 ms without, within the frame budget, and the finding was dropped. |
+
+**Reversed by the owner (2026-10-26)**
+
+| Decision | Now |
+|---|---|
+| `IDocumentImporter` is synchronous, with the string member derived from the stream member (§4.9). | Asynchronous only, and the editor runs every importer off the UI thread whatever it claims (OD-2, Q-1; 0.8.0). See §4.9. |
+| `RichTextToolbar` commands are always enabled. | Disabled while the bound editor is read-only. For an editable editor they stay enabled wherever the caret is, for the reason the toolbar's remarks give. |
+| RTF is read by RtfPipe (§5.4, §12.1). | To be replaced by a maintained RTF library, chosen through a selection gate on licence, maintenance and robustness against the hostile corpus; if no candidate qualifies, the owner decides rather than a hand-rolled parser being written (OD-8). |
+| R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Long paragraphs get line-range sub-layouts, once profiling has shown which term is superlinear (OD-6). |
+| R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view itself becomes row-virtualized (OD-6). |

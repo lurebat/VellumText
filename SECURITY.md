@@ -20,8 +20,13 @@ Taken seriously:
 
 - **Script or active content surviving HTML import.** The importer works from
   an allow-list: `<script>`, event handler attributes, `<iframe>`, `<object>`
-  and `javascript:` / `data:` URLs are dropped unconditionally. Anything that
-  gets an executable construct into a document is a vulnerability.
+  and `javascript:` URLs are dropped unconditionally, and so is a `data:` URL
+  anywhere but an image's source. An inline `data:` image is kept by default —
+  a pasted screenshot is ordinary content — but only as a raster type that
+  actually decodes (never SVG, which can carry script) and within
+  `MaxDataImageBytes`; a host can refuse them all with `AllowDataImages = false`.
+  Anything that gets an executable construct into a document is a
+  vulnerability.
 - **Network access the caller did not ask for.** Remote images are not fetched
   unless the host opts in. An importer that reaches the network by default —
   or that can be made to, including through a redirect — is a vulnerability.
@@ -29,8 +34,14 @@ Taken seriously:
   the local filesystem, or to an internal address, is a vulnerability.
 - **Denial of service from a small input.** Import is quadratic or worse on
   some shape of input, or a deeply nested fragment overflows the stack, or a
-  malformed file loops forever. Importers are expected to be linear-ish and
-  bounded in depth.
+  malformed file loops forever. Every importer parses on a thread whose stack
+  the input cannot exhaust, and the HTML stage — which Markdown and RTF also
+  go through — bounds what its parser is superlinear in before parsing:
+  element depth, attributes per element, nesting inside a `style` value and the
+  slots a table may cover (`HtmlImportOptions`). What exceeds a budget is
+  degraded with a diagnostic rather than refused. An input that gets past one
+  of those bounds, or a shape whose cost still grows faster than its size, is
+  a vulnerability.
 - **Crashes reachable from import.** Importers return diagnostics rather than
   throwing. An unhandled exception from a malformed document is a bug and, if
   it is reachable from a paste, a security bug.
