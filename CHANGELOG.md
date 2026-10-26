@@ -124,6 +124,10 @@ NuGet; packages are published to a local feed, and
   image, so Markdown export now reports an inline image that is the whole of
   its paragraph (`image-paragraph`), since that one comes back as a block image
   too. RTF is unchanged: its reader cannot tell the two apart.
+- **An explicit font size inside a heading no longer grows on every RTF copy
+  and paste.** It was multiplied by the heading's scale on the way out and read
+  back as the explicit size, so 12 px in a Heading 1 became 24, then 48, then
+  96. The heading's scale now applies only to text that asked for no size.
 
 ## [0.7.0] - 2026-08-20
 

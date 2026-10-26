@@ -431,7 +431,7 @@ public sealed class RtfExporter : IDocumentExporter
 
         /// <summary>Writes inline content as a sequence of runs, each in its own group.</summary>
         /// <param name="content">The content.</param>
-        /// <param name="scale">A multiplier on the text size, for headings.</param>
+        /// <param name="scale">A multiplier on the default text size, for headings; an explicit size is not scaled.</param>
         /// <param name="alwaysBold">Whether the whole run is bold regardless of its marks.</param>
         /// <remarks>
         /// A group is used per run rather than turning each property off again afterwards.
@@ -494,8 +494,11 @@ public sealed class RtfExporter : IDocumentExporter
                 rtf.Append(@"\f").Append(fonts.IndexOf(family).ToString(CultureInfo.InvariantCulture));
             }
 
+            // The heading's scale is the size of text that asked for none. Text that asked for a
+            // size is that size: scaling it too wrote 12px in a Heading1 as 24, which reads back as
+            // an explicit 24 and doubled again on every copy and paste.
             var halfPoints = (int)Math.Round(
-                (mark.FontSize is { } size ? size * 1.5 : DefaultHalfPoints) * scale,
+                mark.FontSize is { } size ? size * 1.5 : DefaultHalfPoints * scale,
                 MidpointRounding.AwayFromZero);
 
             if (halfPoints != DefaultHalfPoints)
