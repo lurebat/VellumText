@@ -110,7 +110,7 @@ public partial class RichTextView
         if (!tail.IsEmpty)
         {
             moving[^1] = new ListItemNode(
-                [.. moving[^1].Blocks, new ListNode(tail, list.Kind, list.Start + context.Last + 1)]);
+                [.. moving[^1].Blocks, new ListNode(tail, list.Kind, ContinuedFrom(list.Start, context.Last + 1))]);
         }
 
         // The host keeps everything except the items that left. If that empties it — an item
@@ -127,6 +127,16 @@ public partial class RichTextView
 
         return Rebuild(context.OuterBefore, context.OuterAfter, [new ListNode(items, outer.Kind, outer.Start)]);
     }
+
+    /// <summary>The number a list split off after <paramref name="count"/> items continues from.</summary>
+    /// <remarks>
+    /// Saturating, because the start is the document's to choose — an imported
+    /// <c>&lt;ol start&gt;</c> or a hand-built model can sit at the top of the range — and an
+    /// overflow became a negative start, which <see cref="ListNode"/> refuses by throwing, out of
+    /// the key handler and through the host.
+    /// </remarks>
+    private static int ContinuedFrom(int start, int count) =>
+        (int)Math.Min((long)start + count, int.MaxValue);
 
     /// <summary>Re-types the touched items, or unwraps them when they are already that kind.</summary>
     private bool Retype(ListContext context, ListKind kind)
@@ -157,7 +167,7 @@ public partial class RichTextView
         {
             // A number picks up where the head left off. Restarting at one would renumber items
             // the user did not touch.
-            blocks.Add(new ListNode(tail, list.Kind, list.Start + context.Last + 1));
+            blocks.Add(new ListNode(tail, list.Kind, ContinuedFrom(list.Start, context.Last + 1)));
         }
 
         return Rebuild(context.Before, context.After, blocks.ToImmutable());

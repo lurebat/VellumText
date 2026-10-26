@@ -507,6 +507,9 @@ public static class HtmlImporter
             return null;
         }
 
+        /// <summary>The largest number an imported ordered list may start from.</summary>
+        private const int MaxListStart = 999_999_999;
+
         private void AddList(IElement element, MarkSet mark, BlockStyle block, BlockSink sink, int depth)
         {
             var items = new List<ListItemNode>();
@@ -560,6 +563,18 @@ public static class HtmlImporter
                         declared.ToString(CultureInfo.InvariantCulture));
 
                     start = 0;
+                }
+                else if (declared > MaxListStart)
+                {
+                    // Nine digits is what CommonMark allows an ordered-list marker, and what every
+                    // exporter here can write back. Above it the number is not a document's choice
+                    // but a probe for overflow in whatever counts on from it.
+                    Report(
+                        DiagnosticSeverity.Downgraded,
+                        $"A list numbered from beyond {MaxListStart} starts from {MaxListStart} instead.",
+                        declared.ToString(CultureInfo.InvariantCulture));
+
+                    start = MaxListStart;
                 }
                 else
                 {

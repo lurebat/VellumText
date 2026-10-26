@@ -48,6 +48,17 @@ NuGet; packages are published to a local feed, and
   and `RtfImportOptions`. A table over budget becomes paragraphs with a
   `Downgraded` diagnostic.
 
+### Fixed
+
+- **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
+  longer throws out of the key handler.** A pasted
+  `<ol start="2147483646">` (48 bytes) made the next split compute a negative
+  start, which `ListNode` refuses by throwing; without a dispatcher exception
+  handler the host process ended. Imported starts are now clamped to
+  999,999,999 (CommonMark's nine digits) with a `Downgraded` diagnostic, and the
+  list commands continue numbering with saturating arithmetic, so a model built
+  with a start at the top of the range is safe too.
+
 ## [0.7.0] - 2026-08-20
 
 A sixth package, `VellumText.Interop.Markdown`. **`AC8` is complete for v1 as of
