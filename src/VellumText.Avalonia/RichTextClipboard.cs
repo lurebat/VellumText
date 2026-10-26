@@ -271,6 +271,10 @@ public static class RichTextClipboard
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(exporters);
 
+        // Build runs the registered exporters inside this catch, so an exporter that throws makes the
+        // copy return false instead of reaching the caller. Narrowing it would let that exception
+        // escape Ctrl+C, whose handler nothing awaits.
+        // ast-grep-ignore: broad-catch
         try
         {
             await clipboard.SetDataAsync(Build(doc, exporters, text)).ConfigureAwait(true);
@@ -305,6 +309,9 @@ public static class RichTextClipboard
         ArgumentNullException.ThrowIfNull(clipboard);
         ArgumentNullException.ThrowIfNull(importers);
 
+        // ReadClipboardAsync promises null rather than an exception for the same reasons as ReadAsync,
+        // plus a clipboard owned by another process.
+        // ast-grep-ignore: broad-catch
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
@@ -336,6 +343,9 @@ public static class RichTextClipboard
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(importers);
 
+        // ReadAsync promises null rather than an exception: a transfer can fail mid-read, and an
+        // importer that breaks its never-throw contract is caught here as well.
+        // ast-grep-ignore: broad-catch
         try
         {
             foreach (var importer in InPreferenceOrder(importers))

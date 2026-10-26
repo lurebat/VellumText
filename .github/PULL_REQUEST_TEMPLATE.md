@@ -14,6 +14,8 @@ change, the numbers.
 
 - [ ] `dotnet build` and `dotnet test` pass (warnings are errors)
 - [ ] New behaviour is covered by a test that fails without the change
+- [ ] If this fixes one site, its twins were checked (paste and drop, create
+      and update, importer and renderer) and fixed or tested for parity too
 - [ ] Public members are documented
 - [ ] `CHANGELOG.md` updated if the change is user-visible
 - [ ] `docs/architecture.md` is still accurate, or the discrepancy is called

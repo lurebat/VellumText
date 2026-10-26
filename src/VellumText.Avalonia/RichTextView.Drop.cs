@@ -142,6 +142,8 @@ public partial class RichTextView
                 continue;
             }
 
+            // Per file, inside a drop nothing awaits: one unreadable file must not lose the rest.
+            // ast-grep-ignore: broad-catch
             try
             {
                 var limit = ImageStore is DataUriImageStore store ? store.MaximumBytes : (int?)null;
@@ -307,6 +309,8 @@ public partial class RichTextView
 
     private async Task DropAsync(TransferSource source, EditOrigin origin, CancellationToken cancellation)
     {
+        // Nothing awaits a drop (see the catch below), so anything escaping here would reach no handler.
+        // ast-grep-ignore: broad-catch
         try
         {
             var resolution = await RichTextClipboard

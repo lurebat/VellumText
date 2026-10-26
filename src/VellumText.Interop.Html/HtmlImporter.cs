@@ -66,6 +66,9 @@ public static class HtmlImporter
 
         var diagnostics = new List<ImportDiagnostic>();
 
+        // The importer contract: no input makes an import throw. A parser or sanitizer bug becomes a
+        // Malformed diagnostic and an empty document rather than an exception in the host.
+        // ast-grep-ignore: broad-catch
         try
         {
             var doc = Build(html, options, clipToFragment, diagnostics);

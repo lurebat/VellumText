@@ -395,6 +395,9 @@ public partial class RichTextView
         var cancellation = BeginImport();
         TransferResolution resolution;
 
+        // Only the clipboard read and the decode are inside (plan 7.4). Host handlers run in Insert,
+        // after this block, so their exceptions reach the caller.
+        // ast-grep-ignore: broad-catch
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
@@ -494,6 +497,9 @@ public partial class RichTextView
         var origin = CurrentOrigin();
         string? text;
 
+        // Only the clipboard read is inside; the insert comes after this block, so nothing it
+        // raises is swallowed here.
+        // ast-grep-ignore: broad-catch
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);

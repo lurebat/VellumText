@@ -70,18 +70,18 @@ internal abstract class TransferSource
     /// <summary>Re-encodes a bitmap as PNG, since a transfer hands over decoded pixels.</summary>
     internal static byte[]? Encode(Bitmap bitmap)
     {
+        using var buffer = new MemoryStream();
+
         try
         {
-            using var buffer = new MemoryStream();
-
             bitmap.Save(buffer, new PngBitmapEncoderOptions());
-
-            return buffer.ToArray();
         }
         catch (Exception)
         {
             return null;
         }
+
+        return buffer.ToArray();
     }
 
     private sealed class Lazy(IAsyncDataTransfer data) : TransferSource

@@ -415,6 +415,9 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 
     private Bitmap? Decode(string source)
     {
+        // A decoder boundary: whatever a source holds, the renderer draws a placeholder rather than
+        // failing a layout pass.
+        // ast-grep-ignore: broad-catch
         try
         {
             if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))

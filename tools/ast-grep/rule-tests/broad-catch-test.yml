@@ -1,0 +1,11 @@
+id: broad-catch
+valid:
+  - "class C { void M() { try { A(); } catch (Exception) { } } }"
+  - "class C { void M() { try { /* why */ A(); } catch (Exception ex) { } } }"
+  - "class C { void M() { try { A(); B(); } catch (IOException) { } } }"
+  - "class C { void M() { try { A(); B(); } catch (Exception) when (Expected()) { } } }"
+invalid:
+  - "class C { void M() { try { A(); B(); } catch (Exception ex) { } } }"
+  - "class C { void M() { try { var x = A(); return; } catch { } } }"
+  - "class C { void M() { try { A(); B(); } catch (System.Exception) { } } }"
+  - "class C { void M() { try { A(); B(); } catch (IOException) { } catch (Exception) { } } }"
