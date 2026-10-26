@@ -19,7 +19,8 @@ namespace VellumText.Interop.Rtf;
 /// understood since Word 97, because the receiving application is not known and the ones that
 /// matter — Word, Outlook, WordPad, LibreOffice — disagree about everything newer. Where a
 /// construct has a modern spelling and a legacy spelling, both are written when they can coexist,
-/// which is why lists carry a <c>\pntext</c> group as well as their numbering definition.
+/// which is why a list item carries its marker as literal <c>\listtext</c> as well as naming its
+/// list and level in the list table.
 /// </para>
 /// <para>
 /// RTF has no heading, so one is written as its visual consequence — bold, and at the size the
@@ -77,9 +78,10 @@ public sealed class RtfExporter : IDocumentExporter
         // the body is built first and the header is prepended.
         var fonts = new FontTable();
         var colours = new ColourTable();
+        var lists = new ListTable();
         var body = new StringBuilder();
 
-        var writer = new Writer(body, fonts, colours);
+        var writer = new Writer(body, fonts, colours, lists);
 
         writer.WriteBlocks(doc.Blocks);
 
@@ -88,6 +90,7 @@ public sealed class RtfExporter : IDocumentExporter
         rtf.Append(@"{\rtf1\ansi\ansicpg1252\deff0\uc1");
         fonts.Write(rtf);
         colours.Write(rtf);
+        lists.Write(rtf);
         rtf.Append(body);
         rtf.Append('}');
 
@@ -198,6 +201,126 @@ public sealed class RtfExporter : IDocumentExporter
         }
     }
 
+    /// <summary>The numbering definitions of a document's lists, one per top-level list.</summary>
+    /// <remarks>
+    /// <para>
+    /// A list's nesting and numbering live here, in <c>\listtable</c> and
+    /// <c>\listoverridetable</c>, and each paragraph only names its list (<c>\ls</c>) and level
+    /// (<c>\ilvl</c>). The old per-paragraph <c>\pn</c> carried no level, so readers flattened
+    /// nested lists, and it carried no identity, so two lists written back to back merged.
+    /// </para>
+    /// <para>
+    /// A level's kind and start come from the first list at that depth. RTF numbers a level the
+    /// same way throughout its list, so a second nested list of another kind under the same
+    /// top-level list is written with the first one's numbering; its <c>\listtext</c> still shows
+    /// its own marker.
+    /// </para>
+    /// </remarks>
+    private sealed class ListTable
+    {
+        /// <summary>The deepest level RTF defines; deeper nesting shares it.</summary>
+        private const int MaxLevel = 8;
+
+        private readonly List<(ListKind Kind, int Start)?[]> _lists = [];
+
+        /// <summary>The <c>\ilvl</c> for a nesting depth.</summary>
+        internal static int Level(int depth) => Math.Min(depth, MaxLevel);
+
+        /// <summary>Defines a top-level list, and returns its <c>\ls</c> number.</summary>
+        internal int Add(ListNode list)
+        {
+            var levels = new (ListKind Kind, int Start)?[MaxLevel + 1];
+
+            Collect(list, 0, levels);
+            _lists.Add(levels);
+
+            return _lists.Count;
+        }
+
+        private static void Collect(ListNode list, int depth, (ListKind Kind, int Start)?[] levels)
+        {
+            if (depth > MaxLevel)
+            {
+                return;
+            }
+
+            levels[depth] ??= (list.Kind, list.Start);
+
+            foreach (var item in list.Items)
+            {
+                foreach (var block in item.Blocks)
+                {
+                    if (block is ListNode nested)
+                    {
+                        Collect(nested, depth + 1, levels);
+                    }
+                }
+            }
+        }
+
+        internal void Write(StringBuilder rtf)
+        {
+            if (_lists.Count == 0)
+            {
+                return;
+            }
+
+            rtf.Append(@"{\*\listtable");
+
+            for (var i = 0; i < _lists.Count; i++)
+            {
+                var id = (i + 1).ToString(CultureInfo.InvariantCulture);
+
+                rtf.Append(@"{\list\listtemplateid").Append(id);
+
+                for (var level = 0; level <= MaxLevel; level++)
+                {
+                    WriteLevel(rtf, level, _lists[i][level] ?? (ListKind.Unordered, 1));
+                }
+
+                rtf.Append(@"{\listname ;}\listid").Append(id).Append('}');
+            }
+
+            rtf.Append(@"}{\*\listoverridetable");
+
+            for (var i = 0; i < _lists.Count; i++)
+            {
+                var id = (i + 1).ToString(CultureInfo.InvariantCulture);
+
+                rtf.Append(@"{\listoverride\listid").Append(id)
+                    .Append(@"\listoverridecount0\ls").Append(id).Append('}');
+            }
+
+            rtf.Append('}');
+        }
+
+        /// <summary>One level's definition: its numbering, start and indent.</summary>
+        /// <remarks>
+        /// <c>\leveltext</c> is a length byte then the text, in which a number placeholder is the
+        /// index of the level it shows: <c>\'02\'00.</c> is "level 0's number, then a full stop".
+        /// The bullet is <c>\'95</c>, which is "•" in the code page the header names.
+        /// </remarks>
+        private static void WriteLevel(StringBuilder rtf, int level, (ListKind Kind, int Start) definition)
+        {
+            var ordered = definition.Kind == ListKind.Ordered;
+            var format = ordered ? "0" : "23";
+
+            rtf.Append(@"{\listlevel\levelnfc").Append(format)
+                .Append(@"\levelnfcn").Append(format)
+                .Append(@"\leveljc0\leveljcn0\levelfollow0\levelstartat")
+                .Append((ordered ? definition.Start : 1).ToString(CultureInfo.InvariantCulture))
+                .Append(@"\levelspace0\levelindent0");
+
+            rtf.Append(ordered
+                ? $@"{{\leveltext\'02\'0{level.ToString(CultureInfo.InvariantCulture)}.;}}{{\levelnumbers\'01;}}"
+                : @"{\leveltext\'01\'95;}{\levelnumbers;}");
+
+            rtf.Append(@"\fi-").Append(HangingIndentTwips.ToString(CultureInfo.InvariantCulture))
+                .Append(@"\li").Append(((level + 1) * IndentTwips).ToString(CultureInfo.InvariantCulture))
+                .Append('}');
+        }
+    }
+
     /// <summary>Escaping, which is the same everywhere text appears.</summary>
     private static class Text
     {
@@ -296,7 +419,7 @@ public sealed class RtfExporter : IDocumentExporter
     }
 
     /// <summary>Walks the document, holding the state RTF needs to be told about explicitly.</summary>
-    private sealed class Writer(StringBuilder rtf, FontTable fonts, ColourTable colours)
+    private sealed class Writer(StringBuilder rtf, FontTable fonts, ColourTable colours, ListTable lists)
     {
         /// <summary>How many table cells the block being written is inside.</summary>
         /// <remarks>
@@ -564,8 +687,9 @@ public sealed class RtfExporter : IDocumentExporter
             }
         }
 
-        private void WriteList(ListNode list, int depth)
+        private void WriteList(ListNode list, int depth, int? listNumber = null)
         {
+            var ls = listNumber ?? lists.Add(list);
             var number = list.Start;
 
             foreach (var item in list.Items)
@@ -574,22 +698,39 @@ public sealed class RtfExporter : IDocumentExporter
                     ? $"{number.ToString(CultureInfo.InvariantCulture)}."
                     : "\u2022";
 
-                WriteListItem(item, marker, depth, list.Kind, list.Start);
+                WriteListItem(item, marker, depth, ls);
                 number++;
             }
         }
 
-        private void WriteListItem(ListItemNode item, string marker, int depth, ListKind kind, int start)
+        /// <summary>Writes one list item: its first paragraph numbered, the rest under it.</summary>
+        /// <remarks>
+        /// <para>
+        /// The first paragraph names its list and level with <c>\ls</c> and <c>\ilvl</c>, which is
+        /// what readers nest and number by. Depth carried by the indent alone, as it used to be, is
+        /// not nesting to any reader — a nested list came back flat — and two lists that share a
+        /// numbering definition are one list, which merged lists written back to back. The marker
+        /// is also written as literal text in <c>\listtext</c>, for readers that know no list
+        /// table and print it instead.
+        /// </para>
+        /// <para>
+        /// The item's later paragraphs are written as indented paragraphs outside the numbering,
+        /// which is how Word writes them. RTF has no multi-paragraph list item, so a reader either
+        /// ends the list there or takes the paragraph for a new item; neither is this writer's to
+        /// fix.
+        /// </para>
+        /// </remarks>
+        private void WriteListItem(ListItemNode item, string marker, int depth, int ls)
         {
             var first = true;
 
             foreach (var block in item.Blocks)
             {
-                // A nested list is a list, not a paragraph of this one: it carries its own
-                // markers and its own depth.
+                // A nested list is the next level of this list, not a list of its own: one \ls
+                // with a deeper \ilvl is what a reader nests.
                 if (block is ListNode nested)
                 {
-                    WriteList(nested, depth + 1);
+                    WriteList(nested, depth + 1, ls);
                     continue;
                 }
 
@@ -603,29 +744,29 @@ public sealed class RtfExporter : IDocumentExporter
 
                 Pard();
                 WriteAlignment(paragraph.Align);
+
+                if (first)
+                {
+                    rtf.Append(@"\ls").Append(ls.ToString(CultureInfo.InvariantCulture))
+                        .Append(@"\ilvl").Append(ListTable.Level(depth).ToString(CultureInfo.InvariantCulture));
+                }
+
                 rtf.Append(@"\li").Append(indent.ToString(CultureInfo.InvariantCulture));
 
                 if (first)
                 {
-                    // The marker hangs to the left of the text, which is what a list looks like,
-                    // and is written both as a numbering definition and as literal text. Readers
-                    // that understand \pn use the definition; the rest still see the bullet.
+                    // The marker hangs to the left of the text, which is what a list looks like.
                     rtf.Append(@"\fi-").Append(HangingIndentTwips.ToString(CultureInfo.InvariantCulture));
+                }
 
-                    if (kind == ListKind.Ordered)
-                    {
-                        rtf.Append(@"{\*\pn\pnlvlbody\pndec\pnindent0\pnstart")
-                            .Append(start.ToString(CultureInfo.InvariantCulture))
-                            .Append(@"{\pntxta .}}");
-                    }
-                    else
-                    {
-                        // \'B7 is the bullet in the code page named by the header, which is what
-                        // a numbering definition has to use: \u is not allowed inside one.
-                        rtf.Append(@"{\*\pn\pnlvlblt\pnf0\pnindent0{\pntxtb\'B7}}");
-                    }
+                if (OutlineLevel(paragraph.Kind) is { } level)
+                {
+                    rtf.Append(@"\outlinelevel").Append(level.ToString(CultureInfo.InvariantCulture));
+                }
 
-                    rtf.Append(@"{\pntext ");
+                if (first)
+                {
+                    rtf.Append(@"{\listtext ");
                     Text.Write(rtf, marker);
                     rtf.Append(@"\tab}");
                 }

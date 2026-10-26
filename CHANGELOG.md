@@ -128,6 +128,14 @@ NuGet; packages are published to a local feed, and
   and paste.** It was multiplied by the heading's scale on the way out and read
   back as the explicit size, so 12 px in a Heading 1 became 24, then 48, then
   96. The heading's scale now applies only to text that asked for no size.
+- **RTF lists keep their nesting, their boundaries and their start number.**
+  Depth was carried only by the indent and every paragraph repeated an
+  old-style `\pn` numbering with no level and no identity, so a nested list
+  came back flat and two lists written back to back came back as one. Lists are
+  now written with a `\listtable`: each top-level list has its own `\ls`,
+  nested lists are its deeper `\ilvl` levels with their own kind and start, and
+  the marker is still written as literal `\listtext` for readers that know no
+  list table. A heading inside a list item now keeps its `\outlinelevel`.
 
 ## [0.7.0] - 2026-08-20
 

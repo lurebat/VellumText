@@ -42,4 +42,106 @@ public class RtfExportFidelityTests
             Assert.Equal(12, paragraph.Content.MarkAt(0).FontSize);
         }
     }
+
+    private static ListItemNode Item(params BlockNode[] blocks) => new(blocks);
+
+    private static string TextOf(ListItemNode item) =>
+        Assert.IsType<ParagraphNode>(item.Blocks[0]).Content.Text;
+
+    /// <summary>
+    /// F-55: depth was carried only by the left indent, which no reader treats as nesting, so a
+    /// nested list came back flat. Written as levels of one <c>\listtable</c> list it nests again.
+    /// </summary>
+    [Fact]
+    public void A_nested_list_comes_back_nested()
+    {
+        var doc = new DocumentNode([
+            new ListNode(
+                [
+                    Item(
+                        ParagraphNode.FromText("a"),
+                        new ListNode([ListItemNode.FromText("b")], ListKind.Ordered, 2)),
+                    ListItemNode.FromText("c"),
+                ],
+                ListKind.Unordered),
+        ]);
+
+        var outer = Assert.IsType<ListNode>(Assert.Single(Trip(doc).Blocks));
+
+        Assert.Equal(ListKind.Unordered, outer.Kind);
+        Assert.Equal(2, outer.Items.Length);
+        Assert.Equal("a", TextOf(outer.Items[0]));
+        Assert.Equal("c", TextOf(outer.Items[1]));
+
+        var inner = Assert.IsType<ListNode>(outer.Items[0].Blocks[1]);
+
+        Assert.Equal(ListKind.Ordered, inner.Kind);
+        Assert.Equal(2, inner.Start);
+        Assert.Equal("b", TextOf(Assert.Single(inner.Items)));
+    }
+
+    /// <summary>
+    /// F-56: two lists written back to back were one list to a reader. Each list now has its own
+    /// <c>\ls</c>, which is what tells a reader where one ends.
+    /// </summary>
+    [Theory]
+    [InlineData(ListKind.Unordered)]
+    [InlineData(ListKind.Ordered)]
+    public void Two_adjacent_lists_stay_two_lists(ListKind kind)
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("a")], kind),
+            new ListNode([ListItemNode.FromText("b")], kind),
+        ]);
+
+        var lists = Trip(doc).Blocks.OfType<ListNode>().ToArray();
+
+        Assert.Equal(2, lists.Length);
+        Assert.Equal("a", TextOf(Assert.Single(lists[0].Items)));
+        Assert.Equal("b", TextOf(Assert.Single(lists[1].Items)));
+    }
+
+    [Fact]
+    public void A_numbered_list_keeps_its_start()
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("a"), ListItemNode.FromText("b")], ListKind.Ordered, 3),
+        ]);
+
+        var list = Assert.IsType<ListNode>(Assert.Single(Trip(doc).Blocks));
+
+        Assert.Equal(3, list.Start);
+        Assert.Equal(2, list.Items.Length);
+    }
+
+    /// <summary>
+    /// A list starting at 0 is written with <c>\levelstartat0</c>, which Word honours. RtfPipe reads
+    /// a zero start as the default and numbers from 1 — a reader limitation, re-verified with the
+    /// Phase 8 reader — so this pins the control word.
+    /// </summary>
+    [Fact]
+    public void A_list_starting_at_zero_says_so()
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("a")], ListKind.Ordered, 0),
+        ]);
+
+        Assert.Contains(@"\levelstartat0", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// F-57: a heading inside a list item lost its outline level, which every other paragraph
+    /// writes. RtfPipe does not read an outline level inside a list, so this pins the control word.
+    /// </summary>
+    [Fact]
+    public void A_heading_in_a_list_item_keeps_its_outline_level()
+    {
+        var doc = new DocumentNode([
+            new ListNode(
+                [Item(new ParagraphNode(InlineContent.FromText("h"), ParagraphKind.Heading2))],
+                ListKind.Unordered),
+        ]);
+
+        Assert.Contains(@"\outlinelevel1", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
+    }
 }
