@@ -2378,7 +2378,8 @@ Whoever adds one should add it at `DocumentPayload`.
 **Two bugs the round-trip tests found, both invisible to a round trip that only checked validity.**
 A list written with no blank line above it: legal for a bulleted list, which may interrupt a
 paragraph, and silently wrong for `3. three`, which may not — so an ordered list not starting at 1
-was read back as more of the preceding paragraph's text. And export/import agreeing on a document
+was read back as more of the preceding paragraph's text. The same holds inside a list item, where
+the generated round trip found it a second time (F-26), so the blank line is written there too. And export/import agreeing on a document
 is not the same as either being right, so every round-trip test here asserts the intermediate
 Markdown against a literal *before* importing it. Three round-trip tests in this repository once
 asserted nothing but schema validity and stayed green for weeks while the importer dropped every

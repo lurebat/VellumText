@@ -84,6 +84,10 @@ NuGet; packages are published to a local feed, and
   with two extra backticks; the literal backtick is now written `&#96;`.
 - **Exporting a styled run with long whitespace at its edges is linear.** 40,000
   trailing spaces in a bold run took 2.3 s and 3.2 GB of allocation.
+- **A numbered list nested in a list item keeps its start number in Markdown.**
+  One starting anywhere but 1 was written straight under its item's paragraph,
+  which it cannot interrupt, so `- Steps` / `2. second` came back as the one
+  paragraph "Steps 2. second". It now gets the blank line a top-level one does.
 
 ## [0.7.0] - 2026-08-20
 

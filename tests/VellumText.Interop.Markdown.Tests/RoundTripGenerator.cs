@@ -269,7 +269,7 @@ internal static class RoundTripGenerator
     private static ListNode List(Random r, int depth)
     {
         var kind = (ListKind)r.Next(2);
-        var start = kind == ListKind.Unordered || depth > 0 || r.Next(2) == 0 ? 1 : r.Next(0, 5);
+        var start = kind == ListKind.Unordered || r.Next(2) == 0 ? 1 : r.Next(0, 5);
         var items = new List<ListItemNode>();
 
         for (var i = r.Next(1, 4); i > 0; i--)

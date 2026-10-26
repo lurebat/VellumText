@@ -155,10 +155,10 @@ public sealed class MarkdownExporter : IDocumentExporter
 
                 // A list nested in an item follows its item's paragraph directly. A blank line
                 // there is legal but makes the outer list "loose", which changes nothing in the
-                // model and everything in how the source reads. At the top level the blank line is
-                // required rather than cosmetic: an ordered list that does not start at 1 cannot
-                // interrupt a paragraph, so "text\n3. three" reads as one paragraph of text.
-                if (!first && !(insideListItem && block is ListNode))
+                // model and everything in how the source reads. The blank line is required rather
+                // than cosmetic for an ordered list that does not start at 1, at any depth: it
+                // cannot interrupt a paragraph, so "text\n3. three" reads as one paragraph of text.
+                if (!first && !(insideListItem && block is ListNode && !CannotInterrupt(block)))
                 {
                     Blank();
                 }
@@ -168,6 +168,10 @@ public sealed class MarkdownExporter : IDocumentExporter
                 WriteBlock(block, alternate);
             }
         }
+
+        /// <summary>Whether a block is a list CommonMark will not let interrupt a paragraph.</summary>
+        private static bool CannotInterrupt(BlockNode block) =>
+            block is ListNode { Kind: ListKind.Ordered, Start: not 1 };
 
         private void WriteBlock(BlockNode block, bool alternateListMarker)
         {
