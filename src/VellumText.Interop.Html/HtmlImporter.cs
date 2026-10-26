@@ -37,19 +37,22 @@ public static class HtmlImporter
 
         options ??= HtmlImportOptions.Default;
 
-        // The parser and the CSS parser recurse per level of nesting in the input, so they get a
-        // stack the input cannot exhaust; see LargeStack. A nested call from the Markdown or RTF
-        // importer is already on one and runs inline.
-        return LargeStack.Run(() => ImportOnLargeStack(html, options));
+        return Run(html, options, clipToFragment: false);
     }
 
-    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options)
+    // The parser and the CSS parser recurse per level of nesting in the input, so they get a
+    // stack the input cannot exhaust; see LargeStack. A nested call from the Markdown or RTF
+    // importer is already on one and runs inline.
+    private static ImportResult Run(string html, HtmlImportOptions options, bool clipToFragment) =>
+        LargeStack.Run(() => ImportOnLargeStack(html, options, clipToFragment));
+
+    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options, bool clipToFragment)
     {
         var diagnostics = new List<ImportDiagnostic>();
 
         try
         {
-            var doc = Build(html, options, diagnostics);
+            var doc = Build(html, options, clipToFragment, diagnostics);
 
             // Every construction site below guards its own shape, but a document that breaks a
             // schema rule would be refused when the paste is applied, and a silent no-op is a
@@ -89,9 +92,16 @@ public static class HtmlImporter
     /// <returns>The document, and everything that could not be brought across.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="payload"/> is null.</exception>
     /// <remarks>
+    /// <para>
     /// The envelope's <c>SourceURL</c> becomes the base address for relative links, but only when
     /// the caller has not named one: an explicit choice outranks a copied document's opinion about
     /// where it came from.
+    /// </para>
+    /// <para>
+    /// A fragment that opens inside a table, as Excel's does, is read in its document instead,
+    /// keeping only what lies between the fragment markers and the elements that enclose them.
+    /// On its own it is rows with no table, and a pasted range would become one paragraph.
+    /// </para>
     /// </remarks>
     public static ImportResult ImportClipboard(string payload, HtmlImportOptions? options = null)
     {
@@ -106,12 +116,15 @@ public static class HtmlImporter
             options = options with { BaseUri = sourceUri };
         }
 
-        return Import(fragment, options);
+        return ClipboardHtml.TryGetTableContext(payload, fragment, out var document)
+            ? Run(document, options, clipToFragment: true)
+            : Run(fragment, options, clipToFragment: false);
     }
 
     private static DocumentNode Build(
         string html,
         HtmlImportOptions options,
+        bool clipToFragment,
         List<ImportDiagnostic> diagnostics)
     {
         // CSS support has to be configured on the context, not added later: without it an element
@@ -136,6 +149,12 @@ public static class HtmlImporter
 
         var document = parser.ParseDocument(guarded.Html);
 
+        if (clipToFragment)
+        {
+            // Before sanitizing, so that nothing outside the fragment is reported as removed.
+            ClipToFragment(document);
+        }
+
         new SanitizingReader(options, diagnostics).Sanitize(document);
 
         var walker = new Walker(options, diagnostics);
@@ -145,6 +164,80 @@ public static class HtmlImporter
         return blocks.Count == 0
             ? DocumentNode.Empty
             : new DocumentNode(blocks);
+    }
+
+    /// <summary>
+    /// Removes everything before the <c>StartFragment</c> marker and after the <c>EndFragment</c>
+    /// one, keeping the elements that enclose them.
+    /// </summary>
+    /// <param name="document">The parsed clipboard document.</param>
+    /// <remarks>
+    /// The markers are found where the parser put them rather than where they sat in the text, so
+    /// a marker between <c>&lt;table&gt;</c> and its first row clips inside the table and the
+    /// table itself survives.
+    /// </remarks>
+    private static void ClipToFragment(IDocument document)
+    {
+        IComment? start = null;
+        IComment? end = null;
+
+        foreach (var comment in document.Descendants<IComment>())
+        {
+            if (start is null)
+            {
+                if (IsMarker(comment, "StartFragment"))
+                {
+                    start = comment;
+                }
+            }
+            else if (IsMarker(comment, "EndFragment"))
+            {
+                end = comment;
+                break;
+            }
+        }
+
+        if (start is null)
+        {
+            return;
+        }
+
+        RemoveOutside(start, before: true);
+
+        if (end is not null)
+        {
+            RemoveOutside(end, before: false);
+        }
+
+        // The page's own html and body stay as containers, but their attributes describe the page
+        // the fragment was cut from, not anything that was copied.
+        foreach (var page in new[] { document.DocumentElement, document.Body })
+        {
+            foreach (var name in page?.Attributes.Select(attribute => attribute.Name).ToArray() ?? [])
+            {
+                page!.RemoveAttribute(name);
+            }
+        }
+    }
+
+    private static bool IsMarker(IComment comment, string name) =>
+        string.Equals(comment.Data.Trim(), name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Removes every node on one side of <paramref name="marker"/>, at every level up to the root.</summary>
+    private static void RemoveOutside(INode marker, bool before)
+    {
+        for (var node = marker; node.Parent is { } parent; node = parent)
+        {
+            var sibling = before ? node.PreviousSibling : node.NextSibling;
+
+            while (sibling is not null)
+            {
+                var next = before ? sibling.PreviousSibling : sibling.NextSibling;
+
+                parent.RemoveChild(sibling);
+                sibling = next;
+            }
+        }
     }
 
     private static void ReportGuard(

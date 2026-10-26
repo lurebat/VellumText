@@ -70,6 +70,15 @@ NuGet; packages are published to a local feed, and
   without complaint and came back as an empty document with a `Malformed`
   diagnostic. The reader now accepts 2,048 levels, more than the writer can
   emit; it still parses on its own large-stack thread.
+- **A range copied from Excel pastes as a table again, not as one paragraph.**
+  Excel's clipboard HTML opens the copied fragment after `<table>` and before
+  `<col>`, so the fragment alone is rows and cells with no table around them;
+  the parser dropped them as stray tags and a 6×4 range arrived as one line of
+  every cell's text. A fragment that opens with table rows is now read inside
+  the document it was cut from, keeping only what lies between the fragment
+  markers and the elements around them, so the range keeps its rows, columns
+  and merged cells. A single copied cell, which Excel marks as just the cell,
+  still pastes as its text, as Excel's own RTF of the same copy does.
 
 ## [0.7.0] - 2026-08-20
 
