@@ -74,6 +74,10 @@ NuGet; packages are published to a local feed, and
   shell now carries all of them to the new view, keeps the handlers it was given
   so the discarded view stops raising them, and unbinds the discarded template's
   floating toolbar.
+- **`RichTextEditor` raises `DocumentChanged` and `SelectionChanged` after its
+  view holds the new state.** They were raised first, so a handler reading the
+  view saw the old document, and one that selected all on load wrote the old
+  document back over the one the host had just set.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

@@ -670,15 +670,18 @@ public class RichTextEditor : TemplatedControl
 
         if (change.Property == StateProperty)
         {
-            // Announced here rather than beside the view's own pair, because this shell holds the
-            // state itself: the editor answers Document before it has ever been templated, and a
-            // relay from the view would say "empty" until the first layout pass.
-            RaiseStateParts((EditorState)change.OldValue!, (EditorState)change.NewValue!);
-
+            // The view first, then the announcement. A handler is entitled to read the view, and
+            // one that touched it - select-all on load - used to find the old state there and
+            // write it back over the state the host had just set.
             if (_view is not null)
             {
                 _view.State = State;
             }
+
+            // Announced here rather than beside the view's own pair, because this shell holds the
+            // state itself: the editor answers Document before it has ever been templated, and a
+            // relay from the view would say "empty" until the first layout pass.
+            RaiseStateParts((EditorState)change.OldValue!, (EditorState)change.NewValue!);
         }
         else if (change.Property == IsSelectionToolbarEnabledProperty)
         {
