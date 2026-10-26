@@ -231,7 +231,12 @@ internal static class CssStyles
 
         if (margin > 0)
         {
-            var levels = (int)Math.Round(margin / IndentPixels, MidpointRounding.AwayFromZero);
+            // Capped before the enclosing level is added. A margin of 1e300px is finite, its level
+            // converts to int.MaxValue, and adding the parent's indent wrapped it negative - which
+            // a paragraph refuses, and the refusal discarded the whole import.
+            var levels = (int)Math.Min(
+                Math.Round(margin / IndentPixels, MidpointRounding.AwayFromZero),
+                MaxIndentLevel);
 
             if (levels > 0)
             {

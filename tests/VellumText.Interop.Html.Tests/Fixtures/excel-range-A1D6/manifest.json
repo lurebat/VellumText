@@ -1,0 +1,233 @@
+[
+  {
+    "Index": 0,
+    "Id": 49161,
+    "Name": "DataObject",
+    "Size": 8,
+    "File": "00-DataObject.bin"
+  },
+  {
+    "Index": 1,
+    "Id": 14,
+    "Name": "CF_ENHMETAFILE",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 2,
+    "Id": 3,
+    "Name": "CF_METAFILEPICT",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 3,
+    "Id": 2,
+    "Name": "CF_BITMAP",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 4,
+    "Id": 50181,
+    "Name": "Biff12",
+    "Size": 6707,
+    "File": "04-Biff12.bin"
+  },
+  {
+    "Index": 5,
+    "Id": 49730,
+    "Name": "Biff8",
+    "Size": 20581,
+    "File": "05-Biff8.bin"
+  },
+  {
+    "Index": 6,
+    "Id": 50091,
+    "Name": "Biff5",
+    "Size": 15360,
+    "File": "06-Biff5.bin"
+  },
+  {
+    "Index": 7,
+    "Id": 4,
+    "Name": "#4",
+    "Size": 1889,
+    "File": "07-_4.bin"
+  },
+  {
+    "Index": 8,
+    "Id": 5,
+    "Name": "#5",
+    "Size": 420,
+    "File": "08-_5.bin"
+  },
+  {
+    "Index": 9,
+    "Id": 49710,
+    "Name": "XML Spreadsheet",
+    "Size": 2192,
+    "File": "09-XML_Spreadsheet.bin"
+  },
+  {
+    "Index": 10,
+    "Id": 49302,
+    "Name": "HTML Format",
+    "Size": 2994,
+    "File": "10-HTML_Format.bin"
+  },
+  {
+    "Index": 11,
+    "Id": 13,
+    "Name": "CF_UNICODETEXT",
+    "Size": 200,
+    "File": "11-CF_UNICODETEXT.bin"
+  },
+  {
+    "Index": 12,
+    "Id": 1,
+    "Name": "CF_TEXT",
+    "Size": 100,
+    "File": "12-CF_TEXT.bin"
+  },
+  {
+    "Index": 13,
+    "Id": 50110,
+    "Name": "Csv",
+    "Size": 100,
+    "File": "13-Csv.bin"
+  },
+  {
+    "Index": 14,
+    "Id": 49744,
+    "Name": "Hyperlink",
+    "Size": 296,
+    "File": "14-Hyperlink.bin"
+  },
+  {
+    "Index": 15,
+    "Id": 50184,
+    "Name": "ShadowWorkbook",
+    "Size": 12509,
+    "File": "15-ShadowWorkbook.bin"
+  },
+  {
+    "Index": 16,
+    "Id": 49755,
+    "Name": "Web Custom Format Map",
+    "Size": 41,
+    "File": "16-Web_Custom_Format_Map.bin"
+  },
+  {
+    "Index": 17,
+    "Id": 49409,
+    "Name": "Rich Text Format",
+    "Size": 4760,
+    "File": "17-Rich_Text_Format.bin"
+  },
+  {
+    "Index": 18,
+    "Id": 49163,
+    "Name": "Embed Source",
+    "Size": 14336,
+    "File": "18-Embed_Source.bin"
+  },
+  {
+    "Index": 19,
+    "Id": 49156,
+    "Name": "Native",
+    "Size": 14336,
+    "File": "19-Native.bin"
+  },
+  {
+    "Index": 20,
+    "Id": 49155,
+    "Name": "OwnerLink",
+    "Size": 34,
+    "File": "20-OwnerLink.bin"
+  },
+  {
+    "Index": 21,
+    "Id": 49166,
+    "Name": "Object Descriptor",
+    "Size": 138,
+    "File": "21-Object_Descriptor.bin"
+  },
+  {
+    "Index": 22,
+    "Id": 49165,
+    "Name": "Link Source",
+    "Size": 313,
+    "File": "22-Link_Source.bin"
+  },
+  {
+    "Index": 23,
+    "Id": 49167,
+    "Name": "Link Source Descriptor",
+    "Size": 138,
+    "File": "23-Link_Source_Descriptor.bin"
+  },
+  {
+    "Index": 24,
+    "Id": 49970,
+    "Name": "Link",
+    "Size": 84,
+    "File": "24-Link.bin"
+  },
+  {
+    "Index": 25,
+    "Id": 129,
+    "Name": "#129",
+    "Size": 13,
+    "File": "25-_129.bin"
+  },
+  {
+    "Index": 26,
+    "Id": 49717,
+    "Name": "ExcludeClipboardContentFromMonitorProcessing",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 27,
+    "Id": 49154,
+    "Name": "ObjectLink",
+    "Size": 95,
+    "File": "27-ObjectLink.bin"
+  },
+  {
+    "Index": 28,
+    "Id": 49171,
+    "Name": "Ole Private Data",
+    "Size": 1224,
+    "File": "28-Ole_Private_Data.bin"
+  },
+  {
+    "Index": 29,
+    "Id": 16,
+    "Name": "CF_LOCALE",
+    "Size": 4,
+    "File": "29-CF_LOCALE.bin"
+  },
+  {
+    "Index": 30,
+    "Id": 7,
+    "Name": "CF_OEMTEXT",
+    "Size": 100,
+    "File": "30-CF_OEMTEXT.bin"
+  },
+  {
+    "Index": 31,
+    "Id": 8,
+    "Name": "CF_DIB",
+    "Size": 778040,
+    "File": "31-CF_DIB.bin"
+  },
+  {
+    "Index": 32,
+    "Id": 17,
+    "Name": "CF_DIBV5",
+    "Size": 778124,
+    "File": "32-CF_DIBV5.bin"
+  }
+]

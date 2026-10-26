@@ -340,6 +340,67 @@ awaits `PasteAsync`.
 - **RTF export writes a link's title and an image's alternative text.** Neither
   was in the RTF at all. A title is now the HYPERLINK field's `\o` tooltip, and
   alt text is the picture's `wzDescription` property, which Word reads.
+- **A JSON document with deeply nested lists or tables now opens again.** The
+  writer saved nesting up to its own limit of 1,000 JSON levels, but the reader
+  stopped at the default 64, so 19 nested lists or 11 nested tables saved
+  without complaint and came back as an empty document with a `Malformed`
+  diagnostic. The reader now accepts 2,048 levels, more than the writer can
+  emit; it still parses on its own large-stack thread.
+- **A range copied from Excel pastes as a table again, not as one paragraph.**
+  Excel's clipboard HTML opens the copied fragment after `<table>` and before
+  `<col>`, so the fragment alone is rows and cells with no table around them;
+  the parser dropped them as stray tags and a 6×4 range arrived as one line of
+  every cell's text. A fragment that opens with table rows is now read inside
+  the document it was cut from, keeping only what lies between the fragment
+  markers and the elements around them, so the range keeps its rows, columns
+  and merged cells. A single copied cell, which Excel marks as just the cell,
+  still pastes as its text, as Excel's own RTF of the same copy does.
+- **A blank line pasted as `<p><br></p>` is one empty paragraph, not two lines.**
+  Browsers, mail clients and RtfPipe (for `\par\par`) all write a blank line as
+  a paragraph holding only `<br>`, and the importer kept that break as a newline
+  character, so every blank line arrived twice as tall and a Markdown save
+  turned it into a stray backslash. A break that ends a block now only ends it:
+  `<p>a<br></p>` is "a", `<p><br></p>` is an empty paragraph, and a break in the
+  middle of a paragraph is still a line break.
+- **One bad character or one absurd margin no longer empties a whole paste.**
+  The model refuses text that is not well-formed UTF-16 and formatting that
+  starts or ends inside a surrogate pair, and HTML, Markdown and RTF (where
+  `\u-10240?` is a lone surrogate) could deliver both; the refusal was caught
+  and the entire import came back empty with a `Malformed` diagnostic. The
+  importer now repairs these where paragraphs are built: an unpaired surrogate
+  becomes U+FFFD and a formatting edge inside a character moves to the start of
+  that character, each with a `Downgraded` diagnostic, and the rest of the
+  paste survives. Likewise a nested `margin-left:1e300px` computed an indent of
+  `int.MaxValue`, which wrapped negative once the enclosing indent was added and
+  discarded everything; the level is now capped at 8 before it is added.
+- **An inline image the importer accepts is one the editor can draw.** The
+  sanitizer, the image renderer and the RTF exporter each parsed `data:` URLs by
+  their own rules, so `<img src=" data:image/png;base64,…">` (leading
+  whitespace), `…;base64;x=y,…` and `…;base64x,…` were imported without a
+  diagnostic and then drawn as a missing-image box, and the RTF exporter wrote
+  `image/pngx` as a PNG. All of them, and the data-URL image store, now share
+  one reading: `;base64` must end the header and the media type is matched
+  exactly. The importer strips the whitespace HTML strips around any URL and
+  stores the clean URL, so the first case now imports and draws; the others are
+  refused with a `Dropped` diagnostic.
+- **A bulleted or numbered list copied from Word pastes as a list.** Word's
+  clipboard HTML has no `<ul>` or `<ol>`: each item is a paragraph styled
+  `mso-list:l0 level1 lfo1`, with its bullet written out as text inside
+  `<![if !supportLists]>`. The importer read those as ordinary paragraphs, so
+  the list arrived as "·" paragraphs in the Symbol font. Word list paragraphs
+  are now rebuilt into lists before the HTML is sanitized: the written-out
+  marker is removed and decides bullets or numbering, the level decides
+  nesting, and a different Word list, a change of marker kind or any other
+  paragraph in between starts a new list. Word's numbered headings stay
+  headings.
+- **A Markdown link whose address contains a backslash now says that its
+  address changed.** CommonMark reads `[a](/a\b)` as a literal backslash and
+  writes it as `%5C`, so the link points at `/a%5Cb`, where an HTML link with the
+  same address, kept as written by the HTML and RTF importers, means `/a/b` to a
+  browser. The import used to change the address silently; it now reports a
+  `Downgraded` diagnostic. The address itself is left as CommonMark reads it,
+  because keeping the backslash would mean rendering links outside Markdig or
+  restoring an address the sanitizer never checked.
 
 ### Changed
 

@@ -54,6 +54,12 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
 
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = false };
 
+    // The reader must accept whatever the writer emits, or a saved document comes back empty.
+    // The writer stops at its default depth of 1000; the reader's default of 64 refused 19
+    // nested lists. Parsing is iterative and the block reader runs on LargeStack, so the extra
+    // depth costs no stack on the caller's thread.
+    private static readonly JsonDocumentOptions ReaderOptions = new() { MaxDepth = 2048 };
+
     /// <inheritdoc/>
     public string Format => "json";
 
@@ -133,7 +139,7 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     {
         try
         {
-            using var document = JsonDocument.Parse(text);
+            using var document = JsonDocument.Parse(text, ReaderOptions);
             var root = document.RootElement;
 
             if (root.ValueKind != JsonValueKind.Object)

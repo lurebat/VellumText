@@ -57,7 +57,10 @@ public static class HtmlImporter
     /// Internal for the Markdown and RTF importers, which finish here and are already on a large
     /// stack of their own by then.
     /// </remarks>
-    internal static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options)
+    internal static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options) =>
+        ImportOnCurrentStack(html, options, clipToFragment: false);
+
+    private static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options, bool clipToFragment)
     {
         options ??= HtmlImportOptions.Default;
 
@@ -65,7 +68,7 @@ public static class HtmlImporter
 
         try
         {
-            var doc = Build(html, options, diagnostics);
+            var doc = Build(html, options, clipToFragment, diagnostics);
 
             // Every construction site below guards its own shape, but a document that breaks a
             // schema rule would be refused when the paste is applied, and a silent no-op is a
@@ -111,9 +114,16 @@ public static class HtmlImporter
     /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
     /// </exception>
     /// <remarks>
+    /// <para>
     /// The envelope's <c>SourceURL</c> becomes the base address for relative links, but only when
     /// the caller has not named one: an explicit choice outranks a copied document's opinion about
     /// where it came from.
+    /// </para>
+    /// <para>
+    /// A fragment that opens inside a table, as Excel's does, is read in its document instead,
+    /// keeping only what lies between the fragment markers and the elements that enclose them.
+    /// On its own it is rows with no table, and a pasted range would become one paragraph.
+    /// </para>
     /// </remarks>
     public static Task<ImportResult> ImportClipboardAsync(
         string payload, HtmlImportOptions? options = null, CancellationToken cancellationToken = default)
@@ -137,12 +147,15 @@ public static class HtmlImporter
             options = options with { BaseUri = sourceUri };
         }
 
-        return ImportOnCurrentStack(fragment, options);
+        return ClipboardHtml.TryGetTableContext(payload, fragment, out var document)
+            ? ImportOnCurrentStack(document, options, clipToFragment: true)
+            : ImportOnCurrentStack(fragment, options, clipToFragment: false);
     }
 
     private static DocumentNode Build(
         string html,
         HtmlImportOptions options,
+        bool clipToFragment,
         List<ImportDiagnostic> diagnostics)
     {
         // Deliberately without CSS support: with it every element's style attribute is parsed while
@@ -168,6 +181,15 @@ public static class HtmlImporter
 
         var document = parser.ParseDocument(guarded.Html);
 
+        if (clipToFragment)
+        {
+            // Before sanitizing, so that nothing outside the fragment is reported as removed.
+            ClipToFragment(document);
+        }
+
+        // Also before sanitizing, which removes the styles that say a paragraph is a list item.
+        WordLists.Rewrite(document);
+
         new SanitizingReader(options, diagnostics).Sanitize(document);
 
         var walker = new Walker(options, diagnostics);
@@ -177,6 +199,80 @@ public static class HtmlImporter
         return blocks.Count == 0
             ? DocumentNode.Empty
             : new DocumentNode(blocks);
+    }
+
+    /// <summary>
+    /// Removes everything before the <c>StartFragment</c> marker and after the <c>EndFragment</c>
+    /// one, keeping the elements that enclose them.
+    /// </summary>
+    /// <param name="document">The parsed clipboard document.</param>
+    /// <remarks>
+    /// The markers are found where the parser put them rather than where they sat in the text, so
+    /// a marker between <c>&lt;table&gt;</c> and its first row clips inside the table and the
+    /// table itself survives.
+    /// </remarks>
+    private static void ClipToFragment(IDocument document)
+    {
+        IComment? start = null;
+        IComment? end = null;
+
+        foreach (var comment in document.Descendants<IComment>())
+        {
+            if (start is null)
+            {
+                if (IsMarker(comment, "StartFragment"))
+                {
+                    start = comment;
+                }
+            }
+            else if (IsMarker(comment, "EndFragment"))
+            {
+                end = comment;
+                break;
+            }
+        }
+
+        if (start is null)
+        {
+            return;
+        }
+
+        RemoveOutside(start, before: true);
+
+        if (end is not null)
+        {
+            RemoveOutside(end, before: false);
+        }
+
+        // The page's own html and body stay as containers, but their attributes describe the page
+        // the fragment was cut from, not anything that was copied.
+        foreach (var page in new[] { document.DocumentElement, document.Body })
+        {
+            foreach (var name in page?.Attributes.Select(attribute => attribute.Name).ToArray() ?? [])
+            {
+                page!.RemoveAttribute(name);
+            }
+        }
+    }
+
+    private static bool IsMarker(IComment comment, string name) =>
+        string.Equals(comment.Data.Trim(), name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Removes every node on one side of <paramref name="marker"/>, at every level up to the root.</summary>
+    private static void RemoveOutside(INode marker, bool before)
+    {
+        for (var node = marker; node.Parent is { } parent; node = parent)
+        {
+            var sibling = before ? node.PreviousSibling : node.NextSibling;
+
+            while (sibling is not null)
+            {
+                var next = before ? sibling.PreviousSibling : sibling.NextSibling;
+
+                parent.RemoveChild(sibling);
+                sibling = next;
+            }
+        }
     }
 
     private static void ReportGuard(
@@ -225,7 +321,7 @@ public static class HtmlImporter
 
         internal List<BlockNode> Run(INode root)
         {
-            var sink = new BlockSink();
+            var sink = new BlockSink(Downgrade);
 
             WalkChildren(root, MarkSet.Empty, BlockStyle.Default, sink, 0);
             sink.Flush(BlockStyle.Default);
@@ -607,7 +703,7 @@ public static class HtmlImporter
                     continue;
                 }
 
-                var inner = new BlockSink();
+                var inner = new BlockSink(Downgrade);
                 var itemStyle = block with { Kind = ParagraphKind.Body };
 
                 WalkChildren(child, mark, itemStyle, inner, depth);
@@ -808,7 +904,7 @@ public static class HtmlImporter
             int depth,
             bool isHeader)
         {
-            var inner = new BlockSink();
+            var inner = new BlockSink(Downgrade);
 
             // A cell starts a fresh formatting context: an indent from outside the table would
             // otherwise be applied again inside every cell of it.
@@ -878,6 +974,9 @@ public static class HtmlImporter
                 }
             }
         }
+
+        private void Downgrade(string message, string context) =>
+            Report(DiagnosticSeverity.Downgraded, message, context);
 
         private void Report(DiagnosticSeverity severity, string message, string context)
         {

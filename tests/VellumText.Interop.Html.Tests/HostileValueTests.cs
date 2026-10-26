@@ -207,4 +207,96 @@ public sealed class HostileValueTests
         Assert.Equal(640.0, image.Width);
         Assert.Equal(480.0, image.Height);
     }
+
+    // ---- values the model refuses, repaired at the sink (OD-11) ------------------------------
+
+    private static void AssertDowngradedNotLost(ImportResult result, string context)
+    {
+        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == context);
+        Assert.Equal("keep", Assert.IsType<ParagraphNode>(result.Doc.Blocks[^1]).Content.Text);
+    }
+
+    [Theory]
+    [InlineData("a", 0xD800, "b")]
+    [InlineData("a", 0xDC00, "b")]
+    [InlineData("ab", 0xD800, "")]
+    [InlineData("", 0xDC00, "ab")]
+    public async Task An_unpaired_surrogate_becomes_a_replacement_character_and_the_rest_survives(
+        string before, int unit, string after)
+    {
+        // The model refuses text that is not well-formed UTF-16, and the refusal used to discard
+        // the whole paste. Half a character is now the one thing lost. (The code unit is passed as
+        // a number because a lone surrogate does not survive test-case serialization.)
+        var result = await HtmlImporter.ImportAsync($"<p>{before}{(char)unit}{after}</p><p>keep</p>");
+
+        AssertDowngradedNotLost(result, "unpaired-surrogate");
+        Assert.Equal(
+            $"{before}\uFFFD{after}",
+            Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.Text);
+    }
+
+    [Fact]
+    public async Task A_low_surrogate_before_a_high_one_is_two_halves_not_a_pair()
+    {
+        var result = await HtmlImporter.ImportAsync("<p>\uDC00\uD800</p><p>keep</p>");
+
+        AssertDowngradedNotLost(result, "unpaired-surrogate");
+        Assert.Equal("\uFFFD\uFFFD", Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.Text);
+    }
+
+    [Fact]
+    public async Task A_whole_surrogate_pair_is_left_alone()
+    {
+        var result = await HtmlImporter.ImportAsync("<p>a\uD83D\uDE00b</p>");
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal("a\uD83D\uDE00b", Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks)).Content.Text);
+    }
+
+    [Fact]
+    public async Task Formatting_that_starts_inside_a_character_is_moved_to_its_start()
+    {
+        var result = await HtmlImporter.ImportAsync("<p>x\uD83D<b>\uDE00</b>y</p><p>keep</p>");
+
+        AssertDowngradedNotLost(result, "split-character");
+        var p = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+        Assert.Equal("x\uD83D\uDE00y", p.Content.Text);
+        var bold = Assert.Single(p.Content.Marks);
+        Assert.Equal((1, 2), (bold.Start, bold.Length));
+        Assert.Equal(TextStyle.Bold, bold.Value.Style);
+    }
+
+    [Fact]
+    public async Task Formatting_that_ends_inside_a_character_stops_before_it()
+    {
+        var result = await HtmlImporter.ImportAsync("<p><b>x\uD83D</b>\uDE00y</p><p>keep</p>");
+
+        AssertDowngradedNotLost(result, "split-character");
+        var p = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+        Assert.Equal("x\uD83D\uDE00y", p.Content.Text);
+        var bold = Assert.Single(p.Content.Marks);
+        Assert.Equal((0, 1), (bold.Start, bold.Length));
+    }
+
+    [Theory]
+    [InlineData("margin-left:48px", "margin-left:1e300px")]
+    [InlineData("margin-left:48px", "margin-left:103079215104px")]
+    [InlineData("padding-left:48px", "padding-left:1e38px")]
+    [InlineData("margin-left:96px", "margin-left:1e300px")]
+    public async Task A_margin_too_large_to_count_is_the_deepest_indent_not_a_lost_paste(string outer, string inner)
+    {
+        // The level was computed as int(margin / 48) and only then capped, so the conversion
+        // saturated at int.MaxValue and adding the enclosing level wrapped it negative. A
+        // paragraph refuses a negative indent, and the refusal discarded everything.
+        var result = await HtmlImporter.ImportAsync(
+            $"<div style='{outer}'><p style='{inner}'>Important text</p></div><p>more</p>");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
+        Assert.Equal(2, result.Doc.Blocks.Length);
+        var important = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
+        Assert.Equal("Important text", important.Content.Text);
+        Assert.Equal(8, important.IndentLevel);
+        Assert.Equal("more", Assert.IsType<ParagraphNode>(result.Doc.Blocks[1]).Content.Text);
+    }
 }

@@ -973,7 +973,7 @@ public sealed class RtfExporter : IDocumentExporter
         /// </remarks>
         private void WriteImage(ImageEmbed image)
         {
-            if (!DataUri.TryDecode(image.Source, out var bytes, out var kind))
+            if (!TryReadPicture(image.Source, out var bytes, out var kind))
             {
                 if (image.AltText is { Length: > 0 } alt)
                 {
@@ -1032,63 +1032,40 @@ public sealed class RtfExporter : IDocumentExporter
 
     private static int? OutlineLevel(ParagraphKind kind) => HeadingAppearance.OutlineLevel(kind);
 
-    /// <summary>Reads the bytes out of a <c>data:</c> URI.</summary>
-    private static class DataUri
+    /// <summary>Reads the picture bytes, and the control word naming their format, out of a <c>data:</c> URI.</summary>
+    private static bool TryReadPicture(string source, out byte[] bytes, out string kind)
     {
-        internal static bool TryDecode(string source, out byte[] bytes, out string kind)
+        bytes = [];
+        kind = string.Empty;
+
+        if (!DataUri.TryParse(source, out var mediaType, out var base64))
         {
-            bytes = [];
-            kind = string.Empty;
-
-            if (!source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            var comma = source.IndexOf(',', StringComparison.Ordinal);
-
-            if (comma < 0)
-            {
-                return false;
-            }
-
-            var header = source[5..comma];
-
-            if (!header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            // Only the two formats every RTF reader has a control word for. A GIF or an SVG would
-            // have to be re-encoded, and an exporter is the wrong place to be decoding images.
-            kind = header switch
-            {
-                var h when h.StartsWith("image/png", StringComparison.OrdinalIgnoreCase) => @"\pngblip",
-                var h when h.StartsWith("image/jpeg", StringComparison.OrdinalIgnoreCase) => @"\jpegblip",
-                var h when h.StartsWith("image/jpg", StringComparison.OrdinalIgnoreCase) => @"\jpegblip",
-                _ => string.Empty,
-            };
-
-            if (kind.Length == 0)
-            {
-                return false;
-            }
-
-            return TryReadBase64(source[(comma + 1)..], out bytes);
+            return false;
         }
 
-        private static bool TryReadBase64(string text, out byte[] bytes)
+        // Only the two formats every RTF reader has a control word for. A GIF or an SVG would
+        // have to be re-encoded, and an exporter is the wrong place to be decoding images.
+        kind = mediaType.ToLowerInvariant() switch
         {
-            try
-            {
-                bytes = Convert.FromBase64String(text);
-                return true;
-            }
-            catch (FormatException)
-            {
-                bytes = [];
-                return false;
-            }
+            "image/png" => @"\pngblip",
+            "image/jpeg" or "image/jpg" => @"\jpegblip",
+            _ => string.Empty,
+        };
+
+        if (kind.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            bytes = Convert.FromBase64String(base64.ToString());
+            return true;
+        }
+        catch (FormatException)
+        {
+            bytes = [];
+            return false;
         }
     }
 }

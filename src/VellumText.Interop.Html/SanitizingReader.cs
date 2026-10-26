@@ -106,6 +106,10 @@ internal sealed class SanitizingReader
     private static readonly HashSet<string> SchemeSet =
         new(Schemes, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What HTML strips from either end of a URL before parsing it: C0 controls and space.</summary>
+    private static readonly char[] UrlEdgeWhitespace =
+        [.. Enumerable.Range(0, 0x21).Select(c => (char)c)];
+
     /// <summary>
     /// Media types an inline <c>data:</c> image may declare.
     /// </summary>
@@ -331,7 +335,11 @@ internal sealed class SanitizingReader
             return;
         }
 
-        if (!original.AsSpan().TrimStart().StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        // Stripped as HTML strips any URL in an attribute, and stored stripped, so that what the
+        // document holds is a URL the renderer and the exporters read the same way.
+        var url = original.Trim(UrlEdgeWhitespace);
+
+        if (!url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             ReportOnce(
                 DiagnosticSeverity.Dropped,
@@ -355,16 +363,28 @@ internal sealed class SanitizingReader
             return;
         }
 
-        if (!IsAllowedDataImage(original))
+        if (!DataUri.TryParse(url, out var mediaType, out var base64))
+        {
+            // A percent-encoded payload is a legal data URL, but nothing in this library can draw
+            // one, so admitting it would put an image in the document that only ever draws as a
+            // missing-image box.
+            ReportOnce(
+                DiagnosticSeverity.Dropped,
+                "Removed an inline image that is not a base64 data URL.",
+                "data:");
+            return;
+        }
+
+        if (!DataImageTypes.Contains(mediaType))
         {
             ReportOnce(
                 DiagnosticSeverity.Dropped,
                 "Removed inline data that does not declare a supported image type.",
-                MediaTypeOf(original));
+                mediaType);
             return;
         }
 
-        switch (MeasureDataImage(original, _options.MaxDataImageBytes))
+        switch (MeasureDataImage(base64.Span, _options.MaxDataImageBytes))
         {
             case DataImageVerdict.TooLarge:
                 ReportOnce(
@@ -381,7 +401,7 @@ internal sealed class SanitizingReader
                 return;
         }
 
-        e.SanitizedUrl = original;
+        e.SanitizedUrl = url;
     }
 
     /// <summary>What inspecting the payload of a <c>data:</c> image concluded.</summary>
@@ -398,7 +418,7 @@ internal sealed class SanitizingReader
     }
 
     /// <summary>Checks that a <c>data:</c> image decodes, and how large it really is.</summary>
-    /// <param name="url">The whole data URL.</param>
+    /// <param name="payload">The data URL's base64 payload.</param>
     /// <param name="maxBytes">The largest decoded size to allow.</param>
     /// <returns>What the payload turned out to be.</returns>
     /// <remarks>
@@ -411,28 +431,8 @@ internal sealed class SanitizingReader
     /// an embed and fail later, at draw time, far away from anything that could explain it.
     /// </para>
     /// </remarks>
-    private static DataImageVerdict MeasureDataImage(string url, int maxBytes)
+    private static DataImageVerdict MeasureDataImage(ReadOnlySpan<char> payload, int maxBytes)
     {
-        var comma = url.IndexOf(',', StringComparison.Ordinal);
-
-        if (comma < 0)
-        {
-            return DataImageVerdict.Undecodable;
-        }
-
-        var header = url.AsSpan(0, comma);
-        var payload = url.AsSpan(comma + 1);
-
-        if (!header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
-        {
-            // Refused rather than measured. A percent-encoded payload is a legal data URL, but
-            // every renderer in this repository requires ";base64" and returns nothing without
-            // it, so accepting one here puts an embed in the document that can only ever draw as
-            // a missing-image box. Importer and renderer each used to check their own assumption,
-            // and nothing checked the contract between them.
-            return DataImageVerdict.Undecodable;
-        }
-
         // Four characters become three bytes, so the decoded size is at least this, less padding.
         // Checking it first means an enormous payload is rejected without allocating room for it.
         if ((long)(payload.Length / 4) * 3 - 2 > maxBytes)
@@ -453,32 +453,6 @@ internal sealed class SanitizingReader
         }
 
         return written > maxBytes ? DataImageVerdict.TooLarge : DataImageVerdict.Usable;
-    }
-
-    private static bool IsAllowedDataImage(string url) => DataImageTypes.Contains(MediaTypeOf(url));
-
-    private static string MediaTypeOf(string url)
-    {
-        var span = url.AsSpan().Trim();
-
-        if (!span.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-        {
-            return string.Empty;
-        }
-
-        span = span[5..];
-
-        var comma = span.IndexOf(',');
-
-        if (comma < 0)
-        {
-            return string.Empty;
-        }
-
-        var header = span[..comma];
-        var semicolon = header.IndexOf(';');
-
-        return (semicolon < 0 ? header : header[..semicolon]).Trim().ToString();
     }
 
     private static string SchemeOf(string url)
