@@ -107,6 +107,16 @@ NuGet; packages are published to a local feed, and
   exactly. The importer strips the whitespace HTML strips around any URL and
   stores the clean URL, so the first case now imports and draws; the others are
   refused with a `Dropped` diagnostic.
+- **A bulleted or numbered list copied from Word pastes as a list.** Word's
+  clipboard HTML has no `<ul>` or `<ol>`: each item is a paragraph styled
+  `mso-list:l0 level1 lfo1`, with its bullet written out as text inside
+  `<![if !supportLists]>`. The importer read those as ordinary paragraphs, so
+  the list arrived as "·" paragraphs in the Symbol font. Word list paragraphs
+  are now rebuilt into lists before the HTML is sanitized: the written-out
+  marker is removed and decides bullets or numbering, the level decides
+  nesting, and a different Word list, a change of marker kind or any other
+  paragraph in between starts a new list. Word's numbered headings stay
+  headings.
 
 ## [0.7.0] - 2026-08-20
 

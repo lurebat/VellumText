@@ -155,6 +155,9 @@ public static class HtmlImporter
             ClipToFragment(document);
         }
 
+        // Also before sanitizing, which removes the styles that say a paragraph is a list item.
+        WordLists.Rewrite(document);
+
         new SanitizingReader(options, diagnostics).Sanitize(document);
 
         var walker = new Walker(options, diagnostics);
