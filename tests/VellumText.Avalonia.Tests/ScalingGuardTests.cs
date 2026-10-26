@@ -32,6 +32,14 @@ public class ScalingGuardTests
     private const double Width = 800;
     private const double Height = 600;
 
+    /// <summary>The document size AC12 states its budgets at.</summary>
+    private const int Ac12Paragraphs = 50_000;
+
+    /// <summary>
+    /// The most a keystroke, an Enter or a join may allocate at <see cref="Ac12Paragraphs"/>.
+    /// </summary>
+    private const long Ac12Budget = 1_000_000;
+
     /// <summary>
     /// The control row: a keystroke at the end of the document is allowed to be linear in the
     /// document's size (architecture §8 item 8), and must not be worse.
@@ -186,6 +194,116 @@ public class ScalingGuardTests
             });
 
         Growth.AssertFlat(examined, "matches examined to paint one frame");
+    }
+
+    /// <summary>
+    /// The AC12 rows, in the one currency CI can measure: bytes allocated by a keystroke, an Enter
+    /// and a Backspace that joins two paragraphs, at the end of a 50,000-paragraph document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// F-14 and F-15. The view re-flattened the whole document into a fresh slot array on every
+    /// change (3.2 MB), the step behind Enter and a join cut and spliced the whole block array
+    /// (2.4 MB), the join looked its neighbour up in a second whole-document list (3.2 MB), and
+    /// the height index was reallocated for every block added or removed (1 MB): 4.2 MB for a
+    /// keystroke, 6.9 MB for Enter and 10.1 MB for a join, enough to put a gen-2 collection
+    /// every few keys. The bench scenarios are <c>a-stages</c>, <c>a-sustained</c> and
+    /// <c>a-structure</c>; the 16 ms frame budget itself is timed there, on a quiet machine.
+    /// </para>
+    /// <para>
+    /// What is left is the copy of the document's block array that an immutable edit must make
+    /// — linear in the document by decision (architecture §8 item 8) — and the size index the new
+    /// document builds the first time a position in it is resolved.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void Ac12AKeystrokeAtTheEndStaysWithinItsAllocationBudget()
+    {
+        var doc = Growth.Paragraphs(Ac12Paragraphs);
+        var view = Shown(doc);
+
+        view.MoveTo(doc.ContentSize - 2, false);
+        Layout(view);
+
+        var bytes = Growth.Allocated(() =>
+        {
+            view.InsertText("x");
+            Layout(view);
+        });
+
+        Assert.True(bytes <= Ac12Budget, $"a keystroke allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
+    }
+
+    /// <inheritdoc cref="Ac12AKeystrokeAtTheEndStaysWithinItsAllocationBudget"/>
+    /// <remarks>
+    /// At the start as well as the end, because the two ends of the block list are matched
+    /// separately when a document changes: an edit at the end is found by the scan from the
+    /// front, and one at the start only by the scan from the back.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Ac12AKeystrokeAtTheStartStaysWithinItsAllocationBudget()
+    {
+        var view = Shown(Growth.Paragraphs(Ac12Paragraphs));
+
+        view.MoveTo(1, false);
+        Layout(view);
+
+        var bytes = Growth.Allocated(() =>
+        {
+            view.InsertText("x");
+            Layout(view);
+        });
+
+        Assert.True(bytes <= Ac12Budget, $"a keystroke allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
+    }
+
+    /// <inheritdoc cref="Ac12AKeystrokeAtTheEndStaysWithinItsAllocationBudget"/>
+    [AvaloniaFact]
+    public void Ac12EnterNearTheEndStaysWithinItsAllocationBudget()
+    {
+        var doc = Growth.Paragraphs(Ac12Paragraphs);
+        var view = Shown(doc);
+
+        view.MoveTo(doc.ContentSize - 10, false);
+        Layout(view);
+
+        var bytes = Growth.Allocated(() =>
+        {
+            view.Split();
+            Layout(view);
+        });
+
+        Assert.True(bytes <= Ac12Budget, $"Enter allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
+    }
+
+    /// <inheritdoc cref="Ac12AKeystrokeAtTheEndStaysWithinItsAllocationBudget"/>
+    [AvaloniaFact]
+    public void Ac12BackspaceJoiningTheLastParagraphStaysWithinItsAllocationBudget()
+    {
+        var doc = Growth.Paragraphs(Ac12Paragraphs);
+        var view = Shown(doc);
+
+        void JoinTheLastParagraph()
+        {
+            var state = view.State.Doc;
+
+            view.MoveTo(state.Resolve(state.ContentSize - 2).Start(1), false);
+            Layout(view);
+            Assert.True(view.Backspace(), "the join was refused");
+            Layout(view);
+        }
+
+        // Once to pay for anything the first join builds, then the measured one.
+        JoinTheLastParagraph();
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        JoinTheLastParagraph();
+
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(Ac12Paragraphs - 2, view.State.Doc.Blocks.Length);
+        Assert.True(bytes <= Ac12Budget, $"a join allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
     }
 
     private static RichTextView Shown(DocumentNode doc)

@@ -754,6 +754,13 @@ internal sealed class ParagraphView : BlockView
 >   early-outs on an unchanged depth and marker, so that loop is a comparison per block.
 > - Scrolling a 2 000-paragraph document by a viewport is ~4–5 ms, inside a frame.
 >
+> **Re-opened by measurement (codebase audit F-14, 2026-10-25).** The first two were measured at
+> 2 000 paragraphs. At 50 000, `Flatten` was 3.2 MB of a 4.2 MB keystroke and the gen-2 collections
+> that came with it, so the presenter now patches its slot list in place
+> (`BlockSlotList`): only the slots of the top-level blocks an edit replaced are rebuilt, the rest
+> move by the edit's size change, and list markers are reset only within those blocks. Still linear
+> in the document, as a keystroke is by decision; no longer allocating per block.
+>
 > **One known limit, not fixed.** A single very long paragraph costs 7–12 ms per keystroke, because
 > A1 established that Avalonia 12.1.1 cannot reshape a paragraph incrementally and the fallback is a
 > wholesale rebuild. It is bounded by paragraph length rather than document length, so it does not
@@ -1369,6 +1376,17 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
    a second edit on top of the first. That test was mutation-checked — a pivot one level too deep,
    a pivot that ignores the slice's length, a spine walk starting one level too high, and a seam
    merged at the wrong depth each make it fail, in 13 to 95 cases.
+
+   **Re-opened by measurement (codebase audit F-14, F-15, 2026-10-25).** Through the view, Enter
+   took 14 ms and 6.9 MB and a join 16 ms and 10.1 MB at 50,000 blocks — at the frame budget, not
+   the 8 ms the model alone extrapolated to. So the "two children become one" route was written
+   after all, as the only route there is when `PivotDepth` returns -1: that only happens when the
+   edit's nearest common container is the document, so the blocks the range touches are rebuilt
+   with the same seam decisions and the document's block array is spliced once
+   (`ReplaceStep.RebuildTopLevel`). The same equivalence tests pass against it unchanged. And the
+   two-array cost of typing was halved at the root only, where the array is the document's:
+   `TreeSurgery.ReplaceChild` sets the top-level entry on the document's own typed array rather
+   than going through `WithChildren`, so no node type needed a new override.
 9. **Table nav** — Tab/Shift-Tab across cells and spans; arrow keys crossing cell and table boundaries. **Covered 2026-08-18** by `RichTextViewTableCommandTests` for Tab and `RichTextViewBlockNavigationTests` for the arrows.
 10. **Trimming/AOT** — `PublishTrimmed` and NativeAOT smoke test of the demo app; the Open XML SDK path is the likeliest casualty and may need a trimming-safe boundary or opt-in package.
 11. **Theme** — light/dark variant switch updates default foreground/selection/caret without touching explicit per-run colors.

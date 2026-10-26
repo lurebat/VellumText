@@ -87,7 +87,22 @@ NuGet; packages are published to a local feed, and
   query of "e" at 50,000 paragraphs, 21 ms for one match per paragraph. The
   painter now binary-searches the matches for the ones inside the realized
   blocks, so its cost no longer depends on the document's size, and works out a
-  block's position only for the blocks a range actually reaches.
+  block's position only for the blocks a range actually   reaches.
+- **Typing, Enter and Backspace at 50,000 paragraphs no longer allocate
+  megabytes a keystroke.** Every change re-flattened the whole document into a
+  new block list (3.2 MB), Enter and a join fell back to cutting the whole
+  document in two and splicing it back (2.4 MB), a join also listed every leaf
+  block to find its neighbour (3.2 MB), and the height index was reallocated
+  for each block added or removed (1 MB): 4.2 MB for a keystroke, 6.9 MB for
+  Enter and 10.1 MB for a join, with a gen-2 collection every few keys. The
+  block list is now patched in place for just the top-level blocks an edit
+  replaced; Enter and a join rebuild only the blocks they touch and splice the
+  document's block array once; the join finds its neighbour by walking out from
+  the caret; the height index shifts in place; and typing sets the document's
+  top-level entry without a second copy. A keystroke now allocates about
+  0.6 MB at 50,000 paragraphs, and Enter and a join about the same — the one
+  copy of the document's block array an immutable edit makes, which stays
+  linear in the document by design.
 
 ### Changed
 

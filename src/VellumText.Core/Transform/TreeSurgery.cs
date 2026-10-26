@@ -275,6 +275,14 @@ internal static class TreeSurgery
         {
             var parent = at.NodeAt(level);
 
+            // The document's own array is the one as long as the document, and going through
+            // WithChildren copies it twice: once to set the entry and again to check every
+            // entry's type. A block replacing a block needs no such check.
+            if (level == 0 && parent is DocumentNode doc && rebuilt is BlockNode block)
+            {
+                return new DocumentNode(doc.Blocks.SetItem(at.IndexAt(0), block));
+            }
+
             rebuilt = parent.WithChildren(parent.Children.SetItem(at.IndexAt(level), rebuilt));
         }
 

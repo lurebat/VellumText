@@ -33,8 +33,10 @@ namespace VellumText.Avalonia;
 /// </remarks>
 internal sealed class BlockHeightIndex
 {
-    private double[] _tree = [];
-    private int[] _pending = [];
+    // One longer than the heights: a Fenwick tree is indexed from one, and the empty index still
+    // has its root slot.
+    private double[] _tree = new double[1];
+    private int[] _pending = new int[1];
     private double[] _height = [];
     private bool[] _measured = [];
     private int _count;
@@ -140,11 +142,11 @@ internal sealed class BlockHeightIndex
         var remaining = y;
         var estimate = Estimate;
 
-        for (var step = HighestPowerOfTwo(_tree.Length); step > 0; step >>= 1)
+        for (var step = HighestPowerOfTwo(_count + 1); step > 0; step >>= 1)
         {
             var next = index + step;
 
-            if (next >= _tree.Length)
+            if (next > _count)
             {
                 continue;
             }
@@ -206,6 +208,13 @@ internal sealed class BlockHeightIndex
     /// <param name="index">Where the first new block goes. <see cref="Count"/> appends.</param>
     /// <param name="count">How many to insert.</param>
     /// <exception cref="ArgumentOutOfRangeException">The index is out of range or the count is negative.</exception>
+    /// <remarks>
+    /// In place, into spare room that doubles when it runs out. Enter inserts a block, and this
+    /// used to allocate all four arrays afresh for it — about a megabyte at 50,000 blocks on every
+    /// paragraph written. The tree is still rebuilt, because every node after the insertion
+    /// covers different blocks now; that is linear, like the edit that caused it, but allocates
+    /// nothing.
+    /// </remarks>
     public void Insert(int index, int count)
     {
         if (index < 0 || index > _count)
@@ -220,28 +229,28 @@ internal sealed class BlockHeightIndex
             return;
         }
 
-        var heights = new double[_count + count];
-        var measured = new bool[_count + count];
+        EnsureCapacity(_count + count);
 
-        Array.Copy(_height, 0, heights, 0, index);
-        Array.Copy(_measured, 0, measured, 0, index);
-        Array.Copy(_height, index, heights, index + count, _count - index);
-        Array.Copy(_measured, index, measured, index + count, _count - index);
+        Array.Copy(_height, index, _height, index + count, _count - index);
+        Array.Copy(_measured, index, _measured, index + count, _count - index);
 
         var estimate = Estimate;
 
         for (var i = index; i < index + count; i++)
         {
-            heights[i] = estimate;
+            _height[i] = estimate;
+            _measured[i] = false;
         }
 
-        Rebuild(heights, measured);
+        _count += count;
+        RebuildTree();
     }
 
     /// <summary>Removes blocks.</summary>
     /// <param name="index">The first block to remove.</param>
     /// <param name="count">How many to remove.</param>
     /// <exception cref="ArgumentOutOfRangeException">The range is not inside the index.</exception>
+    /// <remarks>In place, for the same reason as <see cref="Insert"/>.</remarks>
     public void Remove(int index, int count)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
@@ -256,14 +265,6 @@ internal sealed class BlockHeightIndex
             return;
         }
 
-        var heights = new double[_count - count];
-        var measured = new bool[_count - count];
-
-        Array.Copy(_height, 0, heights, 0, index);
-        Array.Copy(_measured, 0, measured, 0, index);
-        Array.Copy(_height, index + count, heights, index, _count - index - count);
-        Array.Copy(_measured, index + count, measured, index, _count - index - count);
-
         for (var i = index; i < index + count; i++)
         {
             if (_measured[i])
@@ -273,7 +274,11 @@ internal sealed class BlockHeightIndex
             }
         }
 
-        Rebuild(heights, measured);
+        Array.Copy(_height, index + count, _height, index, _count - index - count);
+        Array.Copy(_measured, index + count, _measured, index, _count - index - count);
+
+        _count -= count;
+        RebuildTree();
     }
 
     /// <summary>Sets the number of blocks, forgetting every measurement.</summary>
@@ -292,30 +297,50 @@ internal sealed class BlockHeightIndex
         _measuredCount = 0;
         _measuredTotal = 0;
 
-        var heights = new double[count];
-        var measured = new bool[count];
+        EnsureCapacity(count);
 
-        Array.Fill(heights, _seed);
+        Array.Fill(_height, _seed, 0, count);
+        Array.Clear(_measured, 0, count);
 
-        Rebuild(heights, measured);
+        _count = count;
+        RebuildTree();
     }
 
-    private void Rebuild(double[] heights, bool[] measured)
+    /// <summary>Makes room for at least <paramref name="count"/> blocks, keeping the ones there are.</summary>
+    private void EnsureCapacity(int count)
     {
+        if (_height.Length >= count)
+        {
+            return;
+        }
+
+        var capacity = Math.Max(count, _height.Length * 2);
+        var heights = new double[capacity];
+        var measured = new bool[capacity];
+
+        Array.Copy(_height, heights, _count);
+        Array.Copy(_measured, measured, _count);
+
         _height = heights;
         _measured = measured;
-        _count = heights.Length;
-        _tree = new double[_count + 1];
-        _pending = new int[_count + 1];
+        _tree = new double[capacity + 1];
+        _pending = new int[capacity + 1];
+    }
+
+    /// <summary>Builds both trees from the first <see cref="Count"/> heights.</summary>
+    private void RebuildTree()
+    {
+        Array.Clear(_tree, 0, _count + 1);
+        Array.Clear(_pending, 0, _count + 1);
 
         // Building in place: each node adds itself to its parent, which is linear rather than
         // the n log n of inserting one at a time. A block contributes to exactly one of the two
         // trees - its height if it has been measured, otherwise a count of one.
         for (var i = 0; i < _count; i++)
         {
-            if (measured[i])
+            if (_measured[i])
             {
-                _tree[i + 1] += heights[i];
+                _tree[i + 1] += _height[i];
             }
             else
             {
