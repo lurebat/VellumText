@@ -65,6 +65,15 @@ NuGet; packages are published to a local feed, and
   undone. Only Home, End and the arrow keys still need a paragraph; Delete and
   Backspace remove a selected block image, and typing replaces it with a
   paragraph holding the text.
+- **Retemplating `RichTextEditor` keeps what the host set up.** Configuring
+  the editor in code applies the default template to get a view, so an
+  application style that then gave the editor its own chrome made a new view and
+  every forwarded setting reverted: registered formats, the image store, the
+  renderer and style resolvers, the syntax properties, the `ContentImporting`
+  veto (vetoed content landed), the reporting events, and the undo history. The
+  shell now carries all of them to the new view, keeps the handlers it was given
+  so the discarded view stops raising them, and unbinds the discarded template's
+  floating toolbar.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a
