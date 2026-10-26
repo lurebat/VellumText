@@ -114,6 +114,16 @@ NuGet; packages are published to a local feed, and
   RtfPipe-based readers take as the target. A quote in an address is now
   written `%22` and a backslash is escaped for the field. `Weird;Font` was the
   font "Weird" followed by stray text; the semicolon is left out of the name.
+- **A block image comes back a block image through HTML and Markdown.** No
+  importer ever built one, so every copy or save turned a block image into a
+  paragraph holding an inline picture — no block selection, no resize — with
+  no diagnostic. HTML export now writes a block image as a `<figure>` holding
+  only the image, and HTML import reads such a figure (with its alignment) as a
+  block image; a figure with a caption, or inside a link, is unchanged.
+  Markdown import reads a paragraph that is nothing but one image as a block
+  image, so Markdown export now reports an inline image that is the whole of
+  its paragraph (`image-paragraph`), since that one comes back as a block image
+  too. RTF is unchanged: its reader cannot tell the two apart.
 
 ## [0.7.0] - 2026-08-20
 

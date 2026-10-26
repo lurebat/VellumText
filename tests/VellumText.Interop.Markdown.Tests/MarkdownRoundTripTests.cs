@@ -638,13 +638,13 @@ public class MarkdownRoundTripTests
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
-                "\uFFFC",
+                "see \uFFFC",
                 [],
                 [new ImageEmbed("https://example.test/a.png", altText: "a picture")]))]);
 
         var markdown = MarkdownExporter.Instance.Export(doc);
 
-        Assert.Equal("![a picture](https://example.test/a.png)\n", markdown);
+        Assert.Equal("see ![a picture](https://example.test/a.png)\n", markdown);
 
         var back = MarkdownImporter.Import(
             markdown,

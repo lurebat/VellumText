@@ -96,11 +96,15 @@ public sealed class HtmlExporter : IDocumentExporter
                 return;
 
             case BlockImageNode image:
-                html.Append("<p");
-                WriteStyleAttribute(html, AlignStyle(image.Align));
+                // A figure, not a paragraph: <p><img></p> is also how an inline image alone in a
+                // paragraph is written, and the importer could not tell the two apart, so every
+                // block image came back inline. The margin is a paragraph's, which is what this
+                // used to look like everywhere it was pasted; a figure's default is indented.
+                html.Append("<figure");
+                WriteStyleAttribute(html, [.. AlignStyle(image.Align), "margin:1em 0"]);
                 html.Append('>');
                 WriteImage(html, image.Image);
-                html.Append("</p>");
+                html.Append("</figure>");
                 return;
 
             default:

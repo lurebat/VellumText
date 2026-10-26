@@ -209,6 +209,15 @@ public sealed class MarkdownExporter : IDocumentExporter
         {
             ReportAlign(paragraph.Align);
 
+            if (MarkdownImporter.IsLoneImage(paragraph, out _))
+            {
+                Report(
+                    DiagnosticSeverity.Downgraded,
+                    "A paragraph holding nothing but an image is how Markdown writes a block image, "
+                        + "so this inline image will be read back as one.",
+                    "image-paragraph");
+            }
+
             if (paragraph.IndentLevel > 0)
             {
                 Report(
