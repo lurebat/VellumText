@@ -58,6 +58,12 @@ NuGet; packages are published to a local feed, and
   999,999,999 (CommonMark's nine digits) with a `Downgraded` diagnostic, and the
   list commands continue numbering with saturating arithmetic, so a model built
   with a start at the top of the range is safe too.
+- **A read-only view, or one with a cell rectangle selected, no longer reads and
+  parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
+  was checked only when the decoded document was about to be applied, so a
+  viewer ran every registered importer on untrusted content for a paste that
+  could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
+  refuse before the first clipboard read.
 
 ## [0.7.0] - 2026-08-20
 

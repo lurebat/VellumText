@@ -350,7 +350,7 @@ public partial class RichTextView
     /// </remarks>
     public async Task<bool> PasteAsync()
     {
-        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        if (!CanPasteHere() || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
         {
             return false;
         }
@@ -415,7 +415,7 @@ public partial class RichTextView
     /// </remarks>
     public async Task<bool> PasteTextAsync()
     {
-        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        if (!CanPasteHere() || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
         {
             return false;
         }
@@ -442,6 +442,15 @@ public partial class RichTextView
             return false;
         }
     }
+
+    /// <summary>Whether a paste could land at all, asked before anything is read.</summary>
+    /// <remarks>
+    /// Both conditions were already refused at apply time, but only after the clipboard had been
+    /// read and every registered importer had parsed it: a read-only viewer was exactly as exposed
+    /// to hostile clipboard content as an editor, for a paste that could never land. The apply-time
+    /// checks stay, because the state can change across the awaits.
+    /// </remarks>
+    private bool CanPasteHere() => !IsReadOnly && Rectangle is null;
 
     /// <summary>The registered importers, richest first.</summary>
     /// <remarks>
