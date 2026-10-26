@@ -29,4 +29,8 @@ internal static class WorkCounters
     /// <summary>Calls to <see cref="InlineContent.MarkAt"/>, each a search of the mark spans.</summary>
     [ThreadStatic]
     internal static long MarkLookups;
+
+    /// <summary>Paragraphs inside containers <see cref="DocumentPreview.IsLongerThan"/> has counted.</summary>
+    [ThreadStatic]
+    internal static long PreviewParagraphsMeasured;
 }

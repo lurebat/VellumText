@@ -118,6 +118,12 @@ NuGet; packages are published to a local feed, and
   matched as a whole word inside "𝐀cat" or next to a Deseret letter. The
   neighbours are now read as whole characters (`Rune`); an emoji is still a
   boundary and an astral digit is still part of the word.
+- **`DocumentPreview.IsLongerThan` stops inside a leading table or list once
+  the budget is beaten.** A container was measured by building its whole plain
+  text, so asking whether a document opening with a 50,000-row table was longer
+  than 80 characters allocated 17 MB and took 15 ms, against the method's own
+  promise to cost about the budget. It now counts the container paragraph by
+  paragraph, exactly as its plain text would be laid out, and stops there.
 
 ### Changed
 

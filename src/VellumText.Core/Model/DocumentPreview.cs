@@ -108,9 +108,17 @@ public static class DocumentPreview
     /// <exception cref="ArgumentNullException"><paramref name="doc"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxCharacters"/> is negative.</exception>
     /// <remarks>
+    /// <para>
     /// Stops as soon as the budget is exceeded, so asking whether a hundred-page document is
     /// longer than eighty characters costs eighty characters rather than a hundred pages. That is
     /// the whole reason this is not <c>DocumentText.Of(doc).Length &gt; max</c>.
+    /// </para>
+    /// <para>
+    /// Including inside a container. A table or list counts as its plain text, and that used to
+    /// be built whole to take its length — 17 MB to measure a 50,000-row table that comes first,
+    /// for an answer the first row already gave. It is counted paragraph by paragraph now, the
+    /// way <see cref="DocumentText"/> would lay it out, and the count stops where the budget does.
+    /// </para>
     /// </remarks>
     public static bool IsLongerThan(DocumentNode doc, int maxCharacters)
     {
@@ -121,9 +129,16 @@ public static class DocumentPreview
 
         foreach (var block in doc.Blocks)
         {
-            seen += block is ParagraphNode paragraph
-                ? paragraph.Content.Length
-                : DocumentText.Of([block]).Length;
+            if (block is ParagraphNode paragraph)
+            {
+                seen += paragraph.Content.Length;
+            }
+            else
+            {
+                var any = false;
+
+                Count(block.Children, maxCharacters, ref seen, ref any);
+            }
 
             if (seen > maxCharacters)
             {
@@ -132,6 +147,46 @@ public static class DocumentPreview
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Adds the length of the plain text of <paramref name="nodes"/> to <paramref name="seen"/>,
+    /// stopping once it passes <paramref name="maxCharacters"/>.
+    /// </summary>
+    /// <remarks>
+    /// The same count <see cref="DocumentText.Of(IEnumerable{Node})"/> would give the container:
+    /// each paragraph's text with every embed as its fallback text, and a newline between
+    /// paragraphs.
+    /// </remarks>
+    private static void Count(ImmutableArray<Node> nodes, int maxCharacters, ref int seen, ref bool any)
+    {
+        foreach (var node in nodes)
+        {
+            if (node is ParagraphNode paragraph)
+            {
+                WorkCounters.PreviewParagraphsMeasured++;
+
+                var content = paragraph.Content;
+
+                seen += (any ? 1 : 0) + content.Length - content.Embeds.Length;
+
+                foreach (var embed in content.Embeds)
+                {
+                    seen += embed.PlainTextFallback.Length;
+                }
+
+                any = true;
+            }
+            else
+            {
+                Count(node.Children, maxCharacters, ref seen, ref any);
+            }
+
+            if (seen > maxCharacters)
+            {
+                return;
+            }
+        }
     }
 
     /// <summary>The last grapheme boundary at or before an offset.</summary>
