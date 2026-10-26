@@ -71,7 +71,7 @@ internal sealed class TableBlockView : BlockView
         _create = create;
         _header = header;
         _border = new Pen(border, BorderThickness);
-        _cells = Build(table, create, header, previous: default, out _columns);
+        _cells = Build(table, create, header, previous: default, prepare: null, out _columns);
     }
 
     /// <summary>
@@ -104,7 +104,7 @@ internal sealed class TableBlockView : BlockView
             return false;
         }
 
-        _cells = Build(table, _create, _header, _cells, out _columns);
+        _cells = Build(table, _create, _header, _cells, Prepare, out _columns);
         _table = table;
 
         return true;
@@ -124,6 +124,7 @@ internal sealed class TableBlockView : BlockView
         Func<BlockNode, BlockView> create,
         IBrush? header,
         ImmutableArray<Cell> previous,
+        Func<ParagraphNode, ParagraphNode>? prepare,
         out int columns)
     {
         var placements = TableGeometry.Place(table, out columns);
@@ -157,7 +158,7 @@ internal sealed class TableBlockView : BlockView
                 foreach (var slot in slots)
                 {
                     var before = was is not null && at < was.Blocks.Length ? was.Blocks[at] : null;
-                    var view = Reuse(before, slot.Node) ?? create(slot.Node);
+                    var view = Reuse(before, slot.Node, prepare) ?? create(slot.Node);
 
                     // A marker is not part of the paragraph node, so a reused view can be drawn
                     // for the same paragraph under a different bullet and must be told each time.
@@ -194,11 +195,11 @@ internal sealed class TableBlockView : BlockView
     /// cannot — and an image especially must not be rebuilt for nothing, because building one
     /// resolves its source.
     /// </remarks>
-    private static BlockView? Reuse(Child? before, BlockNode block) => before switch
+    private static BlockView? Reuse(Child? before, BlockNode block, Func<ParagraphNode, ParagraphNode>? prepare) => before switch
     {
         null => null,
         _ when ReferenceEquals(before.Node, block) => before.View,
-        { View: ParagraphView view } when block is ParagraphNode paragraph => Updated(view, paragraph),
+        { View: ParagraphView view } when block is ParagraphNode paragraph => Updated(view, prepare?.Invoke(paragraph) ?? paragraph),
         { View: TableBlockView view } when block is TableNode nested => Updated(view, nested),
         _ => null,
     };
@@ -229,6 +230,20 @@ internal sealed class TableBlockView : BlockView
     /// than the table is wide.
     /// </remarks>
     public int Columns => _columns;
+
+    /// <summary>
+    /// What a changed paragraph goes through before a reused view is updated with it, as
+    /// <c>create</c> does for a new one — syntax highlighting, from the presenter.
+    /// </summary>
+    /// <remarks>
+    /// Without it an edit in a cell updated the view with the bare paragraph, and a highlighted
+    /// code block in a table lost its colours on the first keystroke.
+    /// </remarks>
+    internal Func<ParagraphNode, ParagraphNode>? Prepare { get; init; }
+
+    /// <summary>The paragraph views inside the cells, in document order.</summary>
+    internal IEnumerable<ParagraphView> ParagraphViews =>
+        _cells.SelectMany(cell => cell.Blocks).Select(child => child.View).OfType<ParagraphView>();
 
     /// <inheritdoc/>
     public override Size Measure(double availableWidth)
