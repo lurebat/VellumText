@@ -111,6 +111,10 @@ NuGet; packages are published to a local feed, and
   automation value and the plain-text clipboard flavour — on a line of its own,
   as an inline image's already was. The peer raises the value pattern's
   `IsReadOnly` change when `IsReadOnly` toggles.
+- A position or cell rectangle mapped through `TableEdits.InsertRows` or
+  `InsertColumns` in a host's own transaction stays in its row and column. The
+  step's map matched rows and cells by value, and an inserted empty cell equals
+  its empty neighbours, so the caret landed one column left or one row up.
 
 ### Changed
 
