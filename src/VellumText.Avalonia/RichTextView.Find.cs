@@ -146,6 +146,9 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(replacement);
 
+        // A find bar is pasted into from anywhere; see InsertText for why the placeholder goes.
+        replacement = RichTextClipboard.WithoutPlaceholder(replacement);
+
         if (_current < 0 || _current >= _matches.Length)
         {
             return false;
@@ -183,6 +186,8 @@ public partial class RichTextView
     public int ReplaceAll(string replacement)
     {
         ArgumentNullException.ThrowIfNull(replacement);
+
+        replacement = RichTextClipboard.WithoutPlaceholder(replacement);
 
         if (_matches.IsEmpty)
         {

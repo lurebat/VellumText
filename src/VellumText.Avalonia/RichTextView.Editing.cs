@@ -68,6 +68,12 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(text);
 
+        // Typed text, and an IME commit, can carry U+FFFC as easily as pasted text — Word writes
+        // it for objects, and anything that went through a rich text model has it. It marks where
+        // an embed sits, so the model refuses it without one, and that refusal used to escape the
+        // input handler. Paste already drops it; so does this.
+        text = RichTextClipboard.WithoutPlaceholder(text);
+
         if (text.Length == 0)
         {
             return false;

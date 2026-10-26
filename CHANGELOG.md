@@ -91,6 +91,9 @@ NuGet; packages are published to a local feed, and
   rather than at the start of the paragraph holding the head.
 - The vertical-move goal column no longer survives a host loading a different
   document, and `RichTextViewer` repaints when `SelectionBrush` changes.
+- **Typing, an IME commit or a find-and-replace carrying U+FFFC no longer
+  throws out of the input handler.** The embed placeholder is dropped from such
+  text, as paste already did.
 
 ### Changed
 
