@@ -64,6 +64,14 @@ NuGet; packages are published to a local feed, and
   viewer ran every registered importer on untrusted content for a paste that
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
+- **Undoing a format applied to a large selection is no longer quadratic.**
+  Ctrl+A, Ctrl+I, Ctrl+Z put the recorded formatting back by trying every
+  recorded span against every paragraph: 272 ms at 8,000 plain paragraphs and
+  4 s with every other word bold, growing 3.5× per doubling (minutes at
+  50,000). Each paragraph now looks only at the spans that reach into it, found
+  by binary search, so the undo is linear like the command it undoes; redo
+  shares the fix. A hand-built `RestoreMarksStep` whose spans are out of order
+  or overlap is still applied exactly as before.
 
 ### Changed
 

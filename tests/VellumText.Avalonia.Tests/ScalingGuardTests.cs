@@ -63,6 +63,51 @@ public class ScalingGuardTests
         Assert.True(bytes[^1] > bytes[0], "the keystroke allocated nothing that grows with the document");
     }
 
+    /// <summary>
+    /// F-11: undoing a format applied across the document examines each recorded span once, not
+    /// once per paragraph.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of "make everything italic" records every stretch of formatting the document
+    /// had, and putting it back looked at all of them for every paragraph: 3.5× per doubling,
+    /// seconds at a few thousand paragraphs. The bench scenario is <c>a-undofmt</c>.
+    /// </remarks>
+    [Fact]
+    public void UndoingAFormatAcrossTheDocumentVisitsEachRecordedSpanOnce()
+    {
+        int[] sizes = [500, 1_000, 2_000];
+        var bound = new long[sizes.Length];
+        var visits = Growth.Measure(
+            sizes,
+            n =>
+            {
+                var doc = Growth.MarkedParagraphs(n);
+                var italic = new AddMarkStep(
+                    0, doc.ContentSize, new MarkSet { Style = TextStyle.Italic }, MarkFields.Italic);
+                var undo = Assert.IsType<RestoreMarksStep>(italic.Invert(doc));
+                var formatted = italic.Apply(doc).Doc!;
+
+                WorkCounters.RestoredSpanVisits = 0;
+
+                var restored = undo.Apply(formatted);
+
+                Assert.Equal(doc, restored.Doc);
+                bound[Array.IndexOf(sizes, n)] = undo.Spans.Length + n;
+
+                return WorkCounters.RestoredSpanVisits;
+            });
+
+        Growth.AssertAtMostLinear(visits, "recorded spans examined by one undo");
+
+        // Each paragraph may look at one span past its end to know it is done, and no more.
+        for (var i = 0; i < visits.Length; i++)
+        {
+            Assert.True(
+                visits[i] <= bound[i],
+                $"examined {visits[i]} spans where {bound[i]} recorded spans and paragraphs exist");
+        }
+    }
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
@@ -94,6 +139,40 @@ internal static class Growth
             .Select(i => (BlockNode)ParagraphNode.FromText(
                 $"Paragraph {i} with enough words in it to need shaping and to wrap once."))
             .ToArray());
+
+    /// <summary>
+    /// The same paragraphs with every other word bold, so that each one holds several formatting
+    /// spans — the shape that makes a per-span scan visible.
+    /// </summary>
+    public static DocumentNode MarkedParagraphs(int n) =>
+        new(Enumerable.Range(0, n)
+            .Select(i => (BlockNode)new ParagraphNode(EveryOtherWordBold(
+                $"Paragraph {i} with enough words in it to need shaping and to wrap once.")))
+            .ToArray());
+
+    private static InlineContent EveryOtherWordBold(string text)
+    {
+        var spans = new List<ValueSpan<MarkSet>>();
+        var bold = new MarkSet { Style = TextStyle.Bold };
+        var word = 0;
+        var start = 0;
+
+        for (var i = 0; i <= text.Length; i++)
+        {
+            if (i == text.Length || text[i] == ' ')
+            {
+                if (word % 2 == 1)
+                {
+                    spans.Add(new ValueSpan<MarkSet>(start, i - start, bold));
+                }
+
+                word++;
+                start = i + 1;
+            }
+        }
+
+        return InlineContent.Create(text, spans, []);
+    }
 
     /// <summary>Bytes allocated on this thread while <paramref name="action"/> runs.</summary>
     /// <remarks>
