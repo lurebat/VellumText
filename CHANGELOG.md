@@ -117,6 +117,14 @@ NuGet; packages are published to a local feed, and
   nesting, and a different Word list, a change of marker kind or any other
   paragraph in between starts a new list. Word's numbered headings stay
   headings.
+- **A Markdown link whose address contains a backslash now says that its
+  address changed.** CommonMark reads `[a](/a\b)` as a literal backslash and
+  writes it as `%5C`, so the link points at `/a%5Cb`, where an HTML link with the
+  same address, kept as written by the HTML and RTF importers, means `/a/b` to a
+  browser. The import used to change the address silently; it now reports a
+  `Downgraded` diagnostic. The address itself is left as CommonMark reads it,
+  because keeping the backslash would mean rendering links outside Markdig or
+  restoring an address the sanitizer never checked.
 
 ## [0.7.0] - 2026-08-20
 

@@ -151,6 +151,33 @@ public static class MarkdownImporter
                 UnescapeCellPipes(code);
             }
         }
+
+        ReportBackslashedAddresses(document, log);
+    }
+
+    /// <summary>Reports a link address with a backslash in it, whose meaning the import changes.</summary>
+    /// <remarks>
+    /// CommonMark takes a backslash that escapes nothing as a literal character and writes it as
+    /// <c>%5C</c>, so <c>[a](/a\b)</c> links to <c>/a%5Cb</c>; in an HTML link, which the HTML and
+    /// RTF importers keep as written, a browser reads the same backslash as <c>/</c>. Keeping it as
+    /// written here would mean rendering links outside Markdig or editing its output, and patching
+    /// the address back after the sanitizer would let through an address the sanitizer never saw,
+    /// so the change is reported instead.
+    /// </remarks>
+    private static void ReportBackslashedAddresses(MarkdownDocument document, DiagnosticLog log)
+    {
+        var backslashed =
+            document.Descendants<LinkInline>().Any(link => link.Url?.Contains('\\', StringComparison.Ordinal) == true)
+            || document.Descendants<AutolinkInline>().Any(link => link.Url.Contains('\\', StringComparison.Ordinal));
+
+        if (backslashed)
+        {
+            log.ReportOnce(
+                DiagnosticSeverity.Downgraded,
+                "A link address contains a backslash, which Markdown reads as a literal backslash "
+                + "and encodes as %5C; an HTML link with the same address would read it as '/'.",
+                "link-backslash");
+        }
     }
 
     /// <summary>Turns <c>\|</c> back into <c>|</c> inside a code span in a table cell.</summary>
