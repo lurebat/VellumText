@@ -64,6 +64,12 @@ NuGet; packages are published to a local feed, and
   viewer ran every registered importer on untrusted content for a paste that
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
+- **A JSON document with deeply nested lists or tables now opens again.** The
+  writer saved nesting up to its own limit of 1,000 JSON levels, but the reader
+  stopped at the default 64, so 19 nested lists or 11 nested tables saved
+  without complaint and came back as an empty document with a `Malformed`
+  diagnostic. The reader now accepts 2,048 levels, more than the writer can
+  emit; it still parses on its own large-stack thread.
 
 ## [0.7.0] - 2026-08-20
 
