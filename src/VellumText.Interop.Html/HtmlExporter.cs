@@ -497,24 +497,67 @@ public sealed class HtmlExporter : IDocumentExporter
         return $"rgba({color.R},{color.G},{color.B},{alpha})";
     }
 
-    /// <summary>Quotes a font family name when CSS requires it.</summary>
+    /// <summary>Writes a font family the way CSS reads one back as the same names.</summary>
     /// <remarks>
-    /// An unquoted family may only be a sequence of identifiers, so anything with a space, a
-    /// comma or a quote in it has to be quoted — and a name that arrived already quoted, or that
-    /// is a list of fallbacks, must be left exactly as it is or the list becomes one long name.
+    /// A family the host set as a list of fallbacks stays a list. Each name in it is written as a
+    /// bare identifier when it is one and as a CSS string otherwise — never raw. A name written
+    /// raw because it looked like a list or arrived quoted was a name that could close its own
+    /// declaration: imported as <c>x\" ;background-image:url(…);</c>, it came back out as a live
+    /// declaration the sanitizer had removed on the way in.
     /// </remarks>
-    private static string CssFontFamily(string family)
+    private static string CssFontFamily(string family) =>
+        string.Join(
+            ", ",
+            family.Split(',')
+                .Select(name => name.Trim())
+                .Where(name => name.Length > 0)
+                .Select(CssFamilyName));
+
+    private static string CssFamilyName(string name)
     {
-        if (family.Contains(',', StringComparison.Ordinal)
-            || family.StartsWith('"')
-            || family.StartsWith('\''))
+        // A name the host wrote with its own quotes means the name inside them.
+        if (name.Length >= 2 && (name[0] is '"' or '\'') && name[^1] == name[0])
         {
-            return family;
+            name = name[1..^1];
         }
 
-        return family.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_')
-            ? $"\"{family.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
-            : family;
+        var identifier = name.Length > 0
+            && !char.IsAsciiDigit(name[0])
+            && !name.StartsWith('-')
+            && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
+        return identifier ? name : CssString(name);
+    }
+
+    /// <summary>A CSS string literal holding exactly <paramref name="value"/>.</summary>
+    /// <remarks>
+    /// The three characters that end or escape a string are escaped — the quote, the backslash
+    /// and a line break — and so is every other control character, as a hexadecimal escape with
+    /// its terminating space, because a raw one is either invalid or invisible in the output.
+    /// </remarks>
+    private static string CssString(string value)
+    {
+        var css = new StringBuilder(value.Length + 2).Append('"');
+
+        foreach (var c in value)
+        {
+            if (c is '"' or '\\')
+            {
+                css.Append('\\').Append(c);
+            }
+            else if (char.IsControl(c))
+            {
+                css.Append('\\')
+                    .Append(((int)c).ToString("x", CultureInfo.InvariantCulture))
+                    .Append(' ');
+            }
+            else
+            {
+                css.Append(c);
+            }
+        }
+
+        return css.Append('"').ToString();
     }
 
     private static string Attribute(string value)

@@ -47,6 +47,15 @@ NuGet; packages are published to a local feed, and
   (default 100,000 per import) on `HtmlImportOptions`, `MarkdownImportOptions`
   and `RtfImportOptions`. A table over budget becomes paragraphs with a
   `Downgraded` diagnostic.
+- **HTML export can no longer turn an imported font name back into CSS the
+  sanitizer removed.** A pasted
+  `font-family:"x\" ;background-image:url(http://tracker.invalid/p.png);"` kept
+  its CSS escape in the model, and the exporter escaped the quote but not the
+  backslash, so a copy carried a live `background-image` — a tracking fetch the
+  import had stripped. Import now reads the family the CSS actually states, and
+  export writes every family name through one CSS string serializer that
+  escapes `\`, `"` and control characters. A host's list of fallbacks
+  (`Segoe UI, Arial`) stays a list.
 
 ### Fixed
 

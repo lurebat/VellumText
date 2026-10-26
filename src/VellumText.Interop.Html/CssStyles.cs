@@ -83,7 +83,7 @@ internal static class CssStyles
             mark = mark with { Highlight = background.IsTransparent ? null : background };
         }
 
-        if (TryFontFamily(style.GetPropertyValue("font-family"), out var family))
+        if (TryFontFamily(style, out var family))
         {
             mark = mark with { FontFamily = family };
         }
@@ -442,6 +442,43 @@ internal static class CssStyles
             && double.IsFinite(value);
     }
 
+    /// <summary>Reads the first usable family name a declaration's <c>font-family</c> names.</summary>
+    /// <param name="style">The declaration.</param>
+    /// <param name="family">The family name.</param>
+    /// <returns>Whether a name was found.</returns>
+    /// <remarks>
+    /// The name is taken from the parsed value, not from its serialization: the serialization keeps
+    /// CSS escapes, so <c>"x\" ;background-image:url(…);"</c> used to arrive in the model with its
+    /// backslash and come back out of the exporter as a declaration of its own. The parsed value is
+    /// the name the CSS actually states. The serialization is the fallback for a family that only a
+    /// shorthand set, where AngleSharp keeps no parsed list of its own.
+    /// </remarks>
+    private static bool TryFontFamily(ICssStyleDeclaration style, out string? family)
+    {
+        foreach (var property in style)
+        {
+            if (property.Name != "font-family"
+                || property.RawValue is not System.Collections.IEnumerable names)
+            {
+                continue;
+            }
+
+            foreach (var name in names)
+            {
+                return TryFamilyName(
+                    name switch
+                    {
+                        CssStringValue quoted => quoted.Value,
+                        CssIdentifierValue bare => bare.Value,
+                        _ => null,
+                    },
+                    out family);
+            }
+        }
+
+        return TryFontFamily(style.GetPropertyValue("font-family"), out family);
+    }
+
     /// <summary>Reads the first usable name out of a font stack.</summary>
     /// <param name="value">The declared value.</param>
     /// <param name="family">The family name.</param>
@@ -460,9 +497,14 @@ internal static class CssStyles
             return false;
         }
 
-        var first = value.Split(',')[0].Trim().Trim('"', '\'').Trim();
+        return TryFamilyName(value.Split(',')[0].Trim().Trim('"', '\'').Trim(), out family);
+    }
 
-        if (first.Length == 0)
+    private static bool TryFamilyName(string? first, out string? family)
+    {
+        family = null;
+
+        if (string.IsNullOrWhiteSpace(first))
         {
             return false;
         }
