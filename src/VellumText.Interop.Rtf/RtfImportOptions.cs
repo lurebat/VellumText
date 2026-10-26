@@ -70,6 +70,17 @@ public sealed record RtfImportOptions
     /// </remarks>
     public Uri? BaseUri { get; init; }
 
+    /// <summary>
+    /// The most grid slots the tables of one import may cover between them. Defaults to 100,000.
+    /// </summary>
+    /// <remarks>
+    /// A cell's row and column spans multiply, so a few kilobytes of RTF can describe a table of
+    /// millions of slots, and laying one out costs seconds and gigabytes. A table that would take
+    /// the import over budget becomes plain paragraphs, with a
+    /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic.
+    /// </remarks>
+    public int MaxTableSlots { get; init; } = 100_000;
+
     /// <summary>The equivalent HTML options for the internal HTML stage.</summary>
     internal HtmlImportOptions ToHtmlOptions() => new()
     {
@@ -77,5 +88,6 @@ public sealed record RtfImportOptions
         AllowDataImages = AllowDataImages,
         MaxDataImageBytes = MaxDataImageBytes,
         BaseUri = BaseUri,
+        MaxTableSlots = MaxTableSlots,
     };
 }

@@ -88,6 +88,7 @@ public class MarkdownPublicSurfaceTests
             MaxDataImageBytes = 4321,
             BaseUri = new Uri("https://example.test/dir/page"),
             AllowRawHtml = true,
+            MaxTableSlots = 77,
         };
 
         var mapped = options.ToHtmlOptions();
@@ -115,7 +116,7 @@ public class MarkdownPublicSurfaceTests
             }
         }
 
-        Assert.True(compared >= 4, $"only {compared} options compared - has the record moved?");
+        Assert.True(compared >= 5, $"only {compared} options compared - has the record moved?");
         Assert.Equal([], unmapped.Order());
     }
 

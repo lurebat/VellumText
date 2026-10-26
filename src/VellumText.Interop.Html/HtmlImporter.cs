@@ -184,6 +184,9 @@ public static class HtmlImporter
     {
         private readonly HashSet<string> _reported = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>The grid slots the tables still to come may cover; see <see cref="HtmlImportOptions.MaxTableSlots"/>.</summary>
+        private long _tableSlotsLeft = options.MaxTableSlots;
+
         internal List<BlockNode> Run(INode root)
         {
             var sink = new BlockSink();
@@ -603,6 +606,31 @@ public static class HtmlImporter
                 WalkChildren(element, mark, block, sink, depth);
                 return;
             }
+
+            // Charged before the table is built or validated, because laying it out is the cost
+            // being budgeted. A span is charged only for the rows the table has, which is what
+            // layout costs; a span hanging off the bottom fails the schema below anyway.
+            var slots = 0L;
+
+            for (var r = 0; r < rows.Count; r++)
+            {
+                foreach (var cell in rows[r].Cells)
+                {
+                    slots += (long)Math.Min(cell.RowSpan, rows.Count - r) * cell.ColumnSpan;
+                }
+            }
+
+            if (slots > _tableSlotsLeft)
+            {
+                Downgrade(
+                    rows,
+                    block,
+                    sink,
+                    $"its cells cover {slots} grid slots, more than the {options.MaxTableSlots} one import may lay out");
+                return;
+            }
+
+            _tableSlotsLeft -= slots;
 
             try
             {

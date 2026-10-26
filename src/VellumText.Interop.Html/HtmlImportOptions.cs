@@ -93,6 +93,19 @@ public sealed record HtmlImportOptions
     public int MaxStyleNesting { get; init; } = 32;
 
     /// <summary>
+    /// The most grid slots the tables of one import may cover between them. Defaults to 100,000.
+    /// </summary>
+    /// <remarks>
+    /// A cell's <c>rowspan</c> and <c>colspan</c> are each clamped to 1,000, but their product
+    /// is still a million slots for a 31-byte cell, and a few kilobytes of such cells cost seconds
+    /// and gigabytes to lay out. A table is charged the area its cells cover within the rows it
+    /// has; one that would take the import over budget becomes plain paragraphs, with a
+    /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. 100,000 is a 1,000-row,
+    /// 100-column paste.
+    /// </remarks>
+    public int MaxTableSlots { get; init; } = 100_000;
+
+    /// <summary>
     /// The address relative URLs are resolved against, or null to drop relative URLs.
     /// </summary>
     /// <remarks>

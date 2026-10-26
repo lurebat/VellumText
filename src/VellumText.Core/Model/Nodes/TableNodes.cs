@@ -341,7 +341,14 @@ public static class TableGeometry
                 var placement = new CellPlacement(
                     row, column, row + cell.RowSpan, column + cell.ColumnSpan);
 
-                for (var r = placement.Top; r < placement.Bottom; r++)
+                // Only the rows that exist are marked. Nothing below the last row is ever asked
+                // about, and marking it made the cost the area a cell declares rather than the
+                // grid there is: 32 cells of rowspan=colspan=1000 on one row were 32 million slots.
+                // The placement itself keeps the declared bottom, so the schema can still say
+                // that the span hangs off the table.
+                var bottom = Math.Min(placement.Bottom, table.Rows.Length);
+
+                for (var r = placement.Top; r < bottom; r++)
                 {
                     for (var c = placement.Left; c < placement.Right; c++)
                     {

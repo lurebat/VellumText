@@ -104,6 +104,18 @@ public sealed record MarkdownImportOptions
     /// </remarks>
     public bool AllowRawHtml { get; init; }
 
+    /// <summary>
+    /// The most grid slots the tables of one import may cover between them. Defaults to 100,000.
+    /// </summary>
+    /// <remarks>
+    /// A pipe table's size is visible in its source, but a table written as raw HTML (with
+    /// <see cref="AllowRawHtml"/>) can declare <c>rowspan</c> and <c>colspan</c> whose product is a
+    /// million slots per cell, and laying one out costs seconds and gigabytes. A table that would
+    /// take the import over budget becomes plain paragraphs, with a
+    /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic.
+    /// </remarks>
+    public int MaxTableSlots { get; init; } = 100_000;
+
     /// <summary>The equivalent HTML options for the internal HTML stage.</summary>
     internal HtmlImportOptions ToHtmlOptions() => new()
     {
@@ -111,5 +123,6 @@ public sealed record MarkdownImportOptions
         AllowDataImages = AllowDataImages,
         MaxDataImageBytes = MaxDataImageBytes,
         BaseUri = BaseUri,
+        MaxTableSlots = MaxTableSlots,
     };
 }

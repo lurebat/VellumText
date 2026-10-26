@@ -37,6 +37,16 @@ NuGet; packages are published to a local feed, and
   attributes at `MaxAttributesPerElement` (default 256). Each reports a
   `Downgraded` diagnostic. Markup within the limits is passed to the parser
   untouched.
+- **A few kilobytes of `colspan`/`rowspan` no longer cost seconds and
+  gigabytes.** Each span was clamped to 1,000, but the product was not: 1 KB of
+  `<td colspan=1000 rowspan=1000>` took 11.5 s and 1.27 GB, because
+  `TableGeometry.Place` marked every slot a span named, including rows the
+  table does not have. It now marks only the rows that exist (placements are
+  unchanged, so the schema still reports a span hanging off the table), and the
+  importers budget the slots their tables may cover with `MaxTableSlots`
+  (default 100,000 per import) on `HtmlImportOptions`, `MarkdownImportOptions`
+  and `RtfImportOptions`. A table over budget becomes paragraphs with a
+  `Downgraded` diagnostic.
 
 ## [0.7.0] - 2026-08-20
 
