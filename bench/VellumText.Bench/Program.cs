@@ -33,6 +33,25 @@ internal static class Program
         ("find", Scenarios.FindQuery),
         ("ac12", Scenarios.Ac12),
         ("model", Scenarios.ModelEdit),
+
+        // The codebase audit's reproductions; see AuditScenarios.
+        ("a-undo", AuditScenarios.UndoTypingRun),
+        ("a-undofmt", AuditScenarios.UndoFormat),
+        ("a-longpara", AuditScenarios.LongParagraph),
+        ("a-table", AuditScenarios.TableCell),
+        ("a-findrender", AuditScenarios.FindRender),
+        ("a-selectall", AuditScenarios.SelectAll),
+        ("a-paste", AuditScenarios.Paste),
+        ("a-rtf", AuditScenarios.RtfImport),
+        ("a-exports", AuditScenarios.Exports),
+        ("a-images", AuditScenarios.Images),
+        ("a-histmem", AuditScenarios.HistoryMemory),
+        ("a-structure", AuditScenarios.StructureKeys),
+        ("a-stages", AuditScenarios.Stages),
+        ("a-sustained", AuditScenarios.Sustained),
+        ("a-mdspaces", AuditScenarios.MarkdownSpaces),
+        ("a-htmlstages", AuditScenarios.HtmlStages),
+        ("a-preview", AuditScenarios.Preview),
     ];
 
     private static int Main(string[] args)

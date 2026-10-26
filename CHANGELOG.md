@@ -65,6 +65,18 @@ NuGet; packages are published to a local feed, and
   could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
   refuse before the first clipboard read.
 
+### Changed
+
+- **The benchmark now carries the codebase audit's reproductions, and the test
+  suite pins their shape without a clock.** `bench/VellumText.Bench` gains the
+  `a-*` scenarios each performance finding was confirmed with (`a-undo`,
+  `a-undofmt`, `a-findrender`, `a-structure`, `a-stages`, `a-sustained`,
+  `a-selectall`, `a-exports`, `a-preview` and the rest), so a fix is
+  re-measured against the shape that found the problem. Timings still need a
+  quiet machine, so CI runs `ScalingGuardTests` instead: each row measures
+  bytes allocated or a work counter at doubling sizes and fails on growth above
+  2.5× per doubling, or allocates against a budget at AC12's 50,000 paragraphs.
+
 ## [0.7.0] - 2026-08-20
 
 A sixth package, `VellumText.Interop.Markdown`. **`AC8` is complete for v1 as of
