@@ -257,6 +257,8 @@ public class HtmlSecurityTests
     [InlineData("<div><style>p.MsoNormal {margin:0cm;}</style>text</div>", "margin")]
     [InlineData("<div><section><style>a{b:c}</style></section>x</div>", "b:c")]
     [InlineData("<div><noscript>fallback</noscript>ok</div>", "fallback")]
+    [InlineData("<div><noembed>fallback</noembed>ok</div>", "fallback")]
+    [InlineData("<div><noframes>fallback</noframes>ok</div>", "fallback")]
     [InlineData("<div><template><p>inert</p></template>ok</div>", "inert")]
     [InlineData("<body><title>Doc Title</title><p>body text</p></body>", "Doc Title")]
     public async Task Code_bearing_elements_do_not_leak_their_bodies_as_text(string html, string forbidden)
@@ -271,7 +273,7 @@ public class HtmlSecurityTests
     /// </summary>
     /// <remarks>
     /// The companion to the theory above, and the reason it is not enough on its own: dropping
-    /// every unrecognised element wholesale would pass all seven of those cases and quietly throw
+    /// every unrecognised element wholesale would pass every one of those cases and quietly throw
     /// away the text inside an unknown wrapper, which is exactly what <c>KeepChildNodes</c> exists
     /// to preserve.
     /// </remarks>
@@ -455,6 +457,34 @@ public class HtmlSecurityTests
         Assert.Equal("https://example.com/somewhere", paragraph.Content.MarkAt(0).Link?.Href);
     }
 
+    /// <summary>
+    /// A base the host supplies outranks the <c>SourceURL</c> a clipboard payload claims for itself.
+    /// </summary>
+    /// <remarks>
+    /// The payload's address is written by whichever application put it on the clipboard, which
+    /// is to say by the page being copied from. The host's base is the one decision about where
+    /// relative links point that the paste does not get to make.
+    /// </remarks>
+    [Fact]
+    public async Task An_explicit_base_outranks_the_address_the_clipboard_claims()
+    {
+        var payload = ClipboardHtml.Wrap("<a href='/p'>x</a>", new Uri("https://attacker.test/"));
+
+        var claimed = await HtmlImporter.ImportClipboardAsync(payload);
+        var result = await HtmlImporter.ImportClipboardAsync(
+            payload,
+            new HtmlImportOptions { BaseUri = new Uri("https://host.test/") });
+
+        // The payload's own address is used when the host gives none, so the second import
+        // differs from the first only by which base won.
+        Assert.Equal(
+            "https://attacker.test/p",
+            Assert.IsType<ParagraphNode>(claimed.Doc.Blocks[0]).Content.MarkAt(0).Link?.Href);
+        Assert.Equal(
+            "https://host.test/p",
+            Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.MarkAt(0).Link?.Href);
+    }
+
     [Fact]
     public async Task Deep_nesting_does_not_overflow_the_stack()
     {
@@ -468,6 +498,28 @@ public class HtmlSecurityTests
 
         Assert.Contains("deep", PlainText(result), StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, d => d.Context == "nesting");
+    }
+
+    /// <summary>
+    /// The nesting limit a host sets is the one the walk stops at, not the default.
+    /// </summary>
+    /// <remarks>
+    /// Fifty levels is far inside the default, so the default-options import is the control: it
+    /// shows the diagnostic below comes from the configured limit and not from the input alone.
+    /// </remarks>
+    [Fact]
+    public async Task The_nesting_limit_a_host_sets_is_the_one_used()
+    {
+        var html = string.Concat(Enumerable.Repeat("<div>", 50))
+            + "x"
+            + string.Concat(Enumerable.Repeat("</div>", 50));
+
+        var byDefault = await Import(html);
+        var limited = await Import(html, new HtmlImportOptions { MaxDepth = 10 });
+
+        Assert.DoesNotContain(byDefault.Diagnostics, d => d.Context == "nesting");
+        Assert.Contains(limited.Diagnostics, d => d.Context == "nesting");
+        Assert.Contains("x", PlainText(limited), StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -62,14 +62,21 @@ public class MarkdownPublicSurfaceTests
     }
 
     /// <summary>
-    /// Every option this package offers reaches the HTML stage that acts on it.
+    /// Every option this package offers reaches the HTML stage that acts on it, at its default
+    /// value and at a value other than its default.
     /// </summary>
     /// <remarks>
     /// <para>
     /// A hand-written mapping between two records is where an option gets silently forgotten, and
     /// the symptom is the worst kind: <c>AllowRemoteImages = true</c> that does nothing, or worse,
-    /// an <c>AllowDataImages = false</c> a host set for safety that never arrives. Reflection rather
-    /// than four assertions so that adding a fifth option and not mapping it fails here.
+    /// an <c>AllowDataImages = false</c> a host set for safety that never arrives.
+    /// </para>
+    /// <para>
+    /// The second set of values is generated rather than written out, so that an option added to
+    /// the record later is changed here too without anyone remembering to. A hand-written set left
+    /// a new option at its default, where an unforwarded one reads the same as a forwarded one
+    /// whenever the two records' defaults agree. A property of a type <see cref="Another"/> does
+    /// not know fails the test rather than being skipped.
     /// </para>
     /// <para>
     /// <see cref="MarkdownImportOptions.AllowRawHtml"/> is excluded by name because it has no HTML
@@ -81,44 +88,63 @@ public class MarkdownPublicSurfaceTests
     [Fact]
     public void Every_markdown_option_reaches_the_html_stage()
     {
-        var options = new MarkdownImportOptions
-        {
-            AllowRemoteImages = true,
-            AllowDataImages = false,
-            MaxDataImageBytes = 4321,
-            BaseUri = new Uri("https://example.test/dir/page"),
-            AllowRawHtml = true,
-            MaxTableSlots = 77,
-        };
+        var properties = typeof(MarkdownImportOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var defaults = new MarkdownImportOptions();
+        var changed = new MarkdownImportOptions();
 
-        var mapped = options.ToHtmlOptions();
+        foreach (var property in properties)
+        {
+            property.SetValue(changed, Another(property, property.GetValue(defaults)));
+        }
+
         var unmapped = new List<string>();
         var compared = 0;
 
-        foreach (var property in typeof(MarkdownImportOptions).GetProperties(
-            BindingFlags.Public | BindingFlags.Instance))
+        foreach (var property in properties)
         {
             if (property.Name == nameof(MarkdownImportOptions.AllowRawHtml))
             {
                 continue;
             }
 
-            var counterpart = typeof(VellumText.Interop.Html.HtmlImportOptions)
-                .GetProperty(property.Name);
+            var counterpart = typeof(VellumText.Interop.Html.HtmlImportOptions).GetProperty(property.Name);
 
             Assert.NotNull(counterpart);
 
             compared++;
 
-            if (!Equals(property.GetValue(options), counterpart.GetValue(mapped)))
+            // What the HTML stage holds when the option is not forwarded at all. One of the two
+            // values compared has to differ from it, or dropping the option would go unnoticed.
+            var unforwarded = counterpart.GetValue(VellumText.Interop.Html.HtmlImportOptions.Default);
+
+            Assert.False(
+                Equals(property.GetValue(defaults), unforwarded) && Equals(property.GetValue(changed), unforwarded),
+                $"{property.Name}: neither value compared differs from the HTML default");
+
+            foreach (var (name, options) in new[] { ("default", defaults), ("changed", changed) })
             {
-                unmapped.Add(property.Name);
+                if (!Equals(property.GetValue(options), counterpart.GetValue(options.ToHtmlOptions())))
+                {
+                    unmapped.Add($"{property.Name} ({name})");
+                }
             }
         }
 
         Assert.True(compared >= 5, $"only {compared} options compared - has the record moved?");
         Assert.Equal([], unmapped.Order());
     }
+
+    /// <summary>A value for <paramref name="property"/> other than <paramref name="current"/>.</summary>
+    private static object? Another(PropertyInfo property, object? current) => current switch
+    {
+        bool value => !value,
+        int value => value == int.MaxValue ? value - 7 : value + 7,
+        long value => value == long.MaxValue ? value - 7 : value + 7,
+        Uri => null,
+        null when property.PropertyType == typeof(Uri) => new Uri("https://example.test/dir/page"),
+        _ => throw new InvalidOperationException(
+            $"{property.Name}: give this test a second value for {property.PropertyType.Name}."),
+    };
 
     /// <summary>
     /// Every type a member's signature names, including the ones nested inside another type.

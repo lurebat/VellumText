@@ -1,6 +1,10 @@
+using System.Collections;
 using System.Diagnostics;
+using System.Reflection;
+using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Media.TextFormatting;
 using VellumText.Avalonia;
 
@@ -150,5 +154,52 @@ public class BitmapCacheBudgetTests
 
         Assert.Equal(decodes, renderer.DecodeCount);
         Assert.Equal(1, renderer.CachedCount);
+    }
+
+    /// <summary>
+    /// An image evicted from the cache has its bitmap disposed as it leaves, rather than left for
+    /// a finalizer.
+    /// </summary>
+    /// <remarks>
+    /// Decoded pixels are native memory, which the garbage collector does not count towards its
+    /// own pressure, so a bitmap nothing disposes can stay allocated for as long as no collection
+    /// happens to run its finalizer: the cache's byte budget would hold for its own accounting
+    /// and not for the process. The bitmap is checked alive while cached, so that the disposed
+    /// check below is not merely reading a bitmap that never worked.
+    /// </remarks>
+    [AvaloniaFact]
+    public void An_evicted_image_is_disposed_as_it_leaves_the_cache()
+    {
+        using var renderer = new BitmapEmbedRenderer { CacheLimit = 1 };
+        var first = new ImageEmbed(DataUri(Gif(10, 10, 1), "image/gif"));
+        var second = new ImageEmbed(DataUri(Gif(10, 10, 2), "image/gif"));
+
+        renderer.Measure(first, Properties());
+
+        var bitmap = Cached(renderer, first);
+
+        Assert.Equal(new PixelSize(10, 10), bitmap.PixelSize);
+
+        renderer.Measure(second, Properties());
+
+        Assert.Equal(1, renderer.CachedCount);
+        Assert.Throws<ObjectDisposedException>(() => bitmap.PixelSize);
+    }
+
+    /// <summary>The bitmap <paramref name="renderer"/>'s cache holds for <paramref name="embed"/>.</summary>
+    /// <remarks>
+    /// Read by reflection because the renderer hands its bitmaps only to a drawing context, and
+    /// none a test can construct records them. Renaming the private members fails this loudly
+    /// rather than letting the test pass.
+    /// </remarks>
+    private static Bitmap Cached(BitmapEmbedRenderer renderer, ImageEmbed embed)
+    {
+        var cache = (IDictionary)typeof(BitmapEmbedRenderer)
+            .GetField("_cache", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(renderer)!;
+        var node = cache[embed.Source]!;
+        var entry = node.GetType().GetProperty("Value")!.GetValue(node)!;
+
+        return Assert.IsType<Bitmap>(entry.GetType().GetProperty("Bitmap")!.GetValue(entry));
     }
 }

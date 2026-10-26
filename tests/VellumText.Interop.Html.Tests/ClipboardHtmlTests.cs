@@ -159,6 +159,7 @@ public class ClipboardHtmlTests
 
     [Theory]
     [InlineData("0009999999", "0000000010")]
+    [InlineData("0009999998", "0009999999")]
     [InlineData("banana", "0000000010")]
     [InlineData("-5", "0000000010")]
     public void Offsets_that_make_no_sense_fall_back_to_what_follows_the_header(string start, string end)
@@ -169,6 +170,27 @@ public class ClipboardHtmlTests
 
         Assert.DoesNotContain("Version:", fragment, StringComparison.Ordinal);
         Assert.Contains("abc", fragment, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A start offset past the end of the payload, with an end past it too, imports the text that
+    /// is there.
+    /// </summary>
+    /// <remarks>
+    /// The end is clamped to the payload's length, which puts it before such a start; only the
+    /// start's own bound keeps that from becoming a negative count. The fragment is extracted
+    /// outside the importer's own error handling, so without the bound the clipboard import throws.
+    /// </remarks>
+    [Fact]
+    public async Task A_start_offset_past_the_end_does_not_fail_the_clipboard_import()
+    {
+        var payload = Header("0000000000", "0000000000", "0009999998", "0009999999")
+            + "<html><body>abc</body></html>";
+
+        var result = await HtmlImporter.ImportClipboardAsync(payload);
+
+        var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks));
+        Assert.Equal("abc", paragraph.Content.Text);
     }
 
     [Fact]
