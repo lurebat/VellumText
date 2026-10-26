@@ -103,6 +103,89 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
         return new ReplaceStep(from.Pos, Math.Max(from.Pos, to.Pos), Content);
     }
 
+    /// <summary>
+    /// Whether this step, applied to <paramref name="doc"/>, replaces text inside one paragraph
+    /// with text and touches nothing else.
+    /// </summary>
+    /// <param name="doc">The document the step applies to.</param>
+    /// <remarks>
+    /// The shape <see cref="FollowedBy"/> is sound for: typing, Backspace and Delete within a
+    /// paragraph. A split, a join or a paste of blocks changes the tree, and two of those folded
+    /// into one step are not shown to mean what the pair meant.
+    /// </remarks>
+    internal bool IsTextEditIn(DocumentNode doc)
+    {
+        var textOnly = Content.IsEmpty
+            || (Content.Content.Length == 1
+                && Content.OpenStart == 1
+                && Content.OpenEnd == 1
+                && Content.Content[0] is ParagraphNode);
+
+        if (!textOnly || From < 0 || To < From || To > doc.ContentSize)
+        {
+            return false;
+        }
+
+        var start = doc.Resolve(From);
+
+        return start.Paragraph is { } paragraph
+            && To <= start.Start(start.Depth) + paragraph.Content.Length;
+    }
+
+    /// <summary>
+    /// This step and then <paramref name="next"/> as a single step, or null if their ranges do
+    /// not meet.
+    /// </summary>
+    /// <param name="next">The step applied to the document this one produced.</param>
+    /// <remarks>
+    /// <para>
+    /// Only for two steps that are each <see cref="IsTextEditIn">a text edit</see> of the
+    /// document it applies to, which the caller checks: their ranges then meet inside one
+    /// paragraph, and replacing two touching stretches of its text one after the other is the
+    /// same as replacing their union once. ProseMirror's <c>ReplaceStep.merge</c> is the same
+    /// idea; history uses it so that undoing a burst of typing replays one step rather than one
+    /// per keystroke.
+    /// </para>
+    /// <para>
+    /// Two ways to meet. <paramref name="next"/> can start where this step's inserted content
+    /// ends — undoing typing deletes leftwards, so each earlier keystroke's range follows the one
+    /// just removed — or end where this step starts, which is how undoing Backspace re-inserts.
+    /// </para>
+    /// </remarks>
+    internal ReplaceStep? FollowedBy(ReplaceStep next)
+    {
+        if (From + Content.Size == next.From)
+        {
+            return new ReplaceStep(From, To + (next.To - next.From), Joined(Content, next.Content));
+        }
+
+        if (next.To == From)
+        {
+            return new ReplaceStep(next.From, To, Joined(next.Content, Content));
+        }
+
+        return null;
+    }
+
+    /// <summary>Two slices of text, one after the other, as one.</summary>
+    private static Slice Joined(Slice first, Slice second)
+    {
+        if (first.IsEmpty)
+        {
+            return second;
+        }
+
+        if (second.IsEmpty)
+        {
+            return first;
+        }
+
+        var before = (ParagraphNode)first.Content[0];
+        var after = (ParagraphNode)second.Content[0];
+
+        return new Slice([before.WithContent(before.Content.Concat(after.Content))], 1, 1);
+    }
+
     /// <summary>Whether closing the range back up would merge two parts of a table.</summary>
     /// <remarks>
     /// <para>

@@ -108,6 +108,47 @@ public class ScalingGuardTests
         }
     }
 
+    /// <summary>
+    /// F-12: Ctrl+Z after a burst of typing costs the same however long the burst was.
+    /// </summary>
+    /// <remarks>
+    /// Every keystroke's inverse used to be replayed, each one a rebuild of the document's spine,
+    /// so the undo grew with the number of characters typed: 151 ms for 25 characters and 2.3 s
+    /// for 400 at 50,000 paragraphs, bytes exactly doubling with the burst. The bench scenario is
+    /// <c>a-undo</c>.
+    /// </remarks>
+    [Fact]
+    public void UndoingATypingBurstCostsTheSameWhateverItsLength()
+    {
+        var bytes = Growth.Measure(
+            [25, 50, 100, 200],
+            k =>
+            {
+                var doc = Growth.Paragraphs(2_000);
+                var state = EditorState.Create(doc, TextSelection.Cursor(doc.ContentSize - 2));
+                var history = History.Empty;
+
+                for (var i = 0; i < k; i++)
+                {
+                    var at = state.Selection.Head;
+                    var tr = state.Transaction()
+                        .As(TransactionKind.Typing)
+                        .At(DateTimeOffset.UnixEpoch.AddMilliseconds(100 * i))
+                        .InsertText(at, "x")
+                        .SetSelection(TextSelection.Cursor(at + 1));
+
+                    history = history.Record(tr);
+                    state = state.Apply(tr);
+                }
+
+                Assert.Equal(1, history.UndoDepth);
+
+                return Growth.Allocated(() => history.Undo(state));
+            });
+
+        Growth.AssertFlat(bytes, "bytes allocated by one undo of a typing burst, by burst length");
+    }
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
@@ -132,6 +173,12 @@ internal static class Growth
     /// below quadratic (4.0), the shape every audit finding had.
     /// </summary>
     public const double Superlinear = 2.5;
+
+    /// <summary>
+    /// The largest growth per doubling an operation that should not depend on the size may show.
+    /// The bench's own verdict calls anything under 1.35 flat.
+    /// </summary>
+    public const double Flat = 1.35;
 
     /// <summary>A plain document of <paramref name="n"/> paragraphs, the bench's shape.</summary>
     public static DocumentNode Paragraphs(int n) =>
@@ -196,7 +243,17 @@ internal static class Growth
         sizes.Select(measure).ToArray();
 
     /// <summary>Fails if any doubling grew the measurement by more than <see cref="Superlinear"/>.</summary>
-    public static void AssertAtMostLinear(long[] measured, string what)
+    public static void AssertAtMostLinear(long[] measured, string what) =>
+        AssertGrowth(measured, Superlinear, what);
+
+    /// <summary>
+    /// Fails if any doubling grew the measurement by more than <see cref="Flat"/>: for an
+    /// operation whose cost should not depend on the size at all.
+    /// </summary>
+    public static void AssertFlat(long[] measured, string what) =>
+        AssertGrowth(measured, Flat, what);
+
+    private static void AssertGrowth(long[] measured, double limit, string what)
     {
         for (var i = 1; i < measured.Length; i++)
         {
@@ -205,8 +262,8 @@ internal static class Growth
             var ratio = measured[i] / (double)Math.Max(1, measured[i - 1]);
 
             Assert.True(
-                ratio <= Superlinear,
-                $"{what} grew {ratio:F2}x per doubling (limit {Superlinear}x): {string.Join(", ", measured)}");
+                ratio <= limit,
+                $"{what} grew {ratio:F2}x per doubling (limit {limit}x): {string.Join(", ", measured)}");
         }
     }
 }

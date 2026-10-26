@@ -425,18 +425,291 @@ public class HistoryTests
     public void CoalescedStepsUndoInTheOrderTheyHappened()
     {
         // The steps recorded last have to undo first, or they are applied to positions that the
-        // earlier ones have already moved.
-        var editor = new Editor()
-            .Type(1, "abc", TimeSpan.Zero)
-            .Type(4, "de", TimeSpan.FromMilliseconds(50))
-            .Type(6, "f", TimeSpan.FromMilliseconds(100));
+        // earlier ones have already moved. A paragraph split in the middle keeps the three edits
+        // as three steps: text replacements next to each other fold into one, a split does not.
+        var editor = new Editor().Type(1, "abc", TimeSpan.Zero);
 
-        Assert.Equal("abcdefhello", editor.Text(0));
+        editor.Commit(editor.Begin(TransactionKind.Typing, TimeSpan.FromMilliseconds(50))
+            .Replace(4, 4, Slice.ParagraphSplit));
+        editor.Type(6, "f", TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal("abc", editor.Text(0));
+        Assert.Equal("fhello", editor.Text(1));
         Assert.Equal(3, editor.History.Pending!.Undo.Length);
 
         editor.Undo();
 
         Assert.Equal("hello", editor.Text(0));
+    }
+
+    /// <remarks>
+    /// F-12. Each keystroke's inverse used to be kept as its own step, so Ctrl+Z after a sentence
+    /// typed without a pause replayed every keystroke — each a rebuild of the document's spine,
+    /// 0.6 s for 100 characters at 50,000 paragraphs. Neighbouring text replacements in one
+    /// paragraph are one replacement, so that is what is kept.
+    /// </remarks>
+    [Fact]
+    public void ATypingBurstUndoesAndRedoesWithOneStep()
+    {
+        var editor = new Editor();
+        var pos = 1;
+
+        for (var i = 0; i < 40; i++)
+        {
+            // An astral character now and then: two code units, one keystroke.
+            var typed = i % 7 == 0 ? "\U0001F600" : "x";
+
+            editor.Type(pos, typed, TimeSpan.FromMilliseconds(i * 10));
+            pos += typed.Length;
+        }
+
+        var typedDoc = editor.Doc;
+
+        Assert.Equal(1, editor.History.UndoDepth);
+        Assert.Single(editor.History.Pending!.Undo);
+
+        editor.Undo();
+
+        Assert.Equal(Start().Doc, editor.Doc);
+
+        editor.Redo();
+
+        Assert.Equal(typedDoc, editor.Doc);
+        Assert.Single(editor.History.Pending!.Undo);
+    }
+
+    /// <remarks>
+    /// Backspace inverts into insertions that land one before the other; holding it down over
+    /// formatted text has to give the formatting back with the characters.
+    /// </remarks>
+    [Fact]
+    public void ABackspaceBurstOverFormattedTextUndoesWithOneStep()
+    {
+        var editor = new Editor();
+
+        editor.Commit(editor.Begin(TransactionKind.Format, TimeSpan.Zero)
+            .Step(new AddMarkStep(2, 4, new MarkSet { Style = TextStyle.Bold }, MarkFields.Bold)));
+
+        var formatted = editor.Doc;
+
+        for (var pos = 6; pos > 1; pos--)
+        {
+            editor.Backspace(pos, TimeSpan.FromSeconds(1) + TimeSpan.FromMilliseconds(10 * (6 - pos)));
+        }
+
+        Assert.Equal(string.Empty, editor.Text(0));
+        Assert.Single(editor.History.Pending!.Undo);
+
+        editor.Undo();
+
+        Assert.Equal(formatted, editor.Doc);
+    }
+
+    /// <remarks>Forward Delete inverts into insertions that all land at the caret.</remarks>
+    [Fact]
+    public void AForwardDeleteBurstUndoesWithOneStep()
+    {
+        var editor = new Editor();
+
+        for (var i = 0; i < 4; i++)
+        {
+            editor.Commit(editor.Begin(TransactionKind.Delete, TimeSpan.FromMilliseconds(i * 10))
+                .Delete(2, 3));
+        }
+
+        Assert.Equal("h", editor.Text(0));
+        Assert.Single(editor.History.Pending!.Undo);
+
+        editor.Undo();
+
+        Assert.Equal(Start().Doc, editor.Doc);
+    }
+
+    /// <remarks>
+    /// Folding two steps into one is only shown to mean the same thing for replacements inside
+    /// one paragraph's text. A structural step — a split, a join — keeps its own step even when it
+    /// is coalesced into a burst of typing, and the text on either side of it is folded no
+    /// further than up to it.
+    /// </remarks>
+    [Fact]
+    public void AStructuralStepInABurstIsNotFoldedIntoTheText()
+    {
+        var editor = new Editor()
+            .Type(6, "a", TimeSpan.Zero)
+            .Type(7, "b", TimeSpan.FromMilliseconds(10));
+
+        editor.Commit(editor.Begin(TransactionKind.Typing, TimeSpan.FromMilliseconds(20))
+            .Replace(8, 8, Slice.ParagraphSplit));
+        editor.Type(10, "c", TimeSpan.FromMilliseconds(30))
+            .Type(11, "d", TimeSpan.FromMilliseconds(40));
+
+        Assert.Equal("helloab", editor.Text(0));
+        Assert.Equal("cd", editor.Text(1));
+        Assert.Equal(3, editor.History.Pending!.Undo.Length);
+
+        editor.Undo();
+
+        Assert.Equal(Start().Doc, editor.Doc);
+    }
+
+    /// <remarks>
+    /// Typing over a selection is a deletion and an insertion in one transaction. The keystrokes
+    /// after it fold into its insertion; the deletion stays, because it is not next to them in
+    /// the order the steps are undone.
+    /// </remarks>
+    [Fact]
+    public void TypingOverASelectionKeepsTheDeletionAndFoldsTheRest()
+    {
+        var editor = new Editor();
+
+        editor.Commit(editor.Begin(TransactionKind.Typing, TimeSpan.Zero)
+            .Delete(2, 5)
+            .InsertText(2, "a"));
+
+        for (var i = 1; i < 5; i++)
+        {
+            editor.Type(2 + i, "a", TimeSpan.FromMilliseconds(i * 10));
+        }
+
+        Assert.Equal("haaaaao", editor.Text(0));
+        Assert.Equal(2, editor.History.Pending!.Undo.Length);
+
+        editor.Undo();
+
+        Assert.Equal(Start().Doc, editor.Doc);
+    }
+
+    /// <summary>
+    /// Random bursts of typing, Backspace and Delete at a moving caret, some of them formatted,
+    /// some astral, some crossing a paragraph boundary: every undo lands exactly on the document
+    /// its event started from, and redoing all of it lands on the end.
+    /// </summary>
+    /// <remarks>
+    /// The folding has to be invisible except in how many steps are replayed, and the property
+    /// tests in <c>ModelPropertyTests</c> rarely produce a burst, because their edits jump about.
+    /// These do not jump: each edit starts where the last one left the caret, which is the only
+    /// way edits coalesce.
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public void FoldedBurstsUndoToExactlyWhereEachEventStarted(int seed)
+    {
+        var random = new Random(seed);
+        var editor = new Editor();
+        var starts = new List<DocumentNode>();
+        var caret = 3;
+        var clock = TimeSpan.Zero;
+        var bold = new MarkSet { Style = TextStyle.Bold };
+
+        for (var i = 0; i < 300; i++)
+        {
+            // Mostly inside the window, sometimes a pause that starts a new event.
+            clock += TimeSpan.FromMilliseconds(random.Next(10) == 0 ? 900 : 40);
+
+            var tr = editor.State.Transaction().At(T0 + clock);
+            var size = editor.Doc.ContentSize;
+
+            if (random.Next(15) == 0)
+            {
+                caret = editor.Doc.Resolve(random.Next(size + 1)) is { IsInText: true } at
+                    ? at.Pos
+                    : caret;
+            }
+
+            switch (random.Next(4))
+            {
+                case 0:
+                case 1:
+                    var text = random.Next(5) == 0 ? "\U0001F600" : ((char)('a' + random.Next(26))).ToString();
+
+                    tr.As(TransactionKind.Typing)
+                        .InsertText(caret, text, random.Next(3) == 0 ? bold : MarkSet.Empty);
+                    caret += text.Length;
+                    break;
+
+                case 2:
+                    var back = BackOneCharacter(editor.Doc, caret);
+
+                    tr.As(TransactionKind.Delete).Delete(back, caret);
+                    caret = tr.Failures.IsEmpty ? back : caret;
+                    break;
+
+                default:
+                    tr.As(TransactionKind.Delete).Delete(caret, ForwardOneCharacter(editor.Doc, caret));
+                    break;
+            }
+
+            if (!tr.ChangedDoc)
+            {
+                continue;
+            }
+
+            tr.SetSelection(TextSelection.Cursor(Math.Min(caret, tr.Doc.ContentSize)));
+
+            var before = editor.Doc;
+            var depth = editor.History.UndoDepth;
+
+            editor.Commit(tr);
+
+            if (editor.History.UndoDepth > depth)
+            {
+                starts.Add(before);
+            }
+
+            caret = editor.State.Selection.Head;
+        }
+
+        var end = editor.Doc;
+
+        for (var i = starts.Count - 1; i >= 0; i--)
+        {
+            editor.Undo();
+            Assert.Equal(starts[i], editor.Doc);
+        }
+
+        while (editor.History.CanRedo)
+        {
+            editor.Redo();
+        }
+
+        Assert.Equal(end, editor.Doc);
+    }
+
+    /// <summary>One character back from a position, or the paragraph boundary before it.</summary>
+    private static int BackOneCharacter(DocumentNode doc, int pos)
+    {
+        var at = doc.Resolve(pos);
+
+        if (at.ParentOffset == 0)
+        {
+            // A Backspace at the start of a paragraph joins it to the one before.
+            return Math.Max(0, pos - 2);
+        }
+
+        var text = at.Paragraph!.Content.Text;
+
+        return pos - (at.ParentOffset >= 2 && char.IsLowSurrogate(text[at.ParentOffset - 1]) ? 2 : 1);
+    }
+
+    /// <summary>One character forward from a position, or the paragraph boundary after it.</summary>
+    private static int ForwardOneCharacter(DocumentNode doc, int pos)
+    {
+        var at = doc.Resolve(pos);
+        var text = at.Paragraph!.Content.Text;
+
+        if (at.ParentOffset == text.Length)
+        {
+            return Math.Min(doc.ContentSize, pos + 2);
+        }
+
+        return pos + (char.IsHighSurrogate(text[at.ParentOffset]) ? 2 : 1);
     }
 
     [Fact]

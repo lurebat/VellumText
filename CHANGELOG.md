@@ -72,6 +72,15 @@ NuGet; packages are published to a local feed, and
   by binary search, so the undo is linear like the command it undoes; redo
   shares the fix. A hand-built `RestoreMarksStep` whose spans are out of order
   or overlap is still applied exactly as before.
+- **Ctrl+Z after a burst of typing replays one step, not one per keystroke.**
+  Typing without a 500 ms pause is still one undo, but each keystroke's inverse
+  was kept and replayed separately, every one a rebuild of the document's
+  spine: 100 characters took 0.6 s (104 MB) to undo at 50,000 paragraphs and
+  400 took 2.3 s, growing with every character. History now folds neighbouring
+  text edits within one paragraph into a single step as each keystroke is
+  recorded, for typing, Backspace and Delete alike, so the undo costs the same
+  however long the burst was. What is grouped is unchanged; a split, a join or
+  any other structural step in a burst keeps its own step.
 
 ### Changed
 
