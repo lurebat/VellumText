@@ -86,6 +86,9 @@ NuGet; packages are published to a local feed, and
   busy.** Its guard compared selection offsets only, so a host that loaded a
   different clip with a selection at the same numbers lost text it never copied.
   It now uses the same document-and-selection check a paste does.
+- **An IME composition over a selection that crosses paragraphs is drawn where
+  the commit lands** — at the start of the selection, in the first paragraph —
+  rather than at the start of the paragraph holding the head.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

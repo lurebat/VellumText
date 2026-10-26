@@ -28,7 +28,22 @@ public partial class RichTextView
     private readonly RichTextInputMethodClient _inputMethod;
 
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    public Preedit? Preedit => Block?.Preedit;
+    public Preedit? Preedit => CompositionText?.View.Preedit;
+
+    /// <summary>
+    /// The paragraph a composition is drawn in: the one holding the start of the selection,
+    /// which is where the commit will replace it.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Block"/>, which is the paragraph holding the head. Over a selection that
+    /// crosses paragraphs the two differ, and anchoring in the head's paragraph drew the composed
+    /// text at the start of the last paragraph while the commit landed in the first.
+    /// </remarks>
+    /// <para>
+    /// Resolved through <see cref="DocumentPresenter.ParagraphAt"/>, whose start and origin are
+    /// in document and control coordinates; <see cref="CaretText"/>'s are relative to its block.
+    /// </para>
+    private TextAt? CompositionText => ParagraphAt(_state.Selection.From);
 
     /// <summary>Whether an input method is composing into this view.</summary>
     public bool IsComposing => Preedit is not null;
@@ -53,10 +68,12 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool SetPreedit(string? text, int? cursorPosition = null)
     {
-        if (Block is not { } block)
+        if (CompositionText is not { } at)
         {
             return false;
         }
+
+        var block = at.View;
 
         if (IsReadOnly && !string.IsNullOrEmpty(text))
         {
@@ -70,7 +87,7 @@ public partial class RichTextView
             return false;
         }
 
-        var anchor = Math.Clamp(_state.Selection.From - BlockStart, 0, block.ContentSize);
+        var anchor = Math.Clamp(_state.Selection.From - at.Start, 0, block.ContentSize);
 
         // The cursor is clamped rather than validated: it comes from a platform input method,
         // and a client that throws at one is a client that crashes the application on a stray
@@ -143,14 +160,18 @@ public partial class RichTextView
     /// </remarks>
     public Rect CaretRect()
     {
+        // While composing, the caret is inside the composed text, wherever that is drawn.
+        if (CompositionText is { View.Preedit: not null } composing)
+        {
+            return composing.View.GetPreeditCaretRect().Translate(new Vector(composing.Origin.X, composing.Origin.Y));
+        }
+
         if (Block is not { } block)
         {
             return default;
         }
 
-        var local = block.Preedit is not null
-            ? block.GetPreeditCaretRect()
-            : block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, block.ContentSize));
+        var local = block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, block.ContentSize));
 
         // Translated by the block's own origin: a caret in the fourth paragraph is drawn where
         // that paragraph is, and the block has no idea where that is.

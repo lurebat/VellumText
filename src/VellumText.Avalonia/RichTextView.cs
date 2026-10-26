@@ -676,7 +676,7 @@ public partial class RichTextView : DocumentPresenter
 
         // A non-empty selection hides the caret, except while composing: then the caret belongs
         // to the input method and sits inside text the selection knows nothing about.
-        if (Block?.Preedit is null && !_state.Selection.IsEmpty)
+        if (Preedit is null && !_state.Selection.IsEmpty)
         {
             return;
         }
