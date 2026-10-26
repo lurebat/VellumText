@@ -110,6 +110,13 @@ awaits `PasteAsync`.
   refuses that paste.
 ### Changed
 
+- **Importing styled HTML or RTF costs a parse per distinct style, not per
+  element.** RtfPipe writes the same few `style` strings on every element of a
+  Word document, and each was parsed while the DOM was built and again by the
+  sanitizer: 10,000 paragraphs allocated 850 MB against 35 MB without the
+  styles. The DOM is now built without CSS support, each distinct style value is
+  sanitized once by the same sanitizer and parsed once, and the import allocates
+  about 110 MB.
 - **Importing is asynchronous, and only asynchronous.** A paste of a large web
   page or Word document froze whatever waited for it — the UI thread, in the
   editor — for seconds, and a synchronous import member invites exactly that

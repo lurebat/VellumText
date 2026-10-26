@@ -145,10 +145,11 @@ public static class HtmlImporter
         HtmlImportOptions options,
         List<ImportDiagnostic> diagnostics)
     {
-        // CSS support has to be configured on the context, not added later: without it an element
-        // has no style declaration, and the sanitizer would then find nothing to sanitize in a
-        // style attribute rather than finding it clean.
-        var context = BrowsingContext.New(Configuration.Default.WithCss());
+        // Deliberately without CSS support: with it every element's style attribute is parsed while
+        // the tree is built, which for a Word document is the same few strings parsed once per
+        // element. Styles are sanitized and parsed once per distinct value instead — see
+        // SanitizingReader.Sanitize and CssStyles.StyleOf.
+        var context = BrowsingContext.New(Configuration.Default);
 
         var guarded = HtmlInputGuard.Bound(html, options);
 
@@ -215,6 +216,9 @@ public static class HtmlImporter
     {
         private readonly HashSet<string> _reported = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Style declarations already parsed in this import, by attribute value.</summary>
+        private readonly Dictionary<string, AngleSharp.Css.Dom.ICssStyleDeclaration?> _styles =
+            new(StringComparer.Ordinal);
 
         /// <summary>The grid slots the tables still to come may cover; see <see cref="HtmlImportOptions.MaxTableSlots"/>.</summary>
         private long _tableSlotsLeft = options.MaxTableSlots;
@@ -337,7 +341,7 @@ public static class HtmlImporter
                     break;
             }
 
-            var style = CssStyles.StyleOf(element);
+            var style = CssStyles.StyleOf(element, _styles);
             var inner = ApplyElementMark(element, mark);
 
             if (style is not null)
@@ -514,7 +518,7 @@ public static class HtmlImporter
         /// </remarks>
         private const double MaxImageDimension = 32768.0;
 
-        private static double? Dimension(IElement element, string name)
+        private double? Dimension(IElement element, string name)
         {
             var attribute = element.GetAttribute(name);
 
@@ -526,7 +530,7 @@ public static class HtmlImporter
                 return value;
             }
 
-            var style = CssStyles.StyleOf(element);
+            var style = CssStyles.StyleOf(element, _styles);
 
             if (style is not null
                 && CssStyles.TryLength(style.GetPropertyValue(name), out var length)
@@ -763,7 +767,7 @@ public static class HtmlImporter
             WalkChildren(cellElement, mark, cellStyle, inner, depth);
             inner.Flush(cellStyle);
 
-            var style = CssStyles.StyleOf(cellElement);
+            var style = CssStyles.StyleOf(cellElement, _styles);
             Rgba? background = null;
 
             if (style is not null

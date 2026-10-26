@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
 
+using AngleSharp;
+using AngleSharp.Css;
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
 using Ganss.Xss;
 
 namespace VellumText.Interop.Html;
@@ -188,10 +191,68 @@ internal sealed class SanitizingReader
         // The base address has to reach the sanitizer, not just the walker: it resolves relative
         // URLs before it checks their scheme, so without it a relative address is judged on its
         // own and there is nothing left for the walker to resolve afterwards.
-        sanitizer.SanitizeDom(
-            (IHtmlDocument)document,
-            context: null,
-            baseUrl: _options.BaseUri?.AbsoluteUri ?? string.Empty);
+        var baseUrl = _options.BaseUri?.AbsoluteUri ?? string.Empty;
+
+        // Style attributes go through the sanitizer one distinct value at a time rather than once
+        // per element (F-16). The document is parsed without CSS support, because with it every
+        // element's style is parsed while the tree is built and parsed again here: RtfPipe writes
+        // the same three style strings on every element of a Word document, and 10,000 paragraphs
+        // allocated 850 MB doing it, against 35 MB for the same markup without styles. Without CSS
+        // support the sanitizer would simply strip every style, so they are set aside first, each
+        // distinct value is sanitized once by this same sanitizer in a one-element document that
+        // does have CSS support, and the result is put back on the elements that survived.
+        var styles = new List<(IElement Element, string Style)>();
+
+        foreach (var element in document.QuerySelectorAll("[style]"))
+        {
+            styles.Add((element, element.GetAttribute("style") ?? string.Empty));
+            element.RemoveAttribute("style");
+        }
+
+        sanitizer.SanitizeDom((IHtmlDocument)document, context: null, baseUrl: baseUrl);
+
+        if (styles.Count == 0)
+        {
+            return;
+        }
+
+        var survivors = document.QuerySelectorAll("*").ToHashSet();
+        var sanitized = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var probe = new HtmlParser(new HtmlParserOptions(), BrowsingContext.New(Configuration.Default.WithCss()));
+
+        foreach (var (element, style) in styles)
+        {
+            if (!survivors.Contains(element))
+            {
+                continue;
+            }
+
+            if (!sanitized.TryGetValue(style, out var clean))
+            {
+                clean = SanitizeStyle(sanitizer, probe, style, baseUrl);
+                sanitized[style] = clean;
+            }
+
+            if (!string.IsNullOrWhiteSpace(clean))
+            {
+                element.SetAttribute("style", clean);
+            }
+        }
+    }
+
+    /// <summary>
+    /// What <paramref name="sanitizer"/> leaves of one style attribute, decided on an element of
+    /// its own in a document that can read CSS.
+    /// </summary>
+    private static string? SanitizeStyle(HtmlSanitizer sanitizer, HtmlParser probe, string style, string baseUrl)
+    {
+        var document = probe.ParseDocument("<span></span>");
+        var span = document.QuerySelector("span")!;
+
+        span.SetAttribute("style", style);
+        sanitizer.SanitizeDom(document, context: null, baseUrl: baseUrl);
+
+        return document.QuerySelector("span")?.GetAttribute("style");
     }
 
     /// <summary>
