@@ -36,6 +36,7 @@ public class DocumentPresenterAutomationPeer : ControlAutomationPeer, IValueProv
 {
     private DocumentNode? _valueFor;
     private string _value = string.Empty;
+    private bool _wasReadOnly;
 
     /// <summary>Creates a peer for <paramref name="owner"/>.</summary>
     /// <param name="owner">The presenter this peer describes.</param>
@@ -45,6 +46,7 @@ public class DocumentPresenterAutomationPeer : ControlAutomationPeer, IValueProv
     {
         ArgumentNullException.ThrowIfNull(owner);
 
+        _wasReadOnly = !owner.SupportsTextInput;
         owner.PropertyChanged += OnOwnerPropertyChanged;
     }
 
@@ -127,6 +129,16 @@ public class DocumentPresenterAutomationPeer : ControlAutomationPeer, IValueProv
     /// </remarks>
     private void OnOwnerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        // Read-only is announced too: an assistive technology that saw an editable field keeps
+        // offering to type into it until it is told otherwise.
+        var readOnly = IsReadOnly;
+
+        if (readOnly != _wasReadOnly)
+        {
+            RaisePropertyChangedEvent(ValuePatternIdentifiers.IsReadOnlyProperty, _wasReadOnly, readOnly);
+            _wasReadOnly = readOnly;
+        }
+
         // The cheap test first: most property changes are not document changes, and asking for
         // Value would walk the whole document to discover that.
         if (ReferenceEquals(_valueFor, Owner.PresentedDocument))

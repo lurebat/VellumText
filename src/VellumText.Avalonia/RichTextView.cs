@@ -281,9 +281,17 @@ public partial class RichTextView : DocumentPresenter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Selecting is not an edit, so the whole replacement is one transaction and one undo takes
-    /// it back. Empty text is a deletion rather than a paste of nothing, which
-    /// <see cref="PasteText"/> would treat as no change at all.
+    /// <para>
+    /// One transaction replacing the whole document with the text's paragraphs, so one undo takes
+    /// it back. Empty text leaves one empty paragraph, since a document needs somewhere for the
+    /// caret.
+    /// </para>
+    /// <para>
+    /// Not select-all and paste, which it used to be: select-all spans the first to the last
+    /// text position, so on a document that is one table it is a rectangle of cells — which paste
+    /// refuses, and the call did nothing and said nothing — and a block image at either edge was
+    /// outside it and survived a "replace everything".
+    /// </para>
     /// </remarks>
     protected internal override void SetTextFromAutomation(string text)
     {
@@ -304,15 +312,18 @@ public partial class RichTextView : DocumentPresenter
             return;
         }
 
-        SelectAll();
+        var paragraphs = text.Length == 0 ? [ParagraphNode.Empty] : TextParagraphs(text);
+        var size = paragraphs.Sum(p => p.NodeSize);
+        var transaction = _state.Transaction().As(TransactionKind.Structure);
 
-        if (text.Length == 0)
+        transaction
+            .Replace(0, _state.Doc.ContentSize, Slice.OfBlocks([.. paragraphs]))
+            .SetSelection(TextSelection.Cursor(size - 1))
+            .SetStoredMarks(null);
+
+        if (transaction.Failures.IsEmpty)
         {
-            DeleteSelection();
-        }
-        else
-        {
-            PasteText(text);
+            Apply(transaction);
         }
     }
 

@@ -67,6 +67,19 @@ public static class DocumentText
                     any = true;
                     break;
 
+                // A block image is read as its alt text, on its own line, as an inline image
+                // already is through PlainTextFallback. Left out, a screen reader reading the
+                // document's value never heard the picture at all.
+                case BlockImageNode { Image.PlainTextFallback: { Length: > 0 } alt }:
+                    if (any)
+                    {
+                        builder.Append('\n');
+                    }
+
+                    builder.Append(alt);
+                    any = true;
+                    break;
+
                 default:
                     Append(builder, node.Children, ref any);
                     break;

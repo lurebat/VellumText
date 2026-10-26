@@ -104,6 +104,13 @@ NuGet; packages are published to a local feed, and
 - With the caret where two links meet, Ctrl+K's dialog and `ApplyLink` /
   `RemoveLink` now act on the same link; they picked opposite sides, so the
   link shown stayed and its neighbour was rewritten.
+- **Automation:** `SetValue` replaces the whole document in one transaction. It
+  selected all and pasted, which did nothing on a document that is one table
+  (select-all is then a cell rectangle) and left a block image at either edge
+  behind. A block image's alt text is now part of `DocumentText` — and so of the
+  automation value and the plain-text clipboard flavour — on a line of its own,
+  as an inline image's already was. The peer raises the value pattern's
+  `IsReadOnly` change when `IsReadOnly` toggles.
 
 ### Changed
 
