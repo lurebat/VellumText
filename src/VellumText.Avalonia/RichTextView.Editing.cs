@@ -83,6 +83,25 @@ public partial class RichTextView
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Typing);
 
+        // A selected block image sits between paragraphs, where there is nowhere for text to go:
+        // deleting it and inserting at its position deleted the picture and silently dropped
+        // what was typed. Typing over it replaces it with a paragraph holding the text, as typing
+        // over a selected picture does in a word processor.
+        if (selection is NodeSelection && _state.Doc.Resolve(selection.From).Paragraph is null)
+        {
+            var mark = MarkForInsertion(selection.From);
+
+            transaction
+                .Replace(selection.From, selection.To, Slice.OfBlocks(ParagraphNode.Empty))
+                .InsertText(selection.From + 1, text, mark)
+                .SetSelection(TextSelection.Cursor(selection.From + 1 + text.Length))
+                .SetStoredMarks(null);
+
+            _goalX = null;
+
+            return transaction.Failures.IsEmpty && Apply(transaction);
+        }
+
         if (!RemoveSelection(transaction, selection))
         {
             return false;
@@ -186,7 +205,7 @@ public partial class RichTextView
 
         base.OnTextInput(e);
 
-        if (e.Handled || Block is null || string.IsNullOrEmpty(e.Text))
+        if (e.Handled || string.IsNullOrEmpty(e.Text))
         {
             return;
         }
@@ -212,9 +231,11 @@ public partial class RichTextView
             return ClearCells(rectangle);
         }
 
+        // No paragraph under the caret means a selected block image: there is nothing to step
+        // over, only the selection itself to remove.
         if (Block is null)
         {
-            return false;
+            return DeleteSelection();
         }
 
         _goalX = null;

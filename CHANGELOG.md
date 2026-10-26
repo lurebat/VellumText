@@ -58,6 +58,13 @@ NuGet; packages are published to a local feed, and
   999,999,999 (CommonMark's nine digits) with a `Downgraded` diagnostic, and the
   list commands continue numbering with saturating arithmetic, so a model built
   with a start at the top of the range is safe too.
+- **Keys and typing work while a cell rectangle or a block image is
+  selected.** Both input handlers returned early when no paragraph was under the
+  caret, so a mouse-made rectangle could not be cleared, formatted or copied
+  from the keyboard, and a clicked picture could not be deleted, typed over or
+  undone. Only Home, End and the arrow keys still need a paragraph; Delete and
+  Backspace remove a selected block image, and typing replaces it with a
+  paragraph holding the text.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

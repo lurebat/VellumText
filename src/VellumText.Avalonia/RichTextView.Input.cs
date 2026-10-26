@@ -571,7 +571,16 @@ public partial class RichTextView
 
         base.OnKeyDown(e);
 
-        if (e.Handled || Block is null)
+        if (e.Handled)
+        {
+            return;
+        }
+
+        // Only the keys that move within a paragraph need one under the caret. A rectangle of
+        // cells and a selected block image have none, and every other key goes to a command that
+        // already knows what to do with either - a blanket check here made Delete, Ctrl+Z, Ctrl+B,
+        // Ctrl+C and typing do nothing at all while one was selected.
+        if (Block is null && e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End)
         {
             return;
         }
