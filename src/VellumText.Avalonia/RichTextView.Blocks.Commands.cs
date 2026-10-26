@@ -106,9 +106,9 @@ public partial class RichTextView
     {
         int? shared = null;
 
-        foreach (var index in SelectedBlocks())
+        foreach (var slot in SelectedBlocks())
         {
-            if (_slots[index].Node is not ParagraphNode paragraph)
+            if (slot.Node is not ParagraphNode paragraph)
             {
                 continue;
             }
@@ -126,17 +126,23 @@ public partial class RichTextView
         return shared;
     }
 
-    /// <summary>The block indices the selection touches, in document order.</summary>
+    /// <summary>The leaf blocks the selection touches, in document order.</summary>
     /// <remarks>
+    /// <para>
     /// A collapsed caret touches the one block it is in. A range touches every block it overlaps
     /// but not one it merely ends at the start of, which is the same rule the selection
     /// highlight uses — a selection that stops where a paragraph begins has not reached it.
+    /// </para>
+    /// <para>
+    /// Leaves rather than drawn blocks, as character formatting already does: a table is one
+    /// drawn block holding every cell, so walking the drawn blocks reached no paragraph at all
+    /// from a caret in a cell, and Ctrl+1 or a centre button there silently did nothing.
+    /// </para>
     /// </remarks>
-    private IEnumerable<int> SelectedBlocks()
+    private IEnumerable<BlockSlot> SelectedBlocks()
     {
-        // The slot list can be empty even though the document is not: replacing a resolver drops
-        // the layout, and a host that then issues a command before the next measure pass would
-        // otherwise get a silent no-op.
+        // The leaves come from the document, but a command must still leave the view laid out:
+        // replacing a resolver drops the layout, and a host reads the result straight back.
         EnsureSlots();
 
         // A rectangle of cells is not a run of blocks. Its From..To covers the whole table, so
@@ -150,13 +156,17 @@ public partial class RichTextView
         var from = _state.Selection.From;
         var to = _state.Selection.To;
 
-        for (var i = 0; i < _slots.Length; i++)
+        if (from == to)
         {
-            var slot = _slots[i];
+            yield return LeafContaining(from);
+            yield break;
+        }
 
-            if (from == to ? i == _caretBlock : to > slot.Start && from < slot.End)
+        foreach (var leaf in Leaves)
+        {
+            if (to > leaf.Start && from < leaf.End)
             {
-                yield return i;
+                yield return leaf;
             }
         }
     }
@@ -166,9 +176,9 @@ public partial class RichTextView
         var transaction = _state.Transaction().As(TransactionKind.Format);
         var any = false;
 
-        foreach (var index in SelectedBlocks())
+        foreach (var slot in SelectedBlocks())
         {
-            if (_slots[index].Node is not ParagraphNode paragraph)
+            if (slot.Node is not ParagraphNode paragraph)
             {
                 continue;
             }
@@ -178,7 +188,7 @@ public partial class RichTextView
             if (level != paragraph.IndentLevel)
             {
                 transaction.Step(new SetBlockAttrStep(
-                    _slots[index].Start - 1, BlockAttr.IndentLevel, level));
+                    slot.Start - 1, BlockAttr.IndentLevel, level));
                 any = true;
             }
         }
@@ -191,9 +201,9 @@ public partial class RichTextView
         var transaction = _state.Transaction().As(TransactionKind.Format);
         var any = false;
 
-        foreach (var index in SelectedBlocks())
+        foreach (var slot in SelectedBlocks())
         {
-            if (_slots[index].Node is not ParagraphNode paragraph || Current(paragraph, attr) == value)
+            if (slot.Node is not ParagraphNode paragraph || Current(paragraph, attr) == value)
             {
                 // Already what it is being set to. Stepping anyway would apply cleanly and
                 // record an undo entry that undoes nothing, which is worse than doing nothing.
@@ -202,7 +212,7 @@ public partial class RichTextView
 
             // A block's own position is one before its content starts. The step addresses the
             // block, not the text inside it.
-            transaction.Step(new SetBlockAttrStep(_slots[index].Start - 1, attr, value));
+            transaction.Step(new SetBlockAttrStep(slot.Start - 1, attr, value));
             any = true;
         }
 

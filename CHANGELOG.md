@@ -94,6 +94,10 @@ NuGet; packages are published to a local feed, and
 - **Typing, an IME commit or a find-and-replace carrying U+FFFC no longer
   throws out of the input handler.** The embed placeholder is dropped from such
   text, as paste already did.
+- **Heading, alignment and indent commands work in a table cell.** They walked
+  the drawn blocks, and a table is one drawn block, so Ctrl+1–6, Ctrl+L/E/R/J,
+  the toolbar's buttons and its lit state all did nothing inside a table. They
+  now walk the paragraphs, as character formatting already did.
 
 ### Changed
 
