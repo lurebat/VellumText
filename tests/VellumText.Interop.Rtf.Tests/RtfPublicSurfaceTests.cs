@@ -7,7 +7,7 @@ namespace VellumText.Tests.Interop.Rtf;
 /// The RTF package's public API says nothing about HTML.
 /// </summary>
 /// <remarks>
-/// RTF import runs through an HTML stage internally — RtfPipe emits HTML and the HTML importer
+/// RTF import runs through an HTML stage internally — the reader emits HTML and the HTML importer
 /// reads it — but that is an implementation choice. It leaked into the public surface as
 /// <c>RtfImporter.Import(string, HtmlImportOptions?)</c>, which made every consumer who wanted to
 /// configure RTF import take a dependency on the HTML package and froze an internal decision where

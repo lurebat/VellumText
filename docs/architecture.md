@@ -1112,16 +1112,41 @@ Only materially distinct options; scored 1–5 (5 best).
 | Format | Choice | License | Rationale |
 |---|---|---|---|
 | DOCX | `DocumentFormat.OpenXml` 3.5.1 | **MIT** | Microsoft/.NET Foundation, active (rel. 2026-03-18), pure managed OOXML — no Office/COM, works on Linux/macOS. Low-level, so it sits behind our own adapter. |
-| HTML | `AngleSharp` 1.7.1 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
+| HTML | `AngleSharp` 1.8.3 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
 | Markdown | `Markdig` 1.3.2 | **BSD-2** | AST + custom renderers + trivia round-trip. |
-| RTF | `RtfPipe` 2.0.7 for import, hand-rolled writer for export | **MIT** | Superseded the original "a general parser is not worth it" call once the clipboard-manager use case made RTF import mandatory (§12.3). RtfPipe converts RTF to HTML, which then goes through the same AngleSharp path as any other paste, so there is exactly one place deciding what a paste may contain. Stale (last release 2021) but correct on the Word and Outlook output that matters. |
+| RTF | `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf` 3.5.1 (exact pin) for import, hand-rolled writer for export | **MIT** | Chosen 2026-10-27 through the phase 8 selection gate (owner decision OD-8, option 1), replacing RtfPipe. OfficeIMO reads the RTF into its own model and writes HTML, which then goes through the same AngleSharp path as any other paste, so there is still exactly one place deciding what a paste may contain. It was the only maintained, permissively licensed candidate bounded on the whole hostile corpus; RtfPipe (last release 2021) took 2.3 s on 32 bytes of `\uc2147483647` and over 30 s on 100,000 `\cellx`. The scored comparison is summarised in the phase 8 pull request. |
 
-**Known RTF import limitation.** RtfPipe treats black as the absence of a colour and emits no
-CSS for it, so text coloured *explicitly* black is indistinguishable from unstyled text by the
-time anything of ours sees it, and it follows the theme. Recovering the distinction would mean
-reading `\colortbl` and `\cf` ourselves — the hand-written RTF reader this section exists to
-avoid — so the behaviour is pinned by a test rather than worked around. `\highlight` and every
-non-black `\cf` colour do survive. See `Explicit_black_arrives_as_no_colour_at_all`.
+**What the reader's replacement settled, and what it costs (2026-10-27).**
+
+- **Explicit black now survives.** RtfPipe treated black as the absence of a colour, so text
+  coloured *explicitly* black arrived unstyled and followed the theme; that was pinned as a known
+  limitation. OfficeIMO writes `color:#000000`, and the test now pins the colour arriving.
+- **Merged cells, both directions, now survive** (`\clvmgf`/`\clvmrg` and `\clmgf`/`\clmrg`).
+- **A picture Word stores only as a shape is lost, and says so.** Word writes a picture twice, as
+  a shape (`\shppict`) and as a metafile fallback (`\nonshppict`), and this reader binds neither,
+  so the import reports a `Dropped` diagnostic (`shppict`) instead of losing it silently. A paste
+  from Word is unaffected — the clipboard's HTML flavour is preferred and carries the picture — so
+  the loss is confined to RTF-only sources: Word-saved `.rtf` files, or a host that registers
+  only `RtfFormat`.
+- **A `\uc` skip count is honoured as the specification says.** 32 bytes of `\uc2147483647` skip
+  the rest of the group, in milliseconds rather than RtfPipe's seconds, and a count above 16 is
+  reported (`uc`) so the skipped text is not lost silently.
+- **No whole-document budget.** The reader's own caps on total size are lifted, because the
+  library caps no paste by its total size (§7); its group-depth limit stays, and content nested
+  below it is dropped with a diagnostic.
+
+**The risks accepted with it, recorded so they are re-checked rather than forgotten.**
+
+- **Young, with one principal maintainer.** OfficeIMO's RTF reader was first released on
+  2026-06-16 and had about 36 releases in its first four months. It is pinned to one exact
+  version; an upgrade is a reviewed change, run against the hostile corpus
+  (`HostileNestingTests`, `RtfImportTests`) before it lands.
+- **The `\shppict` gap** above, until the reader binds shapes.
+- **A heavier dependency.** `OfficeIMO.Html.Rtf` brings `OfficeIMO.Html` and its siblings
+  (about 8 MB of assemblies) and required AngleSharp 1.8.3 and AngleSharp.Css 1.1.2, the parser
+  under the sanitizer; the HTML and sanitizer suites were re-run on the bump.
+- **Not declared trimmable.** Checked with the trimming analyzer; see the phase 8 pull request for
+  what it reported.
 
 **The HTML stage is internal, and the public API says so.** `RtfImporter.Import` took an
 `HtmlImportOptions`, which put HTML's type in the RTF package's public surface: a consumer who
@@ -2579,9 +2604,9 @@ was shaped from.
 | **OD1 — Avalonia version** | **Avalonia 12 only** for v1. No 11.3 LTS multi-targeting. It can be added later behind a build constant if demand appears; carrying it from day one taxes every increment. | 2026-08-11 |
 | **Target framework** | **`net10.0`**, single-target. Avalonia 12.1.1 ships `net10.0` assemblies, so nothing is given up on the UI side. Consumers must be on .NET 10 — accepted deliberately for a new library rather than carrying a `net8.0` floor. | 2026-08-11 |
 | **`VellumText.Core` dependencies** | **None at all** — not even `Avalonia.Base`. The core owns `Rgba` and `ValueSpan<T>` in place of the two Avalonia primitives it would otherwise borrow; `VellumText.Avalonia` owns the conversions. See §4.1. | 2026-08-11 |
-| **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf` on RtfPipe. | user decision |
+| **RTF import (AC8)** | **Required, not optional.** The driving use case is a clipboard manager, and RTF is what Windows applications put on the clipboard. Shipped in `VellumText.Interop.Rtf`, read by RtfPipe until 2026-10-27 and by OfficeIMO since (§5.4). | user decision |
 | **Markdown (AC8)** | **Built, not amended away.** It was the one clause of AC8 that had been neither built nor knowingly dropped. `VellumText.Interop.Markdown` ships CommonMark plus GFM pipe tables in both directions, on Markdig, with import going through the HTML stage exactly as RTF does. AC8 is now complete except for DOCX, which §12.2 OD3 defers. See §10.4.5. | 2026-08-21 |
-| **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through RtfPipe, Markdown through Markdig. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
+| **Hand-rolled parsers** | **Replaced by libraries.** HTML goes through AngleSharp + HtmlSanitizer, RTF through OfficeIMO (RtfPipe until 2026-10-27; §5.4), Markdown through Markdig. Both formats are minefields where a hand-rolled parser is a permanent source of subtle wrongness. | user decision |
 | **OD2 — toolbar?** | **Yes, ship one**, as **P4** in §10.3, on top of the commands from P1. The commercial control ships `EditorToolbar` and a selection flyout, and an editor surface with no default toolbar is not something a user can evaluate. The commands stay independently usable, so a host that wants its own toolbar is not forced through ours. | this pass |
 | **A `Selection` member for "is this a rectangle"?** | **No — the type test stays, and closing the hierarchy is why.** 23 sites ask it, but they are 11 refusals with 11 different reasons, 7 dispatches that need a transaction and the presenter's geometry, and 4 reads of a cell index meaningless on the other two shapes. Once the constructor became `private protected` the type test is exhaustive by construction, which is a stronger guarantee than any virtual `bool` could give. `Selection.Map` remains the only member that varies by shape. See §4.5. | 2026-08-18 |
 | **Two-way `Document` binding?** | **No — one way, out of the control.** A view model can observe `Document` and `Selection` and bind them `OneWayToSource`; assigning a document in is not offered. Reconciling an external assignment against in-flight edits and the undo history is a design with real hazards — what an outstanding composition means, whether the history survives, what a stale assignment from a slow view model does to text typed since — and no consumer has asked for it. Loading stays `State`. See §1.1 AC13. | 2026-08-18 |
@@ -2631,6 +2656,6 @@ with the basis it rests on now. The plan that carried them out is
 |---|---|
 | `IDocumentImporter` is synchronous, with the string member derived from the stream member (§4.9). | Asynchronous only, and the editor runs every importer off the UI thread whatever it claims (OD-2, Q-1; 0.8.0). See §4.9. |
 | `RichTextToolbar` commands are always enabled. | Disabled while the bound editor is read-only. For an editable editor they stay enabled wherever the caret is, for the reason the toolbar's remarks give. |
-| RTF is read by RtfPipe (§5.4, §12.1). | To be replaced by a maintained RTF library, chosen through a selection gate on licence, maintenance and robustness against the hostile corpus; if no candidate qualifies, the owner decides rather than a hand-rolled parser being written (OD-8). |
+| RTF is read by RtfPipe (§5.4, §12.1). | Read by `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf`, pinned to one exact version, chosen through the phase 8 selection gate (OD-8, owner's option 1, 2026-10-27). The accepted risks — a young library with one principal maintainer, pictures stored only as Word shapes, the AngleSharp bump — are in §5.4. |
 | R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Long paragraphs get line-range sub-layouts, once profiling has shown which term is superlinear (OD-6). |
 | R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view itself becomes row-virtualized (OD-6). |

@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using VellumText.Interop.Html;
 using VellumText.Interop.Rtf;
@@ -10,9 +9,10 @@ namespace VellumText.Tests.Interop.Rtf;
 /// </summary>
 /// <remarks>
 /// <para>
-/// RtfPipe writes a <c>style</c> attribute on every element of a Word document, from a handful of
-/// distinct values. Every one was parsed while the DOM was built and parsed again by the
-/// sanitizer: 10,000 paragraphs allocated 850 MB, against 35 MB for the same markup with its
+/// An RTF reader writes a <c>style</c> attribute on every element of a Word document, from a
+/// handful of distinct values (RtfPipe did; the reader that replaced it in phase 8 does too).
+/// Every one was parsed while the DOM was built and parsed again by the sanitizer: 10,000
+/// paragraphs allocated 850 MB, against 35 MB for the same markup with its
 /// styles stripped, and a 1 MB RTF took 6.7 s on the UI thread.
 /// </para>
 /// <para>
@@ -23,7 +23,7 @@ namespace VellumText.Tests.Interop.Rtf;
 /// </remarks>
 public class StyleImportCostTests
 {
-    private static string RtfPipeHtml()
+    private static string ReaderHtml()
     {
         var blocks = Enumerable.Range(0, 10_000)
             .Select(i => (BlockNode)new ParagraphNode(InlineContent.Create(
@@ -32,9 +32,7 @@ public class StyleImportCostTests
                 [])))
             .ToList();
 
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
-        return RtfPipe.Rtf.ToHtml(RtfExporter.Instance.Export(new DocumentNode(blocks)));
+        return RtfImporter.ReadToHtml(RtfExporter.Instance.Export(new DocumentNode(blocks)));
     }
 
     private static long Allocated(string html)
@@ -53,7 +51,7 @@ public class StyleImportCostTests
     [Fact]
     public void A_style_on_every_element_costs_a_parse_per_distinct_value_not_per_element()
     {
-        var styled = RtfPipeHtml();
+        var styled = ReaderHtml();
         var stripped = Regex.Replace(styled, " style=\"[^\"]*\"", string.Empty);
 
         var withStyles = Allocated(styled);

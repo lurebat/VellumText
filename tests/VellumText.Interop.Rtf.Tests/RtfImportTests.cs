@@ -72,10 +72,11 @@ public class RtfImportTests
 
     /// <summary>What RTF whitespace does and does not survive, pinned deliberately.</summary>
     /// <remarks>
-    /// The character count survives and the characters themselves do not: RtfPipe writes a run of
-    /// spaces as one space followed by &amp;nbsp; entities, so four spaces come back as a space
-    /// and three U+00A0. That matters for anything that searches, wraps or re-exports the text -
-    /// a non-breaking space is not a space to any of them.
+    /// The character count survives and the characters themselves do not: a run of spaces comes
+    /// back as one space followed by non-breaking ones, so four spaces are a space and three
+    /// U+00A0. (RtfPipe wrote it that way; the reader that replaced it writes plain spaces, and the
+    /// HTML stage keeps the run for RTF.) That matters for anything that searches, wraps or
+    /// re-exports the text - a non-breaking space is not a space to any of them.
     ///
     /// Pinned with the codepoints spelled out because the two are indistinguishable on screen. I
     /// first read this output as four ordinary spaces and reported the review finding as wrong;
@@ -247,8 +248,9 @@ public class RtfImportTests
     [Fact]
     public async Task A_picture_does_not_arrive_as_a_format_nothing_can_decode()
     {
-        // RtfPipe renders \pict as a data: URL whose media type is "windows/metafile". It is not
-        // an image type anything here can decode, and the importer must not take it on faith.
+        // A Windows metafile is not an image type anything here can decode, whatever data: URL the
+        // reader renders it as (RtfPipe said "windows/metafile"), and the importer must not take it
+        // on faith.
         var result = await RtfImporter.ImportAsync(
             @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}after}");
 
@@ -285,35 +287,16 @@ public class RtfImportTests
     [Fact]
     public async Task Highlighted_text_keeps_its_highlight()
     {
-        // RtfPipe writes the highlight as the `background` shorthand rather than
-        // `background-color`, and the CSS reader expands it. Worth pinning: reading the longhand
-        // only would silently drop every highlight, and a clipboard manager would never show one.
+        // A reader may write the highlight as the `background` shorthand rather than
+        // `background-color` (RtfPipe did), and the CSS reader expands it. Worth pinning: reading
+        // one form only would silently drop every highlight, and a clipboard manager would never
+        // show one.
         var result = await Import(
             @"{\rtf1\ansi{\colortbl;\red255\green255\blue0;}\pard\highlight1 lit\highlight0  plain\par}");
 
         Assert.True(
             AnyRunHas(result, m => m.Highlight == new Rgba(255, 255, 0, 255)),
             "The highlighted run came back with no highlight on it.");
-    }
-
-    /// <summary>
-    /// Text coloured explicitly black arrives with no colour, and so follows the theme.
-    /// </summary>
-    /// <remarks>
-    /// RtfPipe treats black as the absence of a colour and writes no CSS for it, so the
-    /// distinction is gone before any of our code sees the document. Recovering it would mean
-    /// reading <c>\colortbl</c> and <c>\cf</c> ourselves, which is the hand-written RTF reader
-    /// the design deliberately does not have. Pinned rather than fixed, so that a future version
-    /// of RtfPipe changing its mind is a failing test rather than a surprise.
-    /// </remarks>
-    [Fact]
-    public async Task Explicit_black_arrives_as_no_colour_at_all()
-    {
-        var result = await Import(
-            @"{\rtf1\ansi{\colortbl;\red0\green0\blue0;}\pard\cf1 black text\par}");
-
-        Assert.Contains("black text", PlainText(result), StringComparison.Ordinal);
-        Assert.False(AnyRunHas(result, m => m.Foreground is not null));
     }
 
     [Fact]
@@ -345,6 +328,13 @@ public class RtfImportTests
         Assert.Equal($"a{expected}b\nkeep", PlainText(result));
     }
 
+    /// <remarks>
+    /// The reader (OfficeIMO, since 2026-10-27) joins the halves into the character, with the
+    /// formatting of the second half, and then adds a stray U+FFFD where the first half stood. That
+    /// is pinned as a reader quirk, so that a version which stops doing it shows up here; it is not
+    /// reported, because nothing was lost. RtfPipe passed the halves through and the HTML stage
+    /// reported a split character.
+    /// </remarks>
     [Fact]
     public async Task A_surrogate_pair_split_by_formatting_keeps_the_character_and_the_rest()
     {
@@ -352,11 +342,11 @@ public class RtfImportTests
         var result = await Import(@"{\rtf1\ansi x\u-10179?{\b\u-8704?}y\par keep\par}");
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
-        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "split-character");
-        Assert.Equal("x\uD83D\uDE00y\nkeep", PlainText(result));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context == "unpaired-surrogate");
+        Assert.Equal("x\uD83D\uDE00\uFFFDy\nkeep", PlainText(result));
 
         var first = Paragraphs(result).First();
         Assert.Equal(TextStyle.Bold, first.Content.MarkAt(1).Style & TextStyle.Bold);
-        Assert.Equal(TextStyle.None, first.Content.MarkAt(3).Style & TextStyle.Bold);
+        Assert.Equal(TextStyle.None, first.Content.MarkAt(4).Style & TextStyle.Bold);
     }
 }

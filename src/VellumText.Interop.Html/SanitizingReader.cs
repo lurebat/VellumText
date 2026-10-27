@@ -142,6 +142,25 @@ internal sealed class SanitizingReader
     /// <param name="document">The document to clean.</param>
     internal void Sanitize(IDocument document)
     {
+        if (_options.RemoveBeforeSanitizing is { } selector)
+        {
+            foreach (var element in document.QuerySelectorAll(selector))
+            {
+                element.Remove();
+            }
+        }
+
+        if (_options.BorderedEmptyParagraphIsRule)
+        {
+            foreach (var paragraph in document.QuerySelectorAll("p[style*='border-bottom']"))
+            {
+                if (!paragraph.HasChildNodes)
+                {
+                    paragraph.Replace(document.CreateElement("hr"));
+                }
+            }
+        }
+
         var sanitizer = new HtmlSanitizer(new HtmlSanitizerOptions
         {
             AllowedTags = new HashSet<string>(Tags, StringComparer.OrdinalIgnoreCase),

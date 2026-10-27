@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AngleSharp" Version="1.7.1" />
-    <PackageReference Include="AngleSharp.Css" Version="1.0.1" />
+    <PackageReference Include="AngleSharp" Version="1.8.3" />
+    <PackageReference Include="AngleSharp.Css" Version="1.1.2" />
     <PackageReference Include="HtmlSanitizer" Version="9.1.982" />
   </ItemGroup>
 

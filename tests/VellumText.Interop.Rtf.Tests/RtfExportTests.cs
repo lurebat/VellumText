@@ -8,7 +8,7 @@ namespace VellumText.Tests.Interop.Rtf;
 /// <remarks>
 /// <para>
 /// The round trip is deliberately the whole path a paste takes: the document is written, handed
-/// to RtfPipe, converted to HTML and read by the HTML importer. Testing the writer alone would
+/// to the RTF reader, converted to HTML and read by the HTML importer. Testing the writer alone would
 /// prove that it emits the control words this file expects and nothing about whether any reader
 /// agrees, which is the only question worth asking of an interchange format.
 /// </para>
@@ -339,9 +339,10 @@ public class RtfExportTests
         var back = await RoundTrip(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("title"), kind)]));
 
-        // Level 6 is drawn at body size, so RTF states nothing and the run comes back with the
-        // document default — which is the same 16px, arrived at by a different route.
-        Assert.Equal(expected, Para(back).Content.MarkAt(0).FontSize);
+        // Level 6 is drawn at body size, so RTF states nothing and the run comes back with no size
+        // of its own: drawn at the 16px body size, which is the size this asserts. (RtfPipe stamped
+        // the document default on every run; the reader that replaced it does not.)
+        Assert.Equal(expected, Para(back).Content.MarkAt(0).FontSize ?? 16.0);
     }
 
     [Theory]

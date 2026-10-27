@@ -615,10 +615,10 @@ internal static class AuditScenarios
         var stages = sizes.Select(p =>
         {
             var rtf = Rtf(p, null);
-            return Measure.Run(() => rtf, r => RtfPipe.Rtf.ToHtml(r), p, rounds: 3, warmup: 1);
+            return Measure.Run(() => rtf, r => RtfImporter.ReadToHtml(r), p, rounds: 3, warmup: 1);
         }).ToList();
 
-        Measure.Report("AUDIT RTF stage 1 only: RtfPipe.Rtf.ToHtml", "paragraphs", stages);
+        Measure.Report("AUDIT RTF stage 1 only: the reader (OfficeIMO) to HTML", "paragraphs", stages);
 
         foreach (var side in new[] { 300, 600, 1_000 })
         {
@@ -937,7 +937,7 @@ internal static class AuditScenarios
         foreach (var p in new[] { 2_500, 10_000 })
         {
             var html = Html(p);
-            var rtfHtml = RtfPipe.Rtf.ToHtml(Rtf(p, null));
+            var rtfHtml = RtfImporter.ReadToHtml(Rtf(p, null));
             var rtfHtmlNoStyle = System.Text.RegularExpressions.Regex.Replace(rtfHtml, "\\sstyle=\"[^\"]*\"", "");
             var parser = new AngleSharp.Html.Parser.HtmlParser();
 
@@ -945,9 +945,9 @@ internal static class AuditScenarios
             {
                 ($"hand HTML {html.Length / 1024}K chars: AngleSharp parse only", Measure.Run(() => html, h => parser.ParseDocument(h), p, rounds: 3, warmup: 1)),
                 ($"hand HTML: full HtmlFormat.Import", Measure.Run(() => html, h => HtmlFormat.Instance.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
-                ($"RtfPipe HTML {rtfHtml.Length / 1024}K chars: AngleSharp parse only", Measure.Run(() => rtfHtml, h => parser.ParseDocument(h), p, rounds: 3, warmup: 1)),
-                ($"RtfPipe HTML: full HtmlImporter.Import", Measure.Run(() => rtfHtml, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
-                ($"RtfPipe HTML, style attrs stripped {rtfHtmlNoStyle.Length / 1024}K: full import", Measure.Run(() => rtfHtmlNoStyle, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
+                ($"Reader HTML {rtfHtml.Length / 1024}K chars: AngleSharp parse only", Measure.Run(() => rtfHtml, h => parser.ParseDocument(h), p, rounds: 3, warmup: 1)),
+                ($"Reader HTML: full HtmlImporter.Import", Measure.Run(() => rtfHtml, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
+                ($"Reader HTML, style attrs stripped {rtfHtmlNoStyle.Length / 1024}K: full import", Measure.Run(() => rtfHtmlNoStyle, h => HtmlImporter.ImportAsync(h).GetAwaiter().GetResult(), p, rounds: 3, warmup: 1)),
             };
 
             Console.WriteLine();
@@ -957,7 +957,7 @@ internal static class AuditScenarios
                 Console.WriteLine($"| {name,-60} | {pt.Milliseconds,9:F1} ms | {pt.Bytes,14:N0} B |");
             }
 
-            Console.WriteLine("   RtfPipe HTML sample: " + rtfHtml.Substring(0, Math.Min(400, rtfHtml.Length)));
+            Console.WriteLine("   Reader HTML sample: " + rtfHtml.Substring(0, Math.Min(400, rtfHtml.Length)));
         }
     }
 

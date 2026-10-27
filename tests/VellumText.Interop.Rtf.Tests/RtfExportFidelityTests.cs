@@ -115,9 +115,9 @@ public class RtfExportFidelityTests
     }
 
     /// <summary>
-    /// A list starting at 0 is written with <c>\levelstartat0</c>, which Word honours. RtfPipe reads
-    /// a zero start as the default and numbers from 1 — a reader limitation, re-verified with the
-    /// Phase 8 reader — so this pins the control word.
+    /// A list starting at 0 is written with <c>\levelstartat0</c>, which Word honours. Pinned on the
+    /// control word because RtfPipe numbered from 1; the reader that replaced it reads the zero back
+    /// (<c>RtfReaderRoundTripTests</c>).
     /// </summary>
     [Fact]
     public void A_list_starting_at_zero_says_so()
@@ -131,7 +131,8 @@ public class RtfExportFidelityTests
 
     /// <summary>
     /// F-57: a heading inside a list item lost its outline level, which every other paragraph
-    /// writes. RtfPipe does not read an outline level inside a list, so this pins the control word.
+    /// writes. Neither RtfPipe nor the reader that replaced it reads an outline level inside a list,
+    /// so this pins the control word (<c>RtfReaderRoundTripTests</c> pins what comes back).
     /// </summary>
     [Fact]
     public void A_heading_in_a_list_item_keeps_its_outline_level()
@@ -167,8 +168,8 @@ public class RtfExportFidelityTests
 
     /// <summary>
     /// F-59: an embedded picture's alternative text was never written. It is now the picture's
-    /// <c>wzDescription</c> property, which Word reads as alt text. RtfPipe drops picture
-    /// properties, so this pins the control words; the Phase 8 reader is re-verified.
+    /// <c>wzDescription</c> property, which Word reads as alt text. Neither RtfPipe nor the reader that
+    /// replaced it reads picture properties, so this pins the control words.
     /// </summary>
     [Fact]
     public async Task An_images_alt_text_is_written_with_the_picture()

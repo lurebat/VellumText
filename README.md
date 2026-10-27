@@ -21,7 +21,7 @@ VellumText is therefore not a text engine. It is a **document model, a transacti
 | `VellumText.Core` | **nothing at all** — model, positions, transactions, undo. Headlessly testable. | working |
 | `VellumText.Avalonia` | `Avalonia` — the `RichTextEditor` control, block views, caret/selection, IME, themes. | working |
 | `VellumText.Interop.Html` | AngleSharp (MIT) — import, export, sanitizing | working |
-| `VellumText.Interop.Rtf` | RtfPipe (MIT) — import and export | working |
+| `VellumText.Interop.Rtf` | OfficeIMO (MIT) for import; own writer for export | working |
 | `VellumText.Interop.Json` | **nothing** — lossless, versioned, for storage | working |
 | `VellumText.Interop.Markdown` | Markdig (BSD-2) — CommonMark + GFM pipe tables, both ways | working |
 | `VellumText.Interop.Docx` | DocumentFormat.OpenXml (MIT) | v2.0 |

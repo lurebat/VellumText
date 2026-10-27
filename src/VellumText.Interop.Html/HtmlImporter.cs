@@ -324,7 +324,7 @@ public static class HtmlImporter
 
         internal List<BlockNode> Run(INode root)
         {
-            var sink = new BlockSink(Downgrade);
+            var sink = new BlockSink(Downgrade, options.KeepSpaceRuns);
 
             WalkChildren(root, MarkSet.Empty, BlockStyle.Default, sink, 0);
             sink.Flush(BlockStyle.Default);
@@ -706,7 +706,7 @@ public static class HtmlImporter
                     continue;
                 }
 
-                var inner = new BlockSink(Downgrade);
+                var inner = new BlockSink(Downgrade, options.KeepSpaceRuns);
                 var itemStyle = block with { Kind = ParagraphKind.Body };
 
                 WalkChildren(child, mark, itemStyle, inner, depth);
@@ -907,7 +907,7 @@ public static class HtmlImporter
             int depth,
             bool isHeader)
         {
-            var inner = new BlockSink(Downgrade);
+            var inner = new BlockSink(Downgrade, options.KeepSpaceRuns);
 
             // A cell starts a fresh formatting context: an indent from outside the table would
             // otherwise be applied again inside every cell of it.

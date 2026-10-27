@@ -89,5 +89,8 @@ public sealed record RtfImportOptions
         MaxDataImageBytes = MaxDataImageBytes,
         BaseUri = BaseUri,
         MaxTableSlots = MaxTableSlots,
+        KeepSpaceRuns = true,
+        RemoveBeforeSanitizing = "[data-officeimo-rtf-list-marker]",
+        BorderedEmptyParagraphIsRule = true,
     };
 }

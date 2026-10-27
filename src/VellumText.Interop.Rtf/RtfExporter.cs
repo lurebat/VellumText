@@ -803,8 +803,10 @@ public sealed class RtfExporter : IDocumentExporter
         /// than the table is wide; written in order, every one of them landed a column too far left.
         /// From the grid, the first row of a span is <c>\clvmgf</c> and each covered slot below it is
         /// an empty <c>\clvmrg</c> cell of the same width, so everything after it stays in its
-        /// column. A column span is the width of its <c>\cellx</c>, which readers line up across
-        /// rows; <c>\clmgf</c> is not used, because RtfPipe reads it as a span of the wrong cell.
+        /// column. A column span is written the same way across: one cell per column it covers, the
+        /// first <c>\clmgf</c> and the rest empty <c>\clmrg</c>. (Until 2026-10-27 a column span was
+        /// only the width of its <c>\cellx</c>, because RtfPipe misread <c>\clmgf</c>; the reader that
+        /// replaced it reads the merge and ignores the width, and Word reads both.)
         /// </para>
         /// <para>
         /// A table inside a cell is flattened into that cell's paragraphs, row by row: nested
@@ -863,24 +865,34 @@ public sealed class RtfExporter : IDocumentExporter
                     var (cell, place) = slot;
                     var continued = place.Top < r;
                     var spansRows = Math.Min(place.Bottom, rows) - place.Top > 1;
-
-                    if (spansRows)
-                    {
-                        rtf.Append(continued ? @"\clvmrg" : @"\clvmgf");
-                    }
-
-                    if (cell.Background is { } background)
-                    {
-                        rtf.Append(@"\clcbpat")
-                            .Append(colours.IndexOf(background).ToString(CultureInfo.InvariantCulture));
-                    }
-
                     var right = Math.Min(place.Right, width);
+                    var spansColumns = right - c > 1;
 
-                    rtf.Append(@"\clbrdrt\brdrs\clbrdrl\brdrs\clbrdrb\brdrs\clbrdrr\brdrs");
-                    rtf.Append(@"\cellx").Append((right * DefaultCellTwips).ToString(CultureInfo.InvariantCulture));
+                    for (var column = c; column < right; column++)
+                    {
+                        if (spansColumns)
+                        {
+                            rtf.Append(column == c ? @"\clmgf" : @"\clmrg");
+                        }
 
-                    slots.Add((cell, continued));
+                        if (spansRows)
+                        {
+                            rtf.Append(continued ? @"\clvmrg" : @"\clvmgf");
+                        }
+
+                        if (cell.Background is { } background)
+                        {
+                            rtf.Append(@"\clcbpat")
+                                .Append(colours.IndexOf(background).ToString(CultureInfo.InvariantCulture));
+                        }
+
+                        rtf.Append(@"\clbrdrt\brdrs\clbrdrl\brdrs\clbrdrb\brdrs\clbrdrr\brdrs");
+                        rtf.Append(@"\cellx").Append(((column + 1) * DefaultCellTwips).ToString(CultureInfo.InvariantCulture));
+
+                        // Only the first cell of a span holds its content; the cells it covers are empty.
+                        slots.Add((cell, continued || column > c));
+                    }
+
                     c = right;
                 }
 
