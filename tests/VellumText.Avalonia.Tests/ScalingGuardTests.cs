@@ -379,6 +379,92 @@ public class ScalingGuardTests
                 .Apply(doc).Doc!;
     }
 
+    /// <summary>
+    /// F-33: laying out one long paragraph does work in proportion to its length, not to its length
+    /// squared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia's line wrapping copies the run list that remains once per line, so one layout of a
+    /// formatted paragraph costs lines × runs, both of which grow with the paragraph: 326 ms a
+    /// keystroke at 100,000 characters, 2.76× per doubling (docs/increment-9-0-profile.md). The
+    /// paragraph is now laid out in chunks of bounded size, so the product is bounded per chunk.
+    /// The bench scenario is <c>a-longpara</c>.
+    /// </para>
+    /// <para>
+    /// Unformatted text was always linear, being one run; it is here so that a chunk which stopped
+    /// cutting its window off — and so laid out the rest of the paragraph each time — would show.
+    /// </para>
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LayingOutALongParagraphIsLinearInItsLength(bool formatted)
+    {
+        var work = Growth.Measure(
+            [25_000, 50_000, 100_000],
+            n =>
+            {
+                var text = Growth.Words(n);
+                var doc = new DocumentNode([new ParagraphNode(
+                    formatted ? Growth.EveryOtherWordBold(text) : InlineContent.FromText(text))]);
+
+                WorkCounters.WrappingWork = 0;
+
+                Shown(doc);
+
+                return WorkCounters.WrappingWork;
+            });
+
+        Growth.AssertAtMostLinear(work, $"lines × runs wrapped to lay out one long paragraph (formatted: {formatted})");
+    }
+
+    /// <summary>
+    /// F-33: a keystroke in one long formatted paragraph of ordinary prose lays out a stretch of it
+    /// whose size does not depend on the paragraph's length.
+    /// </summary>
+    /// <remarks>
+    /// An edit lays out again from the chunk it lands in and stops where the lines meet the old
+    /// ones, which in prose is within a line or two. Text so regular that every line holds the
+    /// same number of words can shift every later line by a word, and then the whole tail is laid
+    /// out again — exactly, and in linear time, which the row above pins.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AKeystrokeInALongFormattedParagraphLaysOutABoundedStretchOfIt()
+    {
+        var laidOut = Growth.Measure(
+            [25_000, 50_000, 100_000],
+            n =>
+            {
+                var doc = new DocumentNode([new ParagraphNode(Growth.EveryOtherWordBold(Growth.Prose(n)))]);
+                var view = Shown(doc);
+
+                view.MoveTo(1 + (n / 2), false);
+                Layout(view);
+                view.InsertText("x");
+                Layout(view);
+
+                WorkCounters.CharactersLaidOut = 0;
+
+                view.InsertText("x");
+                Layout(view);
+
+                return WorkCounters.CharactersLaidOut;
+            });
+
+        // A bound rather than a ratio: what is laid out comes in whole chunks, so one keystroke
+        // landing on a chunk's first line lays out two where its neighbour lays out one.
+        Assert.True(
+            laidOut.All(count => count <= MostLaidOutPerKeystroke),
+            $"a keystroke laid out {string.Join(", ", laidOut)} characters of 25,000, 50,000 and 100,000");
+    }
+
+    /// <summary>
+    /// The most of a long paragraph a keystroke in it may lay out: the chunk it lands in, the one
+    /// before it when the edit is on a chunk's first line, and two more for the reflow to settle.
+    /// </summary>
+    private const long MostLaidOutPerKeystroke = 4 * 2_048;
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
@@ -427,7 +513,49 @@ internal static class Growth
                 $"Paragraph {i} with enough words in it to need shaping and to wrap once.")))
             .ToArray());
 
-    private static InlineContent EveryOtherWordBold(string text)
+    /// <summary>
+    /// <paramref name="length"/> characters of short numbered words, the bench's long-paragraph
+    /// text.
+    /// </summary>
+    public static string Words(int length)
+    {
+        var text = new System.Text.StringBuilder(length + 16);
+        var word = 0;
+
+        while (text.Length < length)
+        {
+            text.Append("word").Append(word++ % 10).Append(' ');
+        }
+
+        return text.ToString(0, length);
+    }
+
+    /// <summary>
+    /// <paramref name="length"/> characters of words of irregular length, as prose has: the lines
+    /// of a paragraph do not all hold the same number of words.
+    /// </summary>
+    public static string Prose(int length)
+    {
+        var random = new Random(20261027);
+        var text = new System.Text.StringBuilder(length + 16);
+
+        while (text.Length < length)
+        {
+            var letters = random.Next(1, 12);
+
+            for (var i = 0; i < letters; i++)
+            {
+                text.Append((char)('a' + random.Next(26)));
+            }
+
+            text.Append(random.Next(9) == 0 ? ", " : " ");
+        }
+
+        return text.ToString(0, length);
+    }
+
+    /// <summary>The text with every other word bold.</summary>
+    public static InlineContent EveryOtherWordBold(string text)
     {
         var spans = new List<ValueSpan<MarkSet>>();
         var bold = new MarkSet { Style = TextStyle.Bold };

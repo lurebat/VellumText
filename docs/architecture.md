@@ -773,6 +773,46 @@ internal sealed class ParagraphView : BlockView
 > paragraph length and well over the frame budget long before a document is large. The owner decided
 > (OD-6) to replace the wholesale rebuild for long paragraphs with line-range sub-layouts, after
 > profiling which term is superlinear; §12.4 records the decision.
+>
+> **As built (Phase 9.1, 2026-10-27): line-range sub-layouts.** The 9.0 profile
+> (`docs/increment-9-0-profile.md`) found the superlinear term inside Avalonia: wrapping copies the
+> run list that remains once per line, so one layout costs lines × runs, and formatting makes the
+> runs grow with the paragraph. A paragraph whose laid-out text is longer than
+> `ParagraphChunking.Default.Threshold` (4,096 code units) is therefore held by `ParagraphChunks` as
+> consecutive independent `TextLayout`s. Each is given a window of about `Window` (2,048) characters
+> cut off with an end of paragraph, keeps every line but the last two — the line after a kept line is
+> complete, so whatever decided its break lay inside the window — and the next chunk starts where the
+> kept lines end. A line started afresh at a line boundary is the line the formatter would have
+> produced continuing from the line before, which is what makes the seams exact.
+>
+> - **Geometry goes through lines, not a layout.** `ParagraphView` answers every question from a
+>   list of placed lines (line, offset of its layout, top). For a chunked paragraph,
+>   `TextLayout.HitTestPoint` and `HitTestTextPosition` are reproduced step for step and the metrics
+>   are accumulated in the same order, so a chunked paragraph and an unchunked one agree to the bit:
+>   `ParagraphChunkingTests` compares sizes, lines, caret rectangles and movement at every position,
+>   hit tests on a grid, selection rectangles across every seam, image boxes, compositions at every
+>   seam and the drawn pixels. A short paragraph keeps its single layout and its run cache.
+> - **An edit lays out again from the chunk it lands in** — or the one before, when it is on a
+>   chunk's first line, whose break was decided by what fitted on the line above — and stops when a
+>   new chunk ends exactly where an old chunk the change did not reach begins; that chunk and every
+>   one after it are kept, shifted. What changed is found by matching text, formatting spans, embeds
+>   and the composition from both ends, so several edits before one layout are one change. A width,
+>   indent, alignment, line-height or font change lays everything out again.
+> - **Never `InvalidateFrom`** (A1 holds): chunks are separate layouts, either kept whole or built
+>   again.
+> - **Not chunked: right-to-left text and justified text.** Bidirectional resolution runs over the
+>   whole paragraph; a number or a neutral at the start of a line can take its direction from Hebrew
+>   on the line before, and brackets pair across any distance. Measured with the check removed: the
+>   caret at such a seam moved from x = 268 to x = 0. So a paragraph holding any character of class
+>   R, AL or AN, or an explicit embedding, override or isolate, stays one layout. A justified layout
+>   reports its width measured before its lines were stretched, which a chunk cannot reproduce, so it
+>   stays one layout too.
+> - **Reflow is exact, so it is not always short.** In prose the lines meet the old ones within a
+>   line or two. Text so regular that every line holds the same number of words can shift every
+>   later line by a word after one edit; those lines really did change, so they are laid out again —
+>   in time linear in their length, where the single layout was quadratic. `ScalingGuardTests` pins
+>   both: lines × fetched runs for laying out a paragraph grows at most linearly, and a keystroke in
+>   prose lays out at most four windows at 25,000, 50,000 and 100,000 characters.
 
 ### 4.7 The text source
 
@@ -1632,7 +1672,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 |---|---|---|---|
 | **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | ~~High~~ **Medium — being lifted upstream** | Ship `IValueProvider` + `AutomationProperties` in v1 (done, P7). **[2026-08-16]** The upstream gap is closing without us: [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is open and adds platform-agnostic `ITextProvider`/`ITextRangeProvider` plus a `TextBox` peer and Win32 UIA glue. So the mitigation is no longer "propose it" but **watch it and implement the contracts on `DocumentPresenterAutomationPeer` once they land** — a rich text editor is the strongest case for that API, and VellumText can be an early consumer rather than the petitioner. Document the limitation honestly in the README until then. |
 | **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
-| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. |
+| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. **[2026-10-27]** The wholesale rebuild was quadratic for long formatted paragraphs (F-33), so a paragraph longer than 4,096 characters is now held as line-range chunks that are each rebuilt wholesale or kept whole — still never invalidated by offset (§4.6, Phase 9.1). Right-to-left and justified paragraphs keep the single rebuild. |
 | **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
 | **R5** | Scope creep — the AC list is a commercial product's feature list. | High | Increment gating (§10). Increments 0–5 are a genuinely useful editor on their own; 6–8 are the long tail. |
 | **R6** | Trimming/NativeAOT regressions from Open XML SDK. | Low | DOCX lives in a separate package; core and the demo stay trimming-clean. |
@@ -2660,7 +2700,7 @@ with the basis it rests on now. The plan that carried them out is
 | `DocumentBlocks.Flatten` is 6% of a keystroke and not worth making incremental. | F-14: at AC12's 50,000 paragraphs it was 3.2 MB of a 4.2 MB keystroke and drove gen-2 collections. | The view's block list is patched in place; see the dated notes in §4.6. |
 | Enter and Backspace-join at 50,000 paragraphs cost about 8 ms. | F-15: 14.4 ms and 16.0 ms, with 6.9 MB and 10.1 MB allocated. | They rebuild only the blocks they touch and copy the root once; about 0.6 MB each. |
 | Importers are "linear-ish" (`SECURITY.md`). | F-31: AngleSharp is quadratic in element nesting (200 KB of nested `<div>` took 7.5 s) and in attributes per element. | `MaxElementDepth` and `MaxAttributesPerElement` are enforced before parsing; `SECURITY.md` states the bounds instead of the hope. |
-| A very long paragraph costs 7–12 ms per keystroke, bounded by its length. | F-33: with ordinary formatting, 23.6 ms at 12,500 characters and 2.6× per doubling. | Owner decision OD-6, below. |
+| A very long paragraph costs 7–12 ms per keystroke, bounded by its length. | F-33: with ordinary formatting, 23.6 ms at 12,500 characters and 2.6× per doubling. | Owner decision OD-6, below. Done in Phase 9.1: line-range sub-layouts make a layout linear in the paragraph and a keystroke in prose a few thousand characters of layout (§4.6). |
 | With find open, re-running the search on every edit is the same order as layout (`RichTextView.Find.cs`). | F-36: 19.3 ms per keystroke at 50,000 paragraphs in the audit's run. | **Kept.** The late end-to-end pass measured 11.8 ms with find open against 7.9–8.6 ms without, within the frame budget, and the finding was dropped. |
 
 **Reversed by the owner (2026-10-26)**
@@ -2670,5 +2710,5 @@ with the basis it rests on now. The plan that carried them out is
 | `IDocumentImporter` is synchronous, with the string member derived from the stream member (§4.9). | Asynchronous only, and the editor runs every importer off the UI thread whatever it claims (OD-2, Q-1; 0.8.0). See §4.9. |
 | `RichTextToolbar` commands are always enabled. | Disabled while the bound editor is read-only. For an editable editor they stay enabled wherever the caret is, for the reason the toolbar's remarks give. |
 | RTF is read by RtfPipe (§5.4, §12.1). | Read by `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf`, pinned to one exact version, chosen through the phase 8 selection gate (OD-8, owner's option 1, 2026-10-27). The accepted risks — a young library with one principal maintainer, pictures stored only as Word shapes, the AngleSharp bump — are in §5.4. |
-| R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Long paragraphs get line-range sub-layouts, once profiling has shown which term is superlinear (OD-6). |
+| R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Paragraphs longer than 4,096 characters are laid out in line-range sub-layouts (Phase 9.1, after the 9.0 profile found the lines × runs term in Avalonia's wrapping); right-to-left and justified paragraphs, and short ones, keep the single layout. See §4.6. |
 | R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view itself becomes row-virtualized (OD-6). |

@@ -33,4 +33,30 @@ internal static class WorkCounters
     /// <summary>Paragraphs inside containers <see cref="DocumentPreview.IsLongerThan"/> has counted.</summary>
     [ThreadStatic]
     internal static long PreviewParagraphsMeasured;
+
+    /// <summary>
+    /// UTF-16 code units of paragraph text handed to the text formatter, summed over every
+    /// <c>TextLayout</c> a paragraph view builds.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia's line wrapping costs lines × runs for each layout it is given, so the size of
+    /// what is laid out per keystroke is the deterministic stand-in for the keystroke's cost.
+    /// </remarks>
+    [ThreadStatic]
+    internal static long CharactersLaidOut;
+
+    /// <summary>
+    /// Lines × text runs fetched, summed over every <c>TextLayout</c> a paragraph view builds.
+    /// </summary>
+    /// <remarks>
+    /// The superlinear term the 9.0 profile found: Avalonia's wrapping copies the list of fetched
+    /// runs that remains once per line, so one layout does work in proportion to its lines times
+    /// the runs its source handed over. Unformatted text is one run, so it stays linear.
+    /// </remarks>
+    [ThreadStatic]
+    internal static long WrappingWork;
+
+    /// <summary>Runs a paragraph's text source has handed to the text formatter.</summary>
+    [ThreadStatic]
+    internal static long RunsFetched;
 }

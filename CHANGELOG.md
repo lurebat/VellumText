@@ -284,6 +284,21 @@ awaits `PasteAsync`.
   few lookups whatever its size. The HTML, RTF and Markdown exporters read
   formatting runs the same way, off the mark spans instead of one lookup per
   character.
+- **Typing in a very long formatted paragraph no longer slows with the square
+  of its length.** Avalonia's line wrapping copies the remaining run list once
+  per line, so laying out one paragraph cost its lines times its runs, and every
+  keystroke laid out the whole paragraph again: 117 ms at 50,000 characters
+  with every other word bold and 326 ms at 100,000, 2.76× per doubling. A
+  paragraph longer than 4,096 characters is now held as consecutive layouts of
+  about 2,048 characters each, every one starting and ending at a line boundary,
+  and an edit lays out again only from the layout it lands in until the lines
+  meet the old ones. Caret, selection, hit testing, input-method composition and
+  drawing are exactly those of one layout. Paragraphs containing right-to-left
+  text, Arabic digits or explicit direction controls, and justified paragraphs,
+  stay one layout, because their lines depend on text arbitrarily far away.
+  Text so regular that every line holds the same number of words can still lay
+  out the rest of the paragraph after an edit — because every later line moved —
+  but now in time linear in what it lays out.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"

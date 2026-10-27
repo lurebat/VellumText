@@ -22,6 +22,14 @@ namespace VellumText.Avalonia;
 /// — Increment 0 measured that case at roughly 3.5× and it is the case that fires on every
 /// window resize, once per paragraph.
 /// </para>
+/// <para>
+/// <b>Long paragraphs are laid out in chunks.</b> One layout costs Avalonia lines × runs, which
+/// is quadratic in a long formatted paragraph, so past <see cref="ParagraphChunking.Threshold"/>
+/// the paragraph is held as consecutive layouts that each start and end at a line boundary, and an
+/// edit lays out again only the chunks it reached. Everything here therefore reads the paragraph
+/// through its <see cref="Lines"/>, which both kinds of layout have; see
+/// <see cref="ParagraphChunks"/> for why the seams are exact and what is never chunked.
+/// </para>
 /// </remarks>
 internal sealed class ParagraphView : BlockView
 {
@@ -29,12 +37,16 @@ internal sealed class ParagraphView : BlockView
     private readonly IParagraphStyleResolver _kinds;
     private readonly IEmbedRenderer _embeds;
     private readonly double _indentStep;
+    private readonly ParagraphChunking _chunking;
     private ITextStyleResolver _styles;
     private ParagraphStyle _style;
     private TextRunCache _runCache = new();
     private ParagraphNode _paragraph;
     private Preedit? _preedit;
     private TextLayout? _layout;
+    private ParagraphChunks? _chunks;
+    private ParagraphChunks? _staleChunks;
+    private PlacedLine[]? _placed;
     private TextLayout? _markerLayout;
     private ListMarker? _marker;
     private int _depth;
@@ -46,12 +58,16 @@ internal sealed class ParagraphView : BlockView
     /// <param name="embeds">Measures and draws embeds, or null for the placeholder renderer.</param>
     /// <param name="kinds">Decides how the paragraph's kind is presented, or null for the default.</param>
     /// <param name="indentStep">Device pixels per level of <see cref="ParagraphNode.IndentLevel"/>.</param>
+    /// <param name="chunking">
+    /// When a long paragraph is laid out in chunks, or null for <see cref="ParagraphChunking.Default"/>.
+    /// </param>
     public ParagraphView(
         ParagraphNode paragraph,
         ITextStyleResolver styles,
         IEmbedRenderer? embeds = null,
         IParagraphStyleResolver? kinds = null,
-        double indentStep = DefaultIndentStep)
+        double indentStep = DefaultIndentStep,
+        ParagraphChunking? chunking = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         ArgumentNullException.ThrowIfNull(styles);
@@ -67,6 +83,7 @@ internal sealed class ParagraphView : BlockView
         _kinds = kinds ?? new ParagraphStyleResolver();
         _embeds = embeds ?? new PlaceholderEmbedRenderer();
         _indentStep = indentStep;
+        _chunking = chunking ?? ParagraphChunking.Default;
         _style = _kinds.Resolve(paragraph.Kind);
         _styles = KindStyles.Wrap(styles, _style);
     }
@@ -127,7 +144,7 @@ internal sealed class ParagraphView : BlockView
         _markerLayout = null;
 
         // The indent is part of the width the text wraps to, so the layout is stale.
-        _layout = null;
+        Invalidate();
 
         return true;
     }
@@ -140,18 +157,77 @@ internal sealed class ParagraphView : BlockView
 
     /// <inheritdoc/>
     public override Size Size =>
-        _layout is null ? default : new Size(
-            Indent + _layout.Width + _style.Padding.Right,
+        !IsMeasured ? default : new Size(
+            Indent + TextWidth + _style.Padding.Right,
             _style.SpaceBefore + _style.Padding.Top
-                + _layout.Height
+                + TextHeight
                 + _style.Padding.Bottom + _style.SpaceAfter);
 
+    /// <summary>Whether there is a current layout, in one piece or in chunks.</summary>
+    private bool IsMeasured => _layout is not null || _chunks is not null;
+
+    private double TextWidth => _chunks?.Width ?? _layout!.Width;
+
+    private double TextHeight => _chunks?.Height ?? _layout!.Height;
+
     /// <summary>
-    /// The current layout, laying it out at the last measured width if it is stale.
+    /// The current layout of a paragraph laid out in one piece.
     /// </summary>
-    /// <exception cref="InvalidOperationException">The view has never been measured.</exception>
+    /// <remarks>
+    /// A paragraph longer than its <see cref="ParagraphChunking.Threshold"/> is laid out in chunks
+    /// instead and has no single layout; everything this type answers goes through its lines,
+    /// which both kinds have.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">
+    /// The view has never been measured, or its paragraph is laid out in chunks.
+    /// </exception>
     public TextLayout Layout => _layout ?? throw new InvalidOperationException(
-        "The paragraph has not been measured yet; call Measure before asking for geometry.");
+        _chunks is null
+            ? "The paragraph has not been measured yet; call Measure before asking for geometry."
+            : "The paragraph is laid out in chunks and has no single layout.");
+
+    /// <summary>The chunks a long paragraph is laid out in, or null if it is one layout.</summary>
+    internal ParagraphChunks? Chunks => _chunks;
+
+    /// <summary>Every line, in order, with where it sits.</summary>
+    /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
+    private PlacedLine[] Lines
+    {
+        get
+        {
+            if (_chunks is { } chunks)
+            {
+                return chunks.Lines;
+            }
+
+            if (_placed is { } placed)
+            {
+                return placed;
+            }
+
+            var lines = Layout.TextLines;
+            var top = 0.0;
+
+            placed = new PlacedLine[lines.Count];
+
+            for (var i = 0; i < lines.Count; i++)
+            {
+                placed[i] = new PlacedLine(lines[i], 0, top);
+                top += lines[i].Height;
+            }
+
+            return _placed = placed;
+        }
+    }
+
+    /// <summary>Drops the current layout, keeping any chunks to lay out again from.</summary>
+    private void Invalidate()
+    {
+        _layout = null;
+        _placed = null;
+        _staleChunks = _chunks ?? _staleChunks;
+        _chunks = null;
+    }
 
     /// <summary>
     /// Points the view at a new paragraph, discarding the layout if the content differs.
@@ -176,7 +252,7 @@ internal sealed class ParagraphView : BlockView
         var kindChanged = paragraph.Kind != _paragraph.Kind;
 
         _paragraph = paragraph;
-        _layout = null;
+        Invalidate();
 
         if (kindChanged)
         {
@@ -239,7 +315,7 @@ internal sealed class ParagraphView : BlockView
         }
 
         _preedit = preedit;
-        _layout = null;
+        Invalidate();
 
         // Composing changes the text being shaped, so the same reasoning as an edit applies:
         // the cache cannot express a partial change and is replaced outright.
@@ -294,7 +370,7 @@ internal sealed class ParagraphView : BlockView
                 "A paragraph must be given a positive width to wrap to.");
         }
 
-        if (_layout is not null && _layoutWidth.Equals(availableWidth))
+        if (IsMeasured && _layoutWidth.Equals(availableWidth))
         {
             return Size;
         }
@@ -303,13 +379,47 @@ internal sealed class ParagraphView : BlockView
         // or indented paragraph wraps where it visually runs out of room rather than where a
         // plain one would. A width smaller than that still has to leave somewhere for the text.
         var textWidth = Math.Max(1, availableWidth - Indent - _style.Padding.Right);
+        var properties = ParagraphProperties();
+        var source = new InlineTextSource(_paragraph.Content, _styles, _embeds, _preedit);
 
-        _layout = new TextLayout(
-            new InlineTextSource(_paragraph.Content, _styles, _embeds, _preedit),
-            ParagraphProperties(),
-            maxWidth: textWidth,
-            textRunCache: _runCache);
+        _placed = null;
 
+        if (LayoutSize > _chunking.Threshold
+            && properties.TextAlignment != TextAlignment.Justify
+            && ParagraphChunks.CanChunk(_paragraph.Content.Text, _preedit))
+        {
+            // Long enough that one layout costs lines × runs: laid out in chunks, from the
+            // first one the change since the last layout reached. See ParagraphChunks.
+            _chunks = ParagraphChunks.Build(
+                source,
+                new ParagraphChunks.Key(
+                    _paragraph.Content,
+                    _preedit,
+                    textWidth,
+                    properties.TextAlignment,
+                    properties.LineHeight,
+                    _styles),
+                properties,
+                _chunking.Window,
+                _chunks ?? _staleChunks);
+            _layout = null;
+        }
+        else
+        {
+            var fetched = WorkCounters.RunsFetched;
+
+            _layout = new TextLayout(
+                source,
+                properties,
+                maxWidth: textWidth,
+                textRunCache: _runCache);
+            _chunks = null;
+
+            WorkCounters.CharactersLaidOut += LayoutSize;
+            ParagraphChunks.CountWrapping(_layout, fetched);
+        }
+
+        _staleChunks = null;
         _layoutWidth = availableWidth;
 
         return Size;
@@ -335,13 +445,14 @@ internal sealed class ParagraphView : BlockView
         }
 
         var target = ToLayout(localPosition);
-        var lineTop = 0.0;
 
-        foreach (var line in Layout.TextLines)
+        foreach (var placed in Lines)
         {
-            if (target < line.FirstTextSourceIndex + line.Length)
+            if (target < placed.End)
             {
-                foreach (var bounds in line.GetTextBounds(target, 1))
+                var line = placed.Line;
+
+                foreach (var bounds in line.GetTextBounds(target - placed.Offset, 1))
                 {
                     foreach (var run in bounds.TextRunBounds)
                     {
@@ -349,7 +460,7 @@ internal sealed class ParagraphView : BlockView
                         {
                             return new Rect(
                                 Origin.X + run.Rectangle.X,
-                                Origin.Y + lineTop + line.Baseline - embed.Baseline,
+                                Origin.Y + placed.Top + line.Baseline - embed.Baseline,
                                 embed.Size.Width,
                                 embed.Size.Height);
                         }
@@ -358,8 +469,6 @@ internal sealed class ParagraphView : BlockView
 
                 return null;
             }
-
-            lineTop += line.Height;
         }
 
         return null;
@@ -395,14 +504,28 @@ internal sealed class ParagraphView : BlockView
                 bar, new Rect(origin.X, origin.Y, _style.BarWidth, Size.Height));
         }
 
-        Layout.Draw(context, origin + Origin);
+        if (_layout is { } layout)
+        {
+            layout.Draw(context, origin + Origin);
+        }
+        else
+        {
+            // What TextLayout.Draw does, line by line, across the chunks.
+            var (x, y) = origin + Origin;
+
+            foreach (var placed in Lines)
+            {
+                placed.Line.Draw(context, new Point(x, y));
+                y += placed.Line.Height;
+            }
+        }
 
         if (MarkerLayout is { } marker)
         {
             // Right-aligned into the gutter the depth opened up, and on the paragraph's own
             // first baseline so a bullet lines up with the text it belongs to rather than with
             // the top of the block.
-            var baseline = Layout.TextLines[0].Baseline - marker.TextLines[0].Baseline;
+            var baseline = Lines[0].Line.Baseline - marker.TextLines[0].Baseline;
 
             marker.Draw(
                 context,
@@ -440,12 +563,49 @@ internal sealed class ParagraphView : BlockView
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public override int HitTest(Point local)
     {
-        var hit = Layout.HitTestPoint(local - Origin);
+        var point = local - Origin;
+        var position = _layout is { } layout
+            ? layout.HitTestPoint(point).TextPosition
+            : HitTestLines(point);
 
         // TextPosition already carries the trailing adjustment: the trailing half of a
         // character reports the position after it, and it does so in whole clusters, so a
         // surrogate pair or a combining sequence is never split by a click.
-        return FromLayout(Math.Clamp(hit.TextPosition, 0, LayoutSize));
+        return FromLayout(Math.Clamp(position, 0, LayoutSize));
+    }
+
+    /// <summary>
+    /// <c>TextLayout.HitTestPoint(point).TextPosition</c>, over the lines of a chunked paragraph.
+    /// </summary>
+    /// <remarks>
+    /// The same steps in the same order as Avalonia 12.1.1's, so that a chunked paragraph and an
+    /// unchunked one answer alike: the first line whose bottom is below the point, or the last
+    /// line; the hit on it; and the trailing newline taken back off a hit at its very end.
+    /// </remarks>
+    private int HitTestLines(Point point)
+    {
+        var lines = Lines;
+        var placed = lines[^1];
+
+        foreach (var candidate in lines)
+        {
+            if (candidate.Top + candidate.Line.Height > point.Y)
+            {
+                placed = candidate;
+                break;
+            }
+        }
+
+        var line = placed.Line;
+        var hit = line.GetCharacterHitFromDistance(point.X);
+        var position = hit.FirstCharacterIndex + hit.TrailingLength;
+
+        if (position == line.FirstTextSourceIndex + line.Length)
+        {
+            position -= line.NewLineLength;
+        }
+
+        return placed.Offset + position;
     }
 
     /// <inheritdoc/>
@@ -481,9 +641,43 @@ internal sealed class ParagraphView : BlockView
 
     private Rect CaretRectInLayout(int layoutPosition)
     {
-        var rect = Layout.HitTestTextPosition(layoutPosition);
+        var rect = _layout is { } layout
+            ? layout.HitTestTextPosition(layoutPosition)
+            : HitTestPosition(layoutPosition);
 
         return new Rect(Origin.X + rect.X, Origin.Y + rect.Y, 0, rect.Height);
+    }
+
+    /// <summary>
+    /// <c>TextLayout.HitTestTextPosition</c>, over the lines of a chunked paragraph.
+    /// </summary>
+    /// <remarks>
+    /// As Avalonia 12.1.1 does it: the first line the position is before the end of, or the last
+    /// line, asked for the distance to the position. A position at the end of a line therefore
+    /// belongs to the next one, which is also what makes a chunk's end belong to the chunk after.
+    /// </remarks>
+    private Rect HitTestPosition(int layoutPosition)
+    {
+        var lines = Lines;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var placed = lines[i];
+
+            if (placed.End <= layoutPosition && i + 1 < lines.Length)
+            {
+                continue;
+            }
+
+            var line = placed.Line;
+            var hit = new CharacterHit(layoutPosition - placed.Offset);
+            var start = line.GetDistanceFromCharacterHit(hit);
+            var end = line.GetDistanceFromCharacterHit(line.GetNextCaretCharacterHit(hit));
+
+            return new Rect(start, placed.Top, end - start, line.Height);
+        }
+
+        return default;
     }
 
     /// <inheritdoc/>
@@ -512,20 +706,19 @@ internal sealed class ParagraphView : BlockView
         }
 
         var rects = new List<Rect>();
-        var lineTop = 0.0;
 
-        foreach (var line in Layout.TextLines)
+        foreach (var placed in Lines)
         {
             // A line's range is clipped against the selection rather than tested for
             // containment, because a selection routinely covers part of a line at each end.
             // Avalonia clamps an overrunning length itself — there is a test pinning that — so
             // the upper clip is defensive; the lower one is not.
-            var lineStart = Math.Max(start, line.FirstTextSourceIndex);
-            var lineEnd = Math.Min(start + length, line.FirstTextSourceIndex + line.Length);
+            var lineStart = Math.Max(start, placed.Start);
+            var lineEnd = Math.Min(start + length, placed.End);
 
             if (lineEnd > lineStart)
             {
-                foreach (var bounds in line.GetTextBounds(lineStart, lineEnd - lineStart))
+                foreach (var bounds in placed.Line.GetTextBounds(lineStart - placed.Offset, lineEnd - lineStart))
                 {
                     // One TextBounds per direction run, so a selection crossing a bidi boundary
                     // arrives here as several disjoint rectangles. Increment 0 measured this.
@@ -534,11 +727,9 @@ internal sealed class ParagraphView : BlockView
                     // of the layout, so the line's offset has to be added or every line of a
                     // wrapped selection lands on the first one. Measured before this was here:
                     // a ten-line selection produced ten rectangles all at y=0.
-                    rects.Add(bounds.Rectangle.Translate(Origin + new Vector(0, lineTop)));
+                    rects.Add(bounds.Rectangle.Translate(Origin + new Vector(0, placed.Top)));
                 }
             }
-
-            lineTop += line.Height;
         }
 
         return rects;
@@ -586,7 +777,7 @@ internal sealed class ParagraphView : BlockView
 
     /// <summary>The number of visual lines the paragraph wrapped onto.</summary>
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
-    public int LineCount => Layout.TextLines.Count;
+    public int LineCount => Lines.Length;
 
     /// <summary>The index of the visual line a position sits on.</summary>
     /// <remarks>
@@ -604,15 +795,15 @@ internal sealed class ParagraphView : BlockView
         CheckPosition(localPosition);
 
         var layoutPosition = ToLayout(localPosition);
-        var lines = Layout.TextLines;
+        var lines = Lines;
 
-        for (var i = 0; i < lines.Count; i++)
+        for (var i = 0; i < lines.Length; i++)
         {
-            var end = lines[i].FirstTextSourceIndex + lines[i].Length;
+            var end = lines[i].End;
 
             var owns = forward
                 ? layoutPosition < end
-                : layoutPosition <= end && layoutPosition > lines[i].FirstTextSourceIndex;
+                : layoutPosition <= end && layoutPosition > lines[i].Start;
 
             if (owns)
             {
@@ -620,7 +811,7 @@ internal sealed class ParagraphView : BlockView
             }
         }
 
-        return forward ? lines.Count - 1 : 0;
+        return forward ? lines.Length - 1 : 0;
     }
 
     /// <summary>The first position on a visual line.</summary>
@@ -630,7 +821,7 @@ internal sealed class ParagraphView : BlockView
     /// </exception>
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineStart(int lineIndex) =>
-        FromLayout(Math.Clamp(Line(lineIndex).FirstTextSourceIndex, 0, LayoutSize));
+        FromLayout(Math.Clamp(Line(lineIndex).Start, 0, LayoutSize));
 
     /// <summary>The last position on a visual line.</summary>
     /// <remarks>
@@ -646,8 +837,9 @@ internal sealed class ParagraphView : BlockView
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineEnd(int lineIndex)
     {
-        var line = Line(lineIndex);
-        var end = line.FirstTextSourceIndex + line.Length - line.NewLineLength - line.TrailingWhitespaceLength;
+        var placed = Line(lineIndex);
+        var line = placed.Line;
+        var end = placed.End - line.NewLineLength - line.TrailingWhitespaceLength;
 
         return Math.Max(LineStart(lineIndex), FromLayout(Math.Clamp(end, 0, LayoutSize)));
     }
@@ -665,19 +857,20 @@ internal sealed class ParagraphView : BlockView
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int PositionAtLineX(int lineIndex, double x)
     {
-        var hit = Line(lineIndex).GetCharacterHitFromDistance(x - Origin.X);
+        var placed = Line(lineIndex);
+        var hit = placed.Line.GetCharacterHitFromDistance(x - Origin.X);
 
-        return FromLayout(Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
+        return FromLayout(Math.Clamp(placed.Offset + hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
     }
 
-    private TextLine Line(int lineIndex)
+    private PlacedLine Line(int lineIndex)
     {
-        var lines = Layout.TextLines;
+        var lines = Lines;
 
-        if (lineIndex < 0 || lineIndex >= lines.Count)
+        if (lineIndex < 0 || lineIndex >= lines.Length)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(lineIndex), lineIndex, $"The paragraph has {lines.Count} lines.");
+                nameof(lineIndex), lineIndex, $"The paragraph has {lines.Length} lines.");
         }
 
         return lines[lineIndex];
@@ -687,10 +880,10 @@ internal sealed class ParagraphView : BlockView
     {
         CheckPosition(localPosition);
 
-        var line = LineAt(localPosition, forward);
-        var hit = step(line, new CharacterHit(ToLayout(localPosition)));
+        var placed = LineAt(localPosition, forward);
+        var hit = step(placed.Line, new CharacterHit(ToLayout(localPosition) - placed.Offset));
 
-        return FromLayout(Math.Clamp(hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
+        return FromLayout(Math.Clamp(placed.Offset + hit.FirstCharacterIndex + hit.TrailingLength, 0, LayoutSize));
     }
 
     /// <summary>
@@ -703,8 +896,8 @@ internal sealed class ParagraphView : BlockView
     /// there, which is the only one that can answer. Getting this wrong does not throw — it
     /// silently pins the caret at the start of every wrapped line.
     /// </remarks>
-    private TextLine LineAt(int localPosition, bool forward) =>
-        Layout.TextLines[LineIndexAt(localPosition, forward)];
+    private PlacedLine LineAt(int localPosition, bool forward) =>
+        Lines[LineIndexAt(localPosition, forward)];
 
     /// <summary>
     /// The paragraph-level properties handed to the formatter.
