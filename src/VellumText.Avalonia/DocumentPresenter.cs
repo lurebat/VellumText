@@ -294,7 +294,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     {
         for (var i = _first; i <= _last; i++)
         {
-            _views[i].Render(context, BlockOrigin(i));
+            var origin = BlockOrigin(i);
+
+            // What of the block the control shows, in the block's own coordinates, so that a
+            // table taller than the viewport draws only the rows on screen.
+            _views[i].Render(context, origin, new Rect(-origin.X, -origin.Y, Bounds.Width, Bounds.Height));
         }
     }
 

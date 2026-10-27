@@ -40,6 +40,19 @@ internal abstract class BlockView
     public abstract void Render(DrawingContext context, Point origin);
 
     /// <summary>
+    /// Draws the block, knowing that only <paramref name="visible"/> of it can be seen.
+    /// </summary>
+    /// <remarks>
+    /// A hint, not a clip: drawing more than this is correct and only wasted. The default draws
+    /// everything; a block whose cost is in parts that can be off screen — a table's rows — skips
+    /// the ones that are.
+    /// </remarks>
+    /// <param name="context">The drawing context.</param>
+    /// <param name="origin">Where the block's top-left corner sits.</param>
+    /// <param name="visible">The part of the block that can be seen, in its own coordinates.</param>
+    public virtual void Render(DrawingContext context, Point origin, Rect visible) => Render(context, origin);
+
+    /// <summary>
     /// Finds the position nearest a point in the block's own coordinates.
     /// </summary>
     /// <param name="local">The point, relative to the block's top-left corner.</param>

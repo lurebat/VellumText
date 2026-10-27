@@ -59,4 +59,16 @@ internal static class WorkCounters
     /// <summary>Runs a paragraph's text source has handed to the text formatter.</summary>
     [ThreadStatic]
     internal static long RunsFetched;
+
+    /// <summary>Table cells a table view has drawn.</summary>
+    [ThreadStatic]
+    internal static long TableCellsRendered;
+
+    /// <summary>Table cells a table view has looked at while drawing, drawn or not.</summary>
+    [ThreadStatic]
+    internal static long TableCellsExamined;
+
+    /// <summary>Table cells a table view has walked to build or update their views.</summary>
+    [ThreadStatic]
+    internal static long TableCellsBuilt;
 }

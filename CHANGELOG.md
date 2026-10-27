@@ -299,6 +299,16 @@ awaits `PasteAsync`.
   Text so regular that every line holds the same number of words can still lay
   out the rest of the paragraph after an edit — because every later line moved —
   but now in time linear in what it lays out.
+- **A frame of a long table draws only the rows on screen, and a keystroke in
+  a table walks only its own row.** Every caret blink drew every cell's text
+  whatever the viewport showed — 13.3 ms a frame at 1,000 × 5 — and every
+  keystroke walked every cell to find the one that changed — 5.35 ms at
+  1,000 × 5 — both growing with the table. The table view now draws the row
+  bands that meet the visible area, found by a binary search over the row edges
+  (a cell spanning into them from above included), and keeps each row's cells
+  with positions relative to the row, so an edit that keeps the grid's shape
+  rebuilds the rows it replaced and moves the rest by one pass over their
+  starts. Resizing a column no longer rebuilds any cell.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"

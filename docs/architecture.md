@@ -813,6 +813,22 @@ internal sealed class ParagraphView : BlockView
 >   in time linear in their length, where the single layout was quadratic. `ScalingGuardTests` pins
 >   both: lines × fetched runs for laying out a paragraph grows at most linearly, and a keystroke in
 >   prose lays out at most four windows at 25,000, 50,000 and 100,000 characters.
+>
+> **As built (Phase 9.2, 2026-10-27): a table draws and updates by row.** The 9.0 profile put 93% of
+> a frame showing the top of a 1,000 × 5 table in `TableBlockView.Render` drawing every cell, and a
+> keystroke walked every cell in `Update`. Two changes, both linear in nothing but the rows:
+>
+> - **`BlockView.Render(context, origin, visible)`** tells a block what of it the control shows.
+>   It is a hint, not a clip — the default draws everything — and `TableBlockView` uses it to draw
+>   only the row bands meeting the visible area: a binary search over the row edges, widened by the
+>   border, and a per-row `coverTop` (the first row of any cell covering it) so that a cell spanning
+>   into the band from above is drawn too. `TableRowUpdateTests` compares the pixels of a hinted
+>   draw against an unhinted one under the same clip.
+> - **Rows hold their cells with positions relative to the row**, and one array holds where each
+>   row starts. An edit that keeps the grid's shape — the same rows, each with cells of the same
+>   spans, so `TableGeometry.Place` would place every cell where it was — rebuilds only the rows
+>   whose nodes it replaced and refreshes the row starts in one pass. A shape change places and
+>   walks everything, as before. Column widths are not shape, so a column resize rebuilds no cell.
 
 ### 4.7 The text source
 

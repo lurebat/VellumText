@@ -465,6 +465,75 @@ public class ScalingGuardTests
     /// </summary>
     private const long MostLaidOutPerKeystroke = 4 * 2_048;
 
+    /// <summary>
+    /// F-35: painting a frame of a long table draws the rows on screen, not every row.
+    /// </summary>
+    /// <remarks>
+    /// <c>TableBlockView.Render</c> drew every cell's paragraph whatever the viewport showed — 93%
+    /// of a frame, 13.3 ms at 1,000 × 5 and linear in rows (docs/increment-9-0-profile.md). Every
+    /// caret blink is a frame. The bench scenario is <c>a-table</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingAFrameOfALongTableDrawsOnlyTheRowsOnScreen()
+    {
+        var drawn = Growth.Measure(
+            [250, 500, 1_000],
+            n =>
+            {
+                var view = new RichTextView { State = EditorState.Create(Growth.Table(n)) };
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                WorkCounters.TableCellsRendered = 0;
+                WorkCounters.TableCellsExamined = 0;
+
+                using var frame = window.CaptureRenderedFrame();
+
+                Assert.NotNull(frame);
+                Assert.True(WorkCounters.TableCellsRendered > 0, "no cell was painted");
+
+                return WorkCounters.TableCellsExamined;
+            });
+
+        Growth.AssertFlat(drawn, "table cells looked at to paint one frame showing the top of the table");
+    }
+
+    /// <summary>
+    /// F-35: a keystroke in a table cell rebuilds the row it is in, not every row.
+    /// </summary>
+    /// <remarks>
+    /// <c>TableBlockView.Update</c> walked every cell of the table — flattening its blocks and
+    /// matching its views — on every keystroke anywhere in it: 5.35 ms at 1,000 × 5 and linear in
+    /// rows. The bench scenario is <c>a-table</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AKeystrokeInATableRebuildsOnlyTheRowItIsIn()
+    {
+        var built = Growth.Measure(
+            [250, 500, 1_000],
+            n =>
+            {
+                var view = Shown(Growth.Table(n));
+
+                view.MoveTo(Growth.FirstCellText, false);
+                Layout(view);
+                view.InsertText("x");
+                Layout(view);
+
+                WorkCounters.TableCellsBuilt = 0;
+
+                view.InsertText("x");
+                Layout(view);
+
+                return WorkCounters.TableCellsBuilt;
+            });
+
+        Growth.AssertFlat(built, "table cells rebuilt by a keystroke in the first cell");
+        Assert.True(built.All(count => count <= 5), $"cells rebuilt: {string.Join(", ", built)}");
+    }
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
@@ -554,6 +623,25 @@ internal static class Growth
         return text.ToString(0, length);
     }
 
+    /// <summary>
+    /// A paragraph, a table of <paramref name="rows"/> × <paramref name="columns"/> one-line
+    /// cells, and a paragraph: the bench's <c>a-table</c> document.
+    /// </summary>
+    public static DocumentNode Table(int rows, int columns = 5) =>
+        new([
+            ParagraphNode.FromText("Before the table."),
+            new TableNode(Enumerable.Range(0, rows).Select(r =>
+                new TableRowNode(Enumerable.Range(0, columns).Select(c =>
+                    TableCellNode.FromText($"Row {r} column {c} value {r * c}"))))),
+            ParagraphNode.FromText("After the table."),
+        ]);
+
+    /// <summary>
+    /// The document position just inside the text of <see cref="Table"/>'s first cell: past the
+    /// paragraph before it (17 characters and its two boundaries) and the table, row, cell and
+    /// paragraph openings, and one character in.
+    /// </summary>
+    public const int FirstCellText = 24;
     /// <summary>The text with every other word bold.</summary>
     public static InlineContent EveryOtherWordBold(string text)
     {
