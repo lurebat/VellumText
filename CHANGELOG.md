@@ -119,7 +119,15 @@ awaits `PasteAsync`.
 
 ### Fixed
 
-- **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
+- **A registered exporter that throws during a copy is reported, not silent.**
+  The copy already went ahead without that format, but nothing said so, so a
+  broken exporter only showed as a paste elsewhere arriving with less
+  formatting. `RichTextView`, `RichTextViewer` and `RichTextEditor` raise
+  `ExportFailed` (format and exception), the failure is written to
+  `System.Diagnostics.Trace`, and Ctrl+C still never throws: plain text and
+  every other format still reach the clipboard. `RichTextClipboard.Build` and
+  `WriteAsync` take an optional `exportFailed` callback for hosts that write
+  the clipboard themselves.- **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
   longer throws out of the key handler.** A pasted
   `<ol start="2147483646">` (48 bytes) made the next split compute a negative
   start, which `ListNode` refuses by throwing; without a dispatcher exception

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -213,10 +214,19 @@ public static class RichTextClipboard
     /// <remarks>
     /// An exporter that throws costs its own flavour and nothing else. Exporters are contractually
     /// forbidden from throwing, so reaching that is a bug in one — but losing the whole copy over
-    /// it would be a worse answer than losing one of its flavours.
+    /// it would be a worse answer than losing one of its flavours. The failure is not silent:
+    /// <paramref name="exportFailed"/> is told (the editor raises it as
+    /// <see cref="RichTextView.ExportFailed"/>) and it is written to <see cref="Trace"/>.
     /// </remarks>
+    /// <param name="exportFailed">
+    /// Told of each exporter that threw, after its flavour has been left out; or
+    /// <see langword="null"/>. What it throws is not caught.
+    /// </param>
     public static DataTransfer Build(
-        DocumentNode doc, IEnumerable<IDocumentExporter> exporters, string? text = null)
+        DocumentNode doc,
+        IEnumerable<IDocumentExporter> exporters,
+        string? text = null,
+        Action<IDocumentExporter, Exception>? exportFailed = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(exporters);
@@ -231,8 +241,13 @@ public static class RichTextClipboard
             {
                 item.Set(FlavorFor(exporter.Format).DataFormat, Encode(exporter, doc));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Trace.TraceWarning(
+                    "VellumText: the {0} exporter threw while copying, so the clipboard has no {0} flavour: {1}",
+                    exporter.Format,
+                    ex);
+                exportFailed?.Invoke(exporter, ex);
             }
         }
 
@@ -250,6 +265,10 @@ public static class RichTextClipboard
     /// <param name="text">
     /// The plain text flavour, or <see langword="null"/> to take it from <paramref name="doc"/>.
     /// </param>
+    /// <param name="exportFailed">
+    /// Told of each exporter that threw, whose flavour the copy went ahead without; see
+    /// <see cref="Build"/>.
+    /// </param>
     /// <returns><see langword="true"/> if the write completed.</returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="clipboard"/>, <paramref name="doc"/> or <paramref name="exporters"/> is
@@ -265,21 +284,21 @@ public static class RichTextClipboard
         IClipboard clipboard,
         DocumentNode doc,
         IEnumerable<IDocumentExporter> exporters,
-        string? text = null)
+        string? text = null,
+        Action<IDocumentExporter, Exception>? exportFailed = null)
     {
         ArgumentNullException.ThrowIfNull(clipboard);
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(exporters);
 
-        // Build runs the registered exporters inside this catch, so an exporter that throws makes the
-        // copy return false instead of reaching the caller. Narrowing it would let that exception
-        // escape Ctrl+C, whose handler nothing awaits.
-        // ast-grep-ignore: broad-catch
+        // An exporter that throws is contained and reported by Build, flavour by flavour, so the
+        // copy goes ahead with the rest (owner decision 2026-10-27: Ctrl+C never throws, and a
+        // failing exporter is reported, not silent).
+        var data = Build(doc, exporters, text, exportFailed);
+
         try
         {
-            await clipboard.SetDataAsync(Build(doc, exporters, text)).ConfigureAwait(true);
-
-            return true;
+            await clipboard.SetDataAsync(data).ConfigureAwait(true);
         }
         catch (Exception)
         {
@@ -287,6 +306,8 @@ public static class RichTextClipboard
             // business here - another process holding it open is the usual one.
             return false;
         }
+
+        return true;
     }
 
     /// <summary>Reads the clipboard's richest readable flavour as a document.</summary>
