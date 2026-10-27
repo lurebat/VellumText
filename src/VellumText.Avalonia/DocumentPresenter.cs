@@ -358,12 +358,25 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
             foreach (var rect in view.GetSelectionRects(
                 Math.Max(0, from - slot.Start),
-                Math.Min(view.ContentSize, to - slot.Start)))
+                Math.Min(view.ContentSize, to - slot.Start),
+                RealizedWindowOf(origin)))
             {
                 onRect(rect.Translate(origin));
             }
         }
     }
+
+    /// <summary>
+    /// The window realized blocks are laid out for — the viewport and the overscan either side —
+    /// in the coordinates of a block at <paramref name="origin"/>.
+    /// </summary>
+    /// <remarks>
+    /// What a range or a cell rectangle is painted within. A paragraph outside it is not realized
+    /// and so is not asked; a long table is asked only for the rows inside it, which keeps a
+    /// selection running the length of the table from realizing every row to paint one screen.
+    /// </remarks>
+    private protected Rect RealizedWindowOf(Point origin) =>
+        new(-origin.X, -origin.Y - Overscan, Bounds.Width, Bounds.Height + (2 * Overscan));
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

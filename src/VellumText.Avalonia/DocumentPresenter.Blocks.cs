@@ -588,7 +588,17 @@ public abstract partial class DocumentPresenter
             var first = _first;
             var last = _last;
 
+            // Inside a table the anchor is a row, not the table: rows above the viewport are
+            // measured as it is realized, and holding only the distance into the table would let
+            // their corrections slide a different row under the top of the viewport.
+            var row = _views[anchor] is TableBlockView table ? table.RowAnchor(into) : default((int Row, double Fraction)?);
+
             size = RealizeWindow();
+
+            if (row is { } held && _views[anchor] is TableBlockView settled)
+            {
+                into = settled.RowOffset(held.Row, held.Fraction);
+            }
 
             // Clamped against the height the block turned out to have, not the one it was
             // estimated to have. An anchor 40px tall that was guessed at 80 would otherwise keep a
@@ -621,6 +631,19 @@ public abstract partial class DocumentPresenter
 
         for (var i = first; i < _views.Count; i++)
         {
+            // A block taller than the window — a long table — lays out only the part of itself
+            // the window covers; told in its own coordinates, against where it sits now.
+            if (virtualizing)
+            {
+                var top = _heights.OffsetOf(i);
+
+                _views[i].SetWindow(Math.Max(0, _offset.Y - Overscan) - top, limit - top);
+            }
+            else
+            {
+                _views[i].SetWindow(double.NegativeInfinity, double.PositiveInfinity);
+            }
+
             var size = _views[i].Measure(_width);
 
             _heights.SetHeight(i, size.Height);

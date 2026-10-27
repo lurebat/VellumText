@@ -534,6 +534,130 @@ public class ScalingGuardTests
         Growth.AssertFlat(built, "table cells rebuilt by a keystroke in the first cell");
         Assert.True(built.All(count => count <= 5), $"cells rebuilt: {string.Join(", ", built)}");
     }
+    /// <summary>
+    /// F-35: laying out a long table measures and builds the rows on screen, not every row.
+    /// </summary>
+    /// <remarks>
+    /// The table view built a view for every block of every cell when it was created and measured
+    /// all of them whenever it was measured: 3.4 s of a 1,000-row profile in <c>Measure</c> alone,
+    /// and linear in rows (docs/increment-9-0-profile.md). Rows are now realized in bands as the
+    /// viewport reaches them, with the rest priced at an estimate.
+    /// </remarks>
+    [AvaloniaFact]
+    public void LayingOutALongTableRealizesOnlyTheRowsOnScreen()
+    {
+        var built = new long[3];
+        var measured = Growth.Measure(
+            [2_500, 5_000, 10_000],
+            n =>
+            {
+                var doc = Growth.Table(n);
+
+                WorkCounters.TableCellsMeasured = 0;
+                WorkCounters.TableCellsBuilt = 0;
+
+                Shown(doc);
+
+                built[Array.IndexOf([2_500, 5_000, 10_000], n)] = WorkCounters.TableCellsBuilt;
+
+                return WorkCounters.TableCellsMeasured;
+            });
+
+        Growth.AssertFlat(measured, "table cells measured to lay out the top of a long table");
+        Growth.AssertFlat(built, "table cells built to lay out the top of a long table");
+    }
+
+    /// <summary>
+    /// F-35: scrolling to the middle of a long table measures the rows it brings on screen.
+    /// </summary>
+    [AvaloniaFact]
+    public void ScrollingALongTableRealizesOnlyTheRowsItBringsOnScreen()
+    {
+        var measured = Growth.Measure(
+            [2_500, 5_000, 10_000],
+            n =>
+            {
+                var view = Shown(Growth.Table(n));
+
+                WorkCounters.TableCellsMeasured = 0;
+
+                view.Offset = new Vector(0, view.Extent.Height / 2);
+                Layout(view);
+
+                Assert.True(WorkCounters.TableCellsMeasured > 0, "the scroll measured nothing");
+
+                return WorkCounters.TableCellsMeasured;
+            });
+
+        Growth.AssertFlat(measured, "table cells measured to scroll to the middle of a long table");
+    }
+
+    /// <summary>
+    /// The AC12 row for a table, the view's share: after a keystroke in the first cell of a
+    /// 10,000-row table, bringing the view up to date measures that row again and allocates within
+    /// the keystroke budget.
+    /// </summary>
+    /// <remarks>
+    /// Only the view's share, because the model's is not the view's to fix: applying the step
+    /// validates the edited table, and <c>DocumentSchema.ValidateTable</c> places every cell to do
+    /// it — about 6 MB at this size, measured, linear in cells and the same before and after this
+    /// change. The edit is therefore applied to the state outside the measurement and handed to
+    /// the view, which reconciles and lays it out exactly as it does a typed one.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Ac12AKeystrokeInATenThousandRowTableLaysOutOneRowWithinItsBudget()
+    {
+        var view = Shown(Growth.Table(10_000));
+
+        view.MoveTo(Growth.FirstCellText, false);
+        Layout(view);
+        Typed(view);
+
+        WorkCounters.TableCellsMeasured = 0;
+
+        var bytes = Typed(view);
+
+        Assert.True(bytes <= Ac12Budget, $"laying out a keystroke allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
+        Assert.InRange(WorkCounters.TableCellsMeasured, 1, 5);
+
+        static long Typed(RichTextView view)
+        {
+            var state = view.State;
+            var head = state.Selection.Head;
+            var next = state.Apply(state.Transaction().InsertText(head, "x").SetSelection(TextSelection.Cursor(head + 1)));
+            var before = GC.GetAllocatedBytesForCurrentThread();
+
+            view.State = next;
+            Layout(view);
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+    }
+
+    /// <summary>
+    /// Laying out a 10,000-row table allocates for the rows on screen and a few words of
+    /// bookkeeping per row, not a laid-out view of every cell.
+    /// </summary>
+    [AvaloniaFact]
+    public void LayingOutATenThousandRowTableAllocatesBookkeepingNotViews()
+    {
+        var doc = Growth.Table(10_000);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        Shown(doc);
+
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(bytes <= FirstLayoutBudget, $"laying out the table allocated {bytes:N0} bytes (budget {FirstLayoutBudget:N0})");
+    }
+
+    /// <summary>What laying out a 10,000 × 5 table for the first time may allocate.</summary>
+    /// <remarks>
+    /// Measured at 7.8 MB, about 780 bytes a row, most of it placing the cells
+    /// (<c>TableGeometry.Place</c>'s occupancy set) and the per-row arrays. A laid-out view of every
+    /// cell, which is what it was, allocated 280 MB.
+    /// </remarks>
+    private const long FirstLayoutBudget = 12_000_000;
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };

@@ -829,6 +829,44 @@ internal sealed class ParagraphView : BlockView
 >   spans, so `TableGeometry.Place` would place every cell where it was — rebuilds only the rows
 >   whose nodes it replaced and refreshes the row starts in one pass. A shape change places and
 >   walks everything, as before. Column widths are not shape, so a column resize rebuilds no cell.
+>
+> **As built (Phase 9.3, 2026-10-27): table rows are virtualized.** A table is one block to the
+> presenter, so the presenter's own virtualization realized all of it: every cell's view was built
+> when the table view was made (280 MB for 10,000 × 5) and every cell was measured whenever it was.
+> Now rows are realized as they are needed, the same idea as `BlockHeightIndex` one level down:
+>
+> - **`BlockView.SetWindow(top, bottom)`** tells a block which stretch of it the next `Measure`
+>   must lay out; the presenter passes its realized window (viewport and overscan) in the block's
+>   coordinates. The table keeps it as *the row it starts at and how far it reaches*, because
+>   measuring any row moves the estimate and so every unmeasured row: a window remembered in
+>   pixels named different rows each time the table was measured again.
+> - **Rows are realized and measured in bands** — the runs of rows that cells spanning rows tie
+>   together — with exactly the two-pass rule the whole table used (single-row cells settle their
+>   rows, then a spanning cell that does not fit pushes the last row it covers). A row nobody has
+>   measured is priced at the mean of those that have been. Row tops are prefix sums recomputed in
+>   order from the first row whose height moved (or from the top when the estimate moved), so a
+>   fully measured table has bit-for-bit the geometry it had.
+> - **Anything that needs a row realizes it.** The caret, hit testing, a paragraph or image lookup,
+>   a selection rectangle or a column boundary in a row outside the window realize and measure that
+>   row's band first. Hit testing finds the nearest cell from placements and row edges alone and
+>   looks only at rows within the best distance found, which gives the answer a scan of every cell
+>   gave; drawing realizes a band that is visible but was never realized rather than drawing it
+>   blank.
+> - **The presenter anchors on a row.** `Settle` keeps the block at the top of the viewport where
+>   it was while estimates are replaced; inside a table that now means the row at the top, kept at
+>   the same share of its height (a distance into a row guessed taller than it is would land in the
+>   next one).
+> - **Painting asks only for what is realized.** `BlockView.GetSelectionRects(from, to, visible)` and
+>   `TableBlockView.GetCellRects(cells, start, visible)` take the realized window, so selecting all
+>   of a long table paints its screenful without realizing every row; `SelectionBounds` reports the
+>   realized part, as it already did for paragraphs outside the window.
+>
+> Measured by `ScalingGuardTests`: laying out the top of a 2,500-, 5,000- or 10,000-row table builds
+> and measures 95 cells; scrolling to its middle measures one window; laying out a 10,000-row table
+> allocates 7.8 MB (most of it `TableGeometry.Place`), against 280 MB. **Not fixed here:** typing
+> into a cell of a 10,000-row table still allocates about 6 MB in the *model*, because
+> `ReplaceStep.Apply` validates the edited table and `DocumentSchema.ValidateTable` places every cell
+> to do it; the view's share of that keystroke is 0.4 MB.
 
 ### 4.7 The text source
 
@@ -2727,4 +2765,4 @@ with the basis it rests on now. The plan that carried them out is
 | `RichTextToolbar` commands are always enabled. | Disabled while the bound editor is read-only. For an editable editor they stay enabled wherever the caret is, for the reason the toolbar's remarks give. |
 | RTF is read by RtfPipe (§5.4, §12.1). | Read by `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf`, pinned to one exact version, chosen through the phase 8 selection gate (OD-8, owner's option 1, 2026-10-27). The accepted risks — a young library with one principal maintainer, pictures stored only as Word shapes, the AngleSharp bump — are in §5.4. |
 | R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Paragraphs longer than 4,096 characters are laid out in line-range sub-layouts (Phase 9.1, after the 9.0 profile found the lines × runs term in Avalonia's wrapping); right-to-left and justified paragraphs, and short ones, keep the single layout. See §4.6. |
-| R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view itself becomes row-virtualized (OD-6). |
+| R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view is row-virtualized (Phase 9.2–9.3): it draws only the row bands on screen, updates only the rows an edit replaced, and realizes and measures rows in bands as the viewport or a geometry question reaches them. See §4.6. |

@@ -11,7 +11,7 @@ namespace VellumText.Avalonia;
 /// A block view owns its own layout and reports geometry, but it draws neither the caret nor
 /// the selection highlight. Those belong to the view that hosts the blocks, because a selection
 /// can span several of them and the caret is one concern with one blink timer. Blocks answer
-/// <see cref="GetCaretRect"/> and <see cref="GetSelectionRects"/> and stop there.
+/// <see cref="GetCaretRect"/> and <see cref="GetSelectionRects(int, int)"/> and stop there.
 /// </para>
 /// <para>
 /// Every position in this API is <em>local</em> to the block's content: 0 is the first position
@@ -53,6 +53,22 @@ internal abstract class BlockView
     public virtual void Render(DrawingContext context, Point origin, Rect visible) => Render(context, origin);
 
     /// <summary>
+    /// Tells the block which vertical stretch of it, in its own coordinates, the next
+    /// <see cref="Measure"/> must lay out.
+    /// </summary>
+    /// <remarks>
+    /// The presenter's realized window, so that a block taller than the viewport — a table of ten
+    /// thousand rows — can lay out the part about to be seen and estimate the rest. The default
+    /// ignores it and lays out everything, which is what every block but a table does. An infinite
+    /// stretch means everything.
+    /// </remarks>
+    /// <param name="top">The top of the stretch.</param>
+    /// <param name="bottom">The bottom of the stretch.</param>
+    public virtual void SetWindow(double top, double bottom)
+    {
+    }
+
+    /// <summary>
     /// Finds the position nearest a point in the block's own coordinates.
     /// </summary>
     /// <param name="local">The point, relative to the block's top-left corner.</param>
@@ -74,6 +90,20 @@ internal abstract class BlockView
     /// <param name="from">The local start position.</param>
     /// <param name="to">The local end position.</param>
     public abstract IReadOnlyList<Rect> GetSelectionRects(int from, int to);
+
+    /// <summary>
+    /// The highlight rectangles for a local range, as far as they fall in <paramref name="visible"/>.
+    /// </summary>
+    /// <remarks>
+    /// For painting: rectangles outside <paramref name="visible"/> may be left out, and are, by a
+    /// block that would otherwise have to lay out parts of itself nobody can see. The default
+    /// returns them all.
+    /// </remarks>
+    /// <param name="from">The local start position.</param>
+    /// <param name="to">The local end position.</param>
+    /// <param name="visible">What of the block can be seen, in its own coordinates.</param>
+    public virtual IReadOnlyList<Rect> GetSelectionRects(int from, int to, Rect visible) =>
+        GetSelectionRects(from, to);
 
     /// <summary>
     /// The paragraph at a local position, or null if there is no editable text there.
@@ -99,7 +129,7 @@ internal abstract class BlockView
     /// The box an image at a local position is drawn in, or null if there is no image there.
     /// </summary>
     /// <remarks>
-    /// Distinct from <see cref="GetSelectionRects"/>, which for an inline image returns the
+    /// Distinct from <see cref="GetSelectionRects(int, int)"/>, which for an inline image returns the
     /// <em>line</em> box: as tall as the line and reaching below the picture by the descent of the
     /// text beside it. Resize handles drawn on that rectangle float visibly off the image, so the
     /// block is asked where the picture itself is rather than where its position is.

@@ -676,7 +676,7 @@ public partial class RichTextView : DocumentPresenter
 
             var origin = BlockOrigin(i);
 
-            foreach (var rect in table.GetCellRects(wanted, _slots[i].Start))
+            foreach (var rect in table.GetCellRects(wanted, _slots[i].Start, RealizedWindowOf(origin)))
             {
                 onRect(rect.Translate(origin));
             }

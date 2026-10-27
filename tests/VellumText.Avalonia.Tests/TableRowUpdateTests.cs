@@ -45,6 +45,30 @@ public class TableRowUpdateTests
     }
 
     [AvaloniaFact]
+    public void TwoRowsTradingHeightInOneEditMoveEveryRowBetweenThem()
+    {
+        // Row 3 grows by a paragraph and row 9 loses one, in the same update, so the table is as
+        // tall as it was and the mean row height is unchanged — and every row between them is a
+        // paragraph lower than it was.
+        var rows = Grid(14, 3).Rows.ToArray();
+
+        rows[9] = new TableRowNode([new TableCellNode([ParagraphNode.FromText("a"), ParagraphNode.FromText("b")]), rows[9].Cells[1], rows[9].Cells[2]]);
+
+        var table = new TableNode(rows);
+        var view = Built(table);
+        var traded = rows.ToArray();
+
+        traded[3] = new TableRowNode([new TableCellNode([ParagraphNode.FromText("a"), ParagraphNode.FromText("b")]), rows[3].Cells[1], rows[3].Cells[2]]);
+        traded[9] = new TableRowNode([TableCellNode.FromText("a"), rows[9].Cells[1], rows[9].Cells[2]]);
+
+        var changed = new TableNode(traded);
+
+        Assert.True(view.Update(changed));
+        view.Measure(Width);
+
+        AssertSameAs(Fresh(changed), view);
+    }
+    [AvaloniaFact]
     public void EditsInManyRowsInTurnMatchAFreshView()
     {
         var table = Grid(24, 4);
@@ -143,9 +167,11 @@ public class TableRowUpdateTests
         WorkCounters.TableCellsBuilt = 0;
 
         Assert.True(view.Update(changed));
-        Assert.Equal(changed.Rows.Sum(row => row.Cells.Length), WorkCounters.TableCellsBuilt);
-
         view.Measure(Width);
+
+        // Every cell placed again and given its views again, whether in the update or, for a row
+        // whose cells take the place of none that were, when it is next laid out.
+        Assert.Equal(changed.Rows.Sum(row => row.Cells.Length), WorkCounters.TableCellsBuilt);
 
         AssertSameAs(Fresh(changed), view);
     }

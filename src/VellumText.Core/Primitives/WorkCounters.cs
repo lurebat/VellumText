@@ -71,4 +71,8 @@ internal static class WorkCounters
     /// <summary>Table cells a table view has walked to build or update their views.</summary>
     [ThreadStatic]
     internal static long TableCellsBuilt;
+
+    /// <summary>Table cells a table view has measured the contents of.</summary>
+    [ThreadStatic]
+    internal static long TableCellsMeasured;
 }

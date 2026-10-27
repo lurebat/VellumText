@@ -309,6 +309,18 @@ awaits `PasteAsync`.
   with positions relative to the row, so an edit that keeps the grid's shape
   rebuilds the rows it replaced and moves the rest by one pass over their
   starts. Resizing a column no longer rebuilds any cell.
+- **A long table lays out only the rows near the viewport.** Making a table's
+  view built a view of every block in every cell — 280 MB for a 10,000 × 5
+  table — and measuring it measured every cell. Rows are now realized and
+  measured in bands as the viewport, the caret, a click, a selection or a column
+  drag reaches them, with the rest priced at the mean height of the rows
+  measured so far, as the document already does for paragraphs. Laying out the
+  top of a 10,000-row table measures 95 cells and allocates 7.8 MB; scrolling
+  keeps the row at the top of the viewport in place while the rows above it are
+  measured; painting a selection of the whole table realizes only the rows on
+  screen. Typing into a cell of a very long table still allocates about 6 MB a
+  keystroke in the document model, which validates the whole edited table after
+  each step.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"
