@@ -19,6 +19,13 @@ namespace VellumText.Tests.Interop.Html;
 /// </remarks>
 public class HtmlExportTests
 {
+    // Two different one-pixel PNGs, so that two images in one paragraph can be told apart.
+    private const string FirstPng =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+    private const string SecondPng =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
     /// <summary>Exports a document and reads it straight back.</summary>
     private static async Task<DocumentNode> RoundTrip(DocumentNode doc)
     {
@@ -295,6 +302,63 @@ public class HtmlExportTests
 
         Assert.DoesNotContain("onload=\"", html, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Text that happens to spell an entity is text: written with a bare ampersand, the reader
+    /// decodes it and <c>AT&amp;amp;T</c> comes back as <c>AT&amp;T</c>.
+    /// </summary>
+    [Fact]
+    public async Task Text_that_spells_an_entity_comes_back_as_written() =>
+        await Survives(DocumentNode.FromParagraphs("AT&amp;T", "1 &lt; 2", "&copy; &#169;"));
+
+    [Fact]
+    public async Task A_link_title_survives() =>
+        await Survives(new DocumentNode([
+            new ParagraphNode(InlineContent.FromText(
+                "text", new MarkSet(link: new LinkMark("https://example.com/", "a \"quoted\" tip")))),
+        ]));
+
+    /// <summary>
+    /// A list may start at zero, so the only start the exporter may leave unwritten is one, the
+    /// start an <c>ol</c> has without saying.
+    /// </summary>
+    [Fact]
+    public async Task An_ordered_list_starting_at_zero_keeps_its_start() =>
+        await Survives(new DocumentNode([
+            new ListNode([ListItemNode.FromText("zero"), ListItemNode.FromText("one")], ListKind.Ordered, start: 0),
+        ]));
+
+    /// <summary>
+    /// A colour that is partly transparent is written with its alpha. Only a fully opaque one can
+    /// be written in the six-digit form.
+    /// </summary>
+    [Fact]
+    public async Task A_translucent_colour_keeps_its_alpha()
+    {
+        var back = await RoundTrip(new DocumentNode([
+            new ParagraphNode(InlineContent.FromText(
+                "text", new MarkSet(foreground: new Rgba(0x12, 0x34, 0x56, 200)))),
+        ]));
+
+        var colour = Assert.IsType<ParagraphNode>(Assert.Single(back.Blocks)).Content.MarkAt(0).Foreground;
+
+        Assert.NotNull(colour);
+        Assert.Equal((0x12, 0x34, 0x56), ((int)colour.Value.R, (int)colour.Value.G, (int)colour.Value.B));
+        Assert.InRange(colour.Value.A, (byte)199, (byte)201);
+    }
+
+    /// <summary>
+    /// Every placeholder in a paragraph is written as its own image, in order. A paragraph with
+    /// two images is where writing the first one twice would show.
+    /// </summary>
+    [Fact]
+    public async Task Two_images_in_one_paragraph_each_come_back_in_their_place() =>
+        await Survives(new DocumentNode([
+            new ParagraphNode(InlineContent.Create(
+                $"a{InlineContent.Placeholder}b{InlineContent.Placeholder}c",
+                [],
+                [new ImageEmbed(FirstPng, altText: "first"), new ImageEmbed(SecondPng, altText: "second")])),
+        ]));
 
     [Fact]
     public async Task Bidi_and_clusters_survive() =>

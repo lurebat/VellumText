@@ -389,6 +389,26 @@ public class MarkdownSecurityTests
     }
 
     /// <summary>
+    /// A raw tag inside emphasis or a link is removed as well: the walk goes into every inline
+    /// container, not only the paragraph's top level.
+    /// </summary>
+    [Theory]
+    [InlineData("*a <u>b</u> c*")]
+    [InlineData("[a <u>b</u> c](https://example.test/)")]
+    public async Task A_raw_inline_tag_inside_another_inline_is_removed_too(string markdown)
+    {
+        var result = await Import(markdown);
+        var paragraph = OnlyPara(result);
+        var at = paragraph.Content.Text.IndexOf('b', StringComparison.Ordinal);
+
+        Assert.Equal("a b c", paragraph.Content.Text);
+        Assert.False(paragraph.Content.MarkAt(at).Has(TextStyle.Underline));
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "u");
+    }
+
+    /// <summary>
     /// The two spaces either side of the removed comment collapse into one, which is HTML's
     /// whitespace rule rather than anything to do with the comment.
     /// </summary>

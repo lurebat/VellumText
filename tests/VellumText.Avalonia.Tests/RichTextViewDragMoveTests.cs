@@ -107,6 +107,26 @@ public class RichTextViewDragMoveTests
     }
 
     /// <summary>
+    /// A drop exactly on either end of the dragged range is a no-op too: the text would land where
+    /// it already is, and the move would still cost an undo step. Paragraph offsets 3 and 12 are
+    /// positions 4 and 13, the selection's two ends.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(3)]
+    [InlineData(12)]
+    public void DroppingOnEitherEndOfTheDraggedRangeChangesNothing(int end)
+    {
+        var (window, view) = Shown(Alphabet);
+        var doc = view.State.Doc;
+
+        Select(view, 4, 13);
+        Drag(window, At(view, 8), At(view, end));
+
+        Assert.Same(doc, view.State.Doc);
+        Assert.False(view.CanUndo);
+    }
+
+    /// <summary>
     /// The deferred decision, resolved the other way: a press inside a selection that is released
     /// without moving is a click, and a click collapses the caret where it landed.
     /// </summary>

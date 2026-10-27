@@ -58,6 +58,31 @@ public class RtfTableExportTests
         Assert.Equal("C", TextOf(table.Rows[1].Cells[1]));
     }
 
+    /// <summary>
+    /// A cell spanning two columns is two columns wide. RTF says so only through the right edge
+    /// its <c>\cellx</c> gives, which readers line up against the edges of the rows around it.
+    /// </summary>
+    [Fact]
+    public async Task A_cell_spanning_two_columns_is_as_wide_as_two()
+    {
+        var doc = new DocumentNode([
+            new TableNode([
+                new TableRowNode([new TableCellNode([ParagraphNode.FromText("wide")], columnSpan: 2)]),
+                new TableRowNode([Cell("left"), Cell("right")]),
+            ]),
+        ]);
+
+        var rtf = RtfExporter.Instance.Export(doc);
+        var firstRow = rtf[rtf.IndexOf(@"\trowd", StringComparison.Ordinal)..rtf.IndexOf(@"\row", StringComparison.Ordinal)];
+
+        Assert.Contains(@"\cellx2880", firstRow, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\cellx1440", firstRow, StringComparison.Ordinal);
+
+        var table = Assert.IsType<TableNode>(Assert.Single((await Trip(doc)).Blocks));
+
+        Assert.Equal(2, Assert.Single(table.Rows[0].Cells).ColumnSpan);
+    }
+
     [Fact]
     public async Task A_cells_paragraphs_stay_separate_paragraphs()
     {
