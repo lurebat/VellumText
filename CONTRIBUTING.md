@@ -31,7 +31,7 @@ works only on your machine is easy to write. Two rules keep them portable:
   swaps red and blue on the other platform.
 
 CI builds and tests on Linux and Windows for every pull request. macOS minutes
-cost ten times as much, so macOS runs on pushes to `main`, on a
+cost ten times as much, so macOS runs on pushes to `main`, on releases, on a
 manual run of the CI workflow, and on pull requests that touch
 `src/VellumText.Avalonia`, its tests, `samples/`, or the build files. The
 `platforms` job in `.github/workflows/ci.yml` holds the exact list.
@@ -125,9 +125,12 @@ To release:
    and start a fresh `Unreleased` above it. The workflow fails if there is no
    section for the version being released, so this is not optional.
 3. Commit, then tag: `git tag vx.y.z && git push origin vx.y.z`.
-4. The `verify` job builds, tests and packs. The `publish` job then waits on the
-   `nuget` environment, which should have a required reviewer configured — that
-   approval is the only real protection against publishing the wrong thing.
+4. The `ci` job runs the whole CI workflow — Linux, Windows and macOS — on the
+   tagged commit, and the `verify` job builds, tests and packs. The `publish`
+   job needs both, so a commit that fails on any platform cannot be published.
+   It then waits on the `nuget` environment, which should have a required
+   reviewer configured — that approval is the only real protection against
+   publishing the wrong thing.
 5. On approval it pushes to NuGet and opens a GitHub release whose notes are the
    changelog section for that version.
 

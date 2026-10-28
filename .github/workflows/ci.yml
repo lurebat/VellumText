@@ -5,16 +5,20 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Release runs this whole workflow on the tagged commit, every platform included, and cannot
+  # publish unless it passes. See release.yml.
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   # Decides where `build` runs. Linux and Windows run on everything. macOS costs ten times the
-  # minutes of Linux on a private repository, so it runs on pushes to main, on a manual run, and
-  # on pull requests that change what macOS actually catches: the Avalonia control and its tests,
-  # the demo, and the build itself. A pull request that only touches the platform-independent
-  # libraries is still covered on macOS by the push to main that merges it.
+  # minutes of Linux on a private repository, so it runs on pushes to main, on releases (which
+  # arrive here as the tag's push), on a manual run, and on pull requests that change what macOS
+  # actually catches: the Avalonia control and its tests, the demo, and the build itself. A pull
+  # request that only touches the platform-independent libraries is still covered on macOS by
+  # the push to main that merges it.
   platforms:
     runs-on: ubuntu-latest
 
@@ -110,6 +114,10 @@ jobs:
   pack:
     runs-on: ubuntu-latest
     needs: build
+
+    # On a release this workflow runs inside Release's own run, whose verify job packs and
+    # uploads `packages` itself. A second artifact of that name in one run fails the upload.
+    if: github.ref_type != 'tag'
 
     steps:
       - uses: actions/checkout@v4

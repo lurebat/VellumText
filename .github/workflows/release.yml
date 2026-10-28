@@ -12,6 +12,14 @@ permissions:
   contents: read
 
 jobs:
+  # The full CI workflow - Linux, Windows and macOS builds and tests, and the lint - on exactly
+  # the commit the tag names. `publish` needs it, so a release whose commit fails on any platform
+  # cannot reach NuGet, whatever happened to that commit's runs before it was tagged.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   # Everything that can fail without consequence happens here, before the job
   # that can publish. A NuGet version cannot be unpublished and cannot be
   # replaced, so the expensive mistakes are the ones made after this point.
@@ -87,7 +95,7 @@ jobs:
   # publishing the wrong thing.
   publish:
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [ci, verify]
     environment: nuget
 
     permissions:
