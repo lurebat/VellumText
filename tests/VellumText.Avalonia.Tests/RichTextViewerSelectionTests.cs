@@ -251,17 +251,14 @@ public class RichTextViewerSelectionTests
     }
 
     /// <summary>A point inside a block, in viewer coordinates.</summary>
-    private static Point At(RichTextViewer viewer, int block, double x)
-    {
-        var y = 0.0;
-
-        for (var i = 0; i < block; i++)
-        {
-            y += viewer.Blocks[i].Size.Height;
-        }
-
-        return new Point(x, y + (viewer.Blocks[block].Size.Height / 2));
-    }
+    /// <summary>A point at <paramref name="x"/> on the first line of a block.</summary>
+    /// <remarks>
+    /// The first line rather than the block's middle: these paragraphs wrap, and into how many
+    /// lines depends on the font. Two lines put the middle on the line break, three put it on
+    /// the second line, and either way the point is no longer on the text the test names.
+    /// </remarks>
+    private static Point At(RichTextViewer viewer, int block, double x) =>
+        new(x, viewer.BlockOrigin(block).Y + viewer.Blocks[block].GetCaretRect(0).Center.Y);
 
     private static RichTextViewer Shown(out Window window, DocumentNode? doc = null)
     {

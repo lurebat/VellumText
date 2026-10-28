@@ -56,7 +56,11 @@ public class RichTextViewScrollTests
         view.Measure(new Size(Width, double.PositiveInfinity));
 
         Assert.Equal(new Range(0, 40), view.RealizedBlocks);
-        Assert.Equal(view.Extent.Height, view.DesiredSize.Height, 0);
+
+        // Layout rounding sizes a control up to whole device pixels, so its desired height is the
+        // extent rounded up - not to the nearest pixel, which is only the same thing when the
+        // font's line heights happen to add up to just over a whole number.
+        Assert.Equal(LayoutHelper.RoundLayoutValueUp(view.Extent.Height, 1), view.DesiredSize.Height, 3);
     }
 
     [AvaloniaFact]
