@@ -237,19 +237,7 @@ public class RichTextViewListTests
             view.Render(context);
         }
 
-        var pixels = new uint[width * height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(
-                    new PixelRect(new PixelSize(width, height)),
-                    (nint)buffer,
-                    pixels.Length * sizeof(uint),
-                    width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         var columns = new List<double>();
 

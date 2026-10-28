@@ -656,19 +656,7 @@ public class ParagraphViewTests
     private static (uint[] Pixels, int Width, int Height) Read(RenderTargetBitmap bitmap)
     {
         var size = bitmap.PixelSize;
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(
-                    new PixelRect(size),
-                    (nint)buffer,
-                    pixels.Length * sizeof(uint),
-                    size.Width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         return (pixels, size.Width, size.Height);
     }

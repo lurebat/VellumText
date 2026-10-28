@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using global::Avalonia;
 using global::Avalonia.Controls;
 using global::Avalonia.Headless;
@@ -675,24 +674,7 @@ public class RichTextViewImageTests
         using var frame = window.CaptureRenderedFrame()
             ?? throw new InvalidOperationException("nothing was rendered");
 
-        var size = frame.PixelSize;
-        var buffer = new byte[size.Width * size.Height * 4];
-        var pin = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-
-        try
-        {
-            frame.CopyPixels(
-                new PixelRect(0, 0, size.Width, size.Height),
-                pin.AddrOfPinnedObject(),
-                buffer.Length,
-                size.Width * 4);
-        }
-        finally
-        {
-            pin.Free();
-        }
-
-        return buffer;
+        return RenderedPixels.Rgba(frame);
     }
 
     /// <summary>Counts the pixels painted in exactly <paramref name="colour"/>.</summary>
