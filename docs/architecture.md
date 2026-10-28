@@ -1145,8 +1145,15 @@ Only materially distinct options; scored 1–5 (5 best).
 - **A heavier dependency.** `OfficeIMO.Html.Rtf` brings `OfficeIMO.Html` and its siblings
   (about 8 MB of assemblies) and required AngleSharp 1.8.3 and AngleSharp.Css 1.1.2, the parser
   under the sanitizer; the HTML and sanitizer suites were re-run on the bump.
-- **Not declared trimmable.** Checked with the trimming analyzer; see the phase 8 pull request for
-  what it reported.
+- **Not declared trimmable.** Checked with the trimming analyzer: a trimmed (`TrimMode=full`)
+  application calling `RtfImporter` publishes with no trim warnings and imports the same.
+- **Slower on large documents (measured 2026-10-28, quiet machine).** The reader itself is faster
+  than RtfPipe (572 ms against 718 ms for 10,000 paragraphs), but it writes about 3.5 times the
+  HTML — a `<span>` per run, each repeating the font family and size a container could carry — so
+  the HTML stage takes about 3.6 s where RtfPipe's HTML took 0.65 s, and the whole import 2.7 s
+  against 1.36 s (the audit's baseline, before phase 7, was 3.05 s). The import runs off the UI
+  thread, so the cost is paste latency, not a frozen window. Whether to hoist the repeated
+  formatting before conversion is an open owner decision.
 
 **The HTML stage is internal, and the public API says so.** `RtfImporter.Import` took an
 `HtmlImportOptions`, which put HTML's type in the RTF package's public surface: a consumer who
