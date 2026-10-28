@@ -18,6 +18,18 @@ dotnet test
 The Avalonia tests run headlessly, so there is no display server to configure
 and they work the same on Linux, macOS and Windows.
 
+They render real text in each platform's own default font — Segoe UI on
+Windows, DejaVu Sans on Linux, the system font on macOS — so a test that
+works only on your machine is easy to write. Two rules keep them portable:
+
+- **Never aim at or assert a pixel position written as a number.** Where a
+  character sits and how a paragraph wraps depend on the font. Take points
+  from the layout (`BlockOrigin`, `GetCaretRect`) and compare geometry
+  relatively.
+- **Read rendered pixels through `RenderedPixels`.** A `RenderTargetBitmap`
+  is BGRA on Windows and Linux but RGBA on macOS; reading it as one order
+  swaps red and blue on the other platform.
+
 To run one project's tests, or one test:
 
 ```
