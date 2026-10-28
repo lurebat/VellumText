@@ -444,6 +444,9 @@ awaits `PasteAsync`.
     writes more CSS.
   The HTML stage still decides what a paste may contain. AngleSharp moves to
   1.8.3 and AngleSharp.Css to 1.1.2, which the new reader requires.
+  A font family or size every run of a document states is written once rather
+  than on every run (the reader's HTML was about 3.5 times RtfPipe's), with an
+  import identical to before.
 - **Importing is asynchronous, and only asynchronous.** A paste of a large web
   page or Word document froze whatever waited for it — the UI thread, in the
   editor — for seconds, and a synchronous import member invites exactly that

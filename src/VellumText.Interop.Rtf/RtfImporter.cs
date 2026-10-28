@@ -127,7 +127,7 @@ public static class RtfImporter
 
         try
         {
-            html = read.Document.ToHtml(HtmlOptions);
+            html = ToHtml(read.Document, hoist: true);
         }
         catch (Exception ex)
         {
@@ -141,9 +141,21 @@ public static class RtfImporter
 
     /// <summary>The HTML the reader makes of <paramref name="rtf"/>, before the HTML stage.</summary>
     /// <remarks>For tests and the benchmark, which measure what the HTML stage is given.</remarks>
-    internal static string ReadToHtml(string rtf) =>
-        RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None)
-            .Document.ToHtml(HtmlOptions);
+    /// <param name="rtf">The RTF.</param>
+    /// <param name="hoist">
+    /// Whether the shared font is hoisted (<see cref="RtfFormattingHoist"/>); false only to test that
+    /// hoisting changes nothing.
+    /// </param>
+    internal static string ReadToHtml(string rtf, bool hoist = true) =>
+        ToHtml(RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document, hoist);
+
+    /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
+    private static string ToHtml(RtfDocument document, bool hoist)
+    {
+        var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
+
+        return RtfFormattingHoist.Wrap(document.ToHtml(HtmlOptions), css);
+    }
     /// <summary>What the reader may do, given what the host trusts.</summary>
     /// <remarks>
     /// <para>

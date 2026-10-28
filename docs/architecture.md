@@ -1152,8 +1152,14 @@ Only materially distinct options; scored 1–5 (5 best).
   HTML — a `<span>` per run, each repeating the font family and size a container could carry — so
   the HTML stage takes about 3.6 s where RtfPipe's HTML took 0.65 s, and the whole import 2.7 s
   against 1.36 s (the audit's baseline, before phase 7, was 3.05 s). The import runs off the UI
-  thread, so the cost is paste latency, not a frozen window. Whether to hoist the repeated
-  formatting before conversion is an open owner decision.
+  thread, so the cost is paste latency, not a frozen window. **Decided 2026-10-28 (owner, option
+  b):** the font family and size every run states are hoisted, in the reader's own model, onto one
+  wrapping element before conversion (`RtfFormattingHoist`). A property is hoisted only when every
+  run with text states one, and a document holding anything else the wrapper could reach — a
+  break, an image, a field, a shape — is left alone, so the import is identical by construction
+  (pinned by `RtfFormattingHoistTests` on the Word and Excel captures and synthetic inputs). Word
+  documents with fields or breaks therefore still pay the cost; re-timing is pending a quiet
+  machine.
 
 **The HTML stage is internal, and the public API says so.** `RtfImporter.Import` took an
 `HtmlImportOptions`, which put HTML's type in the RTF package's public surface: a consumer who
