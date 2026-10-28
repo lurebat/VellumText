@@ -220,8 +220,20 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     /// <see cref="TableEdits"/> builds the new table from the old one's untouched cells, so its
     /// steps always do; a table a host built separately does not, and is diffed by value.
     /// </remarks>
-    private static bool SharesAny(Node before, Node after)
+    internal static bool SharesAny(Node before, Node after)
     {
+        // A shared node found anywhere is the whole answer, and a step from TableEdits keeps the
+        // cells of the first or the last row - all of them, for a column insert - so look there
+        // before collecting every node of the table. The set below is still what decides "no":
+        // a witness can only ever prove sharing, never rule it out.
+        var a = before.Children;
+        var b = after.Children;
+
+        if (!a.IsEmpty && !b.IsEmpty && (SharesAChild(a[0], b[0]) || SharesAChild(a[^1], b[^1])))
+        {
+            return true;
+        }
+
         var seen = new HashSet<Node>(Descendants(before), ReferenceEqualityComparer.Instance);
 
         return Descendants(after).Any(seen.Contains);
@@ -240,6 +252,26 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
         }
     }
 
+    /// <summary>Whether two rows hold any cell that is the very same object.</summary>
+    /// <remarks>
+    /// One set of a row's cells - a row's width, not the table's size - so a wide table pays as
+    /// little as a narrow one. A row that is itself shared shares its cells; one with no cells is
+    /// left to the full search.
+    /// </remarks>
+    private static bool SharesAChild(Node before, Node after)
+    {
+        var cells = new HashSet<Node>(before.Children, ReferenceEqualityComparer.Instance);
+
+        foreach (var cell in after.Children)
+        {
+            if (cells.Contains(cell))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
     /// <summary>
     /// Whether a node is the same one in both versions: the very same object, or a container
     /// rebuilt around exactly the same children.
