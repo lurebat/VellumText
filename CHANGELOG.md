@@ -317,8 +317,9 @@ awaits `PasteAsync`.
   measured so far, as the document already does for paragraphs. Laying out the
   top of a 10,000-row table measures 95 cells and allocates 7.8 MB; scrolling
   keeps the row at the top of the viewport in place while the rows above it are
-  measured; painting a selection of the whole table realizes only the rows on
-  screen. Typing into a cell of a very long table still allocates about 6 MB a
+  measured, including rows taller than the estimate, and through inserting or
+  deleting a row, which keeps the heights of the rows it did not touch;
+  painting a selection of the whole table realizes only the rows on screen. Typing into a cell of a very long table still allocates about 6 MB a
   keystroke in the document model, which validates the whole edited table after
   each step.
 - **Whole-word search no longer treats letters outside the basic plane as word

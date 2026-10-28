@@ -130,11 +130,12 @@ public class TableRowUpdateTests
     }
 
     [AvaloniaTheory]
-    [InlineData("insert a row")]
-    [InlineData("remove a row")]
-    [InlineData("span a row")]
-    [InlineData("add a cell")]
-    public void AShapeChangeIsWalkedWholeAndMatchesAFreshView(string change)
+    [InlineData("insert a row", 3, 3)]
+    [InlineData("remove a row", 0, 0)]
+    [InlineData("span a row", 5, 5)]
+    // A fourth column narrows every column, so every row is measured again.
+    [InlineData("add a cell", 4, 31)]
+    public void AShapeChangeBuildsOnlyTheRowsItReplacedAndMatchesAFreshView(string change, int replaced, int measured)
     {
         var table = Grid(10, 3);
         var view = Built(table);
@@ -165,15 +166,61 @@ public class TableRowUpdateTests
         }
 
         WorkCounters.TableCellsBuilt = 0;
+        WorkCounters.TableCellsMeasured = 0;
 
         Assert.True(view.Update(changed));
         view.Measure(Width);
 
-        // Every cell placed again and given its views again, whether in the update or, for a row
-        // whose cells take the place of none that were, when it is next laid out.
-        Assert.Equal(changed.Rows.Sum(row => row.Cells.Length), WorkCounters.TableCellsBuilt);
+        // Every cell placed again, but only the cells of the rows the change replaced given new
+        // views: the rows around them hold the very same cells and keep theirs, and their heights.
+        Assert.Equal(replaced, WorkCounters.TableCellsBuilt);
+        Assert.Equal(measured, WorkCounters.TableCellsMeasured);
 
         AssertSameAs(Fresh(changed), view);
+    }
+
+    [AvaloniaFact]
+    public void ARowEditedButNotYetMeasuredIsMeasuredAfterAShapeChange()
+    {
+        var rows = Grid(10, 3).Rows.ToList();
+        var view = Built(new TableNode(rows));
+
+        // Taller, and not measured before the next edit changes the grid's shape.
+        rows[2] = new TableRowNode([
+            new TableCellNode(Enumerable.Range(0, 6).Select(i => (BlockNode)ParagraphNode.FromText($"line {i}"))),
+            rows[2].Cells[1],
+            rows[2].Cells[2],
+        ]);
+        Assert.True(view.Update(new TableNode(rows)));
+
+        rows.Insert(6, new TableRowNode([TableCellNode.FromText("n0"), TableCellNode.FromText("n1"), TableCellNode.FromText("n2")]));
+
+        var changed = new TableNode(rows);
+
+        Assert.True(view.Update(changed));
+        view.Measure(Width);
+
+        AssertSameAs(Fresh(changed), view);
+    }
+
+    [AvaloniaFact]
+    public void ARowIsFollowedAcrossOneUpdateAndNoFurther()
+    {
+        var rows = Grid(10, 3).Rows.ToList();
+        var view = Built(new TableNode(rows));
+        var version = view.Version;
+
+        rows.Insert(4, new TableRowNode([TableCellNode.FromText("n0"), TableCellNode.FromText("n1"), TableCellNode.FromText("n2")]));
+        Assert.True(view.Update(new TableNode(rows)));
+
+        Assert.Equal(2, view.RowAfterUpdate(2, version));
+        Assert.Equal(8, view.RowAfterUpdate(7, version));
+
+        rows.RemoveAt(0);
+        Assert.True(view.Update(new TableNode(rows)));
+
+        // Two edits ago: what the first did is no longer known.
+        Assert.Equal(-1, view.RowAfterUpdate(7, version));
     }
 
     [AvaloniaFact]

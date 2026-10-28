@@ -242,6 +242,116 @@ public class TableVirtualizationTests
 
         Assert.Equal(0, WorkCounters.TableCellsRendered);
     }
+
+    [AvaloniaFact]
+    public void AShapeChangeLeavesRowsRealizedButNotMeasuredUnmeasured()
+    {
+        var table = Uniform(300);
+        var view = Built(table);
+
+        // Narrower, with a window at the top: the rows further down keep their views and lose
+        // their heights. Then a row goes in above them all.
+        view.SetWindow(0, 0, 200);
+        view.Measure(Width - 100);
+
+        Assert.False(view.IsRowMeasured(250));
+
+        var rows = table.Rows.ToList();
+
+        rows.Insert(0, new TableRowNode([Cell(-1, 0, false), Cell(-1, 1, false), Cell(-1, 2, false)]));
+        Assert.True(view.Update(new TableNode(rows)));
+        view.Measure(Width - 100);
+
+        Assert.False(view.IsRowMeasured(251));
+        Assert.True(double.IsFinite(view.Size.Height) && view.Size.Height > 0, $"{view.Size.Height}");
+        Assert.True(double.IsFinite(view.RowOffset(300, 0)), $"{view.RowOffset(300, 0)}");
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InsertingOrDeletingARowLeavesWhatIsOnScreenWhereItWas(bool insert)
+    {
+        // Fifty eight-paragraph rows at the top and short rows after them. The tall rows are
+        // measured on the way down; changing the grid's shape must not forget them, or the offset
+        // the viewport is at names a row a hundred further on.
+        var (window, view, block) = TallRowsThenShortOnesScrolledTo500();
+
+        var top = block.RowAnchor(view.Offset.Y - (view.BlockOrigin(0).Y + view.Offset.Y));
+        var caret = view.CaretRect();
+        var onScreen = view.BlockOrigin(0).Y + block.RowOffset(504, 0);
+
+        Assert.InRange(top.Row, 490, 505);
+        Assert.InRange(caret.Y, 50, 350);
+
+        Assert.True(insert ? view.InsertRowBelow() : view.DeleteRow());
+        Layout(window);
+
+        var after = block.RowAnchor(view.Offset.Y - (view.BlockOrigin(0).Y + view.Offset.Y));
+
+        Assert.Equal(top.Row, after.Row);
+        Assert.Equal(top.Fraction, after.Fraction, 6);
+
+        // The row before the one changed is drawn where it was; the caret is still on screen.
+        Assert.Equal(onScreen, view.BlockOrigin(0).Y + block.RowOffset(504, 0), 3);
+        Assert.InRange(view.CaretRect().Y, 0, 400);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ARowInsertedOrDeletedAboveTheViewportLeavesWhatIsOnScreenWhereItWas(bool insert)
+    {
+        // An edit that does not come from the caret — a collaborator's, or a host's — far above
+        // the viewport. The rows on screen are rows further down the table now, and stay put.
+        var (window, view, block) = TallRowsThenShortOnesScrolledTo500();
+        var top = block.RowAnchor(-view.BlockOrigin(0).Y);
+        var onScreen = view.BlockOrigin(0).Y + block.RowOffset(504, 0);
+        var caret = view.CaretRect().Y;
+        var cell = TableGrid.Build(0, (TableNode)view.State.Doc.Blocks[0]).At(5, 0) is { } slot ? slot.Pos : -1;
+        var step = insert
+            ? TableEdits.InsertRows(view.State.Doc, cell, cell, below: false)
+            : TableEdits.DeleteRows(view.State.Doc, cell, cell);
+
+        Assert.True(view.Apply(view.State.Transaction().Step(step!)));
+        Layout(window);
+
+        var moved = insert ? 1 : -1;
+        var after = block.RowAnchor(-view.BlockOrigin(0).Y);
+
+        Assert.Equal(2_000 + moved, block.RowCount);
+        Assert.Equal(top.Row + moved, after.Row);
+        Assert.Equal(top.Fraction, after.Fraction, 6);
+        Assert.Equal(onScreen, view.BlockOrigin(0).Y + block.RowOffset(504 + moved, 0), 3);
+        Assert.Equal(caret, view.CaretRect().Y, 3);
+    }
+
+    /// <summary>
+    /// Fifty eight-paragraph rows at the top of a two-thousand-row table and short rows after
+    /// them, walked down to row 500 so that the tall rows are measured, with the caret in row 505.
+    /// </summary>
+    private static (Window Window, RichTextView View, TableBlockView Block) TallRowsThenShortOnesScrolledTo500()
+    {
+        var table = new TableNode(Enumerable.Range(0, 2_000).Select(r => new TableRowNode([
+            r < 50 ? new TableCellNode(Enumerable.Range(0, 8).Select(i => (BlockNode)ParagraphNode.FromText($"line {i}"))) : Cell(r, 0, false),
+            Cell(r, 1, false),
+            Cell(r, 2, false),
+        ])));
+        var (window, view) = Shown(table, height: 400);
+        var block = (TableBlockView)view.Blocks[0];
+
+        for (var row = 0; row <= 500; row += 10)
+        {
+            view.Offset = new Vector(0, view.BlockOrigin(0).Y + view.Offset.Y + block.RowOffset(row, 0));
+            Layout(window);
+        }
+
+        view.MoveTo(PositionIn(view.State.Doc, 0, 505, 1), false);
+        Layout(window);
+
+        return (window, view, block);
+    }
+
     [AvaloniaFact]
     public void EveryRowNobodyHasMeasuredIsPricedAtTheSameEstimate()
     {

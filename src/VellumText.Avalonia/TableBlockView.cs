@@ -77,6 +77,11 @@ internal sealed class TableBlockView : BlockView
     private int _measuredRows;
     private double _measuredTotal;
     private double _seed = SeedEstimate;
+    private int _version;
+    private int _remapPrefix = int.MaxValue;
+    private int _remapSuffix;
+    private int _remapFrom;
+    private int _remapTo;
     private int _windowRow;
     private double _windowFraction;
     private double _windowAbove;
@@ -139,7 +144,14 @@ internal sealed class TableBlockView : BlockView
             return false;
         }
 
-        if (!TryUpdateRows(table))
+        _version++;
+
+        if (TryUpdateRows(table))
+        {
+            // Every row is the row it was.
+            _remapPrefix = int.MaxValue;
+        }
+        else
         {
             Rebuild(table);
         }
@@ -149,13 +161,28 @@ internal sealed class TableBlockView : BlockView
 
     /// <summary>
     /// Places every cell again and lays the table out as rows, realizing a row only where the
-    /// rows as they were had realized a cell it takes the place of, and reusing those views
+    /// rows as they were had realized it or a cell it takes the place of, and reusing those views
     /// wherever the edit left a block untouched.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A row whose cells the edit left alone is matched to the row it was — the rows before an
+    /// inserted or deleted row and the rows after it, found from both ends by reference — and
+    /// keeps its cells' views. It also keeps its measured height when nothing it was measured
+    /// against has moved: its band is the same rows it was, and every cell in it spans the same
+    /// columns and rows. Forgetting those heights priced every row at the mean, and with uneven
+    /// rows the offset the viewport was at then named a row far from the one on screen.
+    /// </para>
+    /// <para>
+    /// A row the edit replaced is matched by position to the replaced rows it stands among, and
+    /// takes over the views of their cells; where that pairs the wrong cells it only costs a
+    /// rebuild of those views.
+    /// </para>
+    /// </remarks>
     private void Rebuild(TableNode table)
     {
-        var oldRows = _rows;
-        var oldFirstCell = _rowFirstCell;
+        var old = new Previous(_rows, _rowFirstCell, _bandStart, _bandEnd, _rowHeights);
+        var estimate = Estimate;
         var placements = TableGeometry.Place(table, out _columns);
         var rows = new Row[table.Rows.Length];
         var firstCell = new int[rows.Length + 1];
@@ -163,31 +190,7 @@ internal sealed class TableBlockView : BlockView
         for (var r = 0; r < rows.Length; r++)
         {
             firstCell[r + 1] = firstCell[r] + table.Rows[r].Cells.Length;
-        }
-
-        for (var r = 0; r < rows.Length; r++)
-        {
-            var node = table.Rows[r];
-            var row = new Row(node);
-            var first = firstCell[r];
-
-            // Cells are matched by position rather than by identity. An edit inside one cell
-            // leaves the others alone, so the i'th cell of the new table is the i'th of the old
-            // one; a structural change that makes that false only costs a rebuild, which is what
-            // would have happened anyway.
-            Cell? Previous(int i) => CellAt(oldRows, oldFirstCell, first + i);
-
-            for (var i = 0; i < node.Cells.Length; i++)
-            {
-                if (Previous(i) is not null)
-                {
-                    row.Cells = new Cell[node.Cells.Length];
-                    BuildCells(node, row.Cells, i => placements[first + i], Previous);
-                    break;
-                }
-            }
-
-            rows[r] = row;
+            rows[r] = new Row(table.Rows[r]);
         }
 
         _rows = rows;
@@ -198,12 +201,157 @@ internal sealed class TableBlockView : BlockView
         Bands();
         UpdateRowStarts();
 
-        // Rows that changed which cells they hold are not the height they were.
-        _seed = Estimate;
+        _seed = estimate;
         _rowHeights = new double[rows.Length];
         _rowEdges = new double[rows.Length + 1];
         ForgetHeights();
+
+        // The rows the edit did not touch, from each end.
+        var limit = Math.Min(old.Rows.Length, rows.Length);
+        var prefix = 0;
+
+        while (prefix < limit && SameCells(old.Rows[prefix].Node, rows[prefix].Node))
+        {
+            prefix++;
+        }
+
+        var suffix = 0;
+
+        while (suffix < limit - prefix && SameCells(old.Rows[^(suffix + 1)].Node, rows[^(suffix + 1)].Node))
+        {
+            suffix++;
+        }
+
+        _remapPrefix = prefix;
+        _remapSuffix = suffix;
+        _remapFrom = old.Rows.Length;
+        _remapTo = rows.Length;
+
+        int Was(int row) =>
+            row < prefix ? row
+            : row >= rows.Length - suffix ? row - rows.Length + old.Rows.Length
+            : -1;
+
+        for (var start = 0; start < rows.Length; start = _bandEnd[start])
+        {
+            if (Carries(start, old, Was))
+            {
+                for (var r = start; r < _bandEnd[start]; r++)
+                {
+                    var was = Was(r);
+                    var cells = old.Rows[was].Cells!;
+                    var moved = new Cell[cells.Length];
+
+                    for (var c = 0; c < cells.Length; c++)
+                    {
+                        moved[c] = new Cell(rows[r].Node.Cells[c], placements[firstCell[r] + c], cells[c].Start, cells[c].Blocks, _header);
+                    }
+
+                    rows[r].Cells = moved;
+                    SetRowHeight(r, old.Heights[was]);
+                }
+
+                continue;
+            }
+
+            for (var r = start; r < _bandEnd[start]; r++)
+            {
+                var node = rows[r].Node;
+                var first = firstCell[r];
+                var was = Was(r);
+
+                // A row the edit replaced may take over the views of the cells that stood where it
+                // stands, but only of the rows the edit replaced too: a kept row keeps its views,
+                // and one view updated to two rows' cells would draw the wrong one in one of them.
+                // The kept rows above it hold the same cells in both, so only the end is checked.
+                Cell? Previous(int i) =>
+                    was >= 0 ? old.Rows[was].Cells?[i]
+                    : first + i < old.FirstCell[old.Rows.Length - suffix] ? CellAt(old.Rows, old.FirstCell, first + i)
+                    : null;
+
+                for (var i = 0; i < node.Cells.Length; i++)
+                {
+                    if (Previous(i) is not null)
+                    {
+                        rows[r].Cells = new Cell[node.Cells.Length];
+                        BuildCells(node, rows[r].Cells!, i => placements[first + i], Previous);
+                        break;
+                    }
+                }
+            }
+        }
     }
+
+    /// <summary>
+    /// Whether the band starting at <paramref name="start"/> is a band of the old layout, row for
+    /// row, measured and unedited.
+    /// </summary>
+    /// <remarks>
+    /// The placements need no comparing: a cell's spans are on the cell, the rows hold the very
+    /// same cells, and a band holds every row whose cells push its cells sideways or down, so the
+    /// same rows forming the same band place their cells in the same slots.
+    /// </remarks>
+    private bool Carries(int start, Previous old, Func<int, int> was)
+    {
+        var end = _bandEnd[start];
+        var from = was(start);
+
+        if (from < 0 || old.BandStart[from] != from || old.BandEnd[from] != from + (end - start))
+        {
+            return false;
+        }
+
+        for (var r = start; r < end; r++)
+        {
+            var row = old.Rows[from + r - start];
+
+            if (was(r) != from + r - start
+                || row.Cells is null
+                || row.Dirty
+                || double.IsNaN(old.Heights[from + r - start]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether two rows hold the very same cells.</summary>
+    /// <remarks>
+    /// By the cells rather than the row: the row commands build every row of the table afresh around
+    /// the cells they did not touch, so a row node is new even where nothing in it is.
+    /// </remarks>
+    private static bool SameCells(TableRowNode a, TableRowNode b)
+    {
+        if (ReferenceEquals(a, b))
+        {
+            return true;
+        }
+
+        if (a.Cells.Length != b.Cells.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < a.Cells.Length; i++)
+        {
+            if (!ReferenceEquals(a.Cells[i], b.Cells[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>What a rebuild needs to know of the rows as they were.</summary>
+    private readonly record struct Previous(
+        Row[] Rows,
+        int[] FirstCell,
+        int[] BandStart,
+        int[] BandEnd,
+        double[] Heights);
 
     /// <summary>The cell with a row-major index among some rows, or null if it was never realized.</summary>
     private static Cell? CellAt(Row[] rows, int[] firstCell, int index)
@@ -772,6 +920,43 @@ internal sealed class TableBlockView : BlockView
         {
             _edgesFrom = Math.Min(_edgesFrom, row);
         }
+    }
+
+    /// <summary>How many times <see cref="Update"/> has changed the table, for <see cref="RowAfterUpdate"/>.</summary>
+    internal int Version => _version;
+
+    /// <summary>
+    /// The index a row had at <paramref name="version"/> has now, or -1 if that cannot be said.
+    /// </summary>
+    /// <remarks>
+    /// For the presenter, which takes the row at the top of the viewport before an edit is laid
+    /// out and keeps that row there after it. Answered across one update: rows before and after
+    /// the ones it replaced are where they were, moved by however many rows it added or removed,
+    /// and a replaced row is taken to be the first row that changed.
+    /// </remarks>
+    internal int RowAfterUpdate(int row, int version)
+    {
+        if (version == _version)
+        {
+            return row;
+        }
+
+        if (version != _version - 1)
+        {
+            return -1;
+        }
+
+        if (row < _remapPrefix)
+        {
+            return row;
+        }
+
+        if (row >= _remapFrom - _remapSuffix)
+        {
+            return row - _remapFrom + _remapTo;
+        }
+
+        return Math.Min(_remapPrefix, _remapTo - 1);
     }
 
     /// <summary>The distance from the top of the table to the top of a row; the row count gives the height.</summary>

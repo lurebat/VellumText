@@ -525,6 +525,8 @@ public abstract partial class DocumentPresenter
     /// <returns>The space the view asks for.</returns>
     private protected Size Realize()
     {
+        var held = HeldRow();
+
         Reconcile();
 
         if (_views.Count == 0)
@@ -549,7 +551,7 @@ public abstract partial class DocumentPresenter
             _heights.Reset(_views.Count);
         }
 
-        var size = Settle();
+        var size = Settle(held);
 
         if (_pendingAnchor)
         {
@@ -560,7 +562,7 @@ public abstract partial class DocumentPresenter
             // is there because a loop waiting on an estimate to converge must be allowed not to.
             for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
             {
-                size = Settle();
+                size = Settle(null);
             }
         }
 
@@ -577,7 +579,7 @@ public abstract partial class DocumentPresenter
     /// which moves it again. Repeating until the window stops changing is what settles it; the
     /// anchor is what stops the reader seeing any of it.
     /// </remarks>
-    private Size Settle()
+    private Size Settle((TableBlockView Table, int Version, int Row, double Fraction)? held)
     {
         var size = default(Size);
 
@@ -591,13 +593,15 @@ public abstract partial class DocumentPresenter
             // Inside a table the anchor is a row, not the table: rows above the viewport are
             // measured as it is realized, and holding only the distance into the table would let
             // their corrections slide a different row under the top of the viewport.
-            var row = _views[anchor] is TableBlockView table ? table.RowAnchor(into) : default((int Row, double Fraction)?);
+            var row = _views[anchor] is TableBlockView table
+                ? Anchored(table, into, attempt == 0 ? held : null)
+                : default((int Row, double Fraction)?);
 
             size = RealizeWindow();
 
-            if (row is { } held && _views[anchor] is TableBlockView settled)
+            if (row is { } kept && _views[anchor] is TableBlockView settled)
             {
-                into = settled.RowOffset(held.Row, held.Fraction);
+                into = settled.RowOffset(kept.Row, kept.Fraction);
             }
 
             // Clamped against the height the block turned out to have, not the one it was
@@ -617,6 +621,54 @@ public abstract partial class DocumentPresenter
         }
 
         return size;
+    }
+
+    /// <summary>
+    /// The table row at the top of the viewport as the last layout left it, before an edit is
+    /// reconciled into the blocks.
+    /// </summary>
+    /// <remarks>
+    /// Taken before <see cref="Reconcile"/> because reconciling can move the estimate a table
+    /// prices its unmeasured rows at — deleting a measured row does, by taking its height out of the
+    /// mean — and that moves every unmeasured row above the viewport. The offset is still where it
+    /// was, so a row worked out from it afterwards is a different row, and the content slides.
+    /// </remarks>
+    private (TableBlockView Table, int Version, int Row, double Fraction)? HeldRow()
+    {
+        if (_views.Count == 0 || _heights.Count != _views.Count)
+        {
+            return null;
+        }
+
+        var anchor = _heights.IndexAt(_offset.Y);
+
+        if (_views[anchor] is not TableBlockView table)
+        {
+            return null;
+        }
+
+        var (row, fraction) = table.RowAnchor(_offset.Y - _heights.OffsetOf(anchor));
+
+        return (table, table.Version, row, fraction);
+    }
+
+    /// <summary>The row to keep at the top of the viewport inside a table at the anchor.</summary>
+    /// <param name="table">The table at the top of the viewport.</param>
+    /// <param name="into">How far into the table the top of the viewport is.</param>
+    /// <param name="held">The row held from before the edit, if there was one.</param>
+    private static (int Row, double Fraction) Anchored(
+        TableBlockView table,
+        double into,
+        (TableBlockView Table, int Version, int Row, double Fraction)? held)
+    {
+        if (held is { } h
+            && ReferenceEquals(h.Table, table)
+            && table.RowAfterUpdate(h.Row, h.Version) is var row and >= 0)
+        {
+            return (row, h.Fraction);
+        }
+
+        return table.RowAnchor(into);
     }
 
     /// <summary>Lays out the blocks the viewport covers and reports what the view needs.</summary>

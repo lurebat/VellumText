@@ -861,6 +861,15 @@ internal sealed class ParagraphView : BlockView
 >   it was while estimates are replaced; inside a table that now means the row at the top, kept at
 >   the same share of its height (a distance into a row guessed taller than it is would land in the
 >   next one).
+> - **A row insert or delete keeps what is on screen.** Corrected 2026-10-28: the row commands
+>   rebuild every row node around the cells they keep, and any change of the grid's shape rebuilt
+>   the view and forgot every measured height, so the offset priced at uniform mean heights named a
+>   row a hundred further on. A rebuild now matches rows by their cells (reference-equal) from both
+>   ends and carries a band's views and height through when the same rows form the same band,
+>   measured and unedited; only the rows the edit replaced are built and measured. The presenter
+>   takes the row at the top of the viewport before reconciling the edit
+>   (`TableBlockView.RowAfterUpdate` maps it across that one update), because deleting a measured
+>   row moves the mean that prices the unmeasured rows above it.
 > - **Painting asks only for what is realized.** `BlockView.GetSelectionRects(from, to, visible)` and
 >   `TableBlockView.GetCellRects(cells, start, visible)` take the realized window, so selecting all
 >   of a long table paints its screenful without realizing every row; `SelectionBounds` reports the
