@@ -124,6 +124,11 @@ awaits `PasteAsync`.
 
 ### Fixed
 
+- **A transaction of many steps records them in linear time.** Each step's
+  position map was appended to an immutable mapping, which copied every map
+  before it: 8,000 steps allocated 768 MB on bookkeeping alone. `Transaction`
+  now collects the maps and builds `Mapping` when it is read; what it maps is
+  unchanged.
 - **A registered exporter that throws during a copy is reported, not silent.**
   The copy already went ahead without that format, but nothing said so, so a
   broken exporter only showed as a paste elsewhere arriving with less

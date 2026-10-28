@@ -60,7 +60,12 @@ public sealed class Transaction
     private readonly ImmutableArray<string>.Builder _failures =
         ImmutableArray.CreateBuilder<string>();
 
-    private Mapping _mapping = Mapping.Empty;
+    // One map per step, collected rather than appended to a Mapping: appending to an immutable
+    // mapping copies every map already in it, so a transaction of M steps made M²/2 copies. The
+    // mapping is built when it is read and kept until the next step extends it.
+    private readonly ImmutableArray<StepMap>.Builder _maps = ImmutableArray.CreateBuilder<StepMap>();
+
+    private Mapping? _mapping;
     private Selection? _selection;
     private MarkSet? _storedMarks;
     private bool _storedMarksSet;
@@ -91,7 +96,7 @@ public sealed class Transaction
     public ImmutableArray<string> Failures => _failures.ToImmutable();
 
     /// <summary>How the whole transaction moves positions.</summary>
-    public Mapping Mapping => _mapping;
+    public Mapping Mapping => _mapping ??= Mapping.Wrap(_maps.ToImmutable());
 
     /// <summary>Whether any step was applied.</summary>
     public bool ChangedDoc => _steps.Count > 0;
@@ -118,7 +123,7 @@ public sealed class Transaction
     /// </remarks>
     public Selection SelectionAfter => _selection is { } set
         ? set.Map(Doc, Mapping.Empty)
-        : Before.Selection.Map(Doc, _mapping);
+        : Before.Selection.Map(Doc, Mapping);
 
     /// <summary>
     /// The formatting armed for the next character typed, or null if there is none.
@@ -165,7 +170,8 @@ public sealed class Transaction
 
         var map = step.GetMap();
 
-        _mapping = _mapping.Append(map);
+        _maps.Add(map);
+        _mapping = null;
         _changedContent |= !map.IsIdentity;
         Doc = result.Doc!;
 

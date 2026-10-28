@@ -296,6 +296,17 @@ Every mutation is a `Transaction`. Nothing mutates the document directly — not
 > `Failures` is what §7 tells a host to check, because a transaction is best-effort rather than
 > atomic.
 
+> **A transaction collects its step maps and builds `Mapping` when it is read** (2026-10-28). It
+> used to keep a `Mapping` and call `Mapping.Append` per step, and appending to an immutable
+> array copies it, so a transaction of M steps copied M²/2 maps: 8,000 steps allocated 768 MB on
+> the maps alone, which was half of what Replace All cost at 8,000 matches. The maps now go into a
+> builder, and `Transaction.Mapping` is materialised on first read and cached until the next step,
+> so recording is linear and a caller that reads the mapping between steps — drag-to-move maps its
+> drop point after deleting the source — still sees every step so far. A `Mapping` already
+> handed out never changes. `Mapping.Append` itself is unchanged and still copies; it is for
+> extending a mapping by a step or two, not for building one. Pinned by
+> `TransactionTests.RecordingManyStepsAllocatesLinearlyInTheirNumber` (8,000 steps under 4 MB).
+
 ### 4.5 Selection
 
 ```csharp
