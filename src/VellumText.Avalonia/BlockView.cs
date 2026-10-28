@@ -53,18 +53,28 @@ internal abstract class BlockView
     public virtual void Render(DrawingContext context, Point origin, Rect visible) => Render(context, origin);
 
     /// <summary>
-    /// Tells the block which vertical stretch of it, in its own coordinates, the next
-    /// <see cref="Measure"/> must lay out.
+    /// Tells the block which part of it, in its own coordinates, the next <see cref="Measure"/>
+    /// must lay out: <paramref name="below"/> pixels down from <paramref name="anchor"/> and
+    /// <paramref name="above"/> pixels up from it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The presenter's realized window, so that a block taller than the viewport — a table of ten
     /// thousand rows — can lay out the part about to be seen and estimate the rest. The default
     /// ignores it and lays out everything, which is what every block but a table does. An infinite
-    /// stretch means everything.
+    /// <paramref name="below"/> from zero means everything.
+    /// </para>
+    /// <para>
+    /// An anchor and two distances, not two positions, because the distances are in real pixels
+    /// and the positions of parts nobody has laid out are estimates: the anchor is the point the
+    /// presenter keeps at the top of the viewport, and what is on screen is what lies below it
+    /// once laid out, however wrong the estimate that placed it was.
+    /// </para>
     /// </remarks>
-    /// <param name="top">The top of the stretch.</param>
-    /// <param name="bottom">The bottom of the stretch.</param>
-    public virtual void SetWindow(double top, double bottom)
+    /// <param name="anchor">The point the viewport's top is kept at, or the block's top.</param>
+    /// <param name="above">How far above the anchor to lay out.</param>
+    /// <param name="below">How far below the anchor to lay out.</param>
+    public virtual void SetWindow(double anchor, double above, double below)
     {
     }
 

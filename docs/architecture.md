@@ -835,11 +835,14 @@ internal sealed class ParagraphView : BlockView
 > when the table view was made (280 MB for 10,000 × 5) and every cell was measured whenever it was.
 > Now rows are realized as they are needed, the same idea as `BlockHeightIndex` one level down:
 >
-> - **`BlockView.SetWindow(top, bottom)`** tells a block which stretch of it the next `Measure`
->   must lay out; the presenter passes its realized window (viewport and overscan) in the block's
->   coordinates. The table keeps it as *the row it starts at and how far it reaches*, because
->   measuring any row moves the estimate and so every unmeasured row: a window remembered in
->   pixels named different rows each time the table was measured again.
+> - **`BlockView.SetWindow(anchor, above, below)`** tells a block which part of it the next
+>   `Measure` must lay out: the point the presenter keeps at the top of the viewport (or the
+>   block's top), and how far above and below it, in real pixels. The table keeps the anchor as a
+>   row and a share of that row's height and measures outwards from it until real heights cover
+>   both distances. Corrected 2026-10-28: the first version took a window top and bottom placed by
+>   the estimate, so where rows were taller than estimated it measured a few rows above the
+>   viewport and ran out of reach before reaching it; and since measuring any row moves the
+>   estimate, nothing is remembered in pixels.
 > - **Rows are realized and measured in bands** — the runs of rows that cells spanning rows tie
 >   together — with exactly the two-pass rule the whole table used (single-row cells settle their
 >   rows, then a spanning cell that does not fit pushes the last row it covers). A row nobody has
@@ -850,8 +853,10 @@ internal sealed class ParagraphView : BlockView
 >   a selection rectangle or a column boundary in a row outside the window realize and measure that
 >   row's band first. Hit testing finds the nearest cell from placements and row edges alone and
 >   looks only at rows within the best distance found, which gives the answer a scan of every cell
->   gave; drawing realizes a band that is visible but was never realized rather than drawing it
->   blank.
+>   gave. **Drawing lays nothing out:** a row is drawn only once its band is realized and measured
+>   at the current width, which the window sees to for every row on screen. (The first version laid
+>   rows out while drawing; each one moved the estimate and the table's height mid-frame, behind the
+>   presenter's back, and could draw a paragraph never measured.)
 > - **The presenter anchors on a row.** `Settle` keeps the block at the top of the viewport where
 >   it was while estimates are replaced; inside a table that now means the row at the top, kept at
 >   the same share of its height (a distance into a row guessed taller than it is would land in the

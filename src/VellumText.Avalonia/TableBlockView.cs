@@ -78,7 +78,9 @@ internal sealed class TableBlockView : BlockView
     private double _measuredTotal;
     private double _seed = SeedEstimate;
     private int _windowRow;
-    private double _windowReach = double.PositiveInfinity;
+    private double _windowFraction;
+    private double _windowAbove;
+    private double _windowBelow = double.PositiveInfinity;
 
     /// <summary>Creates a view of a table.</summary>
     /// <param name="table">The table.</param>
@@ -546,24 +548,29 @@ internal sealed class TableBlockView : BlockView
     /// whatever they had, and rows never inside one are priced at the estimate.
     /// </para>
     /// <para>
-    /// Kept as the row it starts at and how far it reaches, not as two positions. Measuring any row
-    /// moves the estimate and so every unmeasured row, and a window remembered in pixels would
-    /// name different rows each time the table was measured again — a geometry question asked
-    /// after layout would realize a stretch nowhere near the screen.
+    /// Kept as the row the anchor falls in, how far into that row, and the two distances — not as
+    /// positions. Rows are measured outwards from the anchor row until their real heights cover
+    /// the distances, so the rows the presenter keeps on screen are measured however far the
+    /// estimate that placed the anchor was from the truth: rows taller than estimated, measured
+    /// from a window top the estimate chose, used to run out of reach before the viewport began.
+    /// Measuring any row also moves the estimate and so every unmeasured row, which is the other
+    /// reason nothing here is remembered in pixels.
     /// </para>
     /// </remarks>
-    public override void SetWindow(double top, double bottom)
+    public override void SetWindow(double anchor, double above, double below)
     {
-        if (_rows.Length == 0 || double.IsNegativeInfinity(top))
+        _windowAbove = Math.Max(0, above);
+        _windowBelow = below;
+
+        if (_rows.Length == 0)
         {
             _windowRow = 0;
-            _windowReach = bottom - Math.Max(0, top);
+            _windowFraction = 0;
 
             return;
         }
 
-        _windowRow = _bandStart[RowAtY(Math.Max(0, top))];
-        _windowReach = bottom - RowTop(_windowRow);
+        (_windowRow, _windowFraction) = RowAnchor(anchor);
     }
 
     /// <inheritdoc/>
@@ -586,40 +593,53 @@ internal sealed class TableBlockView : BlockView
 
         if (_rows.Length > 0)
         {
-            var row = _bandStart[Math.Min(_windowRow, _rows.Length - 1)];
+            var anchor = Math.Min(_windowRow, _rows.Length - 1);
+            var start = _bandStart[anchor];
 
-            // Measuring a band moves the estimate, and with it every unmeasured row above and
-            // below, so asking where a row is after each band would compare positions priced at
-            // two different estimates and stop the window short. The rows measured are added up
-            // instead, against the reach the window was given.
-            var reach = _windowReach;
-            var covered = 0.0;
+            // Down from the anchor, until the rows measured reach the window's bottom from the
+            // anchor point. Added up from real heights rather than asked of row positions, which
+            // are priced at an estimate that every band measured moves.
+            var below = 0.0;
 
-            while (row < _rows.Length)
+            for (var row = start; row < _rows.Length; row = _bandEnd[row])
             {
                 EnsureBand(row);
 
-                var end = _bandEnd[row];
-
-                for (var r = row; r < end; r++)
+                for (var r = Math.Max(row, anchor); r < _bandEnd[row]; r++)
                 {
-                    covered += double.IsNaN(_rowHeights[r]) ? Estimate : _rowHeights[r];
+                    below += HeightOf(r);
                 }
 
-                // Asked after the band is measured: its own height decides whether the window is
-                // full, as a block's does in the presenter.
-                if (covered >= reach)
+                if (below >= (_windowFraction * HeightOf(anchor)) + _windowBelow)
                 {
                     break;
                 }
+            }
 
-                row = end;
+            // And up from it, for the overscan above the viewport.
+            var above = _windowFraction * HeightOf(anchor);
+
+            for (var r = start; r < anchor; r++)
+            {
+                above += HeightOf(r);
+            }
+
+            for (var row = start - 1; row >= 0 && above < _windowAbove; row = _bandStart[row] - 1)
+            {
+                EnsureBand(row);
+
+                for (var r = _bandStart[row]; r <= row; r++)
+                {
+                    above += HeightOf(r);
+                }
             }
         }
 
         return Size;
     }
 
+    /// <summary>A row's measured height, or the estimate when it has none.</summary>
+    private double HeightOf(int row) => double.IsNaN(_rowHeights[row]) ? Estimate : _rowHeights[row];
     /// <summary>Marks every row unmeasured, keeping the arrays.</summary>
     private void ForgetHeights()
     {
@@ -867,27 +887,6 @@ internal sealed class TableBlockView : BlockView
 
         var (first, last) = visible is { } clip ? RowsMeeting(clip) : (0, _rows.Length - 1);
 
-        // Normally a no-op: the presenter realized this window before drawing it. When it has
-        // not — the viewport moved under a settled layout — the rows are realized here rather
-        // than drawn blank, and the band is worked out again against the heights that gives.
-        for (var attempt = 0; attempt < 3 && first <= last; attempt++)
-        {
-            var settled = true;
-
-            for (var r = _coverTop[first]; r <= last; r = _bandEnd[r])
-            {
-                settled &= IsCurrent(r);
-                EnsureBand(r);
-            }
-
-            if (settled)
-            {
-                break;
-            }
-
-            (first, last) = visible is { } again ? RowsMeeting(again) : (first, last);
-        }
-
         if (first > last)
         {
             return;
@@ -899,7 +898,16 @@ internal sealed class TableBlockView : BlockView
 
         for (var r = _coverTop[first]; r <= last; r++)
         {
-            foreach (var cell in Realize(r))
+            // Drawing lays nothing out. A row is drawn only once its band is realized and measured
+            // at this width, which the presenter's window sees to for every row on screen; laying
+            // one out here would move the estimate, and with it every unmeasured row and the
+            // table's height, in the middle of a frame and behind the presenter's back.
+            if (_rows[r].Cells is not { } cells || !IsCurrent(r))
+            {
+                continue;
+            }
+
+            foreach (var cell in cells)
             {
                 WorkCounters.TableCellsExamined++;
 

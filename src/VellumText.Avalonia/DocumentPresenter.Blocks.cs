@@ -635,13 +635,16 @@ public abstract partial class DocumentPresenter
             // the window covers; told in its own coordinates, against where it sits now.
             if (virtualizing)
             {
+                // Anchored at the top of the viewport if the block reaches above it, which is the
+                // point Settle keeps where it is; otherwise at the block's own top.
                 var top = _heights.OffsetOf(i);
+                var anchor = Math.Max(0, _offset.Y - top);
 
-                _views[i].SetWindow(Math.Max(0, _offset.Y - Overscan) - top, limit - top);
+                _views[i].SetWindow(anchor, anchor > 0 ? Overscan : 0, limit - top - anchor);
             }
             else
             {
-                _views[i].SetWindow(double.NegativeInfinity, double.PositiveInfinity);
+                _views[i].SetWindow(0, 0, double.PositiveInfinity);
             }
 
             var size = _views[i].Measure(_width);

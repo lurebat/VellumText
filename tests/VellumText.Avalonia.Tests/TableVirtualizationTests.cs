@@ -36,13 +36,13 @@ public class TableVirtualizationTests
 
         // Laid out at the top first, so that its estimate is the height every row really is and the
         // window below names the rows it names in the whole table.
-        windowed.SetWindow(0, 100);
+        windowed.SetWindow(0, 0, 100);
         windowed.Measure(Width);
 
         // A window starting halfway down the cell that spans rows 200 to 209.
         var top = RowTop(whole, table, 205);
 
-        windowed.SetWindow(top, top + 250);
+        windowed.SetWindow(top, 50, 250);
         windowed.Measure(Width);
 
         Assert.InRange(windowed.RealizedRows, 10, 40);
@@ -68,8 +68,21 @@ public class TableVirtualizationTests
 
         Assert.InRange(windowed.RealizedRows, 10, 40);
 
-        // A band the window never reached is realized when it is drawn rather than drawn blank.
-        var far = new Rect(0, RowTop(whole, table, 330), Width, 200);
+        // A band the window never reached is not laid out by drawing it — that would move the
+        // estimate and the table's height in the middle of a frame — and is drawn once a window
+        // has reached it.
+        var farTop = RowTop(whole, table, 330);
+        var far = new Rect(0, farTop, Width, 200);
+        var height = windowed.Size.Height;
+
+        WorkCounters.TableCellsRendered = 0;
+        Draw(windowed, far, inked: false);
+
+        Assert.Equal(0, WorkCounters.TableCellsRendered);
+        Assert.Equal(height, windowed.Size.Height);
+
+        windowed.SetWindow(farTop, 50, 200);
+        windowed.Measure(Width);
 
         Assert.Equal(Draw(whole, far), Draw(windowed, far));
     }
@@ -81,7 +94,7 @@ public class TableVirtualizationTests
         var whole = Built(table);
         var windowed = new TableBlockView(table, Create, Brushes.Gray);
 
-        windowed.SetWindow(0, 200);
+        windowed.SetWindow(0, 0, 200);
         windowed.Measure(Width);
 
         var before = windowed.RealizedRows;
@@ -144,6 +157,91 @@ public class TableVirtualizationTests
         }
     }
 
+    [AvaloniaFact]
+    public void ScrollingAmongRowsTallerThanTheEstimateMeasuresAndDrawsTheRowsOnScreen()
+    {
+        // The mirror of the test above: fifty one-line rows at the top teach the estimate that rows
+        // are short, and the thousands after them are eight paragraphs tall. The window placed by
+        // the estimate reaches only a few real rows, and the rows the viewport is anchored to must
+        // still be measured before anything is drawn.
+        var table = new TableNode(Enumerable.Range(0, 3_000).Select(r => new TableRowNode([
+            r >= 50 ? new TableCellNode(Enumerable.Range(0, 8).Select(i => (BlockNode)ParagraphNode.FromText($"line {i}"))) : Cell(r, 0, false),
+            Cell(r, 1, false),
+            Cell(r, 2, false),
+        ])));
+        var (window, view) = Shown(table, height: 400);
+        var block = (TableBlockView)view.Blocks[0];
+        var target = block.Size.Height / 2;
+        var expected = block.RowAnchor(target);
+
+        view.Offset = new Vector(0, view.BlockOrigin(0).Y + view.Offset.Y + target);
+        Layout(window);
+
+        var top = view.Offset.Y - (view.BlockOrigin(0).Y + view.Offset.Y);
+        var first = block.RowAnchor(top).Row;
+        var last = block.RowAnchor(top + view.Viewport.Height).Row;
+
+        Assert.Equal(expected.Row, first);
+
+        for (var r = first; r <= last; r++)
+        {
+            Assert.True(block.IsRowMeasured(r), $"row {r} is on screen but not measured ({first} to {last})");
+        }
+
+        var height = block.Size.Height;
+
+        using (var frame = window.CaptureRenderedFrame())
+        {
+            Assert.NotNull(frame);
+        }
+
+        // Drawing lays nothing out: the table is the height the presenter last recorded for it.
+        Assert.Equal(height, block.Size.Height);
+        Assert.Equal(block.Size.Height, view.BlockOrigin(1).Y - view.BlockOrigin(0).Y, 6);
+    }
+    [AvaloniaFact]
+    public void AWindowIsMeasuredFromWhereItsAnchorFallsInsideARow()
+    {
+        // Every row eight paragraphs tall. Anchored nine tenths of the way down row 40, a window
+        // reaching 30px further must measure row 41 too: the viewport starts near the bottom of
+        // row 40, not at its top.
+        var table = new TableNode(Enumerable.Range(0, 200).Select(r => new TableRowNode([
+            new TableCellNode(Enumerable.Range(0, 8).Select(i => (BlockNode)ParagraphNode.FromText($"line {i}"))),
+            Cell(r, 1, false),
+        ])));
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        view.SetWindow(0, 0, 100);
+        view.Measure(Width);
+
+        var top = view.RowOffset(40, 0);
+        var height = view.RowOffset(41, 0) - top;
+
+        view.SetWindow(top + (0.9 * height), 0, 30);
+        view.Measure(Width);
+
+        Assert.True(view.IsRowMeasured(40) && view.IsRowMeasured(41));
+    }
+
+    [AvaloniaFact]
+    public void ARowRealizedButNotMeasuredAtTheCurrentWidthIsNotDrawn()
+    {
+        var table = Uniform(300);
+        var view = Built(table);
+        var far = new Rect(0, RowTop(view, table, 250), Width, 100);
+
+        // Narrower, with a window at the top: the rows further down keep their views, laid out
+        // for the old width, and no height at this one.
+        view.SetWindow(0, 0, 200);
+        view.Measure(Width - 100);
+
+        Assert.False(view.IsRowMeasured(250));
+
+        WorkCounters.TableCellsRendered = 0;
+        Draw(view, far, inked: false);
+
+        Assert.Equal(0, WorkCounters.TableCellsRendered);
+    }
     [AvaloniaFact]
     public void EveryRowNobodyHasMeasuredIsPricedAtTheSameEstimate()
     {
@@ -448,7 +546,7 @@ public class TableVirtualizationTests
     private static double RowTop(TableBlockView view, TableNode table, int row) =>
         view.GetCaretRect(PositionIn(table, row, 1)).Top - 6;
 
-    private static uint[] Draw(TableBlockView view, Rect visible)
+    private static uint[] Draw(TableBlockView view, Rect visible, bool inked = true)
     {
         var size = new PixelSize((int)Width + 20, (int)Math.Ceiling(visible.Height) + 20);
 
@@ -474,7 +572,10 @@ public class TableVirtualizationTests
             }
         }
 
-        Assert.Contains(pixels, p => p != 0);
+        if (inked)
+        {
+            Assert.Contains(pixels, p => p != 0);
+        }
 
         return pixels;
     }
