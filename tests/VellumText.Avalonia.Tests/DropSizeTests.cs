@@ -16,7 +16,13 @@ namespace VellumText.Tests.Avalonia;
 /// The drop path copied the whole file into a growing <see cref="MemoryStream"/> and then copied
 /// that again, before asking the store — whose default refuses anything over 4 MB. A 64 MB file
 /// allocated 192 MB to be refused, and a 512 MB one 1.5 GB.
+///
+/// Not run in parallel with other tests: the allocation bound reads
+/// <see cref="GC.GetTotalAllocatedBytes(bool)"/>, which counts every thread in the process, so a
+/// test allocating beside it could fail it. (The read cap itself is asserted exactly, by the bytes
+/// the stream was asked for.)
 /// </remarks>
+[Collection(ProcessWideAllocation.Name)]
 public class DropSizeTests
 {
     /// <summary>A non-seekable stream of <paramref name="length"/> bytes starting with a PNG signature.</summary>
