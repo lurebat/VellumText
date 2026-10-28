@@ -403,3 +403,34 @@ Both are dominated by the list being on the spine, the same pattern as the table
 2. **Replace-all:** approve R1 (mapping builder) and R2 (a multi-range replace step, which is a new
    `Step` type), or R1 only, or defer?
 3. **Structural table edits:** schedule the profile as a follow-up, or leave it recorded?
+
+## 10. Outcome
+
+The owner approved T1, T2, R1 and R2, and a profile of structural table edits. That profile found
+avoidable whole-table work (`SharesAny`, two extra grid builds, five extra `Place` calls), and the
+owner approved fixing it inside the existing scope as O2 (an exact, cheap `SharesAny`) and O1
+(the grid worked out once per command). Options that would change the public `TableGrid.Cells`
+API were not needed.
+
+| unit | commit subject | what it pins |
+|---|---|---|
+| T1 | don't re-place a table whose shape an edit kept | keystroke 2+ in a 10k-row table < 1 MB (was 5.9 MB); oracle against a full validation over 3,000 generated edits; 7 named corruptions still refused |
+| T2 | place cells with a per-column busy row | `Place` at 10k × 5 < 1.5 MB (was 5.7 MB); oracle against the slot-set algorithm on 3,000 malformed tables |
+| O2 | find a shared cell at the table's ends | `GetMap` of a row insert and its undo < 2 MB (was 15 MB); oracle against the node set over 2,000 pairs |
+| O1 | work a structural command's grid out once | exactly 1 grid built and 4 placements per command; the step is unchanged when the command is given its own grid, a moved one, another table's grid or a copied table's grid |
+
+`r-tablestruct` at 10,000 × 5 rows, through the view, before → after. These were measured on a
+shared machine: treat the bytes as the signal and the times as indicative.
+
+| operation | before | after |
+|---|---|---|
+| insert row below | 169 ms / 81 MB | 53 ms / 22 MB |
+| undo of it | 42 ms / 28 MB | 12 ms / 4.1 MB |
+| delete row | 148 ms / 81 MB | 67 ms / 22 MB |
+| undo of it | 36 ms / 28 MB | 11 ms / 3.6 MB |
+| insert column right | 254 ms / 85 MB | 73 ms / 26 MB |
+| undo of it | 51 ms / 31 MB | 19 ms / 4.9 MB |
+
+`r-table` builds a never-validated table for every round, so T1 never applies there and it shows
+T2 alone: the model keystroke falls from 6.0 MB to 1.0 MB. The steady state, every keystroke after
+the first, is pinned below 1 MB by T1's test. Replace-all (R1, R2) is reported in its own PR.
