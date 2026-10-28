@@ -258,6 +258,7 @@ public abstract record Step
 }
 
 public sealed record ReplaceStep(int From, int To, Slice Content) : Step;
+public sealed record ReplaceTextStep(ImmutableArray<TextReplacement> Replacements) : Step;
 public sealed record AddMarkStep(int From, int To, MarkSet Mark, MarkFields Fields) : Step;
 public sealed record RemoveMarkStep(int From, int To, MarkFields Fields) : Step;
 public sealed record SetBlockAttrStep(int Pos, BlockAttr Attr, int Value) : Step;
@@ -306,6 +307,43 @@ Every mutation is a `Transaction`. Nothing mutates the document directly — not
 > handed out never changes. `Mapping.Append` itself is unchanged and still copies; it is for
 > extending a mapping by a step or two, not for building one. Pinned by
 > `TransactionTests.RecordingManyStepsAllocatesLinearlyInTheirNumber` (8,000 steps under 4 MB).
+
+> **`ReplaceTextStep`: many replacements of paragraph text in one rebuild** (2026-10-28). Replace All
+> made one `ReplaceStep` per match, and each step copied the document's block array — or the whole of a
+> long paragraph — so replacing a word in every paragraph cost the document times the matches: 1.6 GB
+> at 8,000 paragraphs, 865 MB in one 100,000-character paragraph, and undo replayed one inverted step per
+> match for as much again. `ReplaceTextStep` holds every replacement (`TextReplacement(From, To,
+> InlineContent)`), rewrites each paragraph it touches once (`InlineContent.ReplaceMany`) and puts the
+> rewritten paragraphs back with one copy of each container on their path. Its inverse is one step of the
+> same kind holding the displaced text, extracted in one pass per paragraph (`InlineContent.Excerpts`).
+>
+> - **The map is the per-match steps' map, exactly.** One `ReplacedRange` per replacement, in the
+>   coordinates the step applies to — what the per-match steps report when applied back to front. That
+>   holds only while no two ranges touch: `StepMap.Of` merges touching ranges (§4.3), and a position on
+>   the seam of two abutting matches would then go to an edge of their union instead of staying between
+>   them. So the step **refuses** touching ranges, along with ranges out of order, overlapping, inverted,
+>   outside the document or not within one paragraph's text, a null content, and an edge inside a
+>   surrogate pair — each a failed `StepResult`, never an exception.
+> - **Abutting matches go into separate steps.** `ReplaceTextStep.Batches` puts each replacement into
+>   the first step it does not touch the last range of, in that step's own coordinates; a run of abutting
+>   matches alternates between two, and two that only meet once everything between them is deleted are
+>   kept apart too. When every replacement replaces at least one position, the order of application does
+>   not change where positions land or whether they are reported deleted, because a replacement's map
+>   pins a position on its edge to that edge whatever ran before. A pure insertion does not — its side is
+>   the caller's choice — so a list holding an empty range falls back to one step per replacement, back to
+>   front. A search match is never empty, so Replace All never takes that path.
+> - **Equivalence is tested, not argued.** `ReplaceTextStepTests` keeps the per-match path as an oracle
+>   and compares, over generated documents (headings, code, lists, nested lists, tables, rules, long
+>   paragraphs, marks, links, images, emoji) and both search-found and arbitrary ranges: the document,
+>   whether anything was refused, every position mapped with both associations and its deleted flag, the
+>   selection after, and the document and selection after undo and after redo.
+> - **Nothing else had to learn the step.** Outside the steps themselves, only history's folding of
+>   adjacent typing looks at a step's type, and it folds `ReplaceStep`s only and leaves any other step
+>   alone; nothing serialises steps.
+>
+> Cost is now the document plus the matches: `ScalingGuardTests` pins Replace All and its undo through
+> the view (linear, and under 50 MB at 8,000 paragraphs and at 100,000 characters), and
+> `ReplaceTextStepTests` pins the step on its own.
 
 ### 4.5 Selection
 

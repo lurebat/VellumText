@@ -187,8 +187,17 @@ public partial class RichTextView
     /// <returns>How many were replaced.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="replacement"/> is null.</exception>
     /// <remarks>
-    /// One transaction, so one undo takes the whole thing back, and applied back to front so that
-    /// an earlier replacement of a different length cannot move a later match.
+    /// <para>
+    /// One transaction, so one undo takes the whole thing back. It is as few steps as exactly can
+    /// be — one, unless two matches abut — each rewriting every paragraph it touches at once
+    /// (<see cref="ReplaceTextStep"/>). A step per match copied the document, or the paragraph,
+    /// once per match, which at 8,000 paragraphs was 1.6 GB and seconds for the replace and as
+    /// much again for its undo.
+    /// </para>
+    /// <para>
+    /// Positions map as they did with a step per match: a caret between two matches stays between
+    /// them.
+    /// </para>
     /// </remarks>
     public int ReplaceAll(string replacement)
     {
@@ -202,12 +211,14 @@ public partial class RichTextView
         }
 
         var count = _matches.Length;
-        var transaction = _state.Transaction().As(TransactionKind.Structure);
+        var replacements = new TextReplacement[count];
 
-        for (var i = count - 1; i >= 0; i--)
+        for (var i = 0; i < count; i++)
         {
-            Put(transaction, _matches[i], replacement);
+            replacements[i] = Replacement(_matches[i], replacement);
         }
+
+        var transaction = _state.Transaction().As(TransactionKind.Structure).ReplaceText(replacements);
 
         if (!transaction.Failures.IsEmpty || !Apply(transaction))
         {
@@ -219,21 +230,25 @@ public partial class RichTextView
 
     /// <summary>Writes <paramref name="replacement"/> over <paramref name="match"/>.</summary>
     /// <remarks>
-    /// <para>
     /// An empty replacement needs no special case: a slice of empty inline content is a valid
     /// replacement and deletes the range, which was verified rather than assumed.
-    /// </para>
-    /// <para>
+    /// </remarks>
+    private void Put(Transaction transaction, SearchMatch match, string replacement)
+    {
+        var put = Replacement(match, replacement);
+
+        transaction.Replace(put.From, put.To, Slice.OfInline(put.Content));
+    }
+
+    /// <summary>What a replacement of <paramref name="match"/> puts there.</summary>
+    /// <remarks>
     /// The replacement takes the formatting of the match's first character, link included, as
     /// typing over the same selection does. Written plain, a bold word came back plain and a
     /// linked word silently lost its address. Read from the document before the replace, which in
-    /// <see cref="ReplaceAll"/> is the original at every match, since matches are put back to
-    /// front.
-    /// </para>
+    /// <see cref="ReplaceAll"/> is the original at every match: all of them are measured against it.
     /// </remarks>
-    private void Put(Transaction transaction, SearchMatch match, string replacement) =>
-        transaction.Replace(
-            match.From, match.To, Slice.OfInline(InlineContent.FromText(replacement, MarkAtMatch(match))));
+    private TextReplacement Replacement(SearchMatch match, string replacement) =>
+        new(match.From, match.To, InlineContent.FromText(replacement, MarkAtMatch(match)));
 
     /// <summary>The formatting of the first character a match covers.</summary>
     private MarkSet MarkAtMatch(SearchMatch match)

@@ -304,6 +304,27 @@ public class RichTextViewFindTests
         Assert.Equal("cat sat on cat", DocumentText.Of(view.State.Doc));
     }
 
+    /// <remarks>
+    /// Matches that abut cannot share one replacement step, whose ranges must not touch, so they
+    /// are split across two. It is still one undo, and the caret between two of them stays put.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AbuttingMatchesAreAllReplacedAndUndoneAsOne()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("aaaa b aa"));
+
+        view.MoveTo(3, extend: false);
+        view.Find("aa");
+
+        Assert.Equal(3, view.ReplaceAll("xyz"));
+        Assert.Equal("xyzxyz b xyz", DocumentText.Of(view.State.Doc));
+        Assert.Equal(TextSelection.Cursor(4), view.State.Selection);
+
+        Assert.True(view.Undo());
+        Assert.Equal("aaaa b aa", DocumentText.Of(view.State.Doc));
+        Assert.False(view.Undo());
+    }
+
     [AvaloniaFact]
     public void ReplacingWithNothingDeletes()
     {

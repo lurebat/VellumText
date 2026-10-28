@@ -47,6 +47,18 @@ and other UI work can run in between: a handler must not assume the editor is as
 it was when the paste began, and a host that needs the paste to have landed
 awaits `PasteAsync`.
 
+### Added
+
+- **`ReplaceTextStep`**, a step that replaces several stretches of paragraph
+  text at once, and **`TextReplacement`**, one stretch and its new content.
+  The replacements must be in document order, must not overlap or touch, and
+  must each lie within one paragraph's text; a step that breaks those rules or
+  cuts a surrogate pair fails like any other step rather than throwing. Its map
+  has one range per replacement, so positions move exactly as they would
+  through one `ReplaceStep` per replacement; its inverse is the same kind of
+  step holding the displaced text; and `Map` rebases each range as
+  `ReplaceStep` does, dropping ranges whose both ends were deleted. Replace
+  All is built on it.
 ### Removed from the public API
 
 - `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
@@ -129,6 +141,15 @@ awaits `PasteAsync`.
   before it: 8,000 steps allocated 768 MB on bookkeeping alone. `Transaction`
   now collects the maps and builds `Mapping` when it is read; what it maps is
   unchanged.
+- **Replace All no longer hangs on a large document, and neither does undoing
+  it.** Every match was its own step, and each step copied the document's
+  block list — or, in one long paragraph, the whole paragraph — so the cost was
+  the document times the matches: one match in each of 8,000 paragraphs took
+  seconds and allocated 1.6 GB, a 100,000-character paragraph 865 MB, and undo
+  the same again. It is now one `ReplaceTextStep` (more only where matches abut)
+  that rewrites each paragraph once, and one undo still takes it all back. The
+  result, where the caret and every other held position lands, and what undo
+  and redo restore are unchanged.
 - **A registered exporter that throws during a copy is reported, not silent.**
   The copy already went ahead without that format, but nothing said so, so a
   broken exporter only showed as a paste elsewhere arriving with less

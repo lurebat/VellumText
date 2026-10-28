@@ -284,6 +284,26 @@ public sealed class Transaction
     public Transaction InsertText(int pos, string text, MarkSet mark = default) =>
         Step(ReplaceStep.Insert(pos, Slice.OfInline(InlineContent.FromText(text, mark))));
 
+    /// <summary>Replaces many stretches of paragraph text, as few steps as exactly can.</summary>
+    /// <param name="replacements">
+    /// The replacements, ascending and not overlapping, all measured against the document as it
+    /// stands. Two may touch.
+    /// </param>
+    /// <remarks>
+    /// The document, the mapping, and what undo and redo restore are those of one
+    /// <see cref="ReplaceStep"/> per replacement applied back to front; the cost is not. See
+    /// <see cref="ReplaceTextStep"/>.
+    /// </remarks>
+    internal Transaction ReplaceText(IReadOnlyList<TextReplacement> replacements)
+    {
+        foreach (var step in ReplaceTextStep.Batches(replacements))
+        {
+            Step(step);
+        }
+
+        return this;
+    }
+
     /// <summary>Where the selection should be once this transaction is applied.</summary>
     /// <param name="selection">The selection.</param>
     /// <remarks>
