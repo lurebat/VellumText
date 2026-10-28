@@ -82,6 +82,32 @@ public class RichTextViewTableCommandTests
     }
 
     [AvaloniaFact]
+    public void TheLastColumnGoesAndTheCaretLandsInTheColumnThatIsNowLast()
+    {
+        var view = At(Grid(), "b1");
+
+        Assert.True(view.DeleteColumn());
+        Assert.Equal(["a1", "a2"], Shape(view));
+
+        // The command names the column that went; the caret is clamped into the one that stayed,
+        // at its start, rather than mapped forward to wherever the deleted text used to be.
+        Assert.True(view.InsertText("x"));
+        Assert.Equal(["xa1", "a2"], Shape(view));
+    }
+
+    [AvaloniaFact]
+    public void TheLastRowGoesAndTheCaretLandsInTheRowThatIsNowLast()
+    {
+        var view = At(Grid(), "b2");
+
+        Assert.True(view.DeleteRow());
+        Assert.Equal(["a1|b1"], Shape(view));
+
+        Assert.True(view.InsertText("x"));
+        Assert.Equal(["a1|xb1"], Shape(view));
+    }
+
+    [AvaloniaFact]
     public void TheLastRowAndTheLastColumnStay()
     {
         var view = At(

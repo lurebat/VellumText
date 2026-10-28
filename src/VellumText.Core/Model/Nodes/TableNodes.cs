@@ -322,6 +322,8 @@ public static class TableGeometry
     {
         ArgumentNullException.ThrowIfNull(table);
 
+        WorkCounters.TablePlacements++;
+
         var count = 0;
 
         foreach (var row in table.Rows)

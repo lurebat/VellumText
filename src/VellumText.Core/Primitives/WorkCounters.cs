@@ -26,6 +26,14 @@ internal static class WorkCounters
     [ThreadStatic]
     internal static long RestoredSpanVisits;
 
+    /// <summary>Calls to <see cref="TableGeometry.Place"/>, each a pass over every cell of a table.</summary>
+    [ThreadStatic]
+    internal static long TablePlacements;
+
+    /// <summary>Calls to <see cref="TableGrid.Build"/>, each a placement plus a dictionary of every cell.</summary>
+    [ThreadStatic]
+    internal static long TableGridsBuilt;
+
     /// <summary>Calls to <see cref="InlineContent.MarkAt"/>, each a search of the mark spans.</summary>
     [ThreadStatic]
     internal static long MarkLookups;

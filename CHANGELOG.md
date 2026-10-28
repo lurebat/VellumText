@@ -339,6 +339,14 @@ awaits `PasteAsync`.
   of them — 14 MB at 10,000 × 5, on the edit and again on its undo. The cells of
   the first or last row now answer it; the full search remains for tables that
   share nothing there.
+- **A row or column command on a long table works its grid out once.** The
+  command built the table's grid (every cell's placement plus a dictionary of
+  them) for the selection, again inside the edit, and again to find the cell to
+  put the caret in, and placed the cells twice more. It now reuses the grid it
+  started from — only while it is still the grid of that very table at that
+  position — and finds the caret's cell from the new table's placements. With
+  the placement and sharing changes above, inserting a row into a 10,000 × 5
+  table allocates under a third of what it did (77 MB before).
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"
