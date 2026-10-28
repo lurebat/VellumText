@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace VellumText;
@@ -135,7 +136,24 @@ public static class DocumentSchema
 
             case TableNode table:
                 RequireNonEmpty(table.Rows.Length, root, trail, "row", violations);
-                ValidateTable(table, root, trail, violations);
+
+                // A keystroke in a cell rebuilds the table, so it is reached on every step - and
+                // re-placing every cell of a 10,000-row table to re-prove a tiling the keystroke
+                // could not have changed was 6 MB a keystroke. When the table before the edit is
+                // known to tile and the edit kept the shape the tiling is decided by, it still
+                // tiles. Only *known*: "previous was valid" is an assumption of this overload,
+                // and a table can reach the editor without ever having been validated.
+                if (previous is TableNode was
+                    && TablesKnownToTile.TryGetValue(was, out _)
+                    && SameTilingInputs(table, was))
+                {
+                    TablesKnownToTile.AddOrUpdate(table, Tiles);
+                }
+                else
+                {
+                    ValidateTable(table, root, trail, violations);
+                }
+
                 break;
 
             // A row inside a table may legitimately carry no cells: merging a whole rectangle
@@ -190,7 +208,79 @@ public static class DocumentSchema
         return path.ToString();
     }
 
+    /// <summary>
+    /// Tables <see cref="ValidateTable"/> has found nothing wrong with, or that were derived from
+    /// one by an edit that kept every input it reads.
+    /// </summary>
+    /// <remarks>
+    /// Keyed weakly on immutable nodes, so it neither keeps a document alive nor goes stale.
+    /// </remarks>
+    private static readonly ConditionalWeakTable<TableNode, object> TablesKnownToTile = new();
+
+    private static readonly object Tiles = new();
+
+    /// <summary>
+    /// Whether <see cref="ValidateTable"/> is bound to give the same answer for both tables.
+    /// </summary>
+    /// <remarks>
+    /// Exactly the inputs <see cref="ValidateTable"/> reads, and nothing looser: the number of
+    /// rows, every cell's row and column span in order, and how many column widths there are.
+    /// A rule added there that reads anything else must be added here too, or edits that keep
+    /// the shape will stop being checked against it.
+    /// </remarks>
+    private static bool SameTilingInputs(TableNode table, TableNode before)
+    {
+        if (table.Rows.Length != before.Rows.Length
+            || table.ColumnWidths.Length != before.ColumnWidths.Length)
+        {
+            return false;
+        }
+
+        for (var r = 0; r < table.Rows.Length; r++)
+        {
+            var row = table.Rows[r];
+            var was = before.Rows[r];
+
+            if (ReferenceEquals(row, was))
+            {
+                continue;
+            }
+
+            if (row.Cells.Length != was.Cells.Length)
+            {
+                return false;
+            }
+
+            for (var c = 0; c < row.Cells.Length; c++)
+            {
+                if (row.Cells[c].RowSpan != was.Cells[c].RowSpan
+                    || row.Cells[c].ColumnSpan != was.Cells[c].ColumnSpan)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     private static void ValidateTable(
+        TableNode table,
+        string root,
+        List<(int Index, string TypeName)> trail,
+        ImmutableArray<SchemaViolation>.Builder violations)
+    {
+        var found = violations.Count;
+
+        Check(table, root, trail, violations);
+
+        if (violations.Count == found)
+        {
+            TablesKnownToTile.AddOrUpdate(table, Tiles);
+        }
+    }
+
+    private static void Check(
         TableNode table,
         string root,
         List<(int Index, string TypeName)> trail,

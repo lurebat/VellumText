@@ -319,9 +319,13 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen. Typing into a cell of a very long table still allocates about 6 MB a
-  keystroke in the document model, which validates the whole edited table after
-  each step.
+  painting a selection of the whole table realizes only the rows on screen.
+- **Typing into a cell of a long table no longer re-validates the whole table.**
+  Each step re-placed every cell of the edited table to prove it still tiled its
+  grid: about 6 MB a keystroke at 10,000 rows. A table already known to tile,
+  edited without changing its row count, any cell's spans or the number of
+  column widths, is now known to still tile; anything else is validated in full
+  as before, and a table that never passed validation is still refused.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"
