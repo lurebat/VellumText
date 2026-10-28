@@ -326,6 +326,13 @@ awaits `PasteAsync`.
   edited without changing its row count, any cell's spans or the number of
   column widths, is now known to still tile; anything else is validated in full
   as before, and a table that never passed validation is still refused.
+- **Placing a table's cells costs the placements, not a set of every slot.**
+  `TableGeometry.Place` — used to draw a table, select cells, export RTF and
+  Markdown, edit rows and columns, and validate — kept a hash set of every
+  occupied (row, column) slot: 5.8 MB for a 10,000 × 5 table. It now keeps, per
+  column, the row a span above keeps it busy until (about 0.8 MB, the placements
+  themselves). The placements are unchanged; a test compares them with the old
+  algorithm on 3,000 random tables, malformed ones included.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"

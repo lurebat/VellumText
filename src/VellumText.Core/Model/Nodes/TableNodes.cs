@@ -322,8 +322,20 @@ public static class TableGeometry
     {
         ArgumentNullException.ThrowIfNull(table);
 
-        var placements = ImmutableArray.CreateBuilder<CellPlacement>();
-        var occupied = new HashSet<(int Row, int Column)>();
+        var count = 0;
+
+        foreach (var row in table.Rows)
+        {
+            count += row.Cells.Length;
+        }
+
+        var placements = ImmutableArray.CreateBuilder<CellPlacement>(count);
+
+        // busyUntil[c] is the first row column c is free on. Cells are placed row by row and every
+        // span starts on the row being placed, so slot (row, c) is taken exactly when an earlier
+        // cell covering column c reaches below row - which is what a set of every slot recorded,
+        // at a cost of one entry per slot instead of one int per column.
+        var busyUntil = new int[8];
 
         width = 0;
 
@@ -333,7 +345,7 @@ public static class TableGeometry
 
             foreach (var cell in table.Rows[row].Cells)
             {
-                while (!IsFree(occupied, row, column, cell.ColumnSpan))
+                while (!IsFree(busyUntil, row, column, cell.ColumnSpan))
                 {
                     column++;
                 }
@@ -341,19 +353,17 @@ public static class TableGeometry
                 var placement = new CellPlacement(
                     row, column, row + cell.RowSpan, column + cell.ColumnSpan);
 
-                // Only the rows that exist are marked. Nothing below the last row is ever asked
-                // about, and marking it made the cost the area a cell declares rather than the
-                // grid there is: 32 cells of rowspan=colspan=1000 on one row were 32 million slots.
-                // The placement itself keeps the declared bottom, so the schema can still say
-                // that the span hangs off the table.
-                var bottom = Math.Min(placement.Bottom, table.Rows.Length);
-
-                for (var r = placement.Top; r < bottom; r++)
+                if (placement.Right > busyUntil.Length)
                 {
-                    for (var c = placement.Left; c < placement.Right; c++)
-                    {
-                        occupied.Add((r, c));
-                    }
+                    Array.Resize(ref busyUntil, Math.Max(placement.Right, busyUntil.Length * 2));
+                }
+
+                // A cell is only placed where every column it takes is already free on this row,
+                // so what it leaves behind is simply its own bottom - declared, not clamped: a span
+                // hanging off the table costs one int per column, and the schema still sees it.
+                for (var c = placement.Left; c < placement.Right; c++)
+                {
+                    busyUntil[c] = placement.Bottom;
                 }
 
                 placements.Add(placement);
@@ -362,15 +372,14 @@ public static class TableGeometry
             }
         }
 
-        return placements.ToImmutable();
+        return placements.MoveToImmutable();
     }
 
-    private static bool IsFree(
-        HashSet<(int Row, int Column)> occupied, int row, int column, int span)
+    private static bool IsFree(int[] busyUntil, int row, int column, int span)
     {
-        for (var c = column; c < column + span; c++)
+        for (var c = column; c < column + span && c < busyUntil.Length; c++)
         {
-            if (occupied.Contains((row, c)))
+            if (busyUntil[c] > row)
             {
                 return false;
             }

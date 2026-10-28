@@ -886,6 +886,10 @@ internal sealed class ParagraphView : BlockView
 > that never passed validation is not remembered, so an edit inside a ragged table is refused exactly
 > as before. Any new rule in `ValidateTable` must widen `SameTilingInputs` to match; the oracle in
 > `TableShapeValidationTests` compares against a full validation over 3,000 generated edits.
+> `TableGeometry.Place` itself tracks, per column, the row a span above keeps it busy until, instead
+> of a set of every occupied slot (0.8 MB rather than 5.8 MB at 10,000 × 5). That is slot occupancy
+> only because cells are placed row by row and every span starts on the row being placed;
+> `TableGeometryEquivalenceTests` keeps the slot-set algorithm as the oracle.
 > The view's share of that keystroke is 0.4 MB.
 
 ### 4.7 The text source
