@@ -30,6 +30,12 @@ works only on your machine is easy to write. Two rules keep them portable:
   is BGRA on Windows and Linux but RGBA on macOS; reading it as one order
   swaps red and blue on the other platform.
 
+CI builds and tests on Linux and Windows for every pull request. macOS minutes
+cost ten times as much, so macOS runs on pushes to `main`, on a
+manual run of the CI workflow, and on pull requests that touch
+`src/VellumText.Avalonia`, its tests, `samples/`, or the build files. The
+`platforms` job in `.github/workflows/ci.yml` holds the exact list.
+
 To run one project's tests, or one test:
 
 ```

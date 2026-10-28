@@ -10,11 +10,57 @@ permissions:
   contents: read
 
 jobs:
+  # Decides where `build` runs. Linux and Windows run on everything. macOS costs ten times the
+  # minutes of Linux on a private repository, so it runs on pushes to main, on a manual run, and
+  # on pull requests that change what macOS actually catches: the Avalonia control and its tests,
+  # the demo, and the build itself. A pull request that only touches the platform-independent
+  # libraries is still covered on macOS by the push to main that merges it.
+  platforms:
+    runs-on: ubuntu-latest
+
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      - name: Pick platforms
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mac=true
+          if [ "$EVENT" = pull_request ]; then
+            # Captured first: piping git diff into `grep -q` lets grep exit early, and the
+            # SIGPIPE that hands git fails the step under pipefail.
+            changed=$(git diff --name-only "$BASE...$HEAD")
+            if printf '%s\n' "$changed" | grep -Eq \
+              '^(src/VellumText\.Avalonia/|tests/VellumText\.Avalonia\.Tests/|samples/|Directory\.Build\.props$|global\.json$|VellumText\.sln$|\.github/workflows/ci\.yml$)'; then
+              echo "This pull request touches Avalonia or build files; macOS runs."
+            else
+              echo "Nothing macOS-specific changed; macOS runs on the merge to main instead."
+              mac=false
+            fi
+          fi
+          if [ "$mac" = true ]; then
+            echo 'os=["ubuntu-latest","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest","windows-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: platforms
+
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.platforms.outputs.os) }}
 
     runs-on: ${{ matrix.os }}
 
