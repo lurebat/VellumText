@@ -792,7 +792,6 @@ VellumText.Slice.OpenStart.get -> int
 VellumText.Slice.Size.get -> int
 VellumText.Slice.Slice(System.Collections.Generic.IEnumerable<VellumText.Node!>! content, int openStart, int openEnd) -> void
 VellumText.Step
-VellumText.Step.Step() -> void
 VellumText.Step.Step(VellumText.Step! original) -> void
 VellumText.StepMap
 VellumText.StepMap.Equals(VellumText.StepMap other) -> bool

@@ -369,15 +369,19 @@ Three selection kinds is not over-engineering — it is the minimum that makes "
 > `Node`, `BlockNode` and `InlineEmbed` are closed for the same reason: `DocumentPresenter`'s block
 > factory, the HTML and RTF exporters and the JSON writer all switch and throw on the default.
 >
-> `Step` is deliberately **not** closed, and that is the contrast that makes the rule a rule rather
-> than a reflex. Nothing switches on which step it is; all four obligations are on the base, so a
-> step written elsewhere works everywhere a step is consumed. Open where the consumer is generic,
-> closed where it enumerates.
+> **`Step` is closed too, for a different reason** (2026-10-29, the 1.0 public-API review,
+> decision 2). Until then it was deliberately left open: nothing switches on which step it is, all
+> four obligations are on the base, and a step written elsewhere works everywhere a step is
+> consumed. That is still true of the code. What changed is the contract: custom steps are not a
+> supported extension point for 1.0, so `Step` has a `private protected` constructor and every
+> built-in step is `sealed` and public. The rule above ("closed where it enumerates") is why the
+> other four are closed; this one is closed because opening a hierarchy later is a compatible change
+> and closing it after 1.0 would not be.
 >
 > One hole cannot be closed and is stated rather than hidden: a record's copy constructor must be
-> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed` or
-> `Selection` by declaring one that chains to it. It cannot happen by accident, which is what the
-> closure is for.
+> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed`,
+> `Selection` or `Step` by declaring one that chains to it. It cannot happen by accident, which is
+> what the closure is for.
 
 > **No virtual "is this a rectangle" member, and closing the hierarchy is why** (2026-08-18).
 > `is CellSelection` is open-coded at 17 sites, with the private `RichTextView.Rectangle` covering
