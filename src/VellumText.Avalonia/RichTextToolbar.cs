@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 
@@ -172,6 +173,8 @@ public class RichTextToolbar : TemplatedControl
 
     private RichTextEditor? _attached;
     private RichTextView? _view;
+    private ComboBox? _fontBox;
+    private ComboBox? _sizeBox;
     private readonly List<ToolbarCommand> _commands = [];
 
     private bool _isBold;
@@ -213,6 +216,10 @@ public class RichTextToolbar : TemplatedControl
         // removes one -- a toolbar with a permanently lit "link" button and no way back is the
         // shape this avoids.
         SetLinkCommand = Command<object?>(target => _view?.SetLink(Link(target)));
+
+        // The event rather than an OnApplyTemplate override: the hook is an implementation
+        // detail, and an override would be public API surface on an unsealed control.
+        TemplateApplied += (_, e) => HookBoxes(e.NameScope);
     }
 
     /// <summary>The editor this toolbar formats.</summary>
@@ -340,6 +347,51 @@ public class RichTextToolbar : TemplatedControl
 
     /// <summary>Redoes the most recently undone edit.</summary>
     public ICommand RedoCommand { get; }
+
+    /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
+    private void HookBoxes(INameScope scope)
+    {
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged -= OnFontPicked;
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged -= OnSizePicked;
+        }
+
+        _fontBox = scope.Find<ComboBox>("PART_FontBox");
+        _sizeBox = scope.Find<ComboBox>("PART_SizeBox");
+
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged += OnFontPicked;
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged += OnSizePicked;
+        }
+    }
+
+    private void OnFontPicked(object? sender, SelectionChangedEventArgs e) => Picked(_fontBox, SetFontFamilyCommand);
+
+    private void OnSizePicked(object? sender, SelectionChangedEventArgs e) => Picked(_sizeBox, SetFontSizeCommand);
+
+    /// <summary>Commits an item the user picked from a box's open list.</summary>
+    /// <remarks>
+    /// Only while the list is open. The box's text follows the selection, and an editable box may
+    /// select the matching item to go with it; reading that as a pick would re-apply the caret's
+    /// own size to whatever is selected every time the caret moved. Typing still commits on Enter.
+    /// </remarks>
+    private static void Picked(ComboBox? box, ICommand command)
+    {
+        if (box is { IsDropDownOpen: true, SelectedItem: { } item } && command.CanExecute(item))
+        {
+            command.Execute(item);
+        }
+    }
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

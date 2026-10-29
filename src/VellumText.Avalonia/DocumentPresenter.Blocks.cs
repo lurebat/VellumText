@@ -565,7 +565,7 @@ public abstract partial class DocumentPresenter
     /// </summary>
     /// <remarks>
     /// Measuring a block replaces the estimate for every block nobody has measured, because the
-    /// estimate is the mean of the ones that have been. So laying out a screenful moves the
+    /// estimate is drawn from the ones that have been (<see cref="BlockHeightIndex.Estimate"/>). So laying out a screenful moves the
     /// whole document under the viewport — and moves the window, which lays out more blocks,
     /// which moves it again. Repeating until the window stops changing is what settles it; the
     /// anchor is what stops the reader seeing any of it.

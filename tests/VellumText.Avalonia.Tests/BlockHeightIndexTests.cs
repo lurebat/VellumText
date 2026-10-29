@@ -100,6 +100,84 @@ public class BlockHeightIndexTests
         Assert.Equal(50 + 30 + 40 + 40, index.TotalHeight);
     }
 
+    /// <summary>
+    /// One giant block does not set the height of every block nobody has measured. A 20,000-
+    /// character paragraph is about 228,000 pixels tall at a narrow width; with the estimate a
+    /// plain mean, the twenty ordinary paragraphs measured next to it priced each of 10,000
+    /// unmeasured ones at about 11,000 pixels, the document at 110 million, and scrolling up
+    /// from the end measured a few more small blocks per notch and collapsed the extent by
+    /// millions instead of moving the text (found live).
+    /// </summary>
+    [Fact]
+    public void OneGiantBlockDoesNotInflateTheGuessForTheRest()
+    {
+        var index = Of(10_000, estimate: 20);
+
+        index.SetHeight(0, 228_000);
+
+        for (var i = 1; i <= 20; i++)
+        {
+            index.SetHeight(i, 40);
+        }
+
+        Assert.InRange(index.Estimate, 40, 40 * 2);
+        Assert.InRange(index.TotalHeight, 228_000 + (9_999 * 40), 228_000 + (9_999 * 80));
+
+        // The giant's own height is untouched: only the guess for the others is bounded.
+        Assert.Equal(228_000, index.HeightOf(0));
+    }
+
+    /// <summary>
+    /// Ordinary variety is not an outlier. Headings, short lines and long paragraphs differ by a
+    /// few times, not by thousands, and for them the guess stays the plain mean it always was.
+    /// </summary>
+    [Fact]
+    public void OrdinaryVarietyStillGivesThePlainMean()
+    {
+        double[] heights = [24, 24, 48, 96, 160, 20, 72, 300, 24];
+        var index = Of(heights.Length + 5, estimate: 10);
+
+        for (var i = 0; i < heights.Length; i++)
+        {
+            index.SetHeight(i, heights[i]);
+        }
+
+        Assert.Equal(heights.Average(), index.Estimate, 9);
+    }
+
+    /// <summary>
+    /// When most blocks are big, big is ordinary. The bound is relative to the typical measured
+    /// block, so a document of tall images or long tables is not priced as if it were text.
+    /// </summary>
+    [Fact]
+    public void ADocumentOfTallBlocksIsPricedAsTall()
+    {
+        var index = Of(100, estimate: 20);
+
+        for (var i = 0; i < 10; i++)
+        {
+            index.SetHeight(i, 5_000 + i);
+        }
+
+        index.SetHeight(10, 20);
+
+        Assert.InRange(index.Estimate, 4_000, 5_010);
+    }
+
+    /// <summary>The bound follows removals: an outlier removed stops counting at all.</summary>
+    [Fact]
+    public void RemovingTheGiantRestoresTheOrdinaryGuess()
+    {
+        var index = Of(50, estimate: 20);
+
+        index.SetHeight(0, 1_000_000);
+        index.SetHeight(1, 30);
+        index.SetHeight(2, 50);
+        index.Remove(0, 1);
+
+        Assert.Equal(40, index.Estimate, 9);
+    }
+
     [Fact]
     public void RemeasuringABlockReplacesItsContributionRatherThanAddingToIt()
     {
@@ -173,6 +251,13 @@ public class BlockHeightIndexTests
     /// afresh — four arrays the length of the document, about a megabyte at 50,000 blocks, on
     /// every paragraph written. The arrays keep spare room now and are shifted in place, so only
     /// growing past that room allocates, and it doubles when it does.
+    /// <para>
+    /// The quietest of a few measurements is the one asserted on. The index allocates nothing here,
+    /// but the runtime occasionally charges about 8 KB to this thread while it tiers up a method it
+    /// is running - measured: 4 rounds in 400 with tiered compilation on, none with it off, and no
+    /// garbage collection in any of them. A real reallocation is a megabyte on every round, so the
+    /// minimum still sees it; a tier-up does not happen on every round, so the minimum does not.
+    /// </para>
     /// </remarks>
     [Fact]
     public void InsertingAndRemovingABlockDoesNotReallocateTheIndex()
@@ -185,15 +270,20 @@ public class BlockHeightIndexTests
         index.Insert(25_000, 1);
         index.Remove(25_000, 1);
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var allocated = long.MaxValue;
 
-        for (var i = 0; i < 10; i++)
+        for (var attempt = 0; attempt < 5; attempt++)
         {
-            index.Insert(25_000, 1);
-            index.Remove(25_000 + (i % 2), 1);
-        }
+            var before = GC.GetAllocatedBytesForCurrentThread();
 
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            for (var i = 0; i < 10; i++)
+            {
+                index.Insert(25_000, 1);
+                index.Remove(25_000 + (i % 2), 1);
+            }
+
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
         Assert.True(allocated < 1024, $"ten inserts and removes allocated {allocated:N0} bytes");
         Assert.Equal(50_000, index.Count);

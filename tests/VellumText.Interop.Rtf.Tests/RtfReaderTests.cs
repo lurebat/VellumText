@@ -124,6 +124,62 @@ public class RtfReaderTests
     }
 
     /// <summary>F-58's merged cells: Word's vertical merge and Excel's horizontal one.</summary>
+    /// <summary>
+    /// A list just before a table stays outside it. Word's clipboard RTF has bullets and then a
+    /// table, and the table's header row came out with each cell wrapped in a bulleted list:
+    /// the list state leaked into the row that followed it (found live, phase 8).
+    /// </summary>
+    [Fact]
+    public async Task A_list_before_a_table_does_not_leak_into_its_cells()
+    {
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
+
+        var table = Assert.Single(All(result.Doc).OfType<TableNode>());
+
+        Assert.DoesNotContain(All(table), n => n is ListNode);
+        Assert.Contains(All(result.Doc), n => n is ListNode list
+            && DocumentText.Of(new DocumentNode([list])).Contains("Bullet one", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Only the stray shadow goes: in the same document, a cell paragraph that states its own
+    /// <c>\ls</c> is still a list item, and so is the list paragraph whose shadow leaked.
+    /// </summary>
+    [Fact]
+    public async Task A_list_a_cell_states_itself_survives_the_leak_correction()
+    {
+        const string lists =
+            @"{\*\listtable{\list\listtemplateid1{\listlevel\levelnfc23{\leveltext\'01\'B7;}{\levelnumbers;}}\listid7}}" +
+            @"{\*\listoverridetable{\listoverride\listid7\listoverridecount0\ls1}}";
+        const string bullet = @"{\*\pn\pnlvlblt\ls1{\pntxtb\'b7}}\ls1 ";
+
+        var result = await RtfImporter.ImportAsync(
+            @"{\rtf1\ansi" + lists + @"\pard" + bullet + @"{item\par }" +
+            @"\trowd\cellx2000\cellx4000\pard\plain\intbl leaked\cell \pard\intbl" + bullet + @"listed\cell\row " +
+            @"\pard\plain after\par}",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var table = Assert.Single(All(result.Doc).OfType<TableNode>());
+        var cells = table.Rows[0].Cells;
+
+        Assert.IsNotType<ListNode>(cells[0].Blocks[0]);
+        Assert.IsType<ListNode>(cells[1].Blocks[0]);
+        Assert.Contains(result.Doc.Blocks, b => b is ListNode);
+    }
+    /// <summary>
+    /// The reader's own bookkeeping is not a loss. OfficeIMO writes private <c>--officeimo-rtf-*</c>
+    /// properties for its round trip, and each surfaced as "Removed a style the editor cannot
+    /// represent" — noise a user can do nothing about (found live, phase 8). Styles that really
+    /// are lost are still reported.
+    /// </summary>
+    [Fact]
+    public async Task The_readers_private_styles_are_removed_without_a_diagnostic()
+    {
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context?.StartsWith("--officeimo", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "line-height");
+    }
     [Fact]
     public async Task Merged_cells_arrive_merged()
     {

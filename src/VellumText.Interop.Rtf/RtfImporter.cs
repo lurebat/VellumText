@@ -152,6 +152,8 @@ public static class RtfImporter
     /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
     private static string ToHtml(RtfDocument document, bool hoist)
     {
+        RtfLegacyListShadow.Drop(document);
+
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
 
         return RtfFormattingHoist.Wrap(document.ToHtml(HtmlOptions), css);
