@@ -74,9 +74,7 @@ internal sealed class TableBlockView : BlockView
     private double[] _rowEdges = [0];
     private int _edgesFrom;
     private double _edgesEstimate = double.NaN;
-    private int _measuredRows;
-    private double _measuredTotal;
-    private double _seed = SeedEstimate;
+    private readonly HeightEstimate _estimate = new(SeedEstimate);
     private int _version;
     private int _remapPrefix = int.MaxValue;
     private int _remapSuffix;
@@ -182,7 +180,6 @@ internal sealed class TableBlockView : BlockView
     private void Rebuild(TableNode table)
     {
         var old = new Previous(_rows, _rowFirstCell, _bandStart, _bandEnd, _rowHeights);
-        var estimate = Estimate;
         var placements = TableGeometry.Place(table, out _columns);
         var rows = new Row[table.Rows.Length];
         var firstCell = new int[rows.Length + 1];
@@ -201,7 +198,6 @@ internal sealed class TableBlockView : BlockView
         Bands();
         UpdateRowStarts();
 
-        _seed = estimate;
         _rowHeights = new double[rows.Length];
         _rowEdges = new double[rows.Length + 1];
         ForgetHeights();
@@ -687,7 +683,8 @@ internal sealed class TableBlockView : BlockView
     internal int RowCount => _rows.Length;
 
     /// <summary>The height assumed for a row nobody has measured at the current width.</summary>
-    private double Estimate => _measuredRows == 0 ? _seed : _measuredTotal / _measuredRows;
+    /// <remarks>Bounded against one giant row; see <see cref="HeightEstimate"/>.</remarks>
+    private double Estimate => _estimate.Value;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -735,7 +732,6 @@ internal sealed class TableBlockView : BlockView
         {
             _width = width;
             _columnEdges = edges;
-            _seed = Estimate;
             ForgetHeights();
         }
 
@@ -792,8 +788,7 @@ internal sealed class TableBlockView : BlockView
     private void ForgetHeights()
     {
         Array.Fill(_rowHeights, double.NaN);
-        _measuredRows = 0;
-        _measuredTotal = 0;
+        _estimate.Restart();
         _edgesFrom = 0;
     }
 
@@ -904,16 +899,12 @@ internal sealed class TableBlockView : BlockView
     {
         var was = _rowHeights[row];
 
-        if (double.IsNaN(was))
+        if (!double.IsNaN(was))
         {
-            _measuredRows++;
-        }
-        else
-        {
-            _measuredTotal -= was;
+            _estimate.Remove(was);
         }
 
-        _measuredTotal += height;
+        _estimate.Add(height);
         _rowHeights[row] = height;
 
         if (!was.Equals(height))
