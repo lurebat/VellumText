@@ -21,8 +21,8 @@
   <ItemGroup>
     <!-- The same headless stack as the Avalonia tests. UseHeadlessDrawing=false is what makes
          layout exercise the real Skia text stack rather than a stub that invents metrics. -->
-    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
-    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
   </ItemGroup>
 
   <ItemGroup>

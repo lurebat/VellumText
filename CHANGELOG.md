@@ -515,6 +515,12 @@ awaits `PasteAsync`.
 
 ### Changed
 
+- **Built on Avalonia 12.1.4** (was 12.1.1), so a host must reference Avalonia
+  12.1.4 or later. The patch releases between them fix, among others, an infinite
+  loop shaping a text run that produces no glyphs (reachable from pasted text),
+  clipboard exceptions in `TextBox`, focus left on detached or removed controls,
+  and races in headless session startup and disposal. SkiaSharp (3.119.4) and
+  HarfBuzzSharp (8.3.1.3) are unchanged.
 - **RTF is read by OfficeIMO instead of RtfPipe** (`OfficeIMO.Rtf` and
   `OfficeIMO.Html.Rtf`, pinned to one exact version). RtfPipe had no release
   since 2021 and stalled on small hostile inputs; the replacement was chosen

@@ -33,7 +33,7 @@ build target fails the build if a dependency is ever added.
 ## Requirements
 
 - **.NET 10**
-- **Avalonia 12.1.1**
+- **Avalonia 12.1.4**
 
 Both are single-target on purpose: no multi-targeting, no version shims.
 

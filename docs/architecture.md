@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Date:** 2026-08-11
-**Target:** Avalonia 12.1.1 (current stable), .NET 8/9
+**Target:** Avalonia 12.1.4 (designed against 12.1.1; the facts below cite the version they were verified on), .NET 10
 **Proposed license:** MIT
 **Name:** VellumText (packages `VellumText.Core`, `VellumText.Avalonia`, `VellumText.Interop.*`)
 

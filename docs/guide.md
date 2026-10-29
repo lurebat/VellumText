@@ -38,7 +38,7 @@ it is.
 wants a text editor does not acquire an HTML parser to get one. You add the formats you want; see
 [import and export](#import-and-export).
 
-Targets .NET 10 and Avalonia 12.1.1.
+Targets .NET 10 and Avalonia 12.1.4.
 
 ## Quick start
 
