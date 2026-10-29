@@ -37,7 +37,7 @@ namespace VellumText.Avalonia;
 /// <see cref="IsSelectionToolbarEnabled"/>.
 /// </para>
 /// </remarks>
-public class RichTextEditor : TemplatedControl
+public sealed class RichTextEditor : TemplatedControl
 {
     /// <summary>The name of the <see cref="RichTextView"/> in the template.</summary>
     public const string ViewPart = "PART_View";

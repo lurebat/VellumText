@@ -1,5 +1,4 @@
 #nullable enable
-abstract VellumText.Avalonia.DocumentPresenter.PresentedDocument.get -> VellumText.DocumentNode!
 const VellumText.Avalonia.DataUriImageStore.DefaultMaximumBytes = 4194304 -> int
 const VellumText.Avalonia.RichTextEditor.OverlayPart = "PART_Overlay" -> string!
 const VellumText.Avalonia.RichTextEditor.SelectionToolbarPart = "PART_SelectionToolbar" -> string!
@@ -12,10 +11,6 @@ const VellumText.Avalonia.RichTextView.TouchHandleTargetRadius = 22 -> double
 override VellumText.Avalonia.ClipboardFlavor.Equals(object? obj) -> bool
 override VellumText.Avalonia.ClipboardFlavor.GetHashCode() -> int
 override VellumText.Avalonia.ClipboardFlavor.ToString() -> string!
-override VellumText.Avalonia.DocumentPresenter.ArrangeOverride(Avalonia.Size finalSize) -> Avalonia.Size
-override VellumText.Avalonia.DocumentPresenter.MeasureOverride(Avalonia.Size availableSize) -> Avalonia.Size
-override VellumText.Avalonia.DocumentPresenter.OnCreateAutomationPeer() -> Avalonia.Automation.Peers.AutomationPeer!
-override VellumText.Avalonia.DocumentPresenter.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
 override VellumText.Avalonia.DocumentPresenter.Render(Avalonia.Media.DrawingContext! context) -> void
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.GetAutomationControlTypeCore() -> Avalonia.Automation.Peers.AutomationControlType
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsContentElementCore() -> bool
@@ -26,28 +21,7 @@ override VellumText.Avalonia.ParagraphStyle.ToString() -> string!
 override VellumText.Avalonia.Preedit.Equals(object? obj) -> bool
 override VellumText.Avalonia.Preedit.GetHashCode() -> int
 override VellumText.Avalonia.Preedit.ToString() -> string!
-override VellumText.Avalonia.RichTextEditor.OnApplyTemplate(Avalonia.Controls.Primitives.TemplateAppliedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextEditor.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
 override VellumText.Avalonia.RichTextToolbar.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
-override VellumText.Avalonia.RichTextView.OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnGotFocus(Avalonia.Input.FocusChangedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnKeyDown(Avalonia.Input.KeyEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnLostFocus(Avalonia.Input.FocusChangedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnPointerCaptureLost(Avalonia.Input.PointerCaptureLostEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnPointerMoved(Avalonia.Input.PointerEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnPointerPressed(Avalonia.Input.PointerPressedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnPointerReleased(Avalonia.Input.PointerReleasedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
-override VellumText.Avalonia.RichTextView.OnTextInput(Avalonia.Input.TextInputEventArgs! e) -> void
-override VellumText.Avalonia.RichTextView.PresentedDocument.get -> VellumText.DocumentNode!
-override VellumText.Avalonia.RichTextView.SetTextFromAutomation(string! text) -> void
-override VellumText.Avalonia.RichTextView.SupportsTextInput.get -> bool
-override VellumText.Avalonia.RichTextViewer.OnKeyDown(Avalonia.Input.KeyEventArgs! e) -> void
-override VellumText.Avalonia.RichTextViewer.OnPointerCaptureLost(Avalonia.Input.PointerCaptureLostEventArgs! e) -> void
-override VellumText.Avalonia.RichTextViewer.OnPointerMoved(Avalonia.Input.PointerEventArgs! e) -> void
-override VellumText.Avalonia.RichTextViewer.OnPointerPressed(Avalonia.Input.PointerPressedEventArgs! e) -> void
-override VellumText.Avalonia.RichTextViewer.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
-override VellumText.Avalonia.RichTextViewer.PresentedDocument.get -> VellumText.DocumentNode!
 static readonly VellumText.Avalonia.DocumentPresenter.BackgroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.DocumentPresenter.FontFamilyProperty -> Avalonia.StyledProperty<Avalonia.Media.FontFamily!>!
 static readonly VellumText.Avalonia.DocumentPresenter.FontSizeProperty -> Avalonia.StyledProperty<double>!
@@ -177,7 +151,6 @@ VellumText.Avalonia.DocumentPresenter.CanHorizontallyScroll.get -> bool
 VellumText.Avalonia.DocumentPresenter.CanHorizontallyScroll.set -> void
 VellumText.Avalonia.DocumentPresenter.CanVerticallyScroll.get -> bool
 VellumText.Avalonia.DocumentPresenter.CanVerticallyScroll.set -> void
-VellumText.Avalonia.DocumentPresenter.DocumentPresenter() -> void
 VellumText.Avalonia.DocumentPresenter.Embeds.get -> VellumText.Avalonia.IEmbedRenderer!
 VellumText.Avalonia.DocumentPresenter.Embeds.set -> void
 VellumText.Avalonia.DocumentPresenter.Extent.get -> Avalonia.Size
@@ -545,5 +518,3 @@ VellumText.Avalonia.TextStyleResolver.Default.get -> Avalonia.Media.TextFormatti
 VellumText.Avalonia.TextStyleResolver.Resolve(VellumText.MarkSet marks) -> Avalonia.Media.TextFormatting.TextRunProperties!
 VellumText.Avalonia.TextStyleResolver.TextStyleResolver(Avalonia.Media.Typeface typeface, double fontSize, Avalonia.Media.IBrush! foreground, Avalonia.Media.FontFamily? codeFamily = null) -> void
 VellumText.Avalonia.ToolbarConverters
-virtual VellumText.Avalonia.DocumentPresenter.SetTextFromAutomation(string! text) -> void
-virtual VellumText.Avalonia.DocumentPresenter.SupportsTextInput.get -> bool

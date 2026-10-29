@@ -25,7 +25,7 @@ namespace VellumText.Avalonia;
 /// which is knowledge it has no business having.
 /// </para>
 /// </remarks>
-public partial class RichTextView : DocumentPresenter
+public sealed partial class RichTextView : DocumentPresenter
 {
     /// <summary>Defines the <see cref="State"/> property.</summary>
     public static readonly DirectProperty<RichTextView, EditorState> StateProperty =

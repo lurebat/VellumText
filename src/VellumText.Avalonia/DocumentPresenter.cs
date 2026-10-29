@@ -31,6 +31,11 @@ namespace VellumText.Avalonia;
 /// rebuild; <see cref="ScrollAnchorIntoView"/>, so it can keep something on screen; and
 /// <see cref="RenderContent"/>, so it can draw under and over the text.
 /// </para>
+/// <para>
+/// <b>The two subclasses are the only ones.</b> The constructor is <c>private protected</c> and
+/// both controls are <c>sealed</c>, so the seams above are free to change with the layout. The
+/// type stays public because it is where the presenting API both controls share is declared.
+/// </para>
 /// </remarks>
 public abstract partial class DocumentPresenter : global::Avalonia.Controls.Control
 {
@@ -104,6 +109,10 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     private ISyntaxTheme _syntaxTheme = global::VellumText.Avalonia.SyntaxTheme.Dark;
     private bool _derivedStyles = true;
     private protected double _width = DefaultWidth;
+
+    private protected DocumentPresenter()
+    {
+    }
 
     /// <summary>The fill behind the whole control.</summary>
     /// <remarks>See <see cref="BackgroundProperty"/> — this is load-bearing for hit testing.</remarks>

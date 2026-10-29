@@ -28,7 +28,7 @@ namespace VellumText.Avalonia;
 /// and no editing method on this control at all, so there is no edit path to switch off.
 /// </para>
 /// </remarks>
-public partial class RichTextViewer : DocumentPresenter
+public sealed partial class RichTextViewer : DocumentPresenter
 {
     /// <summary>Defines the <see cref="Document"/> property.</summary>
     public static readonly StyledProperty<DocumentNode> DocumentProperty =
