@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\VellumText.Avalonia\VellumText.Avalonia.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Rtf\VellumText.Interop.Rtf.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Markdown\VellumText.Interop.Markdown.csproj" />
   </ItemGroup>
 
 </Project>
