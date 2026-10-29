@@ -76,6 +76,43 @@ public class ImageBombTests
         return bytes;
     }
 
+    /// <summary>
+    /// A GIF with a 1×1 logical screen whose only frame is one pixel at (<paramref name="left"/>,
+    /// <paramref name="top"/>), behind a graphic control extension the reader must step over.
+    /// </summary>
+    private static byte[] OffsetGif(int left, int top) =>
+    [
+        (byte)'G', (byte)'I', (byte)'F', (byte)'8', (byte)'9', (byte)'a',
+        0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF,
+        0x21, 0xF9, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x2C, (byte)left, (byte)(left >> 8), (byte)top, (byte)(top >> 8), 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x4C, 0x01, 0x00,
+        0x3B,
+    ];
+
+    /// <summary>
+    /// How far a decode may raise the process's peak working set and still count as not having
+    /// allocated the bomb: every bomb here decodes to 400 MB or more.
+    /// </summary>
+    private const long BombHeadroom = 200L * 1024 * 1024;
+
+    /// <summary>How much <paramref name="action"/> raised the process's peak working set.</summary>
+    /// <remarks>
+    /// The decoder's pixels are native memory, so the managed allocation counters do not see them,
+    /// and the bitmap is disposed before the call returns, so only the peak shows it was there.
+    /// </remarks>
+    private static long PeakGrowth(Action action)
+    {
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        var before = process.PeakWorkingSet64;
+
+        action();
+        process.Refresh();
+
+        return process.PeakWorkingSet64 - before;
+    }
+
     private static ImageEmbed Embed(byte[] bytes, string mediaType) =>
         new(BitmapCacheBudgetTests.DataUri(bytes, mediaType));
 
@@ -102,6 +139,35 @@ public class ImageBombTests
         Assert.True(renderer.IsOversized(gif));
         Assert.Equal(Fallback, renderer.Measure(Embed(gif, "image/gif"), Properties()));
         Assert.Equal(0, renderer.PixelDecodes);
+    }
+
+    /// <summary>
+    /// A GIF whose 1×1 logical screen holds a 1×1 first frame at (9999, 9999): the decoder grows
+    /// the canvas to cover that frame, so it is 10000², not the 1² its screen declares.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_gif_first_frame_outside_its_screen_is_refused_without_decoding_it()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+        var gif = OffsetGif(9999, 9999);
+
+        var grown = PeakGrowth(() =>
+            Assert.Equal(Fallback, renderer.Measure(Embed(gif, "image/gif"), Properties())));
+
+        Assert.Equal(0, renderer.PixelDecodes);
+        Assert.True(grown < BombHeadroom, $"peak working set grew by {grown / (1024 * 1024)} MB");
+        Assert.True(renderer.IsOversized(gif));
+    }
+
+    [AvaloniaFact]
+    public void A_gif_first_frame_outside_its_screen_within_the_limit_decodes_to_the_grown_canvas()
+    {
+        using var renderer = new BitmapEmbedRenderer();
+        var gif = OffsetGif(29, 19);
+
+        Assert.False(renderer.IsOversized(gif));
+        Assert.Equal(new global::Avalonia.Size(30, 20), renderer.Measure(Embed(gif, "image/gif"), Properties()));
+        Assert.Equal(1, renderer.PixelDecodes);
     }
 
     [AvaloniaFact]

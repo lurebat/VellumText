@@ -52,22 +52,72 @@ internal static class ImageHeader
     }
 
     /// <summary>
-    /// GIF: the logical screen size, which is the canvas a decoder allocates whatever the frames
-    /// inside it hold.
+    /// GIF: the logical screen, grown to cover the first frame, which is the canvas the decoder
+    /// allocates.
     /// </summary>
+    /// <remarks>
+    /// The screen alone is not enough: Skia's decoder widens its canvas to reach the first frame's
+    /// far edge, so a 1×1 screen holding one pixel at (9999, 9999) decodes to 10000². Later frames
+    /// are clipped to that canvas and cannot grow it. A GIF cut off before its first frame is
+    /// answered as unknown, since the canvas it would get cannot be told.
+    /// </remarks>
     private static bool TryGif(ReadOnlySpan<byte> p, out long width, out long height)
     {
         (width, height) = (0, 0);
 
-        if (p.Length < 10 || !(p[..6].SequenceEqual("GIF87a"u8) || p[..6].SequenceEqual("GIF89a"u8)))
+        if (p.Length < 13 || !(p[..6].SequenceEqual("GIF87a"u8) || p[..6].SequenceEqual("GIF89a"u8)))
         {
             return false;
         }
 
-        width = BinaryPrimitives.ReadUInt16LittleEndian(p[6..8]);
-        height = BinaryPrimitives.ReadUInt16LittleEndian(p[8..10]);
+        long screenWidth = BinaryPrimitives.ReadUInt16LittleEndian(p[6..8]);
+        long screenHeight = BinaryPrimitives.ReadUInt16LittleEndian(p[8..10]);
+        var i = 13 + ColourTableLength(p[10]);
 
-        return true;
+        while (i < p.Length)
+        {
+            switch (p[i])
+            {
+                // An extension: a label, then data sub-blocks up to an empty one.
+                case 0x21:
+                    i += 2;
+
+                    while (i < p.Length && p[i] != 0)
+                    {
+                        i += 1 + p[i];
+                    }
+
+                    i++;
+                    continue;
+
+                // The first image descriptor: its position and size.
+                case 0x2C when i + 9 <= p.Length:
+                    var left = BinaryPrimitives.ReadUInt16LittleEndian(p[(i + 1)..(i + 3)]);
+                    var top = BinaryPrimitives.ReadUInt16LittleEndian(p[(i + 3)..(i + 5)]);
+                    var frameWidth = BinaryPrimitives.ReadUInt16LittleEndian(p[(i + 5)..(i + 7)]);
+                    var frameHeight = BinaryPrimitives.ReadUInt16LittleEndian(p[(i + 7)..(i + 9)]);
+
+                    width = Math.Max(screenWidth, (long)left + frameWidth);
+                    height = Math.Max(screenHeight, (long)top + frameHeight);
+
+                    return true;
+
+                // The trailer, with no frame before it: nothing grows the screen.
+                case 0x3B:
+                    (width, height) = (screenWidth, screenHeight);
+
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        return false;
+
+        // The global table follows the screen descriptor when its flag is set: three bytes for each
+        // of 2^(n+1) colours.
+        static int ColourTableLength(byte flags) => (flags & 0x80) == 0 ? 0 : 3 << ((flags & 0x07) + 1);
     }
 
     /// <summary>BMP: the DIB header after the 14-byte file header.</summary>
