@@ -465,6 +465,82 @@ public class RichTextViewScrollTests
             $"The presenter scrolled to 900 and the window was still {view.RealizedBlocks}.");
     }
 
+    /// <summary>
+    /// The scroll bar has to follow the view when the view moves itself. Ctrl+End scrolls the
+    /// caret into view from a key press, not from a layout pass, and the offset and extent it
+    /// changed were only ever reported from arrange — which nothing had invalidated. Found live:
+    /// the view showed the end of the document while the scroll bar's thumb sat at the top.
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_End_moves_the_scroll_bar_with_the_view()
+    {
+        var presenter = Hosted(Paragraphs(400), out var view);
+
+        view.Focus();
+        view.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.End,
+            KeyModifiers = KeyModifiers.Control,
+            Source = view,
+        });
+        presenter.UpdateLayout();
+
+        Assert.True(view.Offset.Y > Height, $"Ctrl+End left the view at {view.Offset.Y}.");
+        Assert.Equal(view.Offset.Y, presenter.Offset.Y, 1);
+        Assert.Equal(view.Extent.Height, presenter.Extent.Height, 1);
+    }
+
+    /// <summary>
+    /// A size the view learns outside a layout pass still reaches the scroll bar. A geometry
+    /// question about a block far from the window measures it there and then, which changes the
+    /// document's height — and that change was only ever reported from arrange, which nothing had
+    /// asked for. The scroll bar kept the old range, so its thumb and the text drifted apart and
+    /// an offset the bar thought valid was one the view clamped away (found live).
+    /// </summary>
+    [AvaloniaFact]
+    public void A_height_learned_outside_layout_reaches_the_scroll_bar()
+    {
+        var presenter = Hosted(Paragraphs(400), out var view);
+        var before = view.Extent.Height;
+
+        _ = view.ImageRect(view.Slots[^1].Start);
+        _ = view.ImageRect(view.Slots[^2].Start);
+
+        Assert.NotEqual(before, view.Extent.Height, 1);
+
+        presenter.UpdateLayout();
+
+        Assert.Equal(view.Extent.Height, presenter.Extent.Height, 1);
+    }
+    /// <summary>
+    /// One giant paragraph does not make the document look a hundred times longer than it is.
+    /// The guess for unmeasured blocks was the plain mean of the measured ones, so a paragraph of
+    /// thousands of words beside a screenful of short ones priced every other paragraph at
+    /// thousands of pixels: live, a 10,000-paragraph paste below one showed a 575-million-pixel
+    /// document, and wheel notches collapsed the extent instead of moving the text.
+    /// </summary>
+    [AvaloniaFact]
+    public void One_giant_paragraph_does_not_inflate_the_document()
+    {
+        var giant = string.Join(' ', Enumerable.Range(0, 2_000).Select(i => $"word{i}"));
+        var doc = new DocumentNode([ParagraphNode.FromText(giant), .. Paragraphs(2_000).Blocks]);
+
+        var whole = new RichTextView { State = EditorState.Create(doc) };
+
+        whole.Measure(new Size(Width, double.PositiveInfinity));
+
+        var truth = whole.Extent.Height;
+
+        var presenter = Hosted(doc, out var view);
+
+        view.State = EditorState.Create(doc, TextSelection.Cursor(view.Slots[^1].End));
+        presenter.UpdateLayout();
+
+        Assert.True(
+            view.Extent.Height < truth * 4,
+            $"At the end the document claimed {view.Extent.Height:F0} pixels; laid out whole it is {truth:F0}.");
+    }
     [AvaloniaFact]
     public void The_editor_template_makes_the_view_the_scroll_viewer_s_own_content()
     {

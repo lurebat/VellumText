@@ -219,6 +219,78 @@ public class ToolbarThemeTests
         Assert.Null(bar.SelectionForeground);
     }
 
+    /// <summary>
+    /// Picking a size from the list applies it, in points. Only Enter used to commit, so a click
+    /// on "18" in the open list changed the box and left the document alone — found live, with
+    /// no test to say otherwise.
+    /// </summary>
+    [AvaloniaFact]
+    public void PickingASizeFromTheListAppliesIt()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var box = Box(bar, "PART_SizeBox");
+
+        box.IsDropDownOpen = true;
+        box.SelectedItem = 18.0;
+
+        Assert.Equal(24.0, FirstMark(editor).FontSize!.Value, 6);
+        Assert.Equal(18.0, bar.SelectionFontSize!.Value, 6);
+    }
+
+    [AvaloniaFact]
+    public void PickingAFontFromTheListAppliesIt()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var box = Box(bar, "PART_FontBox");
+
+        // A headless platform may report no installed fonts; the pick is what is under test.
+        if (box.ItemCount == 0)
+        {
+            box.ItemsSource = new[] { "Arial", "Courier New" };
+        }
+
+        var family = (string)box.Items[^1]!;
+
+        box.IsDropDownOpen = true;
+        box.SelectedItem = family;
+
+        Assert.Equal(family, FirstMark(editor).FontFamily);
+    }
+
+    /// <summary>
+    /// The box's text follows the selection, and an editable box may select the matching item to
+    /// go with it. That must not be read as a pick: moving the caret into 20-point text would
+    /// otherwise re-apply 20 points to whatever is selected — an edit nobody asked for.
+    /// </summary>
+    [AvaloniaFact]
+    public void ASelectionChangeTheUserDidNotPickDoesNotEditTheDocument()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var before = editor.State.Doc;
+        var size = Box(bar, "PART_SizeBox");
+        var font = Box(bar, "PART_FontBox");
+
+        size.SelectedItem = 18.0;
+        font.SelectedItem = font.ItemCount > 0 ? font.Items[0] : null;
+
+        Assert.Same(before, editor.State.Doc);
+    }
+
+    private static ComboBox Box(RichTextToolbar bar, string name) =>
+        bar.GetVisualDescendants().OfType<ComboBox>().Single(b => b.Name == name);
+
+    private static MarkSet FirstMark(RichTextEditor editor) =>
+        Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(0);
+
     /// <summary>Opens a colour button's flyout and returns the swatch buttons inside it.</summary>
     private static List<Button> Swatches(RichTextToolbar bar, string tip) =>
         Popup(bar, tip).GetVisualDescendants().OfType<Button>()
