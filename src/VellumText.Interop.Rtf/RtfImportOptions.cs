@@ -91,6 +91,7 @@ public sealed record RtfImportOptions
         MaxTableSlots = MaxTableSlots,
         KeepSpaceRuns = true,
         RemoveBeforeSanitizing = "[data-officeimo-rtf-list-marker]",
+        QuietStylePrefix = "--officeimo-",
         BorderedEmptyParagraphIsRule = true,
     };
 }

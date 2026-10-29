@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 
@@ -172,6 +173,8 @@ public class RichTextToolbar : TemplatedControl
 
     private RichTextEditor? _attached;
     private RichTextView? _view;
+    private ComboBox? _fontBox;
+    private ComboBox? _sizeBox;
     private readonly List<ToolbarCommand> _commands = [];
 
     private bool _isBold;
@@ -340,6 +343,55 @@ public class RichTextToolbar : TemplatedControl
 
     /// <summary>Redoes the most recently undone edit.</summary>
     public ICommand RedoCommand { get; }
+
+    /// <inheritdoc/>
+    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        base.OnApplyTemplate(e);
+
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged -= OnFontPicked;
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged -= OnSizePicked;
+        }
+
+        _fontBox = e.NameScope.Find<ComboBox>("PART_FontBox");
+        _sizeBox = e.NameScope.Find<ComboBox>("PART_SizeBox");
+
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged += OnFontPicked;
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged += OnSizePicked;
+        }
+    }
+
+    private void OnFontPicked(object? sender, SelectionChangedEventArgs e) => Picked(_fontBox, SetFontFamilyCommand);
+
+    private void OnSizePicked(object? sender, SelectionChangedEventArgs e) => Picked(_sizeBox, SetFontSizeCommand);
+
+    /// <summary>Commits an item the user picked from a box's open list.</summary>
+    /// <remarks>
+    /// Only while the list is open. The box's text follows the selection, and an editable box may
+    /// select the matching item to go with it; reading that as a pick would re-apply the caret's
+    /// own size to whatever is selected every time the caret moved. Typing still commits on Enter.
+    /// </remarks>
+    private static void Picked(ComboBox? box, ICommand command)
+    {
+        if (box is { IsDropDownOpen: true, SelectedItem: { } item } && command.CanExecute(item))
+        {
+            command.Execute(item);
+        }
+    }
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

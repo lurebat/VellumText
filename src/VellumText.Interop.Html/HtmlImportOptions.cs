@@ -125,6 +125,16 @@ public sealed record HtmlImportOptions
     internal string? RemoveBeforeSanitizing { get; init; }
 
     /// <summary>
+    /// A prefix for style properties removed without a diagnostic, or null to report every one.
+    /// </summary>
+    /// <remarks>
+    /// Internal, for the RTF importer, whose reader writes private <c>--officeimo-rtf-*</c>
+    /// properties for its own round trip. They are bookkeeping, not formatting the user had, so
+    /// reporting them as lost is noise; they are still removed.
+    /// </remarks>
+    internal string? QuietStylePrefix { get; init; }
+
+    /// <summary>
     /// Whether an empty paragraph whose only drawing is a bottom border is read as a rule.
     /// </summary>
     /// <remarks>
