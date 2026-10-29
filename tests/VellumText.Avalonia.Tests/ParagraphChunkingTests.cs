@@ -644,13 +644,13 @@ public class ParagraphChunkingTests
 
         foreach (var p in positions)
         {
-            Assert.True(plain.GetCaretRect(p) == chunked.GetCaretRect(p), $"caret at {p}: {plain.GetCaretRect(p)} vs {chunked.GetCaretRect(p)}");
+            Assert.True(Same(plain.GetCaretRect(p), chunked.GetCaretRect(p)), $"caret at {p}: {plain.GetCaretRect(p)} vs {chunked.GetCaretRect(p)}");
             Assert.True(plain.NextCaretPosition(p) == chunked.NextCaretPosition(p), $"next from {p}");
             Assert.True(plain.PreviousCaretPosition(p) == chunked.PreviousCaretPosition(p), $"previous from {p}");
             Assert.True(plain.BackspacePosition(p) == chunked.BackspacePosition(p), $"backspace from {p}");
             Assert.True(plain.LineIndexAt(p, true) == chunked.LineIndexAt(p, true), $"line forward at {p}");
             Assert.True(plain.LineIndexAt(p, false) == chunked.LineIndexAt(p, false), $"line backward at {p}");
-            Assert.True(plain.GetImageRect(p) == chunked.GetImageRect(p), $"image at {p}");
+            Assert.True(Same(plain.GetImageRect(p), chunked.GetImageRect(p)), $"image at {p}: {plain.GetImageRect(p)} vs {chunked.GetImageRect(p)}");
         }
 
         var height = plain.Size.Height;
@@ -670,11 +670,28 @@ public class ParagraphChunkingTests
             var expected = plain.GetSelectionRects(from, to);
             var actual = chunked.GetSelectionRects(from, to);
 
-            Assert.True(expected.SequenceEqual(actual), $"selection {from}..{to}: {expected.Count} vs {actual.Count} rectangles");
+            Assert.True(expected.Count == actual.Count && expected.Zip(actual).All(r => Same(r.First, r.Second)), $"selection {from}..{to}: {expected.Count} vs {actual.Count} rectangles");
         }
 
         Assert.Equal(Pixels(plain), Pixels(chunked));
     }
+
+    /// <summary>
+    /// Whether two rectangles are the same to well below anything that can be drawn.
+    /// </summary>
+    /// <remarks>
+    /// A chunk adds its own offset to x and y, so the same edge can come out of a different sum:
+    /// on macOS a caret was 14.000000000000004 one way and 14.000000000000002 the other. A
+    /// billionth of a DIP is not a layout difference; anything that is one still fails here, and
+    /// the pixels are compared exactly.
+    /// </remarks>
+    private static bool Same(Rect? a, Rect? b) =>
+        a is not { } x || b is not { } y
+            ? a is null && b is null
+            : Math.Abs(x.X - y.X) < 1e-9
+                && Math.Abs(x.Y - y.Y) < 1e-9
+                && Math.Abs(x.Width - y.Width) < 1e-9
+                && Math.Abs(x.Height - y.Height) < 1e-9;
 
     /// <summary>Positions on and around every seam.</summary>
     private static IEnumerable<int> Near(ParagraphView view)
