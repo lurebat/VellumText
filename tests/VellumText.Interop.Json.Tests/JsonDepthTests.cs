@@ -13,7 +13,7 @@ public class JsonDepthTests
 {
     private static async Task<DocumentNode> RoundTrip(DocumentNode doc)
     {
-        var result = await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc));
+        var result = await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc), TestContext.Current.CancellationToken);
 
         Assert.Empty(result.Diagnostics);
 

@@ -470,7 +470,7 @@ VellumText.IDocumentFormat.Format.get -> string!
 VellumText.IDocumentFormat.MediaType.get -> string!
 VellumText.IDocumentFormat.TextEncoding.get -> System.Text.Encoding?
 VellumText.IDocumentImporter
-VellumText.IDocumentImporter.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.IDocumentImporter.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.IDocumentImporter.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.ImageEmbed
 VellumText.ImageEmbed.AltText.get -> string?

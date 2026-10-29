@@ -20,7 +20,7 @@ VellumText.Interop.Html.HtmlFormat
 VellumText.Interop.Html.HtmlFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
 VellumText.Interop.Html.HtmlFormat.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Html.HtmlFormat.Format.get -> string!
-VellumText.Interop.Html.HtmlFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Html.HtmlFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Html.HtmlFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Html.HtmlFormat.ImportOptions.get -> VellumText.Interop.Html.HtmlImportOptions!
 VellumText.Interop.Html.HtmlFormat.MediaType.get -> string!

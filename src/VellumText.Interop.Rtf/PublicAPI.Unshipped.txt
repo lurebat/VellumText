@@ -19,7 +19,7 @@ VellumText.Interop.Rtf.RtfFormat
 VellumText.Interop.Rtf.RtfFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
 VellumText.Interop.Rtf.RtfFormat.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Rtf.RtfFormat.Format.get -> string!
-VellumText.Interop.Rtf.RtfFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Rtf.RtfFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Rtf.RtfFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Rtf.RtfFormat.ImportOptions.get -> VellumText.Interop.Rtf.RtfImportOptions!
 VellumText.Interop.Rtf.RtfFormat.MediaType.get -> string!

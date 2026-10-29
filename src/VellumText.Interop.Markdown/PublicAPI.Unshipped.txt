@@ -32,7 +32,7 @@ VellumText.Interop.Markdown.MarkdownFormat
 VellumText.Interop.Markdown.MarkdownFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
 VellumText.Interop.Markdown.MarkdownFormat.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Markdown.MarkdownFormat.Format.get -> string!
-VellumText.Interop.Markdown.MarkdownFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Markdown.MarkdownFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Markdown.MarkdownFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Markdown.MarkdownFormat.ImportOptions.get -> VellumText.Interop.Markdown.MarkdownImportOptions!
 VellumText.Interop.Markdown.MarkdownFormat.MediaType.get -> string!

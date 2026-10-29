@@ -88,7 +88,7 @@ public class RichTextClipboardTests
         var payload = RichTextClipboard.Encode(RtfFormat.Instance, Styled)!;
 
         var correct = await RichTextClipboard.DecodeAsync(RtfFormat.Instance, payload);
-        var mojibake = await RtfFormat.Instance.ImportAsync(Encoding.Unicode.GetString(payload));
+        var mojibake = await RtfFormat.Instance.ImportAsync(Encoding.Unicode.GetString(payload), CancellationToken.None);
 
         Assert.Equal("bold and plain", DocumentText.Of(correct!.Doc).Trim());
         Assert.NotEqual("bold and plain", DocumentText.Of(mojibake.Doc).Trim());

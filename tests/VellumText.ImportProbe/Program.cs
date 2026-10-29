@@ -106,7 +106,7 @@ public static class Program
         // The Markdown stage without the large stack in front of it; see ImportOnCurrentStack.
         "markdown-current-stack" => MarkdownImporter.ImportOnCurrentStack(input, MarkdownImportOptions.Default),
         "rtf" => RtfImporter.ImportAsync(input).GetAwaiter().GetResult(),
-        "json" => JsonFormat.Instance.ImportAsync(input).GetAwaiter().GetResult(),
+        "json" => JsonFormat.Instance.ImportAsync(input, CancellationToken.None).GetAwaiter().GetResult(),
         _ => throw new ArgumentException($"unknown format '{format}'"),
     };
 }
