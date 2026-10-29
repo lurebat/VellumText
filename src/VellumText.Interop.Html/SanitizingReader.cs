@@ -190,10 +190,19 @@ internal sealed class SanitizingReader
             "Removed an attribute that is not safe to keep.",
             e.Attribute.Name.ToLowerInvariant());
 
-        sanitizer.RemovingStyle += (_, e) => ReportOnce(
-            DiagnosticSeverity.Downgraded,
-            "Removed a style the editor cannot represent.",
-            e.Style.Name.ToLowerInvariant());
+        sanitizer.RemovingStyle += (_, e) =>
+        {
+            if (_options.QuietStylePrefix is { } quiet
+                && e.Style.Name.StartsWith(quiet, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ReportOnce(
+                DiagnosticSeverity.Downgraded,
+                "Removed a style the editor cannot represent.",
+                e.Style.Name.ToLowerInvariant());
+        };
 
         sanitizer.FilterUrl += OnFilterUrl;
 

@@ -175,7 +175,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
         if (_extent != value)
         {
             _extent = value;
-            _scrollDirty = true;
+            MarkScrollDirty();
         }
     }
 
@@ -201,7 +201,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
         }
 
         _offset = clamped;
-        _scrollDirty = true;
+        MarkScrollDirty();
 
         if (relayout)
         {
@@ -211,6 +211,20 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
         InvalidateVisual();
     }
 
+    /// <summary>Records that the scroll viewer has to be told, and makes sure it will be.</summary>
+    /// <remarks>
+    /// The telling happens in arrange (<see cref="FlushScroll"/>), so an arrange has to follow.
+    /// Most changes happen inside a layout pass and get one anyway, but not all: a geometry question
+    /// about a far block measures it there and then, and scrolling the caret into view after a key
+    /// press moves the offset without a relayout. Without this, the scroll bar kept the old range and
+    /// position until something unrelated happened to arrange the view — the thumb at the top while
+    /// the text showed the end, and wheel notches the view clamped away.
+    /// </remarks>
+    private void MarkScrollDirty()
+    {
+        _scrollDirty = true;
+        InvalidateArrange();
+    }
     /// <summary>Tells the scroll viewer that the extent, the offset or the viewport has moved.</summary>
     /// <remarks>
     /// Raised from arrange rather than from each of the setters. The scroll viewer answers by
