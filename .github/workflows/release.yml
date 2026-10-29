@@ -36,6 +36,20 @@ jobs:
         with:
           global-json-file: global.json
 
+      # global.json holds the SDK to one feature band (10.0.4xx) and takes its security patches.
+      # A new band can bring new analyzers, which fail a warnings-as-errors build with no commit
+      # behind it, so prove the band held rather than trusting the setup action to have honoured
+      # rollForward (setup-dotnet v4 silently did not).
+      - name: SDK band
+        shell: bash
+        run: |
+          version=$(dotnet --version)
+          echo "SDK $version"
+          case "$version" in
+            10.0.4[0-9][0-9]) ;;
+            *) echo "::error::global.json pins the 10.0.4xx band, but this job resolved SDK $version"; exit 1 ;;
+          esac
+
       # The tag and Directory.Build.props are two places the version is
       # written, so they are two places it can disagree. Tagging v0.2.0 while
       # the props file still says 0.1.0 would otherwise publish 0.1.0 under a
@@ -107,6 +121,20 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      # global.json holds the SDK to one feature band (10.0.4xx) and takes its security patches.
+      # A new band can bring new analyzers, which fail a warnings-as-errors build with no commit
+      # behind it, so prove the band held rather than trusting the setup action to have honoured
+      # rollForward (setup-dotnet v4 silently did not).
+      - name: SDK band
+        shell: bash
+        run: |
+          version=$(dotnet --version)
+          echo "SDK $version"
+          case "$version" in
+            10.0.4[0-9][0-9]) ;;
+            *) echo "::error::global.json pins the 10.0.4xx band, but this job resolved SDK $version"; exit 1 ;;
+          esac
 
       # The same files that were built and tested above, rather than a second
       # build that could differ from the one the tests ran against.
