@@ -544,6 +544,95 @@ public class TableVirtualizationTests
             Assert.IsType<ParagraphNode>(doc.Resolve(clicked).Parent).Content.Text);
     }
 
+    [AvaloniaFact]
+    public void ATableAskedAboutAPositionBeforeItsFirstMeasureMeasuresNothing()
+    {
+        // With no width yet there is nothing to wrap a cell to. A question realizes the row's
+        // views, and laying them out waits for the measure that brings the width.
+        var view = new TableBlockView(Uniform(10), Create, Brushes.Gray);
+
+        // The row's opening boundary is in no paragraph.
+        Assert.Null(view.ParagraphAt(0));
+        Assert.Equal(1, view.RealizedRows);
+        Assert.False(view.IsRowMeasured(0));
+
+        view.Measure(Width);
+
+        Assert.True(view.IsRowMeasured(0));
+    }
+
+    [AvaloniaFact]
+    public void TheOverscanAboveAWindowReachesTheFirstRow()
+    {
+        var view = new TableBlockView(Uniform(300), Create, Brushes.Gray);
+
+        // Anchored halfway down row 1, with room above for more than row 0.
+        view.SetWindow(view.RowOffset(1, 0.5), 200, 100);
+        view.Measure(Width);
+
+        Assert.True(view.IsRowMeasured(1));
+        Assert.True(view.IsRowMeasured(0), "row 0 is inside the overscan above the window and was not measured");
+    }
+
+    [AvaloniaFact]
+    public void TheRowsJustAboveTheViewportAreMeasuredWithTheWindow()
+    {
+        // The overscan above the viewport reaches into a table as it does between blocks, so that
+        // a small scroll up shows rows already laid out.
+        var (window, view) = Shown(Uniform(600), height: 300);
+        var table = (TableBlockView)view.Blocks[0];
+
+        ToMiddleOf(window, view, 0);
+
+        var top = table.RowAnchor(-view.BlockOrigin(0).Y).Row;
+
+        Assert.InRange(top, 100, 500);
+        Assert.True(table.IsRowMeasured(top - 1) && table.IsRowMeasured(top - 3), $"the rows just above row {top} are not measured");
+    }
+
+    [AvaloniaFact]
+    public void ARowHeldInOneTableIsNotKeptInAnotherThatAnEditBringsUnderTheViewport()
+    {
+        // The viewport halfway down the second of two tables, and a third put in above both. The
+        // offset stays where it was and now falls ten rows into the first table, a different table
+        // from the one whose row was held: the row held there names nothing in it.
+        var view = new RichTextView
+        {
+            State = EditorState.Create(new DocumentNode([Uniform(20), Uniform(100), ParagraphNode.FromText("After.")])),
+        };
+        var window = new Window { Content = view, Width = 600, Height = 300 };
+
+        window.Show();
+        Layout(window);
+        view.Focus();
+
+        // The caret where it is on screen with the first table's row 10 at the top, so keeping it
+        // there scrolls nothing.
+        view.MoveTo(PositionIn(view.State.Doc, 0, 16, 1), false);
+        Layout(window);
+
+        var second = (TableBlockView)view.Blocks[1];
+
+        view.Offset = new Vector(0, view.BlockOrigin(1).Y + view.Offset.Y);
+        Layout(window);
+        view.Offset = new Vector(0, view.BlockOrigin(1).Y + view.Offset.Y + second.RowOffset(50, 0.5));
+        Layout(window);
+
+        Assert.Equal(50, second.RowAnchor(-view.BlockOrigin(1).Y).Row);
+
+        var inserted = Uniform(100);
+        var caret = view.State.Selection.Head + inserted.NodeSize;
+
+        view.State = EditorState.Create(
+            new DocumentNode([inserted, .. view.State.Doc.Blocks]), TextSelection.Cursor(caret));
+        Layout(window);
+
+        var first = (TableBlockView)view.Blocks[1];
+
+        Assert.Equal(1, view.BlockIndexAt(0));
+        Assert.InRange(first.RowAnchor(-view.BlockOrigin(1).Y).Row, 8, 12);
+    }
+
     private static readonly TextStyleResolver Styles = new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
     private static BlockView Create(BlockNode block) => block switch
