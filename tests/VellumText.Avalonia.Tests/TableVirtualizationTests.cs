@@ -352,6 +352,73 @@ public class TableVirtualizationTests
         return (window, view, block);
     }
 
+    /// <summary>
+    /// One giant row does not price every other row like itself — the table form of the giant
+    /// paragraph (Phase 9, found live). Rows nobody has measured were priced at the plain mean
+    /// of those that had been, so a cell of thousands of words near the top made each of
+    /// thousands of one-line rows look dozens of lines tall.
+    /// </summary>
+    [AvaloniaFact]
+    public void OneGiantRowDoesNotInflateTheRowsNobodyHasMeasured()
+    {
+        var giant = string.Join(' ', Enumerable.Range(0, 2_000).Select(i => $"word{i}"));
+        var rows = Uniform(3_000).Rows.ToArray();
+
+        rows[5] = new TableRowNode([TableCellNode.FromText(giant), Cell(5, 1, false), Cell(5, 2, false)]);
+
+        var (_, view) = Shown(new TableNode(rows), height: 400);
+        var table = (TableBlockView)view.Blocks[0];
+
+        Assert.True(table.IsRowMeasured(1));
+        Assert.True(table.IsRowMeasured(5));
+        Assert.False(table.IsRowMeasured(2_000));
+
+        var shortRow = table.RowOffset(2, 0) - table.RowOffset(1, 0);
+        var unmeasured = table.RowOffset(2_001, 0) - table.RowOffset(2_000, 0);
+
+        Assert.True(
+            unmeasured < shortRow * 4,
+            $"An unmeasured row was priced at {unmeasured:F1} beside measured one-line rows of {shortRow:F1}.");
+    }
+
+    /// <summary>
+    /// A row measured again replaces its own share of the estimate rather than adding a second
+    /// one. Editing a row up to three lines and back must leave unmeasured rows priced exactly
+    /// as before; counting the old height as well would drift the guess with every edit.
+    /// </summary>
+    [AvaloniaFact]
+    public void ARowMeasuredAgainReplacesItsShareOfTheEstimate()
+    {
+        var table = Uniform(3_000);
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        view.SetWindow(0, 0, 200);
+        view.Measure(Width);
+
+        Assert.True(view.IsRowMeasured(1));
+        Assert.False(view.IsRowMeasured(2_000));
+
+        double Price() => view.RowOffset(2_001, 0) - view.RowOffset(2_000, 0);
+
+        var before = Price();
+        var rows = table.Rows.ToArray();
+
+        rows[1] = new TableRowNode([
+            new TableCellNode([ParagraphNode.FromText("one"), ParagraphNode.FromText("two"), ParagraphNode.FromText("three")]),
+            Cell(1, 1, false),
+            Cell(1, 2, false)]);
+
+        Assert.True(view.Update(new TableNode(rows)));
+        view.Measure(Width);
+
+        Assert.NotEqual(before, Price(), 6);
+
+        Assert.True(view.Update(table));
+        view.Measure(Width);
+
+        Assert.Equal(before, Price(), 6);
+    }
+
     [AvaloniaFact]
     public void EveryRowNobodyHasMeasuredIsPricedAtTheSameEstimate()
     {
