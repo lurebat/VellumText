@@ -101,15 +101,6 @@ public abstract partial class DocumentPresenter
     /// </remarks>
     protected internal virtual bool SupportsTextInput => false;
 
-    /// <summary>Replaces the whole document with plain text, on behalf of an automation client.</summary>
-    /// <param name="text">The replacement text.</param>
-    /// <remarks>
-    /// Only ever reached when <see cref="SupportsTextInput"/> is true, so the base does nothing.
-    /// </remarks>
-    protected internal virtual void SetTextFromAutomation(string text)
-    {
-    }
-
     /// <inheritdoc/>
     protected override AutomationPeer OnCreateAutomationPeer() =>
         new DocumentPresenterAutomationPeer(this);

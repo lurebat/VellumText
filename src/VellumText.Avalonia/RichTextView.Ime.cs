@@ -28,7 +28,7 @@ public partial class RichTextView
     private readonly RichTextInputMethodClient _inputMethod;
 
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    public Preedit? Preedit => CompositionText?.View.Preedit;
+    internal Preedit? Preedit => CompositionText?.View.Preedit;
 
     /// <summary>
     /// The paragraph a composition is drawn in: the one holding the start of the selection,
@@ -66,7 +66,7 @@ public partial class RichTextView
     /// <param name="text">The composed text, or null or empty to stop composing.</param>
     /// <param name="cursorPosition">Where the input method wants the caret within the text.</param>
     /// <returns>Whether anything changed.</returns>
-    public bool SetPreedit(string? text, int? cursorPosition = null)
+    internal bool SetPreedit(string? text, int? cursorPosition = null)
     {
         if (CompositionText is not { } at)
         {

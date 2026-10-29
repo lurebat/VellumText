@@ -16,7 +16,7 @@ namespace VellumText.Avalonia;
 /// crosses <see cref="ParagraphView"/>'s boundary.
 /// </para>
 /// </remarks>
-public sealed record Preedit
+internal sealed record Preedit
 {
     /// <summary>Creates a composition overlay.</summary>
     /// <param name="text">The text being composed. Must not be empty.</param>

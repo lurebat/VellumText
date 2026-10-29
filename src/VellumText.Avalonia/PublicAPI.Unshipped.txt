@@ -18,9 +18,6 @@ override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsKeyboardFocusable
 override VellumText.Avalonia.ParagraphStyle.Equals(object? obj) -> bool
 override VellumText.Avalonia.ParagraphStyle.GetHashCode() -> int
 override VellumText.Avalonia.ParagraphStyle.ToString() -> string!
-override VellumText.Avalonia.Preedit.Equals(object? obj) -> bool
-override VellumText.Avalonia.Preedit.GetHashCode() -> int
-override VellumText.Avalonia.Preedit.ToString() -> string!
 override VellumText.Avalonia.RichTextToolbar.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
 static readonly VellumText.Avalonia.DocumentPresenter.BackgroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.DocumentPresenter.FontFamilyProperty -> Avalonia.StyledProperty<Avalonia.Media.FontFamily!>!
@@ -95,8 +92,6 @@ static VellumText.Avalonia.ClipboardFlavor.operator ==(VellumText.Avalonia.Clipb
 static VellumText.Avalonia.ParagraphStyle.Body.get -> VellumText.Avalonia.ParagraphStyle!
 static VellumText.Avalonia.ParagraphStyle.operator !=(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
 static VellumText.Avalonia.ParagraphStyle.operator ==(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
-static VellumText.Avalonia.Preedit.operator !=(VellumText.Avalonia.Preedit? left, VellumText.Avalonia.Preedit? right) -> bool
-static VellumText.Avalonia.Preedit.operator ==(VellumText.Avalonia.Preedit? left, VellumText.Avalonia.Preedit? right) -> bool
 static VellumText.Avalonia.RichTextClipboard.Build(VellumText.DocumentNode! doc, System.Collections.Generic.IEnumerable<VellumText.IDocumentExporter!>! exporters, string? text = null, System.Action<VellumText.IDocumentExporter!, System.Exception!>? exportFailed = null) -> Avalonia.Input.DataTransfer!
 static VellumText.Avalonia.RichTextClipboard.DecodeAsync(VellumText.IDocumentImporter! importer, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 static VellumText.Avalonia.RichTextClipboard.Encode(VellumText.IDocumentExporter! exporter, VellumText.DocumentNode! doc) -> byte[]!
@@ -241,15 +236,6 @@ VellumText.Avalonia.PlaceholderEmbedRenderer
 VellumText.Avalonia.PlaceholderEmbedRenderer.Draw(Avalonia.Media.DrawingContext! context, Avalonia.Rect bounds, VellumText.InlineEmbed! embed) -> void
 VellumText.Avalonia.PlaceholderEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
 VellumText.Avalonia.PlaceholderEmbedRenderer.PlaceholderEmbedRenderer() -> void
-VellumText.Avalonia.Preedit
-VellumText.Avalonia.Preedit.<Clone>$() -> VellumText.Avalonia.Preedit!
-VellumText.Avalonia.Preedit.CaretPosition.get -> int
-VellumText.Avalonia.Preedit.CursorPosition.get -> int?
-VellumText.Avalonia.Preedit.Equals(VellumText.Avalonia.Preedit? other) -> bool
-VellumText.Avalonia.Preedit.Length.get -> int
-VellumText.Avalonia.Preedit.Offset.get -> int
-VellumText.Avalonia.Preedit.Preedit(string! text, int offset, int? cursorPosition = null) -> void
-VellumText.Avalonia.Preedit.Text.get -> string!
 VellumText.Avalonia.RichTextClipboard
 VellumText.Avalonia.RichTextEditor
 VellumText.Avalonia.RichTextEditor.AcceptsReturn.get -> bool
@@ -416,13 +402,10 @@ VellumText.Avalonia.RichTextView.InsertText(string! text) -> bool
 VellumText.Avalonia.RichTextView.IsActive(VellumText.TextStyle style) -> bool
 VellumText.Avalonia.RichTextView.IsComposing.get -> bool
 VellumText.Avalonia.RichTextView.IsDragging.get -> bool
-VellumText.Avalonia.RichTextView.IsDraggingTouchHandle.get -> bool
 VellumText.Avalonia.RichTextView.IsInTable.get -> bool
 VellumText.Avalonia.RichTextView.IsMovingSelection.get -> bool
 VellumText.Avalonia.RichTextView.IsReadOnly.get -> bool
 VellumText.Avalonia.RichTextView.IsReadOnly.set -> void
-VellumText.Avalonia.RichTextView.IsResizingColumn.get -> bool
-VellumText.Avalonia.RichTextView.IsResizingImage.get -> bool
 VellumText.Avalonia.RichTextView.LiftListItem() -> bool
 VellumText.Avalonia.RichTextView.LinkActivated -> System.EventHandler<VellumText.Avalonia.RichTextView.LinkActivatedEventArgs!>?
 VellumText.Avalonia.RichTextView.LinkActivatedEventArgs
@@ -447,13 +430,11 @@ VellumText.Avalonia.RichTextView.PasteDocument(VellumText.DocumentNode! doc) -> 
 VellumText.Avalonia.RichTextView.PasteImport(VellumText.ImportResult! result) -> bool
 VellumText.Avalonia.RichTextView.PasteText(string! text) -> bool
 VellumText.Avalonia.RichTextView.PasteTextAsync() -> System.Threading.Tasks.Task<bool>!
-VellumText.Avalonia.RichTextView.Preedit.get -> VellumText.Avalonia.Preedit?
 VellumText.Avalonia.RichTextView.Query.get -> string!
 VellumText.Avalonia.RichTextView.Redo() -> bool
 VellumText.Avalonia.RichTextView.RemoveLink() -> bool
 VellumText.Avalonia.RichTextView.ReplaceAll(string! replacement) -> int
 VellumText.Avalonia.RichTextView.ReplaceCurrent(string! replacement) -> bool
-VellumText.Avalonia.RichTextView.ResetCaretBlink() -> void
 VellumText.Avalonia.RichTextView.ResizeSelectedImage(Avalonia.Size size) -> bool
 VellumText.Avalonia.RichTextView.RichTextView() -> void
 VellumText.Avalonia.RichTextView.SelectAll() -> bool
@@ -478,7 +459,6 @@ VellumText.Avalonia.RichTextView.SetIndentLevel(int level) -> bool
 VellumText.Avalonia.RichTextView.SetLink(VellumText.LinkMark? link) -> bool
 VellumText.Avalonia.RichTextView.SetMarks(VellumText.MarkSet value, VellumText.MarkFields fields) -> bool
 VellumText.Avalonia.RichTextView.SetParagraphKind(VellumText.ParagraphKind kind) -> bool
-VellumText.Avalonia.RichTextView.SetPreedit(string? text, int? cursorPosition = null) -> bool
 VellumText.Avalonia.RichTextView.SetStyle(VellumText.TextStyle style, bool on) -> bool
 VellumText.Avalonia.RichTextView.ShowTouchHandles() -> void
 VellumText.Avalonia.RichTextView.Split() -> bool
@@ -490,7 +470,6 @@ VellumText.Avalonia.RichTextView.ToggleParagraphKind(VellumText.ParagraphKind ki
 VellumText.Avalonia.RichTextView.ToggleStyle(VellumText.TextStyle style) -> bool
 VellumText.Avalonia.RichTextView.TouchHandleBrush.get -> Avalonia.Media.IBrush?
 VellumText.Avalonia.RichTextView.TouchHandleBrush.set -> void
-VellumText.Avalonia.RichTextView.TouchHandles.get -> System.Collections.Generic.IReadOnlyList<Avalonia.Rect>!
 VellumText.Avalonia.RichTextView.Undo() -> bool
 VellumText.Avalonia.RichTextView.UndoLimit.get -> int
 VellumText.Avalonia.RichTextView.UndoLimit.set -> void

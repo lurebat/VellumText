@@ -86,7 +86,7 @@ public partial class RichTextView
     }
 
     /// <summary>Whether a selection end is being dragged by a touch handle.</summary>
-    public bool IsDraggingTouchHandle => _touchDrag is not null;
+    internal bool IsDraggingTouchHandle => _touchDrag is not null;
 
     /// <summary>
     /// Where the handles are drawn, in this control's coordinates.
@@ -98,7 +98,7 @@ public partial class RichTextView
     /// what makes them right across a bidi boundary — the logical start of a selection that
     /// crosses one is on the right of the run, and the selection's leftmost rectangle is not it.
     /// </remarks>
-    public IReadOnlyList<Rect> TouchHandles
+    internal IReadOnlyList<Rect> TouchHandles
     {
         get
         {
