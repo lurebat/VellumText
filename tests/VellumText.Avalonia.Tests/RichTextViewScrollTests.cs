@@ -506,6 +506,46 @@ public class RichTextViewScrollTests
             $"Halving the width left the document {view.Extent.Height} tall, down from {before}.");
     }
 
+    [AvaloniaFact]
+    public void Scrolling_into_a_block_guessed_far_taller_than_it_is_lands_on_that_block()
+    {
+        // Long paragraphs at the top set the estimate, so a short one further down is priced far
+        // taller than it is. The distance scrolled into its guess is clamped to the height it turns
+        // out to have; kept as it was, it would be past the block's end and blocks further on.
+        var blocks = Enumerable.Range(0, 300).Select(i => (BlockNode)ParagraphNode.FromText(
+            i < 10 ? string.Join(' ', Enumerable.Repeat("long", 600)) : $"short {i}"));
+        var view = Laid(new DocumentNode([.. blocks]));
+        const int target = 200;
+        var top = view.BlockOrigin(target).Y + view.Offset.Y;
+        var guessed = view.BlockOrigin(target + 1).Y - view.BlockOrigin(target).Y;
+
+        Assert.True(guessed > 2 * Height, $"block {target} is guessed at {guessed}");
+
+        Scroll(view, top + (guessed / 2));
+
+        Assert.InRange(view.BlockIndexAt(0), target, target + 1);
+    }
+
+    [AvaloniaFact]
+    public void A_block_out_of_the_window_measured_at_a_new_height_moves_the_blocks_after_it()
+    {
+        // A geometry question measures a block nowhere near the window. When an edit since made it
+        // a different height from the one on record, the record follows, or every block after it
+        // is drawn and hit tested where it used to be.
+        var view = Laid(Paragraphs(400));
+        const int far = 300;
+
+        Assert.Null(view.ImageRect(view.Slots[far].Start + 1));
+
+        var grown = ParagraphNode.FromText(string.Join(' ', Enumerable.Repeat("grown", 300)));
+
+        view.State = EditorState.Create(new DocumentNode(view.State.Doc.Blocks.SetItem(far, grown)));
+        Pump(view);
+
+        Assert.Null(view.ImageRect(view.Slots[far].Start + 1));
+        Assert.Equal(view.Blocks[far].Size.Height, view.BlockOrigin(far + 1).Y - view.BlockOrigin(far).Y, 6);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     /// <summary>A document of paragraphs of uneven length; see the note on the class.</summary>

@@ -579,6 +579,72 @@ public class ParagraphChunkingTests
         Assert.NotNull(longView.Chunks);
     }
 
+    [AvaloniaFact]
+    public void ResizingAnImageThatStartsAChunkMatchesAFreshLayout()
+    {
+        // The change is the one position the placeholder holds, and the chunk starting there is the
+        // first one at or past the change's start. It looked at the image, so it is laid out again
+        // rather than kept.
+        var content = InlineContent.Empty;
+        var words = Words(2_400).Split(' ');
+
+        for (var i = 0; i < words.Length; i++)
+        {
+            content = content
+                .Concat(InlineContent.FromText(words[i] + " "))
+                .Concat(InlineContent.FromEmbed(new ImageEmbed($"img{i}.png", 20, 10)))
+                .Concat(InlineContent.FromText(" "));
+        }
+
+        var chunked = Measured(Paragraph(content), Small);
+        var resized = new HashSet<int>();
+
+        for (var round = 0; round < 6; round++)
+        {
+            var current = chunked.Paragraph.Content;
+            var seam = chunked.Chunks!.Starts.Skip(1)
+                .FirstOrDefault(start => !resized.Contains(start) && current.TryGetEmbedAt(start, out _), -1);
+
+            if (seam < 0)
+            {
+                break;
+            }
+
+            Assert.True(current.TryGetEmbedAt(seam, out var embed));
+
+            var next = current.Replace(
+                seam, 1, InlineContent.FromEmbed(new ImageEmbed(((ImageEmbed)embed).Source, 60, 45)));
+
+            chunked.Update(new ParagraphNode(next));
+            chunked.Measure(Width);
+
+            AssertSame(Measured(new ParagraphNode(next), ParagraphChunking.Never), chunked, expectChunks: true, everyPosition: false);
+            resized.Add(seam);
+        }
+
+        Assert.True(resized.Count > 2, $"only {resized.Count} chunks started at an image");
+    }
+
+    [AvaloniaFact]
+    public void ARightToLeftCompositionStopsChunking()
+    {
+        // Composed text is laid out with the paragraph, so a right-to-left composition makes a
+        // seam inexact as surely as right-to-left text does.
+        var paragraph = Paragraph(Words(3_000));
+        var preedit = new Preedit("\u05e9\u05dc\u05d5\u05dd 12", 1_500);
+        var plain = Measured(paragraph, ParagraphChunking.Never);
+        var chunked = Measured(paragraph, Small);
+
+        Assert.NotNull(chunked.Chunks);
+
+        plain.SetPreedit(preedit);
+        chunked.SetPreedit(preedit);
+        plain.Measure(Width);
+        chunked.Measure(Width);
+
+        AssertSame(plain, chunked, expectChunks: false, everyPosition: false);
+    }
+
     private static TextStyleResolver Styles() => new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
     private static ParagraphNode Paragraph(string text) => ParagraphNode.FromText(text);
