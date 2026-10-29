@@ -331,18 +331,60 @@ internal static class HtmlInputGuard
         return new Outcome(output.ToString(), droppedDeep, droppedAttributes, droppedStyles);
     }
 
-    /// <summary>The deepest bracket nesting in a CSS value.</summary>
+    /// <summary>The deepest bracket nesting in a CSS value, or an upper bound on it.</summary>
     /// <remarks>
-    /// Quotes and escapes are not understood, deliberately: a bracket inside a string counts too,
-    /// which can only make a hostile value look deeper. Real stylesheets nest two or three levels.
+    /// <para>
+    /// A bracket inside a comment, a string or an escape is not a bracket to the CSS parser, and
+    /// counting it anyway is not the safe side: a closing one cancels an opening one that the
+    /// parser does nest, so <c>calc(</c> and then <c>(/*)*/</c> two hundred thousand times measured
+    /// two deep. Comments are skipped, because where one starts and ends cannot be mistaken while
+    /// no string, escape or <c>url(</c> has been seen.
+    /// </para>
+    /// <para>
+    /// Those three are not modelled. Where AngleSharp.Css ends one depends on rules a copy here
+    /// could get subtly wrong — an escape swallows the newline after it, a quoted
+    /// <c>url("…")</c> is a single token, a bad URL is skipped by counting brackets — and wrong in
+    /// the direction that reopens this. So from the first of them on, every opening bracket counts
+    /// and no closing one does: at least as deep as any reading of the rest. Real styles nest two
+    /// or three levels and have a handful of brackets in all.
+    /// </para>
     /// </remarks>
     internal static int BracketDepth(string css)
     {
         var depth = 0;
         var deepest = 0;
 
-        foreach (var c in css)
+        for (var i = 0; i < css.Length; i++)
         {
+            var c = css[i];
+
+            if (c == '/' && i + 1 < css.Length && css[i + 1] == '*')
+            {
+                var end = css.IndexOf("*/", i + 2, StringComparison.Ordinal);
+
+                if (end < 0)
+                {
+                    break;
+                }
+
+                i = end + 1;
+                continue;
+            }
+
+            if (c is '"' or '\'' or '\\'
+                || (c is 'u' or 'U' && css.AsSpan(i).StartsWith("url(", StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var rest in css.AsSpan(i))
+                {
+                    if (rest is '(' or '[' or '{')
+                    {
+                        depth++;
+                    }
+                }
+
+                return Math.Max(deepest, depth);
+            }
+
             switch (c)
             {
                 case '(' or '[' or '{':

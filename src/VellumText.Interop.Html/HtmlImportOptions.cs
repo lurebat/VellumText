@@ -88,7 +88,9 @@ public sealed record HtmlImportOptions
     /// it does so while the document is being parsed, before anything here can look at the result.
     /// A style attribute nested deeper than this is removed before parsing, with a
     /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. Real stylesheets nest two or three
-    /// levels.
+    /// levels. Brackets inside comments do not count; from the first string, escape or
+    /// <c>url(</c> in a value on, every opening bracket counts and no closing one does, because
+    /// where the parser ends those is not modelled here.
     /// </remarks>
     public int MaxStyleNesting { get; init; } = 32;
 

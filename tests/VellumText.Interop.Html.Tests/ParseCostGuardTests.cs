@@ -251,8 +251,32 @@ public sealed class ParseCostGuardTests
     [InlineData("width:calc(1px + 2px)", 1)]
     [InlineData("width:calc((1px + (2px)))", 3)]
     [InlineData("a:b)))(", 1)]
+    [InlineData("a:f(/*)*/(b))", 2)]
+    [InlineData("a:f(/*(((*/b)", 1)]
     public void Bracket_depth_is_the_deepest_nesting(string css, int expected) =>
         Assert.Equal(expected, HtmlInputGuard.BracketDepth(css));
+
+    /// <summary>
+    /// A bracket inside a comment, a string or an escape is not a bracket to the CSS parser, so
+    /// counting it let a closing one cancel an opening one the parser does nest: forty units of
+    /// <c>(/*)*/</c> measured 2 deep and nested 41.
+    /// </summary>
+    [Theory]
+    [InlineData("(/*)*/")]
+    [InlineData("(\")\"")]
+    [InlineData("(')'")]
+    [InlineData("(\\)")]
+    [InlineData("(url(/*)")]
+    public void Brackets_the_css_parser_does_not_see_do_not_hide_nesting(string unit)
+    {
+        var css = "font-size:calc(" + string.Concat(Enumerable.Repeat(unit, 40)) + "1px" + new string(')', 40) + ")";
+
+        Assert.True(HtmlInputGuard.BracketDepth(css) > HtmlImportOptions.Default.MaxStyleNesting, $"measured {HtmlInputGuard.BracketDepth(css)}");
+
+        var result = HtmlImporter.Import("<p style=\"" + css.Replace("\"", "&quot;", StringComparison.Ordinal) + "\">x</p>");
+
+        Assert.Contains(result.Diagnostics, d => d.Context == "style-nesting");
+    }
 
     private static int MaxDepthOf(string html)
     {
