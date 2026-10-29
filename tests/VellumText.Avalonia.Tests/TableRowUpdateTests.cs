@@ -420,15 +420,7 @@ public class TableRowUpdateTests
             }
         }
 
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(new PixelRect(size), (nint)buffer, pixels.Length * sizeof(uint), size.Width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         return pixels;
     }

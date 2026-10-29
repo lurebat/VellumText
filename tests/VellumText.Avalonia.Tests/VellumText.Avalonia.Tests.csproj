@@ -15,9 +15,6 @@
 
     <!-- A test's name is its documentation; CS1591 on every [Fact] is pure noise. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-
-    <!-- Reading back rendered pixels to prove something was actually drawn needs a pinned buffer. -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

@@ -18,6 +18,24 @@ dotnet test
 The Avalonia tests run headlessly, so there is no display server to configure
 and they work the same on Linux, macOS and Windows.
 
+They render real text in each platform's own default font — Segoe UI on
+Windows, DejaVu Sans on Linux, the system font on macOS — so a test that
+works only on your machine is easy to write. Two rules keep them portable:
+
+- **Never aim at or assert a pixel position written as a number.** Where a
+  character sits and how a paragraph wraps depend on the font. Take points
+  from the layout (`BlockOrigin`, `GetCaretRect`) and compare geometry
+  relatively.
+- **Read rendered pixels through `RenderedPixels`.** A `RenderTargetBitmap`
+  is BGRA on Windows and Linux but RGBA on macOS; reading it as one order
+  swaps red and blue on the other platform.
+
+CI builds and tests on Linux and Windows for every pull request. macOS minutes
+cost ten times as much, so macOS runs on pushes to `main`, on releases, on a
+manual run of the CI workflow, and on pull requests that touch
+`src/VellumText.Avalonia`, its tests, `samples/`, or the build files. The
+`platforms` job in `.github/workflows/ci.yml` holds the exact list.
+
 To run one project's tests, or one test:
 
 ```
@@ -49,6 +67,14 @@ than quietly working around it.
   history is meant to be read.
 - **Warnings are errors** and every public member is documented. The build
   enforces both, so there is nothing to remember.
+- **The public API is recorded, and changing it is deliberate.** Each package
+  under `src/` has a `PublicAPI.Shipped.txt` and a `PublicAPI.Unshipped.txt`.
+  Adding, removing or changing a public or protected member fails the build
+  (RS0016, RS0017) until the file says so. The IDE's code fix for those
+  diagnostics writes the line, as does
+  `dotnet format analyzers <project> --diagnostics RS0016 --severity info`.
+  New lines go in `PublicAPI.Unshipped.txt`, and the diff to that file is the
+  API change a reviewer should look at.
 - **Comments explain why**, not what. A comment restating the line under it is
   noise; a comment recording a constraint, a measurement or a trap is the most
   valuable thing in the file.
@@ -106,11 +132,17 @@ To release:
 2. Turn the `## [Unreleased]` heading in `CHANGELOG.md` into `## [x.y.z] - date`
    and start a fresh `Unreleased` above it. The workflow fails if there is no
    section for the version being released, so this is not optional.
-3. Commit, then tag: `git tag vx.y.z && git push origin vx.y.z`.
-4. The `verify` job builds, tests and packs. The `publish` job then waits on the
-   `nuget` environment, which should have a required reviewer configured — that
-   approval is the only real protection against publishing the wrong thing.
-5. On approval it pushes to NuGet and opens a GitHub release whose notes are the
+3. In every `src/` project, move the lines of `PublicAPI.Unshipped.txt` (all
+   but its `#nullable enable` header) into `PublicAPI.Shipped.txt`. From then
+   on, removing one of them is a breaking change the analyzer reports.
+4. Commit, then tag: `git tag vx.y.z && git push origin vx.y.z`.
+5. The `ci` job runs the whole CI workflow — Linux, Windows and macOS — on the
+   tagged commit, and the `verify` job builds, tests and packs. The `publish`
+   job needs both, so a commit that fails on any platform cannot be published.
+   It then waits on the `nuget` environment, which should have a required
+   reviewer configured — that approval is the only real protection against
+   publishing the wrong thing.
+6. On approval it pushes to NuGet and opens a GitHub release whose notes are the
    changelog section for that version.
 
 Publishing needs a `NUGET_API_KEY` secret on the `nuget` environment. The

@@ -24,6 +24,10 @@ public class RichTextViewLinkTests
 
     private static readonly LinkMark Example = new("https://example.com");
 
+    // Characters of the paragraph Linked builds, whose first eleven - "a link here" - are the link.
+    private const int InTheLink = 3;
+    private const int InThePlainText = 22;
+
     [AvaloniaFact]
     public void ControlClickRaisesLinkActivatedWithTheLink()
     {
@@ -32,7 +36,7 @@ public class RichTextViewLinkTests
 
         view.LinkActivated += (_, e) => raised = e.Link;
 
-        Press(view, window, At(view, 4), KeyModifiers.Control);
+        Press(view, window, At(view, InTheLink), KeyModifiers.Control);
 
         Assert.NotNull(raised);
         Assert.Equal("https://example.com", raised!.Href);
@@ -51,7 +55,7 @@ public class RichTextViewLinkTests
         var before = view.State.Doc;
 
         // No LinkActivated handler subscribed at all.
-        Press(view, window, At(view, 4), KeyModifiers.Control);
+        Press(view, window, At(view, InTheLink), KeyModifiers.Control);
 
         Assert.Same(before, view.State.Doc);
     }
@@ -64,7 +68,7 @@ public class RichTextViewLinkTests
 
         view.LinkActivated += (_, _) => raised++;
 
-        Press(view, window, At(view, 4), KeyModifiers.None);
+        Press(view, window, At(view, InTheLink), KeyModifiers.None);
 
         Assert.Equal(0, raised);
     }
@@ -77,8 +81,7 @@ public class RichTextViewLinkTests
 
         view.LinkActivated += (_, _) => raised++;
 
-        // "plain" sits after the linked run.
-        Press(view, window, At(view, 60), KeyModifiers.Control);
+        Press(view, window, At(view, InThePlainText), KeyModifiers.Control);
 
         Assert.Equal(0, raised);
     }
@@ -176,14 +179,14 @@ public class RichTextViewLinkTests
     {
         var view = Linked(out var window);
 
-        window.MouseMove(At(view, 4));
+        window.MouseMove(At(view, InTheLink));
 
         var tip = ToolTip.GetTip(view) as string;
 
         Assert.NotNull(tip);
         Assert.Contains("https://example.com", tip!, StringComparison.Ordinal);
 
-        window.MouseMove(At(view, 60));
+        window.MouseMove(At(view, InThePlainText));
 
         Assert.Null(ToolTip.GetTip(view));
     }
@@ -207,9 +210,20 @@ public class RichTextViewLinkTests
             modifiers,
             1));
 
-    /// <summary>A point on the first line, at a given x.</summary>
-    private static Point At(RichTextView view, double x) =>
-        new(x, view.Blocks[0].Size.Height / 2);
+    /// <summary>The middle of one character of the first paragraph, in the view's coordinates.</summary>
+    /// <remarks>
+    /// Taken from the laid-out text rather than written as a number of pixels: how far into the
+    /// line a character sits is a property of the font, and a fixed x that lands inside the link
+    /// with one font lands in the plain text after it with another.
+    /// </remarks>
+    private static Point At(RichTextView view, int character)
+    {
+        var block = view.Blocks[0];
+        var left = block.GetCaretRect(character);
+        var right = block.GetCaretRect(character + 1);
+
+        return view.BlockOrigin(0) + new Point((left.X + right.X) / 2, left.Center.Y);
+    }
 
     private static RichTextView Linked(out Window window)
     {

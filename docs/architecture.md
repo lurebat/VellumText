@@ -1533,7 +1533,7 @@ the orphan.
 
 ## 8. Verification scenarios
 
-Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
+Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS (macOS on `main`, releases and pull requests that touch the control — see `CONTRIBUTING.md`):
 
 1. **Undo round-trip property test** — random op sequences (FsCheck), documents compared structurally.
 2. **Position mapping property test** — a position tracked through random edits equals the position recomputed from a re-derived document.

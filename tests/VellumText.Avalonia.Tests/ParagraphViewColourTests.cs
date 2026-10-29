@@ -119,19 +119,5 @@ public class ParagraphViewColourTests
 
     private static uint Blue(uint p) => p & 0xFF;
 
-    private static uint[] Read(RenderTargetBitmap bitmap)
-    {
-        var size = bitmap.PixelSize;
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(new PixelRect(size), (nint)buffer, pixels.Length * sizeof(uint), size.Width * sizeof(uint));
-            }
-        }
-
-        return pixels;
-    }
+    private static uint[] Read(RenderTargetBitmap bitmap) => RenderedPixels.Argb(bitmap);
 }

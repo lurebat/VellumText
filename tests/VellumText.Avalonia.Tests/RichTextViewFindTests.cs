@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Runtime.InteropServices;
 using global::Avalonia;
 using global::Avalonia.Controls;
 using global::Avalonia.Headless;
@@ -509,24 +508,7 @@ public class RichTextViewFindTests
         using var frame = window.CaptureRenderedFrame()
             ?? throw new InvalidOperationException("nothing was rendered");
 
-        var size = frame.PixelSize;
-        var buffer = new byte[size.Width * size.Height * 4];
-        var pin = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-
-        try
-        {
-            frame.CopyPixels(
-                new PixelRect(0, 0, size.Width, size.Height),
-                pin.AddrOfPinnedObject(),
-                buffer.Length,
-                size.Width * 4);
-        }
-        finally
-        {
-            pin.Free();
-        }
-
-        return buffer;
+        return RenderedPixels.Rgba(frame);
     }
 
     [AvaloniaFact]
@@ -596,30 +578,14 @@ public class RichTextViewFindTests
         using var frame = window.CaptureRenderedFrame()
             ?? throw new InvalidOperationException("nothing was rendered");
 
-        var size = frame.PixelSize;
-        var buffer = new byte[size.Width * size.Height * 4];
-        var pin = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-
-        try
-        {
-            frame.CopyPixels(
-                new PixelRect(0, 0, size.Width, size.Height),
-                pin.AddrOfPinnedObject(),
-                buffer.Length,
-                size.Width * 4);
-        }
-        finally
-        {
-            pin.Free();
-        }
-
-        return buffer;
+        return RenderedPixels.Rgba(frame);
     }
 
     /// <summary>Counts the pixels painted in exactly <paramref name="colour"/>.</summary>
     /// <remarks>
-    /// The headless frame comes back as <c>Rgba8888</c>, measured rather than assumed — reading it
-    /// as BGRA silently counts nothing, which would make every assertion built on it vacuous.
+    /// <paramref name="rgba"/> comes from <see cref="RenderedPixels.Rgba"/>: reading a frame in the
+    /// wrong channel order silently counts nothing, which would make every assertion built on it
+    /// vacuous.
     /// </remarks>
     private static int CountOf(byte[] rgba, Color colour)
     {
