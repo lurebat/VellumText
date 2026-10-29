@@ -12,7 +12,8 @@ NuGet; packages are published to a local feed, and
 
 These changes ship as 0.8.0 (`VersionPrefix` is set; nothing is published until
 the release is made). Importing became asynchronous, which breaks every caller
-and implementer of an importer — see [Migrating](#migrating) below and
+and implementer of an importer, and the public API was trimmed to what 1.0 will
+freeze — see [Migrating](#migrating), [Breaking](#breaking) and
 [migrating to 0.8](docs/migration-0.8.md).
 
 ### Migrating
@@ -23,8 +24,8 @@ Await an import instead of calling it:
 // 0.7
 ImportResult result = HtmlFormat.Instance.Import(html);
 
-// 0.8
-ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
+// 0.8: a string import takes a token; pass CancellationToken.None if there is nothing to cancel
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html, cancellationToken);
 ```
 
 Implement the asynchronous members in a custom importer — a synchronous parser
@@ -59,6 +60,43 @@ awaits `PasteAsync`.
   step holding the displaced text; and `Map` rebases each range as
   `ReplaceStep` does, dropping ranges whose both ends were deleted. Replace
   All is built on it.
+
+### Breaking
+
+The public API was reviewed for the 1.0 freeze
+([review and decisions](docs/plans/2026-10-28-public-api-review.md)). Every
+package now records its API in `PublicAPI.Shipped.txt` and
+`PublicAPI.Unshipped.txt`, and the build fails on any change those files do not
+list.
+
+- **`RichTextView`, `RichTextEditor` and `RichTextViewer` are sealed.** Their
+  protected overrides are no longer a contract. `DocumentPresenter` stays public
+  and abstract, but its constructor is `private protected`, so a host cannot
+  derive a presenter of its own.
+- **`Step` is closed.** Its constructor is `private protected`, like `Node`,
+  `InlineEmbed` and `Selection`, so a host cannot define its own step type.
+  Every built-in step, `ReplaceTextStep` and `TextReplacement` included, stays
+  public and sealed.
+- **`ImportAsync(string, CancellationToken)` requires its token**, on
+  `IDocumentImporter` and on `HtmlFormat`, `RtfFormat`, `MarkdownFormat` and
+  `JsonFormat`. The stream overload keeps its optional token. A string call
+  without a token now fails with *cannot convert from 'string' to
+  'System.IO.Stream'*: pass `CancellationToken.None` where there is nothing to
+  cancel. The static `HtmlImporter`, `RtfImporter` and `MarkdownImporter`
+  methods are unchanged.
+- **`HtmlExporter`, `RtfExporter`, `MarkdownExporter`, `JsonFormat` and
+  `JsonHighlighter` have no public constructor.** Use `Instance`, as for the
+  `*Format` types.
+
+Kept on purpose: both entry points per format (the `IDocumentFormat` singletons
+and the static importer and exporter types), public positional records,
+`PlaceholderEmbedRenderer`, `DocumentPresenterAutomationPeer`, `TableGrid` and
+`TableSlot`, `RichTextClipboard.Flavors`, `FlavorFor` and `ClipboardFlavor`,
+`IsComposing`, `IsDragging`, `IsMovingSelection`, `ShowTouchHandles`, `HideTouchHandles`,
+`AreTouchHandlesVisible`, and the block-index geometry (`BlockStart`,
+`CaretBlockIndex`, `BlockCount`, `BlockIndexAt`, `BlockIndexOf`, `BlockOrigin`,
+`PositionAt`, `ImageRect`, `IsOverContent`).
+
 ### Removed from the public API
 
 - `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
@@ -69,6 +107,18 @@ awaits `PasteAsync`.
 - `RichTextClipboard.Read(IDataTransfer, …)` and `Decode` — use `ReadAsync` and
   `DecodeAsync`.
 - `DocumentPayload.ReadAllText` — use `ReadAllTextAsync`.
+- Made internal, as plumbing for the controls or for tests:
+  `RichTextView.GoalX`, `IsCaretVisible`, `SnapCaret`, `Preedit`,
+  `SetPreedit`, `IsResizingColumn`, `IsResizingImage`,
+  `IsDraggingTouchHandle`, `TouchHandles` and `ResetCaretBlink`;
+  `DocumentPresenter.RealizedBlocks` and `SetTextFromAutomation`; the
+  `Preedit` record; `BlockSlot`, `ListMarker` and `DocumentBlocks`.
+- Made internal in Core: `TableGeometry` and `CellPlacement` (read a table's
+  grid through `TableGrid` and `TableSlot`), and `MarkFieldsExtensions` (cast
+  between `TextStyle` and `MarkFields` directly).
+- Made internal in Html: `ClipboardHtml`. `HtmlImporter.ImportClipboardAsync`
+  and `HtmlExporter.ExportForClipboard` handle the `CF_HTML` envelope.
+
 ### Security
 
 - **RTF that stalled or hung the old reader is bounded.** 32 bytes of
