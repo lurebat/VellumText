@@ -216,6 +216,10 @@ public class RichTextToolbar : TemplatedControl
         // removes one -- a toolbar with a permanently lit "link" button and no way back is the
         // shape this avoids.
         SetLinkCommand = Command<object?>(target => _view?.SetLink(Link(target)));
+
+        // The event rather than an OnApplyTemplate override: the hook is an implementation
+        // detail, and an override would be public API surface on an unsealed control.
+        TemplateApplied += (_, e) => HookBoxes(e.NameScope);
     }
 
     /// <summary>The editor this toolbar formats.</summary>
@@ -344,13 +348,9 @@ public class RichTextToolbar : TemplatedControl
     /// <summary>Redoes the most recently undone edit.</summary>
     public ICommand RedoCommand { get; }
 
-    /// <inheritdoc/>
-    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+    /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
+    private void HookBoxes(INameScope scope)
     {
-        ArgumentNullException.ThrowIfNull(e);
-
-        base.OnApplyTemplate(e);
-
         if (_fontBox is not null)
         {
             _fontBox.SelectionChanged -= OnFontPicked;
@@ -361,8 +361,8 @@ public class RichTextToolbar : TemplatedControl
             _sizeBox.SelectionChanged -= OnSizePicked;
         }
 
-        _fontBox = e.NameScope.Find<ComboBox>("PART_FontBox");
-        _sizeBox = e.NameScope.Find<ComboBox>("PART_SizeBox");
+        _fontBox = scope.Find<ComboBox>("PART_FontBox");
+        _sizeBox = scope.Find<ComboBox>("PART_SizeBox");
 
         if (_fontBox is not null)
         {
