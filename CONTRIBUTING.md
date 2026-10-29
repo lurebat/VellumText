@@ -33,8 +33,9 @@ works only on your machine is easy to write. Two rules keep them portable:
 CI builds and tests on Linux and Windows for every pull request. macOS minutes
 cost ten times as much, so macOS runs on pushes to `main`, on releases, on a
 manual run of the CI workflow, and on pull requests that touch
-`src/VellumText.Avalonia`, its tests, `samples/`, or the build files. The
-`platforms` job in `.github/workflows/ci.yml` holds the exact list.
+`src/VellumText.Avalonia`, its tests, `samples/`, or the build files.
+`.github/scripts/needs-macos.sh` holds the exact list, and
+`needs-macos.test.sh` beside it is run by CI's `lint` job.
 
 To run one project's tests, or one test:
 
