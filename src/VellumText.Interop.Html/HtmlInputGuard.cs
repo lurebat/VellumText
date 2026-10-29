@@ -236,7 +236,10 @@ internal static class HtmlInputGuard
 
                 if (skipping is not null)
                 {
-                    if (name == skipping && !tag.IsSelfClosing)
+                    // Both skipped elements are HTML and not void, so a self-closing slash on one
+                    // is ignored and it opens like any other: not counting it would end the skip
+                    // at the first end tag and release the rest of the body as text.
+                    if (name == skipping)
                     {
                         skipNesting++;
                     }

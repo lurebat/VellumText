@@ -155,6 +155,8 @@ public sealed class ParseCostGuardTests
     [InlineData("<script>hidden</script>")]
     [InlineData("<style>hidden</style>")]
     [InlineData("<template><template>x</template><p>hidden</p></template>")]
+    [InlineData("<template><template/>x</template>hidden</template>")]
+    [InlineData("<noscript><noscript/>x</noscript>hidden</noscript>")]
     public void Non_content_past_the_depth_limit_does_not_become_text(string body)
     {
         var options = HtmlImportOptions.Default with { MaxElementDepth = 2 };
