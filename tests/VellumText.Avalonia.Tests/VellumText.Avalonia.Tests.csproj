@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
 
     <!--
-      Avalonia.Headless.XUnit 12.1.1 depends on xunit.v3, which runs each test assembly as its
+      Avalonia.Headless.XUnit 12.1 depends on xunit.v3, which runs each test assembly as its
       own process. That makes the project an executable; without this the runner reports
       "Could not find app host executable" and discovers no tests at all.
     -->

@@ -187,7 +187,7 @@ public class ClipboardHtmlTests
         var payload = Header("0000000000", "0000000000", "0009999998", "0009999999")
             + "<html><body>abc</body></html>";
 
-        var result = await HtmlImporter.ImportClipboardAsync(payload);
+        var result = await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
 
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks));
         Assert.Equal("abc", paragraph.Content.Text);

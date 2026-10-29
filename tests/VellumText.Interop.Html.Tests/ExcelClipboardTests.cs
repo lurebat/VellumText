@@ -85,7 +85,7 @@ public class ExcelClipboardTests
             + "<!--StartFragment--><tr><td>in</td><td>too</td></tr><!--EndFragment-->"
             + "<tr><td>after</td></tr></table><img src='https://example.com/a.png'></body></html>";
 
-        var result = await HtmlImporter.ImportClipboardAsync(payload);
+        var result = await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
         var table = Assert.IsType<TableNode>(Assert.Single(result.Doc.Blocks));
 
         Assert.Equal([["in", "too"]], Grid(table));
@@ -101,7 +101,7 @@ public class ExcelClipboardTests
             + "<html><body><p>before</p><table><tr><td>out</td></tr>"
             + "<!--StartFragment--><tr><td>in</td></tr></table><p>tail</p></body></html>";
 
-        var blocks = (await HtmlImporter.ImportClipboardAsync(payload)).Doc.Blocks;
+        var blocks = (await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks;
 
         Assert.Equal(2, blocks.Length);
         Assert.Equal([["in"]], Grid(Assert.IsType<TableNode>(blocks[0])));
@@ -116,7 +116,7 @@ public class ExcelClipboardTests
             + "<!--StartFragment--><p>copied</p><!--EndFragment--></body></html>";
 
         var paragraph = Assert.IsType<ParagraphNode>(
-            Assert.Single((await HtmlImporter.ImportClipboardAsync(payload)).Doc.Blocks));
+            Assert.Single((await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
 
         Assert.Equal("copied", paragraph.Content.Text);
     }

@@ -45,7 +45,7 @@ public class CssFontFamilyTests
         const string Css =
             "font-family:&quot;x\\&quot; ;background-image:url(http://tracker.invalid/p.png);&quot;";
 
-        var imported = (await HtmlImporter.ImportAsync($"<p><span style=\"{Css}\">t</span></p>")).Doc;
+        var imported = (await HtmlImporter.ImportAsync($"<p><span style=\"{Css}\">t</span></p>", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         // What the CSS actually says the family is: the escapes resolved, nothing else.
         Assert.Equal("x\" ;background-image:url(http://tracker.invalid/p.png);", FamilyOf(imported));
@@ -56,7 +56,7 @@ public class CssFontFamilyTests
         Assert.True(
             string.IsNullOrEmpty(style.GetPropertyValue("background-image")),
             $"recipient read background-image from: {html}");
-        Assert.Equal(FamilyOf(imported), FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(FamilyOf(imported), FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
     }
 
     [Theory]
@@ -71,7 +71,7 @@ public class CssFontFamilyTests
     {
         var html = HtmlExporter.Instance.Export(WithFamily(family));
 
-        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
         Assert.Single(RecipientStyle(html), p => p.Name == "font-family");
     }
 

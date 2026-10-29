@@ -61,7 +61,7 @@ public class MarkdownFormatOptionsTests
         IDocumentImporter configured = MarkdownFormat.Instance.With(
             new MarkdownImportOptions { AllowRawHtml = true });
 
-        var paragraph = (ParagraphNode)(await configured.ImportAsync("a <b>bold</b> c")).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await configured.ImportAsync("a <b>bold</b> c", cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.Bold, paragraph.Content.MarkAt(2).Style);
     }
@@ -75,7 +75,7 @@ public class MarkdownFormatOptionsTests
     {
         IDocumentImporter shared = MarkdownFormat.Instance;
 
-        var paragraph = (ParagraphNode)(await shared.ImportAsync("a <b>bold</b> c")).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await shared.ImportAsync("a <b>bold</b> c", cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.None, paragraph.Content.MarkAt(2).Style);
     }
@@ -87,7 +87,7 @@ public class MarkdownFormatOptionsTests
             new MarkdownImportOptions { AllowRawHtml = true });
 
         using var source = new MemoryStream(Encoding.UTF8.GetBytes("a <b>bold</b> c"));
-        var paragraph = (ParagraphNode)(await configured.ImportAsync(source)).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await configured.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks[0];
 
         Assert.Equal(TextStyle.Bold, paragraph.Content.MarkAt(2).Style);
     }
@@ -101,7 +101,7 @@ public class MarkdownFormatOptionsTests
     {
         using var source = new MemoryStream(Encoding.UTF8.GetBytes("héllo — wörld"));
 
-        var paragraph = (ParagraphNode)(await MarkdownFormat.Instance.ImportAsync(source)).Doc.Blocks[0];
+        var paragraph = (ParagraphNode)(await MarkdownFormat.Instance.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks[0];
 
         Assert.Equal("héllo — wörld", paragraph.Content.Text);
     }
@@ -151,8 +151,8 @@ public class MarkdownFormatOptionsTests
     [Fact]
     public async Task Importing_null_says_so()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownImporter.ImportAsync(null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownFormat.Instance.ImportAsync((Stream)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownImporter.ImportAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownFormat.Instance.ImportAsync((Stream)null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     private static ParagraphNode Paragraph(string text) =>

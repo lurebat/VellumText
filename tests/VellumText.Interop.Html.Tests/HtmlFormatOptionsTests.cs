@@ -47,7 +47,7 @@ public class HtmlFormatOptionsTests
         IDocumentImporter configured =
             HtmlFormat.Instance.With(new HtmlImportOptions { AllowRemoteImages = true });
 
-        var image = Assert.Single(Images(await configured.ImportAsync("<img src='https://cdn.test/a.png'>")));
+        var image = Assert.Single(Images(await configured.ImportAsync("<img src='https://cdn.test/a.png'>", cancellationToken: TestContext.Current.CancellationToken)));
 
         Assert.Equal("https://cdn.test/a.png", image.Source);
     }
@@ -60,7 +60,7 @@ public class HtmlFormatOptionsTests
     {
         IDocumentImporter shared = HtmlFormat.Instance;
 
-        Assert.Empty(Images(await shared.ImportAsync("<img src='https://cdn.test/a.png'>")));
+        Assert.Empty(Images(await shared.ImportAsync("<img src='https://cdn.test/a.png'>", cancellationToken: TestContext.Current.CancellationToken)));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class HtmlFormatOptionsTests
         IDocumentImporter configured = HtmlFormat.Instance.With(
             new HtmlImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
-        var result = await configured.ImportAsync("<a href='/somewhere'>click</a>");
+        var result = await configured.ImportAsync("<a href='/somewhere'>click</a>", cancellationToken: TestContext.Current.CancellationToken);
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Equal("https://example.com/somewhere", paragraph.Content.MarkAt(0).Link?.Href);
@@ -80,7 +80,7 @@ public class HtmlFormatOptionsTests
     {
         IDocumentImporter shared = HtmlFormat.Instance;
 
-        var result = await shared.ImportAsync("<a href='/somewhere'>click</a>");
+        var result = await shared.ImportAsync("<a href='/somewhere'>click</a>", cancellationToken: TestContext.Current.CancellationToken);
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Null(paragraph.Content.MarkAt(0).Link);
@@ -100,7 +100,7 @@ public class HtmlFormatOptionsTests
         using var source = new MemoryStream(
             System.Text.Encoding.UTF8.GetBytes("<img src='https://cdn.test/a.png'>"));
 
-        Assert.Single(Images(await configured.ImportAsync(source)));
+        Assert.Single(Images(await configured.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken)));
     }
 
     private static IEnumerable<ImageEmbed> Images(ImportResult result) =>

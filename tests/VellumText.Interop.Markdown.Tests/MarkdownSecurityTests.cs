@@ -108,7 +108,7 @@ public class MarkdownSecurityTests
 
         var resolved = await MarkdownImporter.ImportAsync(
             "[click](page.html)",
-            new MarkdownImportOptions { BaseUri = new Uri("https://example.test/dir/index.html") });
+            new MarkdownImportOptions { BaseUri = new Uri("https://example.test/dir/index.html") }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "https://example.test/dir/page.html",
@@ -188,7 +188,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "a <script>steal()</script> b",
-            new MarkdownImportOptions { AllowRawHtml = true });
+            new MarkdownImportOptions { AllowRawHtml = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("steal()", AllText(result), StringComparison.Ordinal);
     }
@@ -249,7 +249,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             markdown,
-            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(expected, AllText(result));
         Assert.Contains(
@@ -288,7 +288,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             markdown,
-            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(expected, AllText(result), StringComparison.Ordinal);
         Assert.Empty(result.Diagnostics);
@@ -310,7 +310,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "a </script> b",
-            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("a b", AllText(result));
         Assert.Empty(result.Diagnostics);
@@ -332,7 +332,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "a <div onclick=\"steal()\">bait</div> b",
-            new MarkdownImportOptions { AllowRawHtml = allowRawHtml });
+            new MarkdownImportOptions { AllowRawHtml = allowRawHtml }, cancellationToken: TestContext.Current.CancellationToken);
 
         var text = AllText(result);
 
@@ -425,7 +425,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "a <b>bold</b> c",
-            new MarkdownImportOptions { AllowRawHtml = true });
+            new MarkdownImportOptions { AllowRawHtml = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         var paragraph = OnlyPara(result);
 
@@ -444,7 +444,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             $"before\n\n{html}\n\nafter",
-            new MarkdownImportOptions { AllowRawHtml = true });
+            new MarkdownImportOptions { AllowRawHtml = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(forbidden, AllText(result), StringComparison.Ordinal);
         Assert.Contains("before", AllText(result), StringComparison.Ordinal);
@@ -455,7 +455,7 @@ public class MarkdownSecurityTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "<a href=\"javascript:alert(1)\">click</a>",
-            new MarkdownImportOptions { AllowRawHtml = true });
+            new MarkdownImportOptions { AllowRawHtml = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(OnlyPara(result).Content.MarkAt(0).Link);
         Assert.True(result.AnythingDropped);

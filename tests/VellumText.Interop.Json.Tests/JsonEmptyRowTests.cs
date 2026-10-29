@@ -17,7 +17,7 @@ public class JsonEmptyRowTests
     public async Task ARowCoveredEntirelyByAMergeSurvivesTheRoundTrip()
     {
         var doc = Merged();
-        var back = await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc));
+        var back = await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(back.AnythingDropped, string.Join("; ", back.Diagnostics));
         Assert.Equal(doc, back.Doc);

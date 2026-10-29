@@ -233,7 +233,7 @@ public class MarkdownImportTests
 
     [Fact]
     public async Task Import_rejects_a_null_source() =>
-        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownImporter.ImportAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => MarkdownImporter.ImportAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
 
     // ---- diagnostics -------------------------------------------------------------------------
 
@@ -299,7 +299,7 @@ public class MarkdownImportTests
     {
         var result = await MarkdownImporter.ImportAsync(
             "see ![alt](https://example.test/i.png)",
-            new MarkdownImportOptions { AllowRemoteImages = true });
+            new MarkdownImportOptions { AllowRemoteImages = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         var embed = Assert.IsType<ImageEmbed>(Assert.Single(OnlyPara(result).Content.Embeds));
 

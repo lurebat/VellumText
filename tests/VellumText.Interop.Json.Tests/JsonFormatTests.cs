@@ -263,7 +263,7 @@ public class JsonFormatTests
         ]);
 
         // The reader cannot drift: a file written by this version must still load as this.
-        var read = await JsonFormat.Instance.ImportAsync(Golden);
+        var read = await JsonFormat.Instance.ImportAsync(Golden, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Empty(read.Diagnostics);
         Assert.Equal(expected, read.Doc);
@@ -287,7 +287,7 @@ public class JsonFormatTests
         var payload = $"{{\"VellumText\":{JsonFormat.SchemaVersion + 1},\"blocks\":[" +
             "{\"type\":\"paragraph\",\"content\":{\"text\":\"hello\"}}]}";
 
-        var result = await JsonFormat.Instance.ImportAsync(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.Doc.Blocks.IsEmpty);
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("newer version"));
@@ -296,7 +296,7 @@ public class JsonFormatTests
     [Fact]
     public async Task APayloadWithNoVersionIsNotTakenForOne()
     {
-        var result = await JsonFormat.Instance.ImportAsync("{\"blocks\":[]}");
+        var result = await JsonFormat.Instance.ImportAsync("{\"blocks\":[]}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(result.Diagnostics);
     }
@@ -316,7 +316,7 @@ public class JsonFormatTests
     {
         // Importers never throw. A store full of files written by something else has to degrade
         // into "cannot open these", not into an unhandled exception on a background thread.
-        var result = await JsonFormat.Instance.ImportAsync(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.NotEmpty(result.Diagnostics);
@@ -329,7 +329,7 @@ public class JsonFormatTests
             "{\"type\":\"from-the-future\"}," +
             "{\"type\":\"paragraph\",\"content\":{\"text\":\"kept\"}}]}";
 
-        var result = await JsonFormat.Instance.ImportAsync(payload);
+        var result = await JsonFormat.Instance.ImportAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("kept", ((ParagraphNode)Assert.Single(result.Doc.Blocks)).Content.Text);
     }

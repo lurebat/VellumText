@@ -37,7 +37,7 @@ public class HtmlEmptyRowTests
 
         Assert.Contains("rowspan=\"2\"", html, StringComparison.Ordinal);
 
-        var back = await HtmlFormat.Instance.ImportAsync(html);
+        var back = await HtmlFormat.Instance.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken);
         var table = Assert.IsType<TableNode>(Assert.Single(back.Doc.Blocks));
 
         Assert.Equal(2, table.Rows.Length);
@@ -55,7 +55,7 @@ public class HtmlEmptyRowTests
         // What arrives from a word processor. Keeping it would make the table ragged, and a
         // ragged table loses its grid entirely, so the row goes and the table survives.
         var back = await HtmlFormat.Instance.ImportAsync(
-            "<table><tr><td>a</td><td>b</td></tr><tr></tr><tr><td>c</td><td>d</td></tr></table>");
+            "<table><tr><td>a</td><td>b</td></tr><tr></tr><tr><td>c</td><td>d</td></tr></table>", cancellationToken: TestContext.Current.CancellationToken);
 
         var table = Assert.IsType<TableNode>(Assert.Single(back.Doc.Blocks));
 
@@ -66,7 +66,7 @@ public class HtmlEmptyRowTests
     [Fact]
     public async Task ATableOfNothingButEmptyRowsIsNotATable()
     {
-        var back = await HtmlFormat.Instance.ImportAsync("<table><tr></tr><tr></tr></table>");
+        var back = await HtmlFormat.Instance.ImportAsync("<table><tr></tr><tr></tr></table>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(back.Doc.Blocks, block => block is TableNode);
         Assert.True(

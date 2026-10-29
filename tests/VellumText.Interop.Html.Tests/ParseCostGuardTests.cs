@@ -69,7 +69,7 @@ public sealed class ParseCostGuardTests
         var ms = BestOfThreeMs(() => HtmlImporter.ImportOnCurrentStack(html, null));
 
         Assert.True(ms < 2_000, $"349 KB of attributes took {ms} ms");
-        Assert.Equal("x", TextOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal("x", TextOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class ParseCostGuardTests
     {
         var html = string.Concat(Enumerable.Range(0, 700).Select(i => $"<div>{i % 10}"));
 
-        var result = await HtmlImporter.ImportAsync(html);
+        var result = await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             string.Concat(Enumerable.Range(0, 700).Select(i => (i % 10).ToString())),
@@ -96,7 +96,7 @@ public sealed class ParseCostGuardTests
         Assert.True(guarded.DroppedDeepTags);
         Assert.Equal(3, MaxDepthOf(guarded.Html));
 
-        var result = await HtmlImporter.ImportAsync(html, options);
+        var result = await HtmlImporter.ImportAsync(html, options, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("deep\nafter", TextOf(result.Doc));
         Assert.Contains(result.Diagnostics, d => d.Context == "element-depth" && d.Severity == DiagnosticSeverity.Downgraded);
@@ -115,8 +115,8 @@ public sealed class ParseCostGuardTests
     {
         var html = "<p><a title=\"t\" href=\"https://example.test/\">link</a></p>";
 
-        var unlimited = await HtmlImporter.ImportAsync(html);
-        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxAttributesPerElement = 1 });
+        var unlimited = await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken);
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxAttributesPerElement = 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(LinkOf(unlimited.Doc));
         Assert.Null(LinkOf(limited.Doc));
@@ -129,8 +129,8 @@ public sealed class ParseCostGuardTests
     {
         var html = "<p><span style=\"color:#ff0000; width:calc(((1px)))\">red</span></p>";
 
-        var unlimited = await HtmlImporter.ImportAsync(html);
-        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
+        var unlimited = await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken);
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(new Rgba(255, 0, 0, 255), ForegroundOf(unlimited.Doc));
         Assert.Null(ForegroundOf(limited.Doc));
@@ -144,10 +144,10 @@ public sealed class ParseCostGuardTests
         var html = "<p><a href=\"https://example.test/?a=1&amp;b=&quot;2&quot;\" title=\"T&lt;\" style=\"width:calc(((1px)))\">x</a></p>";
         var withoutStyle = html.Replace(" style=\"width:calc(((1px)))\"", string.Empty, StringComparison.Ordinal);
 
-        var result = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 });
+        var result = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxStyleNesting = 2 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("https://example.test/?a=1&b=\"2\"", LinkOf(result.Doc)?.Href);
-        Assert.Equal(LinkOf((await HtmlImporter.ImportAsync(withoutStyle)).Doc), LinkOf(result.Doc));
+        Assert.Equal(LinkOf((await HtmlImporter.ImportAsync(withoutStyle, cancellationToken: TestContext.Current.CancellationToken)).Doc), LinkOf(result.Doc));
     }
 
     /// <summary>
@@ -164,7 +164,7 @@ public sealed class ParseCostGuardTests
         var options = HtmlImportOptions.Default with { MaxElementDepth = 2 };
         var html = "<div><div><div>" + body + "</div></div></div><p>after</p>";
 
-        var result = await HtmlImporter.ImportAsync(html, options);
+        var result = await HtmlImporter.ImportAsync(html, options, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("hidden", TextOf(result.Doc), StringComparison.Ordinal);
         Assert.Contains("after", TextOf(result.Doc), StringComparison.Ordinal);
@@ -190,7 +190,7 @@ public sealed class ParseCostGuardTests
             Assert.Same(html, guarded.Html);
         }
 
-        var imported = (await HtmlImporter.ImportAsync(list)).Doc;
+        var imported = (await HtmlImporter.ImportAsync(list, cancellationToken: TestContext.Current.CancellationToken)).Doc;
         Assert.Equal(600, Assert.IsType<ListNode>(Assert.Single(imported.Blocks)).Items.Length);
     }
 

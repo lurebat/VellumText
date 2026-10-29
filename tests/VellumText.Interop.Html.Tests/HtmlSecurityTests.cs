@@ -470,10 +470,10 @@ public class HtmlSecurityTests
     {
         var payload = ClipboardHtml.Wrap("<a href='/p'>x</a>", new Uri("https://attacker.test/"));
 
-        var claimed = await HtmlImporter.ImportClipboardAsync(payload);
+        var claimed = await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
         var result = await HtmlImporter.ImportClipboardAsync(
             payload,
-            new HtmlImportOptions { BaseUri = new Uri("https://host.test/") });
+            new HtmlImportOptions { BaseUri = new Uri("https://host.test/") }, cancellationToken: TestContext.Current.CancellationToken);
 
         // The payload's own address is used when the host gives none, so the second import
         // differs from the first only by which base won.
@@ -567,6 +567,6 @@ public class HtmlSecurityTests
     [Fact]
     public async Task Null_input_is_the_callers_mistake_and_is_reported_as_one()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => HtmlImporter.ImportAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => HtmlImporter.ImportAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 }
