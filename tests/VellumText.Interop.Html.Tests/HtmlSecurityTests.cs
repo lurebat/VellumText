@@ -541,7 +541,7 @@ public class HtmlSecurityTests
         var result = await Import($"<table><tr><td colspan='{attribute}'>x</td></tr></table>");
         var table = Assert.IsType<TableNode>(result.Doc.Blocks[0]);
 
-        TableGeometry.Place(table, out var width);
+        var width = TableGrid.Build(0, table).Columns;
 
         Assert.Equal(expected, table.Rows[0].Cells[0].ColumnSpan);
         Assert.Equal(expected, width);

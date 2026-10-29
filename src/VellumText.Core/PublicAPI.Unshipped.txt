@@ -43,7 +43,6 @@ override VellumText.BlockImageNode.IsLeaf.get -> bool
 override VellumText.BlockImageNode.ToString() -> string!
 override VellumText.BlockImageNode.TypeName.get -> string!
 override VellumText.BlockImageNode.WithChildren(System.Collections.Generic.IReadOnlyList<VellumText.Node!>! children) -> VellumText.Node!
-override VellumText.CellPlacement.GetHashCode() -> int
 override VellumText.CellSelection.<Clone>$() -> VellumText.CellSelection!
 override VellumText.CellSelection.Equals(object? obj) -> bool
 override VellumText.CellSelection.GetHashCode() -> int
@@ -221,8 +220,6 @@ override VellumText.ValueSpan<T>.ToString() -> string!
 static readonly VellumText.JsonHighlighter.Instance -> VellumText.JsonHighlighter!
 static VellumText.AddMarkStep.operator !=(VellumText.AddMarkStep? left, VellumText.AddMarkStep? right) -> bool
 static VellumText.AddMarkStep.operator ==(VellumText.AddMarkStep? left, VellumText.AddMarkStep? right) -> bool
-static VellumText.CellPlacement.operator !=(VellumText.CellPlacement left, VellumText.CellPlacement right) -> bool
-static VellumText.CellPlacement.operator ==(VellumText.CellPlacement left, VellumText.CellPlacement right) -> bool
 static VellumText.CellSelection.Across(VellumText.DocumentNode! doc, int anchorPos, int headPos) -> VellumText.CellSelection?
 static VellumText.CellSelection.Create(VellumText.DocumentNode! doc, int anchorCell, int headCell) -> VellumText.CellSelection?
 static VellumText.CellSelection.operator !=(VellumText.CellSelection? left, VellumText.CellSelection? right) -> bool
@@ -273,9 +270,6 @@ static VellumText.Mapping.Of(params VellumText.StepMap[]! maps) -> VellumText.Ma
 static VellumText.Mapping.Of(System.Collections.Generic.IEnumerable<VellumText.StepMap>! maps) -> VellumText.Mapping!
 static VellumText.MapResult.operator !=(VellumText.MapResult left, VellumText.MapResult right) -> bool
 static VellumText.MapResult.operator ==(VellumText.MapResult left, VellumText.MapResult right) -> bool
-static VellumText.MarkFieldsExtensions.Includes(this VellumText.MarkFields fields, VellumText.MarkFields wanted) -> bool
-static VellumText.MarkFieldsExtensions.ToFields(this VellumText.TextStyle style) -> VellumText.MarkFields
-static VellumText.MarkFieldsExtensions.ToStyle(this VellumText.MarkFields fields) -> VellumText.TextStyle
 static VellumText.MarkSet.Empty.get -> VellumText.MarkSet
 static VellumText.MarkSet.operator !=(VellumText.MarkSet left, VellumText.MarkSet right) -> bool
 static VellumText.MarkSet.operator ==(VellumText.MarkSet left, VellumText.MarkSet right) -> bool
@@ -346,7 +340,6 @@ static VellumText.TableEdits.InsertRows(VellumText.DocumentNode! doc, int anchor
 static VellumText.TableEdits.MergeCells(VellumText.DocumentNode! doc, int anchorCell, int headCell) -> VellumText.TableStructureStep?
 static VellumText.TableEdits.SetColumnWidths(VellumText.DocumentNode! doc, int tablePos, System.Collections.Generic.IEnumerable<double>! widths) -> VellumText.TableStructureStep?
 static VellumText.TableEdits.SplitCell(VellumText.DocumentNode! doc, int cellPos) -> VellumText.TableStructureStep?
-static VellumText.TableGeometry.Place(VellumText.TableNode! table, out int width) -> System.Collections.Immutable.ImmutableArray<VellumText.CellPlacement>
 static VellumText.TableGrid.Build(int tablePos, VellumText.TableNode! table) -> VellumText.TableGrid!
 static VellumText.TableGrid.CellContaining(VellumText.DocumentNode! doc, int pos) -> int?
 static VellumText.TableGrid.ForCell(VellumText.DocumentNode! doc, int cellPos) -> VellumText.TableGrid?
@@ -388,19 +381,6 @@ VellumText.BlockImageNode.Align.get -> VellumText.TextAlign
 VellumText.BlockImageNode.BlockImageNode(VellumText.ImageEmbed! image, VellumText.TextAlign align = VellumText.TextAlign.Default) -> void
 VellumText.BlockImageNode.Image.get -> VellumText.ImageEmbed!
 VellumText.BlockNode
-VellumText.CellPlacement
-VellumText.CellPlacement.Bottom.get -> int
-VellumText.CellPlacement.Bottom.init -> void
-VellumText.CellPlacement.CellPlacement() -> void
-VellumText.CellPlacement.CellPlacement(int Top, int Left, int Bottom, int Right) -> void
-VellumText.CellPlacement.Deconstruct(out int Top, out int Left, out int Bottom, out int Right) -> void
-VellumText.CellPlacement.Equals(VellumText.CellPlacement other) -> bool
-VellumText.CellPlacement.Left.get -> int
-VellumText.CellPlacement.Left.init -> void
-VellumText.CellPlacement.Right.get -> int
-VellumText.CellPlacement.Right.init -> void
-VellumText.CellPlacement.Top.get -> int
-VellumText.CellPlacement.Top.init -> void
 VellumText.CellSelection
 VellumText.CellSelection.AnchorCell.get -> int
 VellumText.CellSelection.AnchorCell.init -> void
@@ -600,7 +580,6 @@ VellumText.MarkFields.Strikethrough = 8 -> VellumText.MarkFields
 VellumText.MarkFields.Sub = 16 -> VellumText.MarkFields
 VellumText.MarkFields.Super = 32 -> VellumText.MarkFields
 VellumText.MarkFields.Underline = 4 -> VellumText.MarkFields
-VellumText.MarkFieldsExtensions
 VellumText.MarkSet
 VellumText.MarkSet.Apply(VellumText.MarkSet value, VellumText.MarkFields fields) -> VellumText.MarkSet
 VellumText.MarkSet.DifferenceFrom(VellumText.MarkSet other) -> VellumText.MarkFields
@@ -818,7 +797,6 @@ VellumText.TableCellNode.IsHeader.get -> bool
 VellumText.TableCellNode.RowSpan.get -> int
 VellumText.TableCellNode.TableCellNode(System.Collections.Generic.IEnumerable<VellumText.BlockNode!>! blocks, int rowSpan = 1, int columnSpan = 1, VellumText.Rgba? background = null, bool isHeader = false) -> void
 VellumText.TableEdits
-VellumText.TableGeometry
 VellumText.TableGrid
 VellumText.TableGrid.At(int row, int column) -> VellumText.TableSlot?
 VellumText.TableGrid.Cells.get -> System.Collections.Immutable.ImmutableDictionary<int, VellumText.TableSlot>!
@@ -954,8 +932,6 @@ virtual VellumText.Selection.PrintMembers(System.Text.StringBuilder! builder) ->
 virtual VellumText.Step.EqualityContract.get -> System.Type!
 virtual VellumText.Step.Equals(VellumText.Step? other) -> bool
 virtual VellumText.Step.PrintMembers(System.Text.StringBuilder! builder) -> bool
-~override VellumText.CellPlacement.Equals(object obj) -> bool
-~override VellumText.CellPlacement.ToString() -> string
 ~override VellumText.HistoryPolicy.Equals(object obj) -> bool
 ~override VellumText.HistoryPolicy.ToString() -> string
 ~override VellumText.ImportDiagnostic.Equals(object obj) -> bool

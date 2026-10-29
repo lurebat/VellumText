@@ -56,7 +56,7 @@ public class RtfTableExportTests
         Assert.Equal(2, table.Rows[0].Cells[0].RowSpan);
         var below = Assert.Single(table.Rows[1].Cells);
         Assert.Equal("C", TextOf(below));
-        Assert.Equal(1, TableGeometry.Place(table, out _)[^1].Left);
+        Assert.Equal(1, TableGrid.Build(0, table).Cells.Values.MaxBy(cell => cell.Pos).Left);
     }
 
     /// <summary>

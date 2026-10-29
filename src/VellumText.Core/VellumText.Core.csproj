@@ -6,14 +6,16 @@
   </PropertyGroup>
 
   <!--
-    The node, embed and selection hierarchies are closed with private protected constructors
+    The node, embed, selection and step hierarchies are closed with private protected constructors
     (docs/architecture.md 9). The tests must still be able to derive: proving that the closed
     switches throw on an unrecognised type is exactly what says the closure is load-bearing, and
     there is no way to write that test from outside. Friendship rather than a wider public API.
+    The bench measures internals such as TableGeometry.Place on their own, for the same reason.
   -->
   <ItemGroup>
     <InternalsVisibleTo Include="VellumText.Core.Tests" />
     <InternalsVisibleTo Include="VellumText.Avalonia.Tests" />
+    <InternalsVisibleTo Include="VellumText.Bench" />
   </ItemGroup>
 
   <!--
@@ -37,9 +39,10 @@
   </Target>
 
   <ItemGroup>
-    <!-- Two things in Core exist for its dependents rather than for a host: HeadingAppearance, which
-         the editor and the RTF exporter must agree on, and InlineContent.Runs, the run-splitting scan
-         every exporter needs. Neither is a model concept, so both stay out of the public API. -->
+    <!-- Some things in Core exist for its dependents rather than for a host: HeadingAppearance, which
+         the editor and the RTF exporter must agree on; InlineContent.Runs, the run-splitting scan
+         every exporter needs; TableGeometry, the cell placement every table exporter walks; and
+         MarkFieldsExtensions. None is a model concept, so they stay out of the public API. -->
     <InternalsVisibleTo Include="VellumText.Avalonia" />
     <InternalsVisibleTo Include="VellumText.Interop.Html" />
     <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
