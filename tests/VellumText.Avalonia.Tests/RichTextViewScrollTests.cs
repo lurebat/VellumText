@@ -513,6 +513,34 @@ public class RichTextViewScrollTests
 
         Assert.Equal(view.Extent.Height, presenter.Extent.Height, 1);
     }
+    /// <summary>
+    /// One giant paragraph does not make the document look a hundred times longer than it is.
+    /// The guess for unmeasured blocks was the plain mean of the measured ones, so a paragraph of
+    /// thousands of words beside a screenful of short ones priced every other paragraph at
+    /// thousands of pixels: live, a 10,000-paragraph paste below one showed a 575-million-pixel
+    /// document, and wheel notches collapsed the extent instead of moving the text.
+    /// </summary>
+    [AvaloniaFact]
+    public void One_giant_paragraph_does_not_inflate_the_document()
+    {
+        var giant = string.Join(' ', Enumerable.Range(0, 2_000).Select(i => $"word{i}"));
+        var doc = new DocumentNode([ParagraphNode.FromText(giant), .. Paragraphs(2_000).Blocks]);
+
+        var whole = new RichTextView { State = EditorState.Create(doc) };
+
+        whole.Measure(new Size(Width, double.PositiveInfinity));
+
+        var truth = whole.Extent.Height;
+
+        var presenter = Hosted(doc, out var view);
+
+        view.State = EditorState.Create(doc, TextSelection.Cursor(view.Slots[^1].End));
+        presenter.UpdateLayout();
+
+        Assert.True(
+            view.Extent.Height < truth * 4,
+            $"At the end the document claimed {view.Extent.Height:F0} pixels; laid out whole it is {truth:F0}.");
+    }
     [AvaloniaFact]
     public void The_editor_template_makes_the_view_the_scroll_viewer_s_own_content()
     {

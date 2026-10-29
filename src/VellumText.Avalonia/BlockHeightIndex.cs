@@ -16,7 +16,7 @@ namespace VellumText.Avalonia;
 /// <para>
 /// The subtlety is not the tree, it is the blocks nobody has measured. Their height has to be
 /// <em>guessed</em>, because scrolling to the end of a document may not measure everything on
-/// the way. The guess used here is the mean of the heights actually measured so far, which
+/// the way. The guess used here is the mean of the heights actually measured so far, with any one block's share bounded (see <see cref="Estimate"/>), which
 /// starts as a caller-supplied estimate and improves as the user scrolls. That means a block's
 /// stored height changes when its neighbours are measured, and the total moves under the
 /// scrollbar — unavoidable with estimates, and the reason
@@ -44,6 +44,19 @@ internal sealed class BlockHeightIndex
     private double _measuredTotal;
     private double _seed;
 
+    // The measured heights as a histogram, an eighth of an octave per bucket: enough to find the
+    // typical height for the outlier bound without keeping the heights sorted. See Estimate.
+    private readonly int[] _bucketCount = new int[Buckets];
+    private readonly double[] _bucketSum = new double[Buckets];
+    private double _estimate;
+    private bool _estimateStale;
+
+    private const int Buckets = 256;
+    private const double BucketsPerOctave = 8;
+
+    /// <summary>How many times the typical measured height one block may count for, at most.</summary>
+    private const double OutlierFactor = 16;
+
     /// <summary>Creates an index with no blocks.</summary>
     /// <param name="estimate">
     /// The height to assume for a block before anything has been measured. Must be positive:
@@ -69,8 +82,29 @@ internal sealed class BlockHeightIndex
     public int Count => _count;
 
     /// <summary>The height currently assumed for a block nobody has measured.</summary>
-    /// <remarks>The mean of the measured heights, or the seed estimate until there are any.</remarks>
-    public double Estimate => _measuredCount == 0 ? _seed : _measuredTotal / _measuredCount;
+    /// <remarks>
+    /// <para>
+    /// The mean of the measured heights, each counted at no more than <c>OutlierFactor</c> times
+    /// their median (or the starting guess, if that is larger); the starting guess until there
+    /// are any.
+    /// </para>
+    /// <para>
+    /// A plain mean let one block set the height of all the others. A 20,000-character
+    /// paragraph is hundreds of thousands of pixels tall, and beside twenty ordinary ones it
+    /// priced ten thousand unmeasured paragraphs at eleven thousand pixels each — a document of
+    /// a hundred million pixels, whose extent then collapsed by millions with every few small
+    /// blocks measured, so scrolling moved the thumb and not the text. Ordinary variety
+    /// (headings, short lines, long paragraphs) stays well inside the bound, and for it this is
+    /// exactly the plain mean.
+    /// </para>
+    /// <para>
+    /// The median comes from a histogram rather than a sorted list, so a measurement stays a
+    /// constant-time update; it is the mean of the bucket the middle measurement falls in, which
+    /// is the height itself when the heights are alike. Worked out when first asked for after a
+    /// change, since it is read far more often than the measurements change.
+    /// </para>
+    /// </remarks>
+    public double Estimate => _measuredCount == 0 ? _seed : _estimateStale ? Recompute() : _estimate;
 
     /// <summary>The height of every block together, measured and estimated alike.</summary>
     public double TotalHeight => SumTo(_count);
@@ -184,6 +218,7 @@ internal sealed class BlockHeightIndex
         if (_measured[index])
         {
             _measuredTotal -= _height[index];
+            RemoveSample(_height[index]);
             AddMeasured(index, height - _height[index]);
         }
         else
@@ -197,6 +232,7 @@ internal sealed class BlockHeightIndex
         }
 
         _measuredTotal += height;
+        AddSample(height);
         _height[index] = height;
 
         // No rewrite of the other blocks. They never held the estimate, so the estimate moving
@@ -271,6 +307,7 @@ internal sealed class BlockHeightIndex
             {
                 _measuredCount--;
                 _measuredTotal -= _height[i];
+                RemoveSample(_height[i]);
             }
         }
 
@@ -296,6 +333,9 @@ internal sealed class BlockHeightIndex
         _seed = Estimate;
         _measuredCount = 0;
         _measuredTotal = 0;
+        Array.Clear(_bucketCount);
+        Array.Clear(_bucketSum);
+        _estimateStale = true;
 
         EnsureCapacity(count);
 
@@ -306,6 +346,96 @@ internal sealed class BlockHeightIndex
         RebuildTree();
     }
 
+    private static int BucketOf(double height) =>
+        Math.Min(Buckets - 1, (int)(Math.Log2(1 + height) * BucketsPerOctave));
+
+    /// <summary>The smallest and largest height a bucket can hold.</summary>
+    private static double Lower(int bucket) => Math.Pow(2, bucket / BucketsPerOctave) - 1;
+
+    private static double Upper(int bucket) =>
+        bucket == Buckets - 1 ? double.PositiveInfinity : Math.Pow(2, (bucket + 1) / BucketsPerOctave) - 1;
+
+    private void AddSample(double height)
+    {
+        var bucket = BucketOf(height);
+
+        _bucketCount[bucket]++;
+        _bucketSum[bucket] += height;
+        _estimateStale = true;
+    }
+
+    private void RemoveSample(double height)
+    {
+        var bucket = BucketOf(height);
+
+        // Emptied buckets restart from zero, so subtraction never leaves rounding behind.
+        _bucketSum[bucket] = --_bucketCount[bucket] == 0 ? 0 : _bucketSum[bucket] - height;
+        _estimateStale = true;
+    }
+
+    /// <summary>Works out <see cref="Estimate"/> from the histogram; see its remarks.</summary>
+    private double Recompute()
+    {
+        var middle = (_measuredCount + 1) / 2;
+        var seen = 0;
+        var median = 0d;
+
+        for (var bucket = 0; bucket < Buckets; bucket++)
+        {
+            seen += _bucketCount[bucket];
+
+            if (seen >= middle)
+            {
+                median = _bucketSum[bucket] / _bucketCount[bucket];
+                break;
+            }
+        }
+
+        // Floored at the starting guess: with a handful of measurements, or many empty
+        // paragraphs, the median can be next to nothing, and a bound that small would clip
+        // ordinary lines rather than outliers.
+        var cap = OutlierFactor * Math.Max(median, _seed);
+        var highest = Buckets - 1;
+
+        while (_bucketCount[highest] == 0)
+        {
+            highest--;
+        }
+
+        // Nothing can be over the bound: the plain mean, from the same running total it always
+        // came from. Summing the buckets instead would agree only to the last bit or two, and a
+        // position on a block's exact boundary is decided by those bits.
+        if (Upper(highest) <= cap)
+        {
+            _estimate = _measuredTotal / _measuredCount;
+            _estimateStale = false;
+
+            return _estimate;
+        }
+
+        var total = 0d;
+
+        for (var bucket = 0; bucket < Buckets; bucket++)
+        {
+            var count = _bucketCount[bucket];
+
+            if (count == 0)
+            {
+                continue;
+            }
+
+            // A bucket wholly under the bound counts in full and one wholly over it counts at
+            // the bound; one the bound passes through counts in full unless that exceeds it.
+            total += Upper(bucket) <= cap ? _bucketSum[bucket]
+                : Lower(bucket) >= cap ? count * cap
+                : Math.Min(_bucketSum[bucket], count * cap);
+        }
+
+        _estimate = total / _measuredCount;
+        _estimateStale = false;
+
+        return _estimate;
+    }
     /// <summary>Makes room for at least <paramref name="count"/> blocks, keeping the ones there are.</summary>
     private void EnsureCapacity(int count)
     {
