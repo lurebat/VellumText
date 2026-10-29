@@ -219,7 +219,12 @@ public class RichTextToolbar : TemplatedControl
 
         // The event rather than an OnApplyTemplate override: the hook is an implementation
         // detail, and an override would be public API surface on an unsealed control.
-        TemplateApplied += (_, e) => HookBoxes(e.NameScope);
+        TemplateApplied += (_, e) =>
+        {
+            HookBoxes(e.NameScope);
+            CloseOnPick(e.NameScope.Find<Button>("PART_ForegroundButton"));
+            CloseOnPick(e.NameScope.Find<Button>("PART_HighlightButton"));
+        };
     }
 
     /// <summary>The editor this toolbar formats.</summary>
@@ -348,6 +353,21 @@ public class RichTextToolbar : TemplatedControl
     /// <summary>Redoes the most recently undone edit.</summary>
     public ICommand RedoCommand { get; }
 
+    /// <summary>Closes a colour button's flyout once anything in it has been clicked.</summary>
+    /// <remarks>
+    /// Picking a colour is the whole point of opening it, so a flyout that stayed open over the
+    /// document after the pick was a second step for nothing (owner decision). Handled on the
+    /// flyout's content rather than on each swatch: the swatches come from a palette template, and
+    /// a click on any of them, or on the clear button, bubbles up to it. Not marked handled, so
+    /// the swatch's command still runs.
+    /// </remarks>
+    private static void CloseOnPick(Button? button)
+    {
+        if (button?.Flyout is Flyout { Content: Control content } flyout)
+        {
+            content.AddHandler(Button.ClickEvent, (_, _) => flyout.Hide());
+        }
+    }
     /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
     private void HookBoxes(INameScope scope)
     {
