@@ -14,9 +14,13 @@ namespace VellumText.Avalonia;
 /// before anything is allocated for it.
 /// </para>
 /// <para>
-/// This is not a decoder and does not validate anything: it reads two numbers from where each
-/// format puts them, and answers "unknown" for anything it does not recognise or that is cut off.
-/// An unknown image is still decoded, and still checked after decoding, exactly as before.
+/// This is not a decoder and does not validate anything: it reads the numbers the decoder will
+/// size its canvas from, where each format puts them, and answers "unknown" for anything it does
+/// not recognise or that is cut off. The renderer refuses an unknown image undecoded rather than
+/// decoding it to find out, so every format the decoder (Skia) can open needs a reader here, or
+/// it is never shown. TIFF has none, on the assumption, true when this was written, that Skia
+/// has no TIFF codec to show one with; if that changes, a TIFF is still refused, never decoded
+/// unchecked.
 /// </para>
 /// </remarks>
 internal static class ImageHeader
@@ -31,7 +35,9 @@ internal static class ImageHeader
         || TryGif(payload, out width, out height)
         || TryBmp(payload, out width, out height)
         || TryJpeg(payload, out width, out height)
-        || TryWebP(payload, out width, out height);
+        || TryWebP(payload, out width, out height)
+        || TryIco(payload, out width, out height)
+        || TryWbmp(payload, out width, out height);
 
     /// <summary>PNG: the IHDR chunk is always first, at a fixed offset.</summary>
     private static bool TryPng(ReadOnlySpan<byte> p, out long width, out long height)
@@ -121,10 +127,6 @@ internal static class ImageHeader
     }
 
     /// <summary>BMP: the DIB header after the 14-byte file header.</summary>
-    /// <remarks>
-    /// A negative height means the rows are stored top-down; the image is just as tall. The
-    /// 12-byte OS/2 core header stores both as 16-bit; every later header as 32-bit.
-    /// </remarks>
     private static bool TryBmp(ReadOnlySpan<byte> p, out long width, out long height)
     {
         (width, height) = (0, 0);
@@ -134,18 +136,35 @@ internal static class ImageHeader
             return false;
         }
 
-        var headerSize = BinaryPrimitives.ReadUInt32LittleEndian(p[14..18]);
+        return TryDib(p[14..], out width, out height);
+    }
+
+    /// <summary>The size in a BMP's DIB header, which is also how an ICO stores a bitmap image.</summary>
+    /// <remarks>
+    /// A negative height means the rows are stored top-down; the image is just as tall. The
+    /// 12-byte OS/2 core header stores both as 16-bit; every later header as 32-bit.
+    /// </remarks>
+    private static bool TryDib(ReadOnlySpan<byte> p, out long width, out long height)
+    {
+        (width, height) = (0, 0);
+
+        if (p.Length < 12)
+        {
+            return false;
+        }
+
+        var headerSize = BinaryPrimitives.ReadUInt32LittleEndian(p[..4]);
 
         if (headerSize == 12)
         {
-            width = BinaryPrimitives.ReadUInt16LittleEndian(p[18..20]);
-            height = BinaryPrimitives.ReadUInt16LittleEndian(p[20..22]);
+            width = BinaryPrimitives.ReadUInt16LittleEndian(p[4..6]);
+            height = BinaryPrimitives.ReadUInt16LittleEndian(p[6..8]);
 
             return true;
         }
 
-        width = Math.Abs((long)BinaryPrimitives.ReadInt32LittleEndian(p[18..22]));
-        height = Math.Abs((long)BinaryPrimitives.ReadInt32LittleEndian(p[22..26]));
+        width = Math.Abs((long)BinaryPrimitives.ReadInt32LittleEndian(p[4..8]));
+        height = Math.Abs((long)BinaryPrimitives.ReadInt32LittleEndian(p[8..12]));
 
         return true;
     }
@@ -164,20 +183,19 @@ internal static class ImageHeader
 
         while (i + 4 <= p.Length)
         {
-            if (p[i] != 0xFF)
+            // libjpeg discards whatever between segments is not a marker - a stray byte, a fill
+            // 0xFF, a stuffed 0xFF00 - and reads on, so one inserted byte must not hide the frame
+            // header from this when it does not hide it from the decoder.
+            if (p[i] != 0xFF || p[i + 1] is 0xFF or 0x00)
             {
-                return false;
+                i++;
+                continue;
             }
 
             var marker = p[i + 1];
 
             switch (marker)
             {
-                // Fill byte before a marker.
-                case 0xFF:
-                    i++;
-                    continue;
-
                 // Markers that stand alone, with no length.
                 case 0x01 or 0xD8 or (>= 0xD0 and <= 0xD7):
                     i += 2;
@@ -257,5 +275,95 @@ internal static class ImageHeader
         }
 
         return false;
+    }
+
+    /// <summary>ICO and CUR: the largest of the images the directory lists.</summary>
+    /// <remarks>
+    /// The decoder opens the largest image, and each one states its own size: an embedded PNG in
+    /// its IHDR, a bitmap in its DIB header. The directory's one-byte sizes are not used, because
+    /// the decoder does not use them either. A bitmap's DIB height counts its transparency mask
+    /// too, so it is twice what is decoded; counting it whole only errs towards refusing. One
+    /// image this cannot size makes the whole icon unknown, since that image may be the one
+    /// decoded.
+    /// </remarks>
+    private static bool TryIco(ReadOnlySpan<byte> p, out long width, out long height)
+    {
+        (width, height) = (0, 0);
+
+        if (p.Length < 6
+            || BinaryPrimitives.ReadUInt16LittleEndian(p[..2]) != 0
+            || BinaryPrimitives.ReadUInt16LittleEndian(p[2..4]) is not (1 or 2))
+        {
+            return false;
+        }
+
+        var count = BinaryPrimitives.ReadUInt16LittleEndian(p[4..6]);
+
+        if (count == 0 || 6 + (count * 16) > p.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < count; i++)
+        {
+            var offset = BinaryPrimitives.ReadUInt32LittleEndian(p[(6 + (i * 16) + 12)..]);
+
+            if (offset >= (uint)p.Length)
+            {
+                return false;
+            }
+
+            var image = p[(int)offset..];
+
+            if (!TryPng(image, out var imageWidth, out var imageHeight)
+                && !TryDib(image, out imageWidth, out imageHeight))
+            {
+                return false;
+            }
+
+            if (imageWidth * imageHeight > width * height)
+            {
+                (width, height) = (imageWidth, imageHeight);
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>WBMP: type 0, then the width and height as multi-byte integers.</summary>
+    private static bool TryWbmp(ReadOnlySpan<byte> p, out long width, out long height)
+    {
+        (width, height) = (0, 0);
+
+        // The only type is 0, and Skia refuses a fixed header byte announcing extension headers.
+        if (p.Length < 4 || p[0] != 0 || (p[1] & 0x9F) != 0)
+        {
+            return false;
+        }
+
+        var i = 2;
+
+        return TryMultiByte(p, ref i, out width) && TryMultiByte(p, ref i, out height);
+
+        // Seven bits a byte, most significant first, the top bit set on all but the last. Skia
+        // refuses anything over 16 bits, so a few bytes is all a real one has.
+        static bool TryMultiByte(ReadOnlySpan<byte> p, ref int i, out long value)
+        {
+            value = 0;
+
+            for (var length = 0; length < 5 && i < p.Length; length++)
+            {
+                var b = p[i++];
+
+                value = (value << 7) | (b & 0x7FL);
+
+                if ((b & 0x80) == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }
