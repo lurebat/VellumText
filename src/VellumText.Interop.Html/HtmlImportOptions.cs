@@ -98,8 +98,9 @@ public sealed record HtmlImportOptions
     /// <remarks>
     /// A cell's <c>rowspan</c> and <c>colspan</c> are each clamped to 1,000, but their product
     /// is still a million slots for a 31-byte cell, and a few kilobytes of such cells cost seconds
-    /// and gigabytes to lay out. A table is charged the area its cells cover within the rows it
-    /// has; one that would take the import over budget becomes plain paragraphs, with a
+    /// and gigabytes to lay out. A table is charged the rectangle it spans — its rows by its
+    /// widest laid-out row, holes included, because that is the grid validating it walks; one
+    /// that would take the import over budget becomes plain paragraphs, with a
     /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. 100,000 is a 1,000-row,
     /// 100-column paste.
     /// </remarks>
