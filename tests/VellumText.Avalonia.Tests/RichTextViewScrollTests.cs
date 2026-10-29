@@ -465,6 +465,54 @@ public class RichTextViewScrollTests
             $"The presenter scrolled to 900 and the window was still {view.RealizedBlocks}.");
     }
 
+    /// <summary>
+    /// The scroll bar has to follow the view when the view moves itself. Ctrl+End scrolls the
+    /// caret into view from a key press, not from a layout pass, and the offset and extent it
+    /// changed were only ever reported from arrange — which nothing had invalidated. Found live:
+    /// the view showed the end of the document while the scroll bar's thumb sat at the top.
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_End_moves_the_scroll_bar_with_the_view()
+    {
+        var presenter = Hosted(Paragraphs(400), out var view);
+
+        view.Focus();
+        view.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.End,
+            KeyModifiers = KeyModifiers.Control,
+            Source = view,
+        });
+        presenter.UpdateLayout();
+
+        Assert.True(view.Offset.Y > Height, $"Ctrl+End left the view at {view.Offset.Y}.");
+        Assert.Equal(view.Offset.Y, presenter.Offset.Y, 1);
+        Assert.Equal(view.Extent.Height, presenter.Extent.Height, 1);
+    }
+
+    /// <summary>
+    /// A size the view learns outside a layout pass still reaches the scroll bar. A geometry
+    /// question about a block far from the window measures it there and then, which changes the
+    /// document's height — and that change was only ever reported from arrange, which nothing had
+    /// asked for. The scroll bar kept the old range, so its thumb and the text drifted apart and
+    /// an offset the bar thought valid was one the view clamped away (found live).
+    /// </summary>
+    [AvaloniaFact]
+    public void A_height_learned_outside_layout_reaches_the_scroll_bar()
+    {
+        var presenter = Hosted(Paragraphs(400), out var view);
+        var before = view.Extent.Height;
+
+        _ = view.ImageRect(view.Slots[^1].Start);
+        _ = view.ImageRect(view.Slots[^2].Start);
+
+        Assert.NotEqual(before, view.Extent.Height, 1);
+
+        presenter.UpdateLayout();
+
+        Assert.Equal(view.Extent.Height, presenter.Extent.Height, 1);
+    }
     [AvaloniaFact]
     public void The_editor_template_makes_the_view_the_scroll_viewer_s_own_content()
     {
