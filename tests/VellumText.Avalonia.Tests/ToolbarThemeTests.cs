@@ -2,6 +2,7 @@ using global::Avalonia;
 using global::Avalonia.Controls;
 using global::Avalonia.Controls.Primitives;
 using global::Avalonia.Headless.XUnit;
+using global::Avalonia.Interactivity;
 using global::Avalonia.Markup.Xaml.Styling;
 using global::Avalonia.VisualTree;
 using VellumText;
@@ -290,6 +291,46 @@ public class ToolbarThemeTests
 
     private static MarkSet FirstMark(RichTextEditor editor) =>
         Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(0);
+
+    /// <summary>
+    /// Picking a colour closes the flyout it was picked from (owner decision). Found live: the
+    /// colour applied and the flyout stayed open over the document until Escape or a click
+    /// elsewhere — a second step for the commonest thing the flyout is for.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Text colour")]
+    [InlineData("Highlight")]
+    public void PickingAColourClosesTheFlyout(string tip)
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var swatch = Swatches(bar, tip)[8];
+        var flyout = (Flyout)Find(bar, tip)!.Flyout!;
+
+        Assert.True(flyout.IsOpen);
+
+        swatch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.False(flyout.IsOpen);
+    }
+
+    [AvaloniaFact]
+    public void ClearingTheColourClosesTheFlyoutToo()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var clear = Popup(bar, "Text colour").GetVisualDescendants().OfType<Button>()
+            .Single(b => b.Classes.Contains("VellumText-clear-colour"));
+        var flyout = (Flyout)Find(bar, "Text colour")!.Flyout!;
+
+        clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.False(flyout.IsOpen);
+    }
 
     /// <summary>Opens a colour button's flyout and returns the swatch buttons inside it.</summary>
     private static List<Button> Swatches(RichTextToolbar bar, string tip) =>
