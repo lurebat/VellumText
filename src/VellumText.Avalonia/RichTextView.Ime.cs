@@ -104,6 +104,13 @@ public partial class RichTextView
             return false;
         }
 
+        // The paragraph dropped its layout without the block holding it being updated, and a
+        // table measures only the rows it knows have changed: told nothing, it would answer for
+        // and draw this paragraph unmeasured.
+        var index = BlockIndexOf(at.Start);
+
+        _views[index].ParagraphChanged(at.Start - _slots[index].Start);
+
         // Laid out eagerly, for the same reason a state change is: the composition dropped the
         // layout, and the input method asks for CursorRectangle immediately after handing over
         // the composed text — well before the layout pass. Deferring here is not a stale

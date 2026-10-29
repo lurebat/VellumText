@@ -1579,6 +1579,41 @@ internal sealed class TableBlockView : BlockView
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The row is marked edited, so the next measurement of its band lays the paragraph out again
+    /// and settles the row's height — composed text can wrap the cell onto another line — and
+    /// drawing does not reach the row before then. Passed down, for a table inside the cell.
+    /// </remarks>
+    public override void ParagraphChanged(int localPosition)
+    {
+        var r = RowAt(localPosition);
+
+        // A row nobody realized has no paragraph views to have changed.
+        if (r < 0 || _rows[r].Cells is not { } cells)
+        {
+            return;
+        }
+
+        _rows[r].Dirty = true;
+
+        var rowStart = _rowStarts[r];
+
+        foreach (var cell in cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                if (localPosition >= rowStart + child.Start
+                    && localPosition <= rowStart + child.Start + child.View.ContentSize)
+                {
+                    child.View.ParagraphChanged(localPosition - rowStart - child.Start);
+
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc/>
     /// <remarks>Recursive, for the same reason <see cref="ParagraphAt"/> is.</remarks>
     public override Rect? GetImageRect(int localPosition)
     {
