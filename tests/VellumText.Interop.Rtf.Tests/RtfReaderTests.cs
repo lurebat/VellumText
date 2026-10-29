@@ -165,6 +165,20 @@ public class RtfReaderTests
         Assert.IsType<ListNode>(cells[1].Blocks[0]);
         Assert.Contains(result.Doc.Blocks, b => b is ListNode);
     }
+    /// <summary>
+    /// The reader's own bookkeeping is not a loss. OfficeIMO writes private <c>--officeimo-rtf-*</c>
+    /// properties for its round trip, and each surfaced as "Removed a style the editor cannot
+    /// represent" — noise a user can do nothing about (found live, phase 8). Styles that really
+    /// are lost are still reported.
+    /// </summary>
+    [Fact]
+    public async Task The_readers_private_styles_are_removed_without_a_diagnostic()
+    {
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context?.StartsWith("--officeimo", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "line-height");
+    }
     [Fact]
     public async Task Merged_cells_arrive_merged()
     {
