@@ -7,6 +7,5 @@ VellumText.Interop.Json.JsonFormat.Export(VellumText.DocumentNode! doc) -> strin
 VellumText.Interop.Json.JsonFormat.Format.get -> string!
 VellumText.Interop.Json.JsonFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Json.JsonFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
-VellumText.Interop.Json.JsonFormat.JsonFormat() -> void
 VellumText.Interop.Json.JsonFormat.MediaType.get -> string!
 VellumText.Interop.Json.JsonFormat.TextEncoding.get -> System.Text.Encoding?

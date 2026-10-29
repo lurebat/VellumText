@@ -14,7 +14,6 @@ VellumText.Interop.Rtf.RtfExporter.Export(System.IO.Stream! destination, VellumT
 VellumText.Interop.Rtf.RtfExporter.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Rtf.RtfExporter.Format.get -> string!
 VellumText.Interop.Rtf.RtfExporter.MediaType.get -> string!
-VellumText.Interop.Rtf.RtfExporter.RtfExporter() -> void
 VellumText.Interop.Rtf.RtfExporter.TextEncoding.get -> System.Text.Encoding?
 VellumText.Interop.Rtf.RtfFormat
 VellumText.Interop.Rtf.RtfFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void

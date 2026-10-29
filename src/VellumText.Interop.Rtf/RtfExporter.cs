@@ -56,6 +56,10 @@ public sealed class RtfExporter : IDocumentExporter
     /// <summary>A shared instance. The exporter holds no state.</summary>
     public static RtfExporter Instance { get; } = new();
 
+    private RtfExporter()
+    {
+    }
+
     /// <inheritdoc/>
     public string Format => "rtf";
 

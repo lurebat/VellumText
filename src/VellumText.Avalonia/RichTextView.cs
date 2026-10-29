@@ -388,7 +388,7 @@ public partial class RichTextView : DocumentPresenter
     }
 
     /// <summary>Whether the caret is currently painted, for tests and for the blink timer.</summary>
-    public bool IsCaretVisible => _caretVisible;
+    internal bool IsCaretVisible => _caretVisible;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -736,7 +736,7 @@ public partial class RichTextView : DocumentPresenter
     /// </remarks>
     /// <param name="caret">The caret rectangle in device-independent pixels.</param>
     /// <param name="scale">The render scaling of the surface being drawn on.</param>
-    public static Rect SnapCaret(Rect caret, double scale)
+    internal static Rect SnapCaret(Rect caret, double scale)
     {
         if (scale <= 0 || double.IsNaN(scale) || double.IsInfinity(scale))
         {

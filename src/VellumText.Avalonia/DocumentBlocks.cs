@@ -5,7 +5,7 @@ namespace VellumText.Avalonia;
 /// <summary>How a list item is marked.</summary>
 /// <param name="Kind">Whether the item is numbered.</param>
 /// <param name="Ordinal">The item's number, honouring <see cref="ListNode.Start"/>.</param>
-public readonly record struct ListMarker(ListKind Kind, int Ordinal);
+internal readonly record struct ListMarker(ListKind Kind, int Ordinal);
 
 /// <summary>
 /// One block as the view layer sees it: a leaf block together with everything the document
@@ -30,7 +30,7 @@ public readonly record struct ListMarker(ListKind Kind, int Ordinal);
 /// The marker to draw beside the block, or null. Only the first block of a list item carries
 /// one, so a multi-paragraph item is marked once rather than once per paragraph.
 /// </param>
-public readonly record struct BlockSlot(BlockNode Node, int Start, int Depth, ListMarker? Marker)
+internal readonly record struct BlockSlot(BlockNode Node, int Start, int Depth, ListMarker? Marker)
 {
     /// <summary>The number of positions inside the block.</summary>
     public int ContentSize => Node.ContentSize;
@@ -59,7 +59,7 @@ public readonly record struct BlockSlot(BlockNode Node, int Start, int Depth, Li
 /// express it.
 /// </para>
 /// </remarks>
-public static class DocumentBlocks
+internal static class DocumentBlocks
 {
     /// <summary>The blocks of a document, in the order they are drawn.</summary>
     /// <param name="doc">The document.</param>

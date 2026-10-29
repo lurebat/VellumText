@@ -18,7 +18,6 @@ VellumText.Interop.Html.HtmlExporter.Export(System.IO.Stream! destination, Vellu
 VellumText.Interop.Html.HtmlExporter.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Html.HtmlExporter.ExportForClipboard(VellumText.DocumentNode! doc, System.Uri? sourceUri = null) -> string!
 VellumText.Interop.Html.HtmlExporter.Format.get -> string!
-VellumText.Interop.Html.HtmlExporter.HtmlExporter() -> void
 VellumText.Interop.Html.HtmlExporter.MediaType.get -> string!
 VellumText.Interop.Html.HtmlExporter.TextEncoding.get -> System.Text.Encoding?
 VellumText.Interop.Html.HtmlFormat

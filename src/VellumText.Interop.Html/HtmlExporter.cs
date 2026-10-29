@@ -30,6 +30,10 @@ public sealed class HtmlExporter : IDocumentExporter
     /// <summary>A shared instance. The exporter holds no state.</summary>
     public static HtmlExporter Instance { get; } = new();
 
+    private HtmlExporter()
+    {
+    }
+
     /// <inheritdoc/>
     public string Format => "html";
 

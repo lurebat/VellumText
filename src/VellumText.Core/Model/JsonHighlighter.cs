@@ -29,6 +29,10 @@ public sealed class JsonHighlighter : ISyntaxHighlighter
     /// <summary>The shared instance.</summary>
     public static readonly JsonHighlighter Instance = new();
 
+    private JsonHighlighter()
+    {
+    }
+
     /// <inheritdoc/>
     public string Language => "json";
 

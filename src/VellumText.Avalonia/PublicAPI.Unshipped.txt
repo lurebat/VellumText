@@ -9,7 +9,6 @@ const VellumText.Avalonia.RichTextView.MaxIndentLevel = 8 -> int
 const VellumText.Avalonia.RichTextView.MinimumImageSide = 8 -> double
 const VellumText.Avalonia.RichTextView.TouchHandleRadius = 7 -> double
 const VellumText.Avalonia.RichTextView.TouchHandleTargetRadius = 22 -> double
-override VellumText.Avalonia.BlockSlot.GetHashCode() -> int
 override VellumText.Avalonia.ClipboardFlavor.Equals(object? obj) -> bool
 override VellumText.Avalonia.ClipboardFlavor.GetHashCode() -> int
 override VellumText.Avalonia.ClipboardFlavor.ToString() -> string!
@@ -21,7 +20,6 @@ override VellumText.Avalonia.DocumentPresenter.Render(Avalonia.Media.DrawingCont
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.GetAutomationControlTypeCore() -> Avalonia.Automation.Peers.AutomationControlType
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsContentElementCore() -> bool
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsKeyboardFocusableCore() -> bool
-override VellumText.Avalonia.ListMarker.GetHashCode() -> int
 override VellumText.Avalonia.ParagraphStyle.Equals(object? obj) -> bool
 override VellumText.Avalonia.ParagraphStyle.GetHashCode() -> int
 override VellumText.Avalonia.ParagraphStyle.ToString() -> string!
@@ -118,15 +116,8 @@ static readonly VellumText.Avalonia.ToolbarConverters.Is -> Avalonia.Data.Conver
 static readonly VellumText.Avalonia.ToolbarConverters.Points -> Avalonia.Data.Converters.IValueConverter!
 static readonly VellumText.Avalonia.ToolbarConverters.Swatch -> Avalonia.Data.Converters.IValueConverter!
 static VellumText.Avalonia.BitmapEmbedRenderer.Shared.get -> VellumText.Avalonia.BitmapEmbedRenderer!
-static VellumText.Avalonia.BlockSlot.operator !=(VellumText.Avalonia.BlockSlot left, VellumText.Avalonia.BlockSlot right) -> bool
-static VellumText.Avalonia.BlockSlot.operator ==(VellumText.Avalonia.BlockSlot left, VellumText.Avalonia.BlockSlot right) -> bool
 static VellumText.Avalonia.ClipboardFlavor.operator !=(VellumText.Avalonia.ClipboardFlavor? left, VellumText.Avalonia.ClipboardFlavor? right) -> bool
 static VellumText.Avalonia.ClipboardFlavor.operator ==(VellumText.Avalonia.ClipboardFlavor? left, VellumText.Avalonia.ClipboardFlavor? right) -> bool
-static VellumText.Avalonia.DocumentBlocks.Flatten(System.Collections.Generic.IReadOnlyList<VellumText.BlockNode!>! blocks, int start) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
-static VellumText.Avalonia.DocumentBlocks.Flatten(VellumText.DocumentNode! doc) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
-static VellumText.Avalonia.DocumentBlocks.Leaves(VellumText.DocumentNode! doc) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
-static VellumText.Avalonia.ListMarker.operator !=(VellumText.Avalonia.ListMarker left, VellumText.Avalonia.ListMarker right) -> bool
-static VellumText.Avalonia.ListMarker.operator ==(VellumText.Avalonia.ListMarker left, VellumText.Avalonia.ListMarker right) -> bool
 static VellumText.Avalonia.ParagraphStyle.Body.get -> VellumText.Avalonia.ParagraphStyle!
 static VellumText.Avalonia.ParagraphStyle.operator !=(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
 static VellumText.Avalonia.ParagraphStyle.operator ==(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
@@ -144,7 +135,6 @@ static VellumText.Avalonia.RichTextClipboard.WriteAsync(Avalonia.Input.Platform.
 static VellumText.Avalonia.RichTextToolbar.FontFamilies.get -> System.Collections.Generic.IReadOnlyList<string!>!
 static VellumText.Avalonia.RichTextToolbar.FontSizes.get -> System.Collections.Generic.IReadOnlyList<double>!
 static VellumText.Avalonia.RichTextToolbar.Palette.get -> System.Collections.Generic.IReadOnlyList<string!>!
-static VellumText.Avalonia.RichTextView.SnapCaret(Avalonia.Rect caret, double scale) -> Avalonia.Rect
 static VellumText.Avalonia.SyntaxTheme.Dark.get -> VellumText.Avalonia.SyntaxTheme!
 static VellumText.Avalonia.SyntaxTheme.Light.get -> VellumText.Avalonia.SyntaxTheme!
 VellumText.Avalonia.BitmapEmbedRenderer
@@ -163,21 +153,6 @@ VellumText.Avalonia.BitmapEmbedRenderer.MaximumPixels.init -> void
 VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.get -> int
 VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.init -> void
 VellumText.Avalonia.BitmapEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
-VellumText.Avalonia.BlockSlot
-VellumText.Avalonia.BlockSlot.BlockSlot() -> void
-VellumText.Avalonia.BlockSlot.BlockSlot(VellumText.BlockNode! Node, int Start, int Depth, VellumText.Avalonia.ListMarker? Marker) -> void
-VellumText.Avalonia.BlockSlot.ContentSize.get -> int
-VellumText.Avalonia.BlockSlot.Deconstruct(out VellumText.BlockNode! Node, out int Start, out int Depth, out VellumText.Avalonia.ListMarker? Marker) -> void
-VellumText.Avalonia.BlockSlot.Depth.get -> int
-VellumText.Avalonia.BlockSlot.Depth.init -> void
-VellumText.Avalonia.BlockSlot.End.get -> int
-VellumText.Avalonia.BlockSlot.Equals(VellumText.Avalonia.BlockSlot other) -> bool
-VellumText.Avalonia.BlockSlot.Marker.get -> VellumText.Avalonia.ListMarker?
-VellumText.Avalonia.BlockSlot.Marker.init -> void
-VellumText.Avalonia.BlockSlot.Node.get -> VellumText.BlockNode!
-VellumText.Avalonia.BlockSlot.Node.init -> void
-VellumText.Avalonia.BlockSlot.Start.get -> int
-VellumText.Avalonia.BlockSlot.Start.init -> void
 VellumText.Avalonia.ClipboardFlavor
 VellumText.Avalonia.ClipboardFlavor.<Clone>$() -> VellumText.Avalonia.ClipboardFlavor!
 VellumText.Avalonia.ClipboardFlavor.ClipboardFlavor(string! Format, Avalonia.Input.DataFormat<byte[]!>! DataFormat) -> void
@@ -191,7 +166,6 @@ VellumText.Avalonia.DataUriImageStore
 VellumText.Avalonia.DataUriImageStore.DataUriImageStore(int maximumBytes = 4194304) -> void
 VellumText.Avalonia.DataUriImageStore.MaximumBytes.get -> int
 VellumText.Avalonia.DataUriImageStore.Save(System.ReadOnlySpan<byte> bytes, string! mediaType) -> string?
-VellumText.Avalonia.DocumentBlocks
 VellumText.Avalonia.DocumentPresenter
 VellumText.Avalonia.DocumentPresenter.Background.get -> Avalonia.Media.IBrush?
 VellumText.Avalonia.DocumentPresenter.Background.set -> void
@@ -226,7 +200,6 @@ VellumText.Avalonia.DocumentPresenter.Offset.set -> void
 VellumText.Avalonia.DocumentPresenter.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
 VellumText.Avalonia.DocumentPresenter.ParagraphStyles.set -> void
 VellumText.Avalonia.DocumentPresenter.PositionAt(Avalonia.Point point) -> int
-VellumText.Avalonia.DocumentPresenter.RealizedBlocks.get -> System.Range
 VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.get -> VellumText.ISyntaxHighlighter?
 VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.set -> void
 VellumText.Avalonia.DocumentPresenter.SyntaxTheme.get -> VellumText.Avalonia.ISyntaxTheme!
@@ -260,15 +233,6 @@ VellumText.Avalonia.ISyntaxTheme.For(VellumText.TokenKind kind) -> VellumText.Ma
 VellumText.Avalonia.ITextStyleResolver
 VellumText.Avalonia.ITextStyleResolver.Default.get -> Avalonia.Media.TextFormatting.TextRunProperties!
 VellumText.Avalonia.ITextStyleResolver.Resolve(VellumText.MarkSet marks) -> Avalonia.Media.TextFormatting.TextRunProperties!
-VellumText.Avalonia.ListMarker
-VellumText.Avalonia.ListMarker.Deconstruct(out VellumText.ListKind Kind, out int Ordinal) -> void
-VellumText.Avalonia.ListMarker.Equals(VellumText.Avalonia.ListMarker other) -> bool
-VellumText.Avalonia.ListMarker.Kind.get -> VellumText.ListKind
-VellumText.Avalonia.ListMarker.Kind.init -> void
-VellumText.Avalonia.ListMarker.ListMarker() -> void
-VellumText.Avalonia.ListMarker.ListMarker(VellumText.ListKind Kind, int Ordinal) -> void
-VellumText.Avalonia.ListMarker.Ordinal.get -> int
-VellumText.Avalonia.ListMarker.Ordinal.init -> void
 VellumText.Avalonia.ParagraphStyle
 VellumText.Avalonia.ParagraphStyle.<Clone>$() -> VellumText.Avalonia.ParagraphStyle!
 VellumText.Avalonia.ParagraphStyle.Background.get -> Avalonia.Media.IBrush?
@@ -453,7 +417,6 @@ VellumText.Avalonia.RichTextView.FindHighlightBrush.set -> void
 VellumText.Avalonia.RichTextView.FindNext() -> bool
 VellumText.Avalonia.RichTextView.FindPrevious() -> bool
 VellumText.Avalonia.RichTextView.Formats.get -> System.Collections.Generic.ICollection<VellumText.IDocumentFormat!>!
-VellumText.Avalonia.RichTextView.GoalX.get -> double?
 VellumText.Avalonia.RichTextView.HideTouchHandles() -> void
 VellumText.Avalonia.RichTextView.History.get -> VellumText.History!
 VellumText.Avalonia.RichTextView.History.set -> void
@@ -478,7 +441,6 @@ VellumText.Avalonia.RichTextView.InsertRowAbove() -> bool
 VellumText.Avalonia.RichTextView.InsertRowBelow() -> bool
 VellumText.Avalonia.RichTextView.InsertText(string! text) -> bool
 VellumText.Avalonia.RichTextView.IsActive(VellumText.TextStyle style) -> bool
-VellumText.Avalonia.RichTextView.IsCaretVisible.get -> bool
 VellumText.Avalonia.RichTextView.IsComposing.get -> bool
 VellumText.Avalonia.RichTextView.IsDragging.get -> bool
 VellumText.Avalonia.RichTextView.IsDraggingTouchHandle.get -> bool
@@ -585,7 +547,3 @@ VellumText.Avalonia.TextStyleResolver.TextStyleResolver(Avalonia.Media.Typeface 
 VellumText.Avalonia.ToolbarConverters
 virtual VellumText.Avalonia.DocumentPresenter.SetTextFromAutomation(string! text) -> void
 virtual VellumText.Avalonia.DocumentPresenter.SupportsTextInput.get -> bool
-~override VellumText.Avalonia.BlockSlot.Equals(object obj) -> bool
-~override VellumText.Avalonia.BlockSlot.ToString() -> string
-~override VellumText.Avalonia.ListMarker.Equals(object obj) -> bool
-~override VellumText.Avalonia.ListMarker.ToString() -> string

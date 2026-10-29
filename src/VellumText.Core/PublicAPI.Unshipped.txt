@@ -23,6 +23,7 @@ override sealed VellumText.Node.Equals(object? obj) -> bool
 override sealed VellumText.NodeSelection.Equals(VellumText.Selection? other) -> bool
 override sealed VellumText.RemoveMarkStep.Equals(VellumText.Step? other) -> bool
 override sealed VellumText.ReplaceStep.Equals(VellumText.Step? other) -> bool
+override sealed VellumText.ReplaceTextStep.Equals(VellumText.Step? other) -> bool
 override sealed VellumText.RestoreMarksStep.Equals(VellumText.Step? other) -> bool
 override sealed VellumText.SetBlockAttrStep.Equals(VellumText.Step? other) -> bool
 override sealed VellumText.TableStructureStep.Equals(VellumText.Step? other) -> bool
@@ -126,6 +127,14 @@ override VellumText.ReplaceStep.GetMap() -> VellumText.StepMap
 override VellumText.ReplaceStep.Invert(VellumText.DocumentNode! docBefore) -> VellumText.Step!
 override VellumText.ReplaceStep.Map(VellumText.Mapping! mapping) -> VellumText.Step?
 override VellumText.ReplaceStep.ToString() -> string!
+override VellumText.ReplaceTextStep.<Clone>$() -> VellumText.ReplaceTextStep!
+override VellumText.ReplaceTextStep.Apply(VellumText.DocumentNode! doc) -> VellumText.StepResult
+override VellumText.ReplaceTextStep.Equals(object? obj) -> bool
+override VellumText.ReplaceTextStep.GetHashCode() -> int
+override VellumText.ReplaceTextStep.GetMap() -> VellumText.StepMap
+override VellumText.ReplaceTextStep.Invert(VellumText.DocumentNode! docBefore) -> VellumText.Step!
+override VellumText.ReplaceTextStep.Map(VellumText.Mapping! mapping) -> VellumText.Step?
+override VellumText.ReplaceTextStep.ToString() -> string!
 override VellumText.ResolvedPos.ToString() -> string!
 override VellumText.RestoreMarksStep.<Clone>$() -> VellumText.RestoreMarksStep!
 override VellumText.RestoreMarksStep.Apply(VellumText.DocumentNode! doc) -> VellumText.StepResult
@@ -201,6 +210,7 @@ override VellumText.TableStructureStep.GetMap() -> VellumText.StepMap
 override VellumText.TableStructureStep.Invert(VellumText.DocumentNode! docBefore) -> VellumText.Step!
 override VellumText.TableStructureStep.Map(VellumText.Mapping! mapping) -> VellumText.Step?
 override VellumText.TableStructureStep.ToString() -> string!
+override VellumText.TextReplacement.GetHashCode() -> int
 override VellumText.TextSelection.<Clone>$() -> VellumText.TextSelection!
 override VellumText.TextSelection.Equals(object? obj) -> bool
 override VellumText.TextSelection.GetHashCode() -> int
@@ -282,6 +292,8 @@ static VellumText.ReplaceStep.Delete(int from, int to) -> VellumText.ReplaceStep
 static VellumText.ReplaceStep.Insert(int at, VellumText.Slice! content) -> VellumText.ReplaceStep!
 static VellumText.ReplaceStep.operator !=(VellumText.ReplaceStep? left, VellumText.ReplaceStep? right) -> bool
 static VellumText.ReplaceStep.operator ==(VellumText.ReplaceStep? left, VellumText.ReplaceStep? right) -> bool
+static VellumText.ReplaceTextStep.operator !=(VellumText.ReplaceTextStep? left, VellumText.ReplaceTextStep? right) -> bool
+static VellumText.ReplaceTextStep.operator ==(VellumText.ReplaceTextStep? left, VellumText.ReplaceTextStep? right) -> bool
 static VellumText.ResolvedPos.Resolve(VellumText.DocumentNode! doc, int pos) -> VellumText.ResolvedPos!
 static VellumText.RestoreMarksStep.operator !=(VellumText.RestoreMarksStep? left, VellumText.RestoreMarksStep? right) -> bool
 static VellumText.RestoreMarksStep.operator ==(VellumText.RestoreMarksStep? left, VellumText.RestoreMarksStep? right) -> bool
@@ -342,6 +354,8 @@ static VellumText.TableSlot.operator !=(VellumText.TableSlot left, VellumText.Ta
 static VellumText.TableSlot.operator ==(VellumText.TableSlot left, VellumText.TableSlot right) -> bool
 static VellumText.TableStructureStep.operator !=(VellumText.TableStructureStep? left, VellumText.TableStructureStep? right) -> bool
 static VellumText.TableStructureStep.operator ==(VellumText.TableStructureStep? left, VellumText.TableStructureStep? right) -> bool
+static VellumText.TextReplacement.operator !=(VellumText.TextReplacement left, VellumText.TextReplacement right) -> bool
+static VellumText.TextReplacement.operator ==(VellumText.TextReplacement left, VellumText.TextReplacement right) -> bool
 static VellumText.TextSelection.Create(VellumText.DocumentNode! doc, int anchor, int head) -> VellumText.Selection!
 static VellumText.TextSelection.Cursor(int pos) -> VellumText.TextSelection!
 static VellumText.TextSelection.operator !=(VellumText.TextSelection? left, VellumText.TextSelection? right) -> bool
@@ -531,7 +545,6 @@ VellumText.ISyntaxHighlighter
 VellumText.ISyntaxHighlighter.Language.get -> string!
 VellumText.ISyntaxHighlighter.Tokenize(string! text) -> System.Collections.Immutable.ImmutableArray<VellumText.ValueSpan<VellumText.TokenKind>>
 VellumText.JsonHighlighter
-VellumText.JsonHighlighter.JsonHighlighter() -> void
 VellumText.JsonHighlighter.Language.get -> string!
 VellumText.JsonHighlighter.Tokenize(string! text) -> System.Collections.Immutable.ImmutableArray<VellumText.ValueSpan<VellumText.TokenKind>>
 VellumText.LinkMark
@@ -673,6 +686,12 @@ VellumText.ReplaceStep.From.init -> void
 VellumText.ReplaceStep.ReplaceStep(int From, int To, VellumText.Slice! Content) -> void
 VellumText.ReplaceStep.To.get -> int
 VellumText.ReplaceStep.To.init -> void
+VellumText.ReplaceTextStep
+VellumText.ReplaceTextStep.Deconstruct(out System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement> Replacements) -> void
+VellumText.ReplaceTextStep.Equals(VellumText.ReplaceTextStep? other) -> bool
+VellumText.ReplaceTextStep.Replacements.get -> System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement>
+VellumText.ReplaceTextStep.Replacements.init -> void
+VellumText.ReplaceTextStep.ReplaceTextStep(System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement> Replacements) -> void
 VellumText.ResolvedPos
 VellumText.ResolvedPos.After(int depth) -> int
 VellumText.ResolvedPos.Before(int depth) -> int
@@ -847,6 +866,17 @@ VellumText.TextAlign.Default = 0 -> VellumText.TextAlign
 VellumText.TextAlign.Justify = 4 -> VellumText.TextAlign
 VellumText.TextAlign.Left = 1 -> VellumText.TextAlign
 VellumText.TextAlign.Right = 3 -> VellumText.TextAlign
+VellumText.TextReplacement
+VellumText.TextReplacement.Content.get -> VellumText.InlineContent!
+VellumText.TextReplacement.Content.init -> void
+VellumText.TextReplacement.Deconstruct(out int From, out int To, out VellumText.InlineContent! Content) -> void
+VellumText.TextReplacement.Equals(VellumText.TextReplacement other) -> bool
+VellumText.TextReplacement.From.get -> int
+VellumText.TextReplacement.From.init -> void
+VellumText.TextReplacement.TextReplacement() -> void
+VellumText.TextReplacement.TextReplacement(int From, int To, VellumText.InlineContent! Content) -> void
+VellumText.TextReplacement.To.get -> int
+VellumText.TextReplacement.To.init -> void
 VellumText.TextSelection
 VellumText.TextSelection.Deconstruct(out int Anchor, out int Head) -> void
 VellumText.TextSelection.Equals(VellumText.TextSelection? other) -> bool
@@ -942,37 +972,6 @@ virtual VellumText.Step.PrintMembers(System.Text.StringBuilder! builder) -> bool
 ~override VellumText.StepResult.Equals(object obj) -> bool
 ~override VellumText.TableSlot.Equals(object obj) -> bool
 ~override VellumText.TableSlot.ToString() -> string
-~override VellumText.ValueSpan<T>.Equals(object obj) -> bool
 ~override VellumText.TextReplacement.Equals(object obj) -> bool
 ~override VellumText.TextReplacement.ToString() -> string
-override sealed VellumText.ReplaceTextStep.Equals(VellumText.Step? other) -> bool
-override VellumText.ReplaceTextStep.<Clone>$() -> VellumText.ReplaceTextStep!
-override VellumText.ReplaceTextStep.Apply(VellumText.DocumentNode! doc) -> VellumText.StepResult
-override VellumText.ReplaceTextStep.Equals(object? obj) -> bool
-override VellumText.ReplaceTextStep.GetHashCode() -> int
-override VellumText.ReplaceTextStep.GetMap() -> VellumText.StepMap
-override VellumText.ReplaceTextStep.Invert(VellumText.DocumentNode! docBefore) -> VellumText.Step!
-override VellumText.ReplaceTextStep.Map(VellumText.Mapping! mapping) -> VellumText.Step?
-override VellumText.ReplaceTextStep.ToString() -> string!
-override VellumText.TextReplacement.GetHashCode() -> int
-static VellumText.ReplaceTextStep.operator !=(VellumText.ReplaceTextStep? left, VellumText.ReplaceTextStep? right) -> bool
-static VellumText.ReplaceTextStep.operator ==(VellumText.ReplaceTextStep? left, VellumText.ReplaceTextStep? right) -> bool
-static VellumText.TextReplacement.operator !=(VellumText.TextReplacement left, VellumText.TextReplacement right) -> bool
-static VellumText.TextReplacement.operator ==(VellumText.TextReplacement left, VellumText.TextReplacement right) -> bool
-VellumText.ReplaceTextStep
-VellumText.ReplaceTextStep.Deconstruct(out System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement> Replacements) -> void
-VellumText.ReplaceTextStep.Equals(VellumText.ReplaceTextStep? other) -> bool
-VellumText.ReplaceTextStep.Replacements.get -> System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement>
-VellumText.ReplaceTextStep.Replacements.init -> void
-VellumText.ReplaceTextStep.ReplaceTextStep(System.Collections.Immutable.ImmutableArray<VellumText.TextReplacement> Replacements) -> void
-VellumText.TextReplacement
-VellumText.TextReplacement.Content.get -> VellumText.InlineContent!
-VellumText.TextReplacement.Content.init -> void
-VellumText.TextReplacement.Deconstruct(out int From, out int To, out VellumText.InlineContent! Content) -> void
-VellumText.TextReplacement.Equals(VellumText.TextReplacement other) -> bool
-VellumText.TextReplacement.From.get -> int
-VellumText.TextReplacement.From.init -> void
-VellumText.TextReplacement.TextReplacement() -> void
-VellumText.TextReplacement.TextReplacement(int From, int To, VellumText.InlineContent! Content) -> void
-VellumText.TextReplacement.To.get -> int
-VellumText.TextReplacement.To.init -> void
+~override VellumText.ValueSpan<T>.Equals(object obj) -> bool

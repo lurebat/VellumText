@@ -16,7 +16,6 @@ VellumText.Interop.Markdown.MarkdownExporter.Export(System.IO.Stream! destinatio
 VellumText.Interop.Markdown.MarkdownExporter.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Markdown.MarkdownExporter.ExportWithDiagnostics(VellumText.DocumentNode! doc) -> VellumText.Interop.Markdown.MarkdownExportResult
 VellumText.Interop.Markdown.MarkdownExporter.Format.get -> string!
-VellumText.Interop.Markdown.MarkdownExporter.MarkdownExporter() -> void
 VellumText.Interop.Markdown.MarkdownExporter.MediaType.get -> string!
 VellumText.Interop.Markdown.MarkdownExporter.TextEncoding.get -> System.Text.Encoding?
 VellumText.Interop.Markdown.MarkdownExportResult

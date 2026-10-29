@@ -52,6 +52,10 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     /// <summary>The shared instance.</summary>
     public static readonly JsonFormat Instance = new();
 
+    private JsonFormat()
+    {
+    }
+
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = false };
 
     // The reader must accept whatever the writer emits, or a saved document comes back empty.
