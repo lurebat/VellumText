@@ -132,7 +132,7 @@ public class RtfReaderTests
     [Fact]
     public async Task A_list_before_a_table_does_not_leak_into_its_cells()
     {
-        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
 
         var table = Assert.Single(All(result.Doc).OfType<TableNode>());
 
@@ -156,7 +156,8 @@ public class RtfReaderTests
         var result = await RtfImporter.ImportAsync(
             @"{\rtf1\ansi" + lists + @"\pard" + bullet + @"{item\par }" +
             @"\trowd\cellx2000\cellx4000\pard\plain\intbl leaked\cell \pard\intbl" + bullet + @"listed\cell\row " +
-            @"\pard\plain after\par}");
+            @"\pard\plain after\par}",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var table = Assert.Single(All(result.Doc).OfType<TableNode>());
         var cells = table.Rows[0].Cells;
@@ -174,7 +175,7 @@ public class RtfReaderTests
     [Fact]
     public async Task The_readers_private_styles_are_removed_without_a_diagnostic()
     {
-        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Context?.StartsWith("--officeimo", StringComparison.OrdinalIgnoreCase) == true);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "line-height");
