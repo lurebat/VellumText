@@ -515,6 +515,12 @@ awaits `PasteAsync`.
 
 ### Changed
 
+- **HtmlSanitizer 9.2.1039 and AngleSharp 1.8.5** (were 9.1.982 and 1.8.3). The
+  sanitizer tightens URI-list attributes, `srcdoc`, `cite`/`longdesc`,
+  `<style type="">`, `@font-face` and `@import`. AngleSharp 1.8.6, which fixes a
+  mutation-XSS in attribute serialisation and stack overflows in `Clone`/`Import`,
+  is not yet on the package feed this was built from; VellumText reserialises no
+  AngleSharp DOM and calls neither, so it is defence in depth to take when it is.
 - **Built on Avalonia 12.1.4** (was 12.1.1), so a host must reference Avalonia
   12.1.4 or later. The patch releases between them fix, among others, an infinite
   loop shaping a text run that produces no glyphs (reachable from pasted text),

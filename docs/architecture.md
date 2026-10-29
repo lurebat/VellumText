@@ -1279,7 +1279,7 @@ Only materially distinct options; scored 1–5 (5 best).
 | Format | Choice | License | Rationale |
 |---|---|---|---|
 | DOCX | `DocumentFormat.OpenXml` 3.5.1 | **MIT** | Microsoft/.NET Foundation, active (rel. 2026-03-18), pure managed OOXML — no Office/COM, works on Linux/macOS. Low-level, so it sits behind our own adapter. |
-| HTML | `AngleSharp` 1.8.3 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
+| HTML | `AngleSharp` 1.8.5, sanitised by `HtmlSanitizer` 9.2.1039 | **MIT** | HTML5-spec parsing with browser-grade error recovery — essential for the malformed fragments Word and web apps put on the clipboard. |
 | Markdown | `Markdig` 1.3.2 | **BSD-2** | AST + custom renderers + trivia round-trip. |
 | RTF | `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf` 3.5.1 (exact pin) for import, hand-rolled writer for export | **MIT** | Chosen 2026-10-27 through the phase 8 selection gate (owner decision OD-8, option 1), replacing RtfPipe. OfficeIMO reads the RTF into its own model and writes HTML, which then goes through the same AngleSharp path as any other paste, so there is still exactly one place deciding what a paste may contain. It was the only maintained, permissively licensed candidate bounded on the whole hostile corpus; RtfPipe (last release 2021) took 2.3 s on 32 bytes of `\uc2147483647` and over 30 s on 100,000 `\cellx`. The scored comparison is summarised in the phase 8 pull request. |
 
