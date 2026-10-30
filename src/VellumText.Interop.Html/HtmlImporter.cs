@@ -175,8 +175,9 @@ public static class HtmlImporter
         // Deliberately without CSS support: with it every element's style attribute is parsed while
         // the tree is built, which for a Word document is the same few strings parsed once per
         // element. Styles are sanitized and parsed once per distinct value instead — see
-        // SanitizingReader.Sanitize and CssStyles.StyleOf.
-        var context = BrowsingContext.New(Configuration.Default);
+        // SanitizingReader.Sanitize and CssStyles.StyleOf. Nor does an image's source start a
+        // request — see WithoutImageRequests.
+        var context = BrowsingContext.New(WithoutImageRequests.Configuration);
         var document = Parse(context, html, options, diagnostics);
 
         // Before sanitizing, so that nothing outside the fragment is reported as removed.
