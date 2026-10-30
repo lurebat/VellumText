@@ -402,6 +402,44 @@ public class ViewportAnchorTests
     }
 
     /// <summary>
+    /// Narrower, then a question about a far row above the viewport that moves everything under
+    /// it, then as wide as before: the line held at the top is the one the reader had at the top
+    /// all along, not the line it was folded into while narrow.
+    /// </summary>
+    /// <remarks>
+    /// Narrow, the held line's first position sits inside a line that starts earlier. The question
+    /// put the viewport back from a fresh reading of the top, which named that earlier start, and
+    /// the next resize held it: wide again, the reader's line came back a line lower.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AFarQuestionBetweenTwoResizesKeepsTheLineHeldAtTheTop()
+    {
+        var table = new TableNode(Enumerable.Range(0, 300).Select(r => new TableRowNode([
+            r == 50
+                ? new TableCellNode([.. Enumerable.Range(0, 60).Select(i => (BlockNode)ParagraphNode.FromText($"tall {i}"))])
+                : new TableCellNode([Long($"R{r}", 8)]),
+        ])));
+        var doc = new DocumentNode([table, ParagraphNode.FromText("After.")]);
+        var (window, view) = Shown(doc);
+        var (top, y) = ScrollIntoMiddleOf(window, view, "R200");
+
+        window.Width = Width - 150;
+        Layout(window);
+
+        AssertAt(view, top, y);
+        Assert.NotEqual(top, view.PositionAt(new Point(1, 0.5)));
+
+        _ = view.ImageRect(PositionOf(view.State.Doc, "tall 30"));
+
+        AssertAt(view, top, y);
+
+        window.Width = Width;
+        Layout(window);
+
+        AssertAt(view, top, y);
+    }
+
+    /// <summary>
     /// The top of the viewport in the spacing between two paragraphs of a cell: the text the
     /// reader sees first is the second paragraph's, and a narrower view that rewraps the first
     /// leaves the second's first line where it was.

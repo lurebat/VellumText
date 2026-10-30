@@ -804,11 +804,22 @@ public abstract partial class DocumentPresenter
     /// Runs something that lays out outside the window, then puts the content at the top of the
     /// viewport back where it was and makes sure the viewport is still covered.
     /// </summary>
+    /// <remarks>
+    /// The content put back is the content the last layout held at the top while nothing has
+    /// scrolled since, and it stays held at the offset the viewport moved to: read afresh, a line
+    /// that a narrower width folded into an earlier one would be named by that earlier start, and
+    /// the next resize would hold the wrong line.
+    /// </remarks>
     private void Transact(Action layOut)
     {
         LayoutGuard.Changing("a geometry question laid something out");
 
-        var held = _heights.Count == _views.Count ? AnchorAtOffset() : default((int Block, LocalAnchor Local)?);
+        var settled = _settled is { } s && s.Offset.Equals(_offset.Y) && ReferenceEquals(s.Anchor.Basis, _slotsFor)
+            ? s.Anchor
+            : default(HeldAnchor?);
+        var held = _heights.Count != _views.Count ? null
+            : settled is { } kept ? Resolve(kept, null)
+            : AnchorAtOffset();
         var before = held is { } h ? _heights.OffsetOf(h.Block) + PointOf(h.Block, h.Local) : 0;
 
         layOut();
@@ -818,9 +829,17 @@ public abstract partial class DocumentPresenter
         {
             var after = _heights.OffsetOf(anchor.Block) + PointOf(anchor.Block, anchor.Local);
 
+            var wanted = _offset.Y + (after - before);
+
             if (!after.Equals(before))
             {
-                ApplyOffset(new Vector(_offset.X, _offset.Y + (after - before)), relayout: false);
+                ApplyOffset(new Vector(_offset.X, wanted), relayout: false);
+            }
+
+            // Not when the offset was clamped: the held content is no longer at the top.
+            if (settled is { } stillHeld)
+            {
+                _settled = _offset.Y.Equals(wanted) ? (stillHeld, _offset.Y) : null;
             }
         }
 
