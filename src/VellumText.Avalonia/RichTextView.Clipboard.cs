@@ -483,6 +483,11 @@ public partial class RichTextView
     /// <see cref="PasteText"/>, which is the same path a plain-text-only clipboard already takes
     /// and which normalizes line endings and removes the reserved embed placeholder. Reported as
     /// an import for the same reason that path is — it is still content from outside.
+    /// <para>
+    /// It takes part in supersession like <see cref="PasteAsync"/>: it cancels a paste or drop
+    /// still importing, and a newer one cancels it while it reads. Otherwise whichever of the two
+    /// landed first won, and that was not necessarily the user's latest gesture.
+    /// </para>
     /// </remarks>
     public async Task<bool> PasteTextAsync()
     {
@@ -492,6 +497,7 @@ public partial class RichTextView
         }
 
         var origin = CurrentOrigin();
+        var cancellation = BeginImport();
         string? text;
 
         try
@@ -512,7 +518,8 @@ public partial class RichTextView
             return false;
         }
 
-        return text is { Length: > 0 } && StillAt(origin) && PasteImportedText(text, origin, gesture: true);
+        return text is { Length: > 0 }
+            && await Insert(new TransferResolution(Text: text), origin, cancellation).ConfigureAwait(true);
     }
 
     /// <summary>Whether a paste could land at all, asked before anything is read.</summary>
