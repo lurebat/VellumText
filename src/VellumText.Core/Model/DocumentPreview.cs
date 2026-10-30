@@ -86,8 +86,12 @@ public static class DocumentPreview
 
             // Anything else is kept whole or not at all. Half a table is not a preview of one, and
             // the alternative - recursing into every container to trim it - buys detail that a row
-            // two lines high cannot show anyway.
-            var text = DocumentText.Of([block]).Length;
+            // two lines high cannot show anyway. Its text is counted rather than built, because
+            // images sharing one alt text can make it longer than any string can be.
+            var text = 0L;
+            var any = false;
+
+            Count(block.Children, budget, ref text, ref any);
 
             if (text > budget)
             {
@@ -95,7 +99,7 @@ public static class DocumentPreview
             }
 
             kept.Add(block);
-            budget -= text;
+            budget -= (int)text;
         }
 
         return new DocumentNode(kept.Count > 0 ? kept.ToImmutable() : [ParagraphNode.Empty]);
@@ -108,22 +112,39 @@ public static class DocumentPreview
     /// <exception cref="ArgumentNullException"><paramref name="doc"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxCharacters"/> is negative.</exception>
     /// <remarks>
+    /// <para>
     /// Stops as soon as the budget is exceeded, so asking whether a hundred-page document is
     /// longer than eighty characters costs eighty characters rather than a hundred pages. That is
     /// the whole reason this is not <c>DocumentText.Of(doc).Length &gt; max</c>.
+    /// </para>
+    /// <para>
+    /// Including inside a container. A table or list counts as its plain text, and that used to
+    /// be built whole to take its length — 17 MB to measure a 50,000-row table that comes first,
+    /// for an answer the first row already gave. It is counted paragraph by paragraph now, the
+    /// way <see cref="DocumentText"/> would lay it out, and the count stops where the budget does.
+    /// </para>
     /// </remarks>
     public static bool IsLongerThan(DocumentNode doc, int maxCharacters)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCharacters);
 
-        var seen = 0;
+        var seen = 0L;
 
         foreach (var block in doc.Blocks)
         {
-            seen += block is ParagraphNode paragraph
-                ? paragraph.Content.Length
-                : DocumentText.Of([block]).Length;
+            if (block is ParagraphNode paragraph)
+            {
+                seen += paragraph.Content.Length;
+            }
+            else
+            {
+                var any = false;
+
+                // The block itself, not only its children: a block image has none, and counts as its
+                // alt text, as DocumentText reads it.
+                Count([block], maxCharacters, ref seen, ref any);
+            }
 
             if (seen > maxCharacters)
             {
@@ -132,6 +153,60 @@ public static class DocumentPreview
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Adds the length of the plain text of <paramref name="nodes"/> to <paramref name="seen"/>,
+    /// stopping once it passes <paramref name="maxCharacters"/>.
+    /// </summary>
+    /// <remarks>
+    /// The same count <see cref="DocumentText.Of(IEnumerable{Node})"/> would give the container:
+    /// each paragraph's text with every embed as its fallback text, a block image as its alt text,
+    /// and a newline between them.
+    /// </remarks>
+    private static void Count(ImmutableArray<Node> nodes, int maxCharacters, ref long seen, ref bool any)
+    {
+        foreach (var node in nodes)
+        {
+            if (node is ParagraphNode paragraph)
+            {
+                WorkCounters.PreviewParagraphsMeasured++;
+
+                var content = paragraph.Content;
+
+                seen += (any ? 1 : 0) + content.Length - content.Embeds.Length;
+                any = true;
+
+                // Images can share one alt text, so a paragraph's count is bounded by nothing in
+                // memory: it can pass int.MaxValue, and it is checked per image rather than per
+                // paragraph so that the walk stops where the budget does.
+                foreach (var embed in content.Embeds)
+                {
+                    WorkCounters.PreviewEmbedsMeasured++;
+
+                    seen += embed.PlainTextFallback.Length;
+
+                    if (seen > maxCharacters)
+                    {
+                        return;
+                    }
+                }
+            }
+            else if (node is BlockImageNode { Image.PlainTextFallback: { Length: > 0 } alt })
+            {
+                seen += (any ? 1 : 0) + alt.Length;
+                any = true;
+            }
+            else
+            {
+                Count(node.Children, maxCharacters, ref seen, ref any);
+            }
+
+            if (seen > maxCharacters)
+            {
+                return;
+            }
+        }
     }
 
     /// <summary>The last grapheme boundary at or before an offset.</summary>

@@ -1,0 +1,5 @@
+# Structural lint rules, run in CI by the `lint` job (`ast-grep test` then `ast-grep scan`).
+ruleDirs:
+  - tools/ast-grep/rules
+testConfigs:
+  - testDir: tools/ast-grep/rule-tests

@@ -362,6 +362,85 @@ public class MarkStepInversionTests
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
+
+    /// <remarks>
+    /// The recorded spans of a captured inverse arrive in document order, and applying one only
+    /// looks at the spans each paragraph overlaps. A hand-built step need not be in order, so it
+    /// has to be put back exactly as it would be if every span were tried against every paragraph.
+    /// </remarks>
+    [Fact]
+    public void AHandBuiltRestoreStepOutOfOrderRestoresEverySpan()
+    {
+        var doc = DocumentNode.FromParagraphs("abc", "def", "ghi");
+        var italic = new MarkSet { Style = TextStyle.Italic };
+        var spans = new[]
+        {
+            new ValueSpan<MarkSet>(11, 2, MixedSample.Bold),
+            new ValueSpan<MarkSet>(6, 2, italic),
+            new ValueSpan<MarkSet>(1, 2, MixedSample.Bold),
+        };
+
+        var scrambled = new RestoreMarksStep(0, doc.ContentSize, [.. spans]).Apply(doc);
+        var ordered = new RestoreMarksStep(0, doc.ContentSize, [.. spans.Reverse()]).Apply(doc);
+
+        Assert.True(scrambled.IsOk, scrambled.Failure);
+        Assert.Equal(ordered.Doc, scrambled.Doc);
+        Assert.Equal(MixedSample.Bold, ((ParagraphNode)scrambled.Doc!.Blocks[2]).Content.MarkAt(0));
+        Assert.Equal(italic, ((ParagraphNode)scrambled.Doc.Blocks[1]).Content.MarkAt(0));
+    }
+
+    /// <remarks>
+    /// Overlapping spans are not something a captured inverse produces, but a hand-built step can
+    /// say it, and the answer it always got was that a later span overwrites an earlier one —
+    /// including in a later paragraph that only the earlier span reaches.
+    /// </remarks>
+    [Fact]
+    public void AHandBuiltRestoreStepWithOverlappingSpansLetsTheLaterOneWin()
+    {
+        var doc = DocumentNode.FromParagraphs("abcdef", "ghi");
+        var italic = new MarkSet { Style = TextStyle.Italic };
+
+        var result = new RestoreMarksStep(
+            0,
+            doc.ContentSize,
+            [new ValueSpan<MarkSet>(1, 11, MixedSample.Bold), new ValueSpan<MarkSet>(2, 2, italic)])
+            .Apply(doc);
+
+        var first = ((ParagraphNode)result.Doc!.Blocks[0]).Content;
+        var second = ((ParagraphNode)result.Doc.Blocks[1]).Content;
+
+        Assert.Equal(MixedSample.Bold, first.MarkAt(0));
+        Assert.Equal(italic, first.MarkAt(1));
+        Assert.Equal(italic, first.MarkAt(2));
+        Assert.Equal(MixedSample.Bold, first.MarkAt(3));
+        Assert.Equal(MixedSample.Bold, second.MarkAt(0));
+        Assert.Equal(MixedSample.Bold, second.MarkAt(2));
+    }
+
+    /// <remarks>
+    /// The windowed walk has to find, for each paragraph, the spans that reach into it — including
+    /// a span that starts in an earlier paragraph and runs on into this one, which a window that
+    /// started at the first span <em>beginning</em> inside the paragraph would skip.
+    /// </remarks>
+    [Fact]
+    public void ARecordedSpanRunningAcrossParagraphsIsRestoredInEachOfThem()
+    {
+        var doc = DocumentNode.FromParagraphs("abc", "def", "ghi");
+        var bold = new AddMarkStep(2, 12, MixedSample.Bold, MarkFields.All).Apply(doc).Doc!;
+        var restore = new RestoreMarksStep(
+            0,
+            doc.ContentSize,
+            [
+                new ValueSpan<MarkSet>(1, 1, MarkSet.Empty),
+                new ValueSpan<MarkSet>(2, 10, MixedSample.Bold),
+                new ValueSpan<MarkSet>(12, 2, MarkSet.Empty),
+            ]);
+
+        var result = restore.Apply(doc);
+
+        Assert.True(result.IsOk, result.Failure);
+        Assert.Equal(bold, result.Doc);
+    }
 }
 
 /// <summary>Rebasing formatting over other edits.</summary>

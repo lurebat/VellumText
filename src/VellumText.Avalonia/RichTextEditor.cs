@@ -532,12 +532,35 @@ public class RichTextEditor : TemplatedControl
         }
     }
 
+    /// <inheritdoc cref="RichTextView.ExportFailed"/>
+    /// <remarks>
+    /// Forwarded, and carried across a retemplate, for the same reason as <see cref="ImageRefused"/>:
+    /// a missed subscription is silent, and this one is how a failing exporter gets noticed.
+    /// </remarks>
+    public event EventHandler<ExportFailedEventArgs>? ExportFailed
+    {
+        add
+        {
+            var view = EnsureView();
+
+            _exportFailed += value;
+            view.ExportFailed += value;
+        }
+
+        remove
+        {
+            _exportFailed -= value;
+            EnsureView().ExportFailed -= value;
+        }
+    }
+
     // The handlers subscribed through this shell, kept here as well as on the view so that a
     // retemplate can move them to the new view. A subscription that lived only on the old view
     // went with it: a content policy stopped vetoing, with no sign that it had.
     private EventHandler<RichTextView.ContentImportingEventArgs>? _contentImporting;
     private EventHandler<RichTextView.ContentImportedEventArgs>? _contentImported;
     private EventHandler<RichTextView.ImageRefusedEventArgs>? _imageRefused;
+    private EventHandler<ExportFailedEventArgs>? _exportFailed;
 
 
     /// <summary>
@@ -794,6 +817,12 @@ public class RichTextEditor : TemplatedControl
         {
             old.ImageRefused -= handler;
             view.ImageRefused += handler;
+        }
+
+        foreach (var handler in Handlers(_exportFailed))
+        {
+            old.ExportFailed -= handler;
+            view.ExportFailed += handler;
         }
 
         static IEnumerable<T> Handlers<T>(T? handlers)

@@ -126,6 +126,56 @@ public static class DocumentBlocks
         return slots.ToImmutable();
     }
 
+    /// <summary>
+    /// The leaf just before or after the block at <paramref name="depth"/> of a position, in the
+    /// order <see cref="Leaves"/> lists them, or null at the start or end of the document.
+    /// </summary>
+    /// <param name="at">A resolved position inside the block.</param>
+    /// <param name="depth">The depth of the block whose neighbour is wanted.</param>
+    /// <param name="forward">Whether to look after the block rather than before it.</param>
+    /// <remarks>
+    /// The same answer as finding the block in <see cref="Leaves"/> and taking the entry beside
+    /// it, without building the list: up from the block until a level has a sibling on that side,
+    /// then down that sibling's nearest edge for as long as it holds blocks. The list is a slot
+    /// per block of the document, rebuilt for every new document, so a join — which makes one —
+    /// paid for all of it to read one entry.
+    /// </remarks>
+    internal static BlockSlot? LeafBeside(ResolvedPos at, int depth, bool forward)
+    {
+        ArgumentNullException.ThrowIfNull(at);
+
+        for (var level = depth; level >= 1; level--)
+        {
+            var siblings = at.NodeAt(level - 1).Children;
+            var index = at.IndexAt(level - 1) + (forward ? 1 : -1);
+
+            if (index < 0 || index >= siblings.Length)
+            {
+                continue;
+            }
+
+            var node = siblings[index];
+            var pos = forward ? at.After(level) : at.Before(level) - node.NodeSize;
+
+            // Descended exactly as Leaves descends: a node whose children are blocks is
+            // structure, and its nearest child on this side is where the leaf is.
+            while (node.Children.Length > 0 && node.Children[0] is BlockNode)
+            {
+                var children = node.Children;
+                var next = forward ? children[0] : children[^1];
+
+                pos = forward ? pos + 1 : pos + 1 + node.ContentSize - next.NodeSize;
+                node = next;
+            }
+
+            return node is BlockNode block
+                ? new BlockSlot(block, block.IsLeaf ? pos : pos + 1, 0, null)
+                : null;
+        }
+
+        return null;
+    }
+
     private static void Descend(
         IReadOnlyList<Node> nodes, int start, ImmutableArray<BlockSlot>.Builder slots)
     {

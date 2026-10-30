@@ -68,4 +68,39 @@ public class StyleSanitizingTests
 
         Assert.Null(document.QuerySelector("p")!.GetAttribute("style"));
     }
+
+    /// <summary>
+    /// The allow-lists are pinned against additions, not only against removals: each of these has
+    /// been a script or tracking vector somewhere, and none of them means anything to the model.
+    /// </summary>
+    /// <remarks>
+    /// The walker ignores all of them, so an imported document comes out the same whether or not
+    /// they were allowed and an import-level test cannot tell. What an addition to the lists would
+    /// change is what the sanitizer leaves in the tree and what it reports — the posture this class
+    /// exists to enforce, and what a walker taught one more property would inherit.
+    /// </remarks>
+    [Theory]
+    [InlineData("<b onclick=\"alert(1)\">a</b>", "onclick")]
+    [InlineData("<b data-x=\"1\">a</b>", "data-x")]
+    public void An_attribute_outside_the_allow_list_is_removed_and_reported(string html, string attribute)
+    {
+        var document = Sanitized(html, out var diagnostics);
+
+        Assert.False(document.QuerySelector("b")!.HasAttribute(attribute));
+        Assert.Contains(diagnostics, d => d.Context == attribute);
+    }
+
+    /// <inheritdoc cref="An_attribute_outside_the_allow_list_is_removed_and_reported"/>
+    [Theory]
+    [InlineData("position:absolute", "position")]
+    [InlineData("background-image:url(https://evil.test/a.png)", "background-image")]
+    public void A_style_property_outside_the_allow_list_is_removed_and_reported(string declaration, string property)
+    {
+        var document = Sanitized($"<p style=\"color:red;{declaration}\">a</p>", out var diagnostics);
+        var style = document.QuerySelector("p")!.GetAttribute("style") ?? string.Empty;
+
+        Assert.Contains("color", style, StringComparison.Ordinal);
+        Assert.DoesNotContain(property, style, StringComparison.Ordinal);
+        Assert.Contains(diagnostics, d => d.Context == property);
+    }
 }

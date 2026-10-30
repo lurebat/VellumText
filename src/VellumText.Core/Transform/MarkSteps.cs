@@ -240,6 +240,7 @@ public sealed record RestoreMarksStep(
 
         try
         {
+            var ordered = InDocumentOrder(Spans);
             var result = TreeSurgery.MapParagraphs(
                 doc,
                 From,
@@ -248,8 +249,22 @@ public sealed record RestoreMarksStep(
                 {
                     var content = paragraph.Content;
 
-                    foreach (var span in Spans)
+                    // Only the spans that reach into this paragraph. Every span was tried against
+                    // every paragraph, which made undoing a format across the document quadratic:
+                    // 272 ms at 8,000 plain paragraphs and 4 s with every other word bold.
+                    var first = ordered ? FirstEndingAfter(contentStart + start) : 0;
+
+                    for (var i = first; i < Spans.Length; i++)
                     {
+                        var span = Spans[i];
+
+                        WorkCounters.RestoredSpanVisits++;
+
+                        if (ordered && span.Start >= contentStart + end)
+                        {
+                            break;
+                        }
+
                         var lo = Math.Max(span.Start - contentStart, start);
                         var hi = Math.Min(span.End - contentStart, end);
 
@@ -272,6 +287,54 @@ public sealed record RestoreMarksStep(
         {
             return StepResult.Failed(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Whether every span starts at or after the end of the one before it, which is how a captured
+    /// inverse records them and what makes searching them sound.
+    /// </summary>
+    /// <remarks>
+    /// The type is public and a hand-built step can list its spans in any order, or overlap them.
+    /// Such a step is applied the way it always was — every span against every paragraph, later
+    /// spans overwriting earlier ones — so that only its speed depends on the order, never its
+    /// result.
+    /// </remarks>
+    private static bool InDocumentOrder(ImmutableArray<ValueSpan<MarkSet>> spans)
+    {
+        for (var i = 1; i < spans.Length; i++)
+        {
+            if (spans[i].Start < spans[i - 1].End)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The index of the first span that ends after a position.</summary>
+    /// <param name="position">A document position.</param>
+    /// <remarks>Only meaningful when the spans are in document order.</remarks>
+    private int FirstEndingAfter(int position)
+    {
+        var low = 0;
+        var high = Spans.Length;
+
+        while (low < high)
+        {
+            var mid = low + ((high - low) / 2);
+
+            if (Spans[mid].End > position)
+            {
+                high = mid;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
+        return low;
     }
 
     /// <inheritdoc/>

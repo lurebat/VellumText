@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -74,7 +73,7 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 
         return bytes.Length == 0 || bytes.Length > MaximumBytes
             ? null
-            : $"data:{mediaType};base64,{Convert.ToBase64String(bytes)}";
+            : DataUri.Format(mediaType, bytes);
     }
 }
 
@@ -104,9 +103,9 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 /// <para>
 /// Payloads are bounded by <see cref="MaximumSourceBytes"/> and decoded images by
 /// <see cref="MaximumPixels"/>, because a small compressed image can describe an enormous one.
-/// PNG dimensions are checked before decoding, from the header; other formats are checked after,
-/// so a bomb in one of those still costs a transient allocation. A host taking wholly untrusted
-/// documents should screen them itself rather than rely on that.
+/// The dimensions of an inline image are read from its header and checked before decoding, and
+/// one whose dimensions cannot be read that way is refused undecoded rather than decoded to find
+/// out. Decoded images are also held to <see cref="CacheBudgetBytes"/> in total.
 /// </para>
 /// <para>
 /// Nothing here throws. An image that cannot be decoded, or is refused, draws as the outlined box
@@ -116,7 +115,13 @@ public sealed class DataUriImageStore(int maximumBytes = DataUriImageStore.Defau
 /// </remarks>
 public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 {
-    private readonly ConcurrentDictionary<string, Bitmap?> _cache = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
+    private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cache = new(StringComparer.Ordinal);
+
+    /// <summary>Every cached entry, most recently used first.</summary>
+    private readonly LinkedList<CacheEntry> _recency = new();
+
+    private long _cachedBytes;
     private readonly IEmbedRenderer _fallback = new PlaceholderEmbedRenderer();
     private readonly bool _shared;
     private bool _disposed;
@@ -152,6 +157,35 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// with it.
     /// </remarks>
     public int CacheLimit { get; init; } = 64;
+
+    /// <summary>How many bytes of decoded pixels to keep. Defaults to 256 MiB.</summary>
+    /// <remarks>
+    /// <para>
+    /// The bound that actually limits memory. <see cref="CacheLimit"/> counts images, and an image
+    /// can be tiny on the wire and enormous decoded: a forty-byte GIF states a 7999×7999 canvas
+    /// and decodes to a quarter of a gigabyte, so 64 of them — about 1 KB of pasted HTML — pinned
+    /// sixteen. The shared renderer is process-wide, so that accumulated across every document a
+    /// clipboard history had shown.
+    /// </para>
+    /// <para>
+    /// The least recently drawn images are evicted, and disposed, until the rest fit. An image
+    /// larger than the whole budget is still kept, alone: one the cache does not own is decoded
+    /// again on every layout pass and never freed.
+    /// </para>
+    /// </remarks>
+    public long CacheBudgetBytes { get; init; } = 256L * 1024 * 1024;
+
+    /// <summary>How many bytes of decoded pixels are currently held.</summary>
+    internal long CachedBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _cachedBytes;
+            }
+        }
+    }
 
     /// <summary>The largest encoded payload to decode, in bytes.</summary>
     public int MaximumSourceBytes { get; init; } = 16 * 1024 * 1024;
@@ -238,12 +272,17 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     /// </remarks>
     public void Invalidate()
     {
-        foreach (var entry in _cache.Values)
+        lock (_gate)
         {
-            entry?.Dispose();
-        }
+            foreach (var entry in _recency)
+            {
+                entry.Bitmap?.Dispose();
+            }
 
-        _cache.Clear();
+            _cache.Clear();
+            _recency.Clear();
+            _cachedBytes = 0;
+        }
     }
 
     /// <inheritdoc/>
@@ -262,7 +301,16 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
     }
 
     /// <summary>How many sources are currently decoded and held.</summary>
-    internal int CachedCount => _cache.Count;
+    internal int CachedCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _cache.Count;
+            }
+        }
+    }
 
     /// <summary>How many times a source has actually been decoded.</summary>
     /// <remarks>
@@ -274,6 +322,15 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
 
     private int _decodes;
 
+    /// <summary>How many payloads were handed to the image decoder.</summary>
+    /// <remarks>
+    /// The test-visible difference between refusing a decompression bomb from its header and
+    /// refusing it from the bitmap it made the decoder allocate: both end at the same fallback.
+    /// </remarks>
+    internal int PixelDecodes => _pixelDecodes;
+
+    private int _pixelDecodes;
+
     private Bitmap? Resolve(string source)
     {
         if (_disposed || string.IsNullOrWhiteSpace(source))
@@ -281,44 +338,90 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
             return null;
         }
 
-        if (_cache.TryGetValue(source, out var cached))
+        lock (_gate)
         {
-            return cached;
+            if (_cache.TryGetValue(source, out var cached))
+            {
+                Touch(cached);
+
+                return cached.Value.Bitmap;
+            }
         }
 
+        // Decoded outside the lock: it is the slow part, and a second thread drawing a different
+        // image should not wait for it.
         var bitmap = Decode(source);
 
         Interlocked.Increment(ref _decodes);
 
-        // Make room rather than handing back a bitmap the cache does not own. An uncached one has
-        // no owner and nothing ever disposes it, so a document with more distinct images than the
-        // limit would leak one per image per layout pass - in native memory, where it does not
-        // even show up as managed pressure.
-        while (_cache.Count >= CacheLimit && _cache.Keys.FirstOrDefault() is { } victim)
+        lock (_gate)
         {
-            if (_cache.TryRemove(victim, out var evicted))
+            if (_disposed)
             {
-                evicted?.Dispose();
+                bitmap?.Dispose();
+
+                return null;
             }
+
+            if (_cache.TryGetValue(source, out var raced))
+            {
+                bitmap?.Dispose();
+                Touch(raced);
+
+                return raced.Value.Bitmap;
+            }
+
+            var bytes = bitmap is null ? 0L : (long)bitmap.PixelSize.Width * bitmap.PixelSize.Height * 4;
+            var node = _recency.AddFirst(new CacheEntry(source, bitmap, bytes));
+
+            _cache.Add(source, node);
+            _cachedBytes += bytes;
+
+            // Make room rather than handing back a bitmap the cache does not own. An uncached one
+            // has no owner and nothing ever disposes it, so a document with more distinct images
+            // than the cache holds would leak one per image per layout pass - in native memory,
+            // where it does not even show up as managed pressure. So the entry just added is never
+            // the one evicted, even when it alone is over the budget.
+            while ((_cache.Count > CacheLimit || _cachedBytes > CacheBudgetBytes)
+                && _recency.Last is { } victim
+                && victim != node)
+            {
+                _recency.RemoveLast();
+                _cache.Remove(victim.Value.Source);
+                _cachedBytes -= victim.Value.Bytes;
+                victim.Value.Bitmap?.Dispose();
+            }
+
+            return bitmap;
         }
-
-        if (!_cache.TryAdd(source, bitmap))
-        {
-            bitmap?.Dispose();
-
-            return _cache.TryGetValue(source, out var raced) ? raced : null;
-        }
-
-        return bitmap;
     }
+
+    /// <summary>Marks an entry as the most recently used. Call under the lock.</summary>
+    private void Touch(LinkedListNode<CacheEntry> node)
+    {
+        if (node != _recency.First)
+        {
+            _recency.Remove(node);
+            _recency.AddFirst(node);
+        }
+    }
+
+    /// <summary>One decoded source, or a remembered failure to decode it.</summary>
+    /// <param name="Source">The source, as the key it is cached under.</param>
+    /// <param name="Bitmap">The decoded image, or null if it could not or may not be shown.</param>
+    /// <param name="Bytes">What its pixels cost, counted against <see cref="CacheBudgetBytes"/>.</param>
+    private sealed record CacheEntry(string Source, Bitmap? Bitmap, long Bytes);
 
     private Bitmap? Decode(string source)
     {
+        // A decoder boundary: whatever a source holds, the renderer draws a placeholder rather than
+        // failing a layout pass.
+        // ast-grep-ignore: broad-catch
         try
         {
             if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
-                return DecodeDataUri(source);
+                return DataUri.TryParse(source, out _, out var base64) ? DecodeBase64(base64) : null;
             }
 
             // Everything below reaches outside the document. See the type's remarks: by default a
@@ -372,64 +475,50 @@ public sealed class BitmapEmbedRenderer : IEmbedRenderer, IDisposable
         return null;
     }
 
-    private Bitmap? DecodeDataUri(string source)
+    private Bitmap? DecodeBase64(ReadOnlyMemory<char> base64)
     {
-        var comma = source.IndexOf(',', StringComparison.Ordinal);
-
-        if (comma < 0)
-        {
-            return null;
-        }
-
-        var header = source.AsSpan(0, comma);
-
-        if (!header.EndsWith(";base64", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
         // Checked before decoding rather than after: base64 is four characters per three bytes, so
         // the length of the payload bounds its size without allocating anything.
-        if ((long)(source.Length - comma - 1) / 4 * 3 > MaximumSourceBytes)
+        if ((long)base64.Length / 4 * 3 > MaximumSourceBytes)
         {
             return null;
         }
 
-        var payload = Convert.FromBase64String(source[(comma + 1)..]);
+        var payload = Convert.FromBase64String(base64.ToString());
 
-        // A PNG states its dimensions in the IHDR chunk at a fixed offset, so the commonest
-        // decompression bomb is refused before anything is allocated for it. Other formats are
-        // caught by Accept, after the allocation they were designed to provoke.
-        if (IsOversizedPng(payload))
+        // Every format the decoder opens states its dimensions near the start, so a decompression
+        // bomb is refused before anything is allocated for it. One whose dimensions cannot be read
+        // is refused too: decoding it to find out is exactly the allocation this is here to avoid.
+        if (!IsWithinBudget(payload))
         {
             return null;
         }
 
         using var stream = new MemoryStream(payload);
 
+        Interlocked.Increment(ref _pixelDecodes);
+
         return Accept(new Bitmap(stream));
     }
 
-    /// <summary>Whether a payload is a PNG whose header alone says it is too large to show.</summary>
+    /// <summary>Whether a payload's header declares its size, and one within <see cref="MaximumPixels"/>.</summary>
+    private bool IsWithinBudget(ReadOnlySpan<byte> payload) =>
+        ImageHeader.TryReadSize(payload, out var width, out var height)
+        && width * height <= MaximumPixels;
+
+    /// <summary>Whether a payload's header alone says it is too large to show.</summary>
     /// <remarks>
     /// Internal because it is the only observable difference between refusing a decompression bomb
     /// from its header and refusing it from the bitmap it was designed to make you allocate:
     /// both end at the same fallback size, so an end-to-end measurement cannot tell them apart.
     /// </remarks>
     /// <param name="payload">The undecoded image bytes.</param>
-    /// <returns>Whether the payload is a PNG claiming more pixels than <see cref="MaximumPixels"/>.</returns>
-    internal bool IsOversizedPng(ReadOnlySpan<byte> payload)
-    {
-        ReadOnlySpan<byte> signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
-        if (payload.Length < 24 || !payload[..8].SequenceEqual(signature))
-        {
-            return false;
-        }
-
-        var width = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(payload[16..20]);
-        var height = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(payload[20..24]);
-
-        return (long)width * height > MaximumPixels;
-    }
+    /// <returns>
+    /// Whether the payload is in a format <see cref="ImageHeader"/> reads and declares more pixels
+    /// than <see cref="MaximumPixels"/>. False for a format it does not recognise, which is
+    /// refused before decoding all the same.
+    /// </returns>
+    internal bool IsOversized(ReadOnlySpan<byte> payload) =>
+        ImageHeader.TryReadSize(payload, out var width, out var height)
+        && width * height > MaximumPixels;
 }

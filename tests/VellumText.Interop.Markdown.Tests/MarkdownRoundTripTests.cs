@@ -421,6 +421,40 @@ public class MarkdownRoundTripTests
     }
 
     /// <summary>
+    /// F-26 (audit of 0282015): the blank line a top-level ordered list needs when it does not
+    /// start at 1 is needed inside an item just the same. Without it <c>- Steps\n  2. second</c>
+    /// is one paragraph, "Steps 2. second", and the list is gone with no diagnostic.
+    /// </summary>
+    [Theory]
+    [InlineData(2, "- Steps\n\n  2. second\n")]
+    [InlineData(0, "- Steps\n\n  0. second\n")]
+    [InlineData(1, "- Steps\n  1. second\n")]
+    public async Task A_nested_numbered_list_keeps_its_start(int start, string expected)
+    {
+        var back = await Trip(
+            new DocumentNode([
+                new ListNode(
+                    [
+                        new ListItemNode([
+                            ParagraphNode.FromText("Steps"),
+                            new ListNode([ListItemNode.FromText("second")], ListKind.Ordered, start),
+                        ]),
+                    ],
+                    ListKind.Unordered)]),
+            expected);
+
+        var item = Assert.Single(Assert.IsType<ListNode>(Assert.Single(back.Blocks)).Items);
+
+        Assert.Equal("Steps", ((ParagraphNode)item.Blocks[0]).Content.Text);
+
+        var inner = Assert.IsType<ListNode>(item.Blocks[1]);
+
+        Assert.Equal(ListKind.Ordered, inner.Kind);
+        Assert.Equal(start, inner.Start);
+        Assert.Equal("second", ((ParagraphNode)Assert.Single(inner.Items).Blocks[0]).Content.Text);
+    }
+
+    /// <summary>
     /// A pipe inside an inline span in a table cell survives the round trip, now that the span is
     /// written the way GFM requires.
     /// </summary>
@@ -650,13 +684,13 @@ public class MarkdownRoundTripTests
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.Create(
-                "\uFFFC",
+                "see \uFFFC",
                 [],
                 [new ImageEmbed("https://example.test/a.png", altText: "a picture")]))]);
 
         var markdown = MarkdownExporter.Instance.Export(doc);
 
-        Assert.Equal("![a picture](https://example.test/a.png)\n", markdown);
+        Assert.Equal("see ![a picture](https://example.test/a.png)\n", markdown);
 
         var back = await MarkdownImporter.ImportAsync(
             markdown,

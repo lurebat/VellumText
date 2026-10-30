@@ -1,0 +1,44 @@
+id: broad-catch
+language: csharp
+severity: error
+message: A catch-all wraps more than one statement, so it hides whichever of them failed.
+note: |
+  RP-3 in the 2026-10 codebase audit: a `catch (Exception)` (or bare `catch`) around more than the
+  one call whose failure is expected turned a bug elsewhere in the block into silent total loss
+  (an exporter failure became an empty clipboard; a host handler's exception became a paste that
+  "failed" after it had landed). Narrow the `try` to the read, decode or I/O call whose failure is
+  expected, or catch the specific exception type.
+
+  If the catch-all is a deliberate last resort - a boundary that must not let anything through,
+  such as an importer's "never throws" contract or an event-started task nothing awaits - keep it
+  and put `// ast-grep-ignore: broad-catch` on the line above the `try`, with a comment saying
+  why nothing may escape there.
+files:
+  - src/**/*.cs
+rule:
+  kind: try_statement
+  all:
+    - has:
+        field: body
+        kind: block
+        has:
+          nthChild:
+            position: 2
+            ofRule:
+              not:
+                kind: comment
+    - has:
+        kind: catch_clause
+        all:
+          - not:
+              has:
+                kind: catch_filter_clause
+          - any:
+              - not:
+                  has:
+                    kind: catch_declaration
+              - has:
+                  kind: catch_declaration
+                  has:
+                    field: type
+                    regex: '^(global::)?(System\.)?Exception$'

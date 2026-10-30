@@ -121,10 +121,11 @@ public static class MarkdownImporter
         }
 
         var result = HtmlImporter.ImportOnCurrentStack(html, options.ToHtmlOptions());
+        var doc = (DocumentNode)PromoteLoneImages(result.Doc);
 
         return log.IsEmpty
-            ? result
-            : new ImportResult(result.Doc, [.. log.Items, .. result.Diagnostics]);
+            ? new ImportResult(doc, result.Diagnostics)
+            : new ImportResult(doc, [.. log.Items, .. result.Diagnostics]);
     }
 
     /// <summary>Renders the parsed tree to the HTML the importer reads.</summary>
@@ -162,6 +163,47 @@ public static class MarkdownImporter
     }
 
     /// <summary>
+    /// Whether a paragraph is nothing but one image with no mark on it — Markdown's block image.
+    /// </summary>
+    /// <remarks>
+    /// Shared with the exporter, which reports exactly the paragraphs this turns into block
+    /// images: an inline image that is the whole of its paragraph is written the same way.
+    /// </remarks>
+    internal static bool IsLoneImage(ParagraphNode paragraph, out ImageEmbed image)
+    {
+        image = null!;
+
+        if (paragraph is not { Kind: ParagraphKind.Body, IndentLevel: 0 }
+            || paragraph.Content.Text != InlineContent.Placeholder.ToString()
+            || !paragraph.Content.Marks.IsEmpty
+            || paragraph.Content.Embeds is not [ImageEmbed embed])
+        {
+            return false;
+        }
+
+        image = embed;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Turns each paragraph that is only an image into a block image, everywhere but in a table.
+    /// </summary>
+    /// <remarks>
+    /// A paragraph of its own is the only notation Markdown has for a block image, and without
+    /// this every one came back as an inline image in a paragraph (F-51). A table cell is left
+    /// alone: a pipe table holds one line of inline content, so an image there is inline.
+    /// </remarks>
+    private static Node PromoteLoneImages(Node node) => node switch
+    {
+        ParagraphNode paragraph when IsLoneImage(paragraph, out var image) =>
+            new BlockImageNode(image, paragraph.Align),
+        TableNode => node,
+        _ when node.Children.Length == 0 => node,
+        _ => node.WithChildren([.. node.Children.Select(PromoteLoneImages)]),
+    };
+
+    /// <summary>
     /// Edits the parsed tree into the shape the HTML stage should see.
     /// </summary>
     /// <remarks>
@@ -192,6 +234,33 @@ public static class MarkdownImporter
             {
                 UnescapeCellPipes(code);
             }
+        }
+
+        ReportBackslashedAddresses(document, log);
+    }
+
+    /// <summary>Reports a link address with a backslash in it, whose meaning the import changes.</summary>
+    /// <remarks>
+    /// CommonMark takes a backslash that escapes nothing as a literal character and writes it as
+    /// <c>%5C</c>, so <c>[a](/a\b)</c> links to <c>/a%5Cb</c>; in an HTML link, which the HTML and
+    /// RTF importers keep as written, a browser reads the same backslash as <c>/</c>. Keeping it as
+    /// written here would mean rendering links outside Markdig or editing its output, and patching
+    /// the address back after the sanitizer would let through an address the sanitizer never saw,
+    /// so the change is reported instead.
+    /// </remarks>
+    private static void ReportBackslashedAddresses(MarkdownDocument document, DiagnosticLog log)
+    {
+        var backslashed =
+            document.Descendants<LinkInline>().Any(link => link.Url?.Contains('\\', StringComparison.Ordinal) == true)
+            || document.Descendants<AutolinkInline>().Any(link => link.Url.Contains('\\', StringComparison.Ordinal));
+
+        if (backslashed)
+        {
+            log.ReportOnce(
+                DiagnosticSeverity.Downgraded,
+                "A link address contains a backslash, which Markdown reads as a literal backslash "
+                + "and encodes as %5C; an HTML link with the same address would read it as '/'.",
+                "link-backslash");
         }
     }
 

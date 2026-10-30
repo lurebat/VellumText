@@ -160,6 +160,37 @@ public class RtfExportTests
     public async Task Text_outside_the_code_page_survives(string text) =>
         await Survives(DocumentNode.FromParagraphs(text));
 
+    /// <summary>
+    /// Everything beyond printable ASCII is written as <c>\u</c>, so the file is seven-bit and
+    /// means the same whatever code page or byte encoding it is carried in. Latin-1 is the range
+    /// a writer is tempted to pass through raw, and U+0080 is where doing so changes the text:
+    /// read in the header's code page 1252, that byte is the euro sign.
+    /// </summary>
+    [Fact]
+    public async Task Text_beyond_ascii_is_written_as_seven_bit_escapes()
+    {
+        var doc = DocumentNode.FromParagraphs("caf\u00e9 \u00a0\u00ff \u0080");
+        var rtf = RtfExporter.Instance.Export(doc);
+
+        Assert.All(rtf, c => Assert.True(c < 0x80, $"U+{(int)c:X4} written raw"));
+        Assert.Contains(@"\u233?", rtf, StringComparison.Ordinal);
+        Assert.Contains(@"\u128?", rtf, StringComparison.Ordinal);
+        await Survives(DocumentNode.FromParagraphs("caf\u00e9 \u00ff"));
+    }
+
+    /// <summary>
+    /// <c>\u</c> takes a signed 16-bit number, so a character above U+7FFF is written negative.
+    /// Readers that hold the number in a short read the unsigned form as something else.
+    /// </summary>
+    [Fact]
+    public void A_character_above_u7fff_is_written_as_a_negative_number()
+    {
+        var rtf = RtfExporter.Instance.Export(DocumentNode.FromParagraphs("\ud55c"));
+
+        Assert.Contains(@"\u-10916?", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\u54620", rtf, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_line_break_inside_a_paragraph_stays_a_line_break() =>
         await Survives(DocumentNode.FromParagraphs("one\ntwo\nthree"));
@@ -523,4 +554,58 @@ public class RtfExportTests
             text,
             [new ValueSpan<MarkSet>(start, length, mark)],
             []))]);
+
+    private static string ExportImage(string source) =>
+        RtfExporter.Instance.Export(new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source, altText: "ALT"))),
+        ]));
+
+    [Theory]
+    [InlineData("data:image/png;base64,AAEC", @"{\pict\pngblip 000102}")]
+    [InlineData("data:image/png;name=a.png;base64,AAEC", @"{\pict\pngblip 000102}")]
+    [InlineData("data:image/jpeg;base64,AAEC", @"{\pict\jpegblip 000102}")]
+    [InlineData("DATA:IMAGE/JPG;BASE64,AAEC", @"{\pict\jpegblip 000102}")]
+    public void A_png_or_jpeg_data_url_is_embedded_as_a_picture(string source, string picture)
+    {
+        var rtf = ExportImage(source);
+
+        // The alternative text rides in the picture's wzDescription (F-60), and only there: an
+        // embedded picture is not also followed by its fallback text.
+        Assert.Contains(
+            picture.Replace(@"{\pict", @"{\pict{\*\picprop{\sp{\sn wzDescription}{\sv ALT}}}", StringComparison.Ordinal),
+            rtf,
+            StringComparison.Ordinal);
+        Assert.Equal(1, rtf.Split("ALT").Length - 1);
+    }
+
+    /// <summary>
+    /// A picture's size is written in twips at 96 pixels to the inch, the same reference the
+    /// model's pixels and every CSS length use — fifteen twips to the pixel.
+    /// </summary>
+    [Fact]
+    public void An_images_size_is_written_in_twips()
+    {
+        var rtf = RtfExporter.Instance.Export(new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed("data:image/png;base64,AAEC", 100, 50))),
+        ]));
+
+        Assert.Contains(@"\picwgoal1500\pichgoal750", rtf, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("data:image/png;base64;x=y,AAEC")]
+    [InlineData("data:image/pngx;base64,AAEC")]
+    [InlineData("data:image/png,AAEC")]
+    [InlineData(" data:image/png;base64,AAEC")]
+    [InlineData("data:image/gif;base64,AAEC")]
+    [InlineData("data:image/png;base64,not base64!")]
+    public void Anything_else_is_written_as_its_alternative_text(string source)
+    {
+        // The same reading of a data: URL as the importer and the renderer: a URL either of them
+        // refuses is not a picture here either.
+        var rtf = ExportImage(source);
+
+        Assert.DoesNotContain(@"\pict", rtf, StringComparison.Ordinal);
+        Assert.Contains("ALT", rtf, StringComparison.Ordinal);
+    }
 }

@@ -126,7 +126,8 @@ public class AsyncImportTests
     /// <summary>An importer that waits for the test to release it, ignoring cancellation.</summary>
     /// <param name="format">Its format name.</param>
     /// <param name="lostAnImage">Whether its result says the sanitizer removed an image.</param>
-    private sealed class Gated(string format = "gated", bool lostAnImage = false) : IDocumentImporter
+    /// <param name="empty">Whether its result is an empty document, so the paste falls back to text.</param>
+    private sealed class Gated(string format = "gated", bool lostAnImage = false, bool empty = false) : IDocumentImporter
     {
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -145,6 +146,11 @@ public class AsyncImportTests
 
             Started.TrySetResult();
             await Release.Task;
+
+            if (empty)
+            {
+                return new ImportResult(new DocumentNode([]));
+            }
 
             return lostAnImage
                 ? new ImportResult(
@@ -302,6 +308,36 @@ public class AsyncImportTests
         Assert.Empty(Images(view));
     }
 
+    /// <summary>
+    /// The same for a drop: the import is judged against where the drop was aimed, not against
+    /// wherever the caret is when the importer returns. The unmoved row is the control, showing
+    /// this clip does land as an image when nothing moves.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_caret_moved_during_a_drop_import_receives_no_image_either(bool moved)
+    {
+        var importer = new Gated(lostAnImage: true);
+        var view = Shown(importer);
+        var data = Transfer("gated", "caption");
+
+        data.Add(BitmapItem());
+        view.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, data, view, new Point(4, 4), KeyModifiers.None));
+
+        await importer.Started.Task;
+
+        if (moved)
+        {
+            view.MoveTo(3, extend: false);
+        }
+
+        importer.Release.SetResult();
+        await view.PendingDrop;
+
+        Assert.Equal(moved ? 0 : 1, Images(view).Count);
+    }
+
     [AvaloniaFact]
     public async Task A_drop_whose_document_is_swapped_mid_import_receives_nothing()
     {
@@ -318,6 +354,60 @@ public class AsyncImportTests
         await view.PendingDrop;
 
         Assert.Same(swapped.Doc, view.State.Doc);
+    }
+
+    /// <summary>
+    /// A control made read-only while an import runs does not ask the host about what it can no
+    /// longer accept, whether the import resolved to a document or fell back to plain text.
+    /// </summary>
+    /// <remarks>
+    /// Read-only is checked before the clipboard is read, but an import takes as long as its
+    /// importer, and the host can set the property in between. The apply step would refuse the
+    /// edit anyway; what these guards decide is whether a <c>ContentImporting</c> handler is asked
+    /// to judge content that cannot land. The writable rows are the control: they show the same
+    /// clip reaches the handler and lands, by the document path and by the plain-text path.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task A_control_made_read_only_during_an_import_is_not_asked_about_it(
+        bool textFallback, bool readOnly)
+    {
+        var importer = new Gated(empty: textFallback);
+        var view = Shown(importer);
+        var before = view.State.Doc;
+        var asked = 0;
+        var data = Transfer("gated", "from the importer");
+        var text = new DataTransferItem();
+
+        text.SetText("plain text");
+        data.Add(text);
+        view.ContentImporting += (_, _) => asked++;
+        await Put(view, data);
+
+        var paste = view.PasteAsync();
+
+        await importer.Started.Task;
+        view.IsReadOnly = readOnly;
+        importer.Release.SetResult();
+
+        Assert.Equal(!readOnly, await paste);
+
+        if (readOnly)
+        {
+            Assert.Equal(0, asked);
+            Assert.Same(before, view.State.Doc);
+        }
+        else
+        {
+            Assert.Equal(1, asked);
+            Assert.Contains(
+                textFallback ? "plain text" : "from the importer",
+                DocumentText.Of(view.State.Doc),
+                StringComparison.Ordinal);
+        }
     }
 
     [AvaloniaFact]

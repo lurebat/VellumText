@@ -57,15 +57,21 @@ public static class HtmlImporter
     /// Internal for the Markdown and RTF importers, which finish here and are already on a large
     /// stack of their own by then.
     /// </remarks>
-    internal static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options)
+    internal static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options) =>
+        ImportOnCurrentStack(html, options, fragment: null);
+
+    private static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options, string? fragment)
     {
         options ??= HtmlImportOptions.Default;
 
         var diagnostics = new List<ImportDiagnostic>();
 
+        // The importer contract: no input makes an import throw. A parser or sanitizer bug becomes a
+        // Malformed diagnostic and an empty document rather than an exception in the host.
+        // ast-grep-ignore: broad-catch
         try
         {
-            var doc = Build(html, options, diagnostics);
+            var doc = Build(html, options, fragment, diagnostics);
 
             // Every construction site below guards its own shape, but a document that breaks a
             // schema rule would be refused when the paste is applied, and a silent no-op is a
@@ -111,9 +117,18 @@ public static class HtmlImporter
     /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
     /// </exception>
     /// <remarks>
+    /// <para>
     /// The envelope's <c>SourceURL</c> becomes the base address for relative links, but only when
     /// the caller has not named one: an explicit choice outranks a copied document's opinion about
     /// where it came from.
+    /// </para>
+    /// <para>
+    /// A fragment that opens inside a table, as Excel's does, is read in its document instead,
+    /// keeping only what lies between the fragment markers and the elements that enclose them.
+    /// On its own it is rows with no table, and a pasted range would become one paragraph. Markers
+    /// the parsed document does not have as comments, because a script or a style took them for
+    /// its text, cannot be clipped at, and the fragment is then read on its own after all.
+    /// </para>
     /// </remarks>
     public static Task<ImportResult> ImportClipboardAsync(
         string payload, HtmlImportOptions? options = null, CancellationToken cancellationToken = default)
@@ -137,12 +152,24 @@ public static class HtmlImporter
             options = options with { BaseUri = sourceUri };
         }
 
-        return ImportOnCurrentStack(fragment, options);
+        return ClipboardHtml.TryGetTableContext(payload, fragment, out var document)
+            ? ImportOnCurrentStack(document, options, fragment)
+            : ImportOnCurrentStack(fragment, options, fragment: null);
     }
 
+    /// <summary>Reads <paramref name="html"/> into a document.</summary>
+    /// <param name="html">The markup.</param>
+    /// <param name="options">How much to trust it.</param>
+    /// <param name="fragment">
+    /// Null to read <paramref name="html"/> as it is. Otherwise <paramref name="html"/> is the
+    /// clipboard document, to be clipped to its fragment markers, and this is the fragment the
+    /// markers were found around in its text.
+    /// </param>
+    /// <param name="diagnostics">Where to report what could not be brought across.</param>
     private static DocumentNode Build(
         string html,
         HtmlImportOptions options,
+        string? fragment,
         List<ImportDiagnostic> diagnostics)
     {
         // Deliberately without CSS support: with it every element's style attribute is parsed while
@@ -150,7 +177,41 @@ public static class HtmlImporter
         // element. Styles are sanitized and parsed once per distinct value instead — see
         // SanitizingReader.Sanitize and CssStyles.StyleOf.
         var context = BrowsingContext.New(Configuration.Default);
+        var document = Parse(context, html, options, diagnostics);
 
+        // Before sanitizing, so that nothing outside the fragment is reported as removed.
+        if (fragment is not null
+            && !ClipToFragment(document, html.Contains(ClipboardHtml.EndFragmentComment, StringComparison.OrdinalIgnoreCase)))
+        {
+            // The text has the markers but the parsed page does not: a script or a style read them
+            // as its own text. The page cannot be clipped, and unclipped it is everything the
+            // fragment was cut from (rubber-duck review 4.1). Read the fragment alone instead, as
+            // one that does not open inside a table is. What parsing the page reported was about
+            // the page, so it goes too.
+            diagnostics.Clear();
+            document = Parse(context, fragment, options, diagnostics);
+        }
+
+        // Also before sanitizing, which removes the styles that say a paragraph is a list item.
+        WordLists.Rewrite(document);
+
+        new SanitizingReader(options, diagnostics).Sanitize(document);
+
+        var walker = new Walker(options, diagnostics);
+        var blocks = walker.Run(document.Body ?? (INode)document);
+
+        // A document must have somewhere to put the caret.
+        return blocks.Count == 0
+            ? DocumentNode.Empty
+            : new DocumentNode(blocks);
+    }
+
+    private static IDocument Parse(
+        IBrowsingContext context,
+        string html,
+        HtmlImportOptions options,
+        List<ImportDiagnostic> diagnostics)
+    {
         var guarded = HtmlInputGuard.Bound(html, options);
 
         ReportGuard(guarded, options, diagnostics);
@@ -166,17 +227,87 @@ public static class HtmlImporter
             },
             context);
 
-        var document = parser.ParseDocument(guarded.Html);
+        return parser.ParseDocument(guarded.Html);
+    }
 
-        new SanitizingReader(options, diagnostics).Sanitize(document);
+    /// <summary>
+    /// Removes everything before the <c>StartFragment</c> marker and after the <c>EndFragment</c>
+    /// one, keeping the elements that enclose them.
+    /// </summary>
+    /// <param name="document">The parsed clipboard document.</param>
+    /// <remarks>
+    /// The markers are found where the parser put them rather than where they sat in the text, so
+    /// a marker between <c>&lt;table&gt;</c> and its first row clips inside the table and the
+    /// table itself survives.
+    /// </remarks>
+    /// <param name="endExpected">Whether the text has an <c>EndFragment</c> marker.</param>
+    /// <returns>
+    /// Whether the markers were found in the document. If not, it is left as it was.
+    /// </returns>
+    private static bool ClipToFragment(IDocument document, bool endExpected)
+    {
+        IComment? start = null;
+        IComment? end = null;
 
-        var walker = new Walker(options, diagnostics);
-        var blocks = walker.Run(document.Body ?? (INode)document);
+        foreach (var comment in document.Descendants<IComment>())
+        {
+            if (start is null)
+            {
+                if (IsMarker(comment, "StartFragment"))
+                {
+                    start = comment;
+                }
+            }
+            else if (IsMarker(comment, "EndFragment"))
+            {
+                end = comment;
+                break;
+            }
+        }
 
-        // A document must have somewhere to put the caret.
-        return blocks.Count == 0
-            ? DocumentNode.Empty
-            : new DocumentNode(blocks);
+        if (start is null || (end is null && endExpected))
+        {
+            return false;
+        }
+
+        RemoveOutside(start, before: true);
+
+        if (end is not null)
+        {
+            RemoveOutside(end, before: false);
+        }
+
+        // The page's own html and body stay as containers, but their attributes describe the page
+        // the fragment was cut from, not anything that was copied.
+        foreach (var page in new[] { document.DocumentElement, document.Body })
+        {
+            foreach (var name in page?.Attributes.Select(attribute => attribute.Name).ToArray() ?? [])
+            {
+                page!.RemoveAttribute(name);
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsMarker(IComment comment, string name) =>
+        string.Equals(comment.Data.Trim(), name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Removes every node on one side of <paramref name="marker"/>, at every level up to the root.</summary>
+    private static void RemoveOutside(INode marker, bool before)
+    {
+        for (var node = marker; node.Parent is { } parent; node = parent)
+        {
+            var sibling = before ? node.PreviousSibling : node.NextSibling;
+
+            while (sibling is not null)
+            {
+                var next = before ? sibling.PreviousSibling : sibling.NextSibling;
+
+                parent.RemoveChild(sibling);
+                sibling = next;
+            }
+        }
     }
 
     private static void ReportGuard(
@@ -225,7 +356,7 @@ public static class HtmlImporter
 
         internal List<BlockNode> Run(INode root)
         {
-            var sink = new BlockSink();
+            var sink = new BlockSink(Downgrade);
 
             WalkChildren(root, MarkSet.Empty, BlockStyle.Default, sink, 0);
             sink.Flush(BlockStyle.Default);
@@ -324,6 +455,22 @@ public static class HtmlImporter
 
                 case "img":
                     AddImage(element, mark, sink);
+                    return;
+
+                case "figure" when mark.Link is null && LoneImage(element) is { } lone:
+                    // A figure that is nothing but its image is how a block image is written. A
+                    // link around it belongs to the image and a block image cannot carry one, so
+                    // that case falls through and the image stays inline with its link.
+                    if (ImageOf(lone) is { } image)
+                    {
+                        var figureStyle = CssStyles.StyleOf(element, _styles);
+                        var figureBlock = figureStyle is null
+                            ? block
+                            : CssStyles.ApplyBlock(block, figureStyle);
+
+                        sink.AddBlock(block, new BlockImageNode(image, figureBlock.Align));
+                    }
+
                     return;
 
                 case "ul":
@@ -490,23 +637,57 @@ public static class HtmlImporter
 
         private void AddImage(IElement element, MarkSet mark, BlockSink sink)
         {
+            if (ImageOf(element) is { } image)
+            {
+                sink.AddEmbed(image, mark);
+            }
+        }
+
+        /// <summary>The image an <c>img</c> element describes, or null when it has no source.</summary>
+        private ImageEmbed? ImageOf(IElement element)
+        {
             var source = element.GetAttribute("src");
 
             if (string.IsNullOrWhiteSpace(source))
             {
                 // The sanitizer took the source away, and has already said why.
-                return;
+                return null;
             }
 
             var alt = element.GetAttribute("alt");
 
-            sink.AddEmbed(
-                new ImageEmbed(
-                    source,
-                    Dimension(element, "width"),
-                    Dimension(element, "height"),
-                    string.IsNullOrWhiteSpace(alt) ? null : alt),
-                mark);
+            return new ImageEmbed(
+                source,
+                Dimension(element, "width"),
+                Dimension(element, "height"),
+                string.IsNullOrWhiteSpace(alt) ? null : alt);
+        }
+
+        /// <summary>
+        /// The figure's only content when that is a single image, and null when there is anything
+        /// else in it — a caption, text, a second image.
+        /// </summary>
+        private static IElement? LoneImage(IElement figure)
+        {
+            IElement? image = null;
+
+            foreach (var child in figure.ChildNodes)
+            {
+                switch (child)
+                {
+                    case IText text when string.IsNullOrWhiteSpace(text.Data):
+                        continue;
+
+                    case IElement { LocalName: "img" } img when image is null:
+                        image = img;
+                        continue;
+
+                    default:
+                        return null;
+                }
+            }
+
+            return image;
         }
 
         /// <summary>The largest width or height, in pixels, an image is allowed to declare.</summary>
@@ -557,7 +738,7 @@ public static class HtmlImporter
                     continue;
                 }
 
-                var inner = new BlockSink();
+                var inner = new BlockSink(Downgrade);
                 var itemStyle = block with { Kind = ParagraphKind.Body };
 
                 WalkChildren(child, mark, itemStyle, inner, depth);
@@ -769,7 +950,7 @@ public static class HtmlImporter
             int depth,
             bool isHeader)
         {
-            var inner = new BlockSink();
+            var inner = new BlockSink(Downgrade);
 
             // A cell starts a fresh formatting context: an indent from outside the table would
             // otherwise be applied again inside every cell of it.
@@ -839,6 +1020,9 @@ public static class HtmlImporter
                 }
             }
         }
+
+        private void Downgrade(string message, string context) =>
+            Report(DiagnosticSeverity.Downgraded, message, context);
 
         private void Report(DiagnosticSeverity severity, string message, string context)
         {

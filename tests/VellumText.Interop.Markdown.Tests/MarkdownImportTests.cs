@@ -90,10 +90,42 @@ public class MarkdownImportTests
             p.Content.MarkAt(0).Link);
     }
 
+    /// <summary>
+    /// A backslash in a link address is a literal character to CommonMark, which writes it as
+    /// <c>%5C</c>; in an HTML link a browser reads the same backslash as <c>/</c>. The address
+    /// therefore changes meaning on the way in, and the import says so.
+    /// </summary>
+    [Theory]
+    [InlineData(@"[a](https://example.test/a\\b)")]
+    [InlineData(@"[a](https://example.test/a\b)")]
+    [InlineData(@"[a][r]
+
+[r]: https://example.test/a\b")]
+    [InlineData(@"<https://example.test/a\b>")]
+    public async Task A_backslash_in_a_link_address_is_reported(string markdown)
+    {
+        var result = await Import(markdown);
+
+        var diagnostic = Assert.Single(result.Diagnostics, d => d.Context == "link-backslash");
+        Assert.Equal(DiagnosticSeverity.Downgraded, diagnostic.Severity);
+
+        // The link itself is kept; only its address is in question.
+        Assert.NotNull(Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.MarkAt(0).Link);
+    }
+
+    [Theory]
+    [InlineData(@"[a](https://example.test/a\(b)")]
+    [InlineData(@"[a\b](https://example.test/ab)")]
+    [InlineData(@"`\` [a](https://example.test/ab)")]
+    public async Task A_backslash_anywhere_else_is_not_reported(string markdown)
+    {
+        Assert.DoesNotContain((await Import(markdown)).Diagnostics, d => d.Context == "link-backslash");
+    }
+
     [Fact]
     public async Task An_embedded_image_becomes_an_embed()
     {
-        var p = OnlyPara(await Import($"![a picture]({Png})"));
+        var p = OnlyPara(await Import($"see ![a picture]({Png})"));
         var embed = Assert.IsType<ImageEmbed>(Assert.Single(p.Content.Embeds));
 
         Assert.Equal(Png, embed.Source);
@@ -268,7 +300,7 @@ public class MarkdownImportTests
     public async Task A_remote_image_survives_when_the_host_allows_it()
     {
         var result = await MarkdownImporter.ImportAsync(
-            "![alt](https://example.test/i.png)",
+            "see ![alt](https://example.test/i.png)",
             new MarkdownImportOptions { AllowRemoteImages = true });
 
         var embed = Assert.IsType<ImageEmbed>(Assert.Single(OnlyPara(result).Content.Embeds));

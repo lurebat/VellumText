@@ -53,6 +53,37 @@ than quietly working around it.
   noise; a comment recording a constraint, a measurement or a trap is the most
   valuable thing in the file.
 
+### Rules for code that reads untrusted input
+
+Import runs on whatever was pasted, dropped or opened, so a document is an
+attacker-shaped thing (see `SECURITY.md`). The 2026-10 codebase audit traced
+most of its crashes and hangs to a few repeated mistakes; these are the rules
+that stop each one coming back.
+
+- **Never recurse over a tree the input shaped** — your own walk or a
+  dependency's. Walk with an explicit stack, and run the parse on
+  `LargeStack` as the built-in importers do. Every importer has a
+  `HostileNestingTests` theory that runs **in a child process** and asserts the
+  exit code, because a stack overflow kills the test host and can still print
+  "Passed!". A new importer, or a new recursive walk, gets a row there.
+- **Saturate every number the input supplies before doing arithmetic with
+  it.** A list start, a span, a margin or a size is clamped to what the model
+  can mean at the point it is read (`BlockSink`, `CssStyles`), and arithmetic
+  on it afterwards saturates rather than overflows. Add an `int.MaxValue` /
+  `1e300` row for the new attribute to `HostileValueTests`, followed by the
+  list and table commands that will later compute with it.
+- **Look for the twin before you fix one site.** Paste and drop, `Create` and
+  `Update`, the importer and the renderer reading the same `data:` URL — this
+  code base has several places that must agree, and a fix applied to one of
+  them is a new inconsistency. Prefer one helper (`DataUri.TryParse`,
+  `RichTextClipboard.ResolveAsync`) to two copies, and add a parity test that
+  feeds both sites the same input. The pull request template asks.
+- **Keep a catch-all around the one call whose failure is expected.** CI's
+  `lint` job runs the ast-grep rule in `tools/ast-grep/rules/broad-catch.yml`,
+  which rejects a `catch (Exception)` around more than one statement in `src/`.
+  The rule's note explains how to mark a deliberate last resort. Run it locally
+  with `ast-grep scan` (and `ast-grep test` after changing a rule).
+
 ## Performance claims
 
 VellumText's design contains measured claims — for instance that reusing a shaped

@@ -329,4 +329,34 @@ public class RtfImportTests
         Assert.True(AnyRunHas(withBase, m => m.Link?.Href == "https://example.com/relative"));
         Assert.False(AnyRunHas(await RtfImporter.ImportAsync(rtf), m => m.Link is not null));
     }
+
+    [Theory]
+    [InlineData(-10240, "\uFFFD")]
+    [InlineData(-9216, "\uFFFD")]
+    public async Task An_unpaired_surrogate_becomes_a_replacement_character_and_the_rest_survives(
+        int unit, string expected)
+    {
+        // \u takes a signed 16-bit number, so a lone surrogate is two keystrokes of RTF. The model
+        // refuses one, and that refusal used to discard the whole paste.
+        var result = await Import($@"{{\rtf1\ansi a\u{unit}?b\par keep\par}}");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "unpaired-surrogate");
+        Assert.Equal($"a{expected}b\nkeep", PlainText(result));
+    }
+
+    [Fact]
+    public async Task A_surrogate_pair_split_by_formatting_keeps_the_character_and_the_rest()
+    {
+        // U+1F600 written as two \u escapes with a bold group between its halves.
+        var result = await Import(@"{\rtf1\ansi x\u-10179?{\b\u-8704?}y\par keep\par}");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "split-character");
+        Assert.Equal("x\uD83D\uDE00y\nkeep", PlainText(result));
+
+        var first = Paragraphs(result).First();
+        Assert.Equal(TextStyle.Bold, first.Content.MarkAt(1).Style & TextStyle.Bold);
+        Assert.Equal(TextStyle.None, first.Content.MarkAt(3).Style & TextStyle.Bold);
+    }
 }

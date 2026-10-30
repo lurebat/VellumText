@@ -123,9 +123,15 @@ public partial class RichTextViewer
         }
 
         return await RichTextClipboard
-            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text)
+            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text, ReportExportFailure)
             .ConfigureAwait(true);
     }
+
+    /// <inheritdoc cref="RichTextView.ExportFailed"/>
+    public event EventHandler<ExportFailedEventArgs>? ExportFailed;
+
+    private void ReportExportFailure(IDocumentExporter exporter, Exception exception) =>
+        ExportFailed?.Invoke(this, new ExportFailedEventArgs(exporter.Format, exception));
 
     /// <summary>The clipboard payload for the current selection.</summary>
     /// <remarks>
@@ -134,7 +140,7 @@ public partial class RichTextViewer
     /// platform's business rather than this control's.
     /// </remarks>
     internal DataTransfer BuildCopyData(string text) =>
-        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text);
+        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text, ReportExportFailure);
 
     /// <summary>The selection as a document in its own right.</summary>
     /// <remarks>

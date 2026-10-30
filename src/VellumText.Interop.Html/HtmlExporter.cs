@@ -96,11 +96,15 @@ public sealed class HtmlExporter : IDocumentExporter
                 return;
 
             case BlockImageNode image:
-                html.Append("<p");
-                WriteStyleAttribute(html, AlignStyle(image.Align));
+                // A figure, not a paragraph: <p><img></p> is also how an inline image alone in a
+                // paragraph is written, and the importer could not tell the two apart, so every
+                // block image came back inline. The margin is a paragraph's, which is what this
+                // used to look like everywhere it was pasted; a figure's default is indented.
+                html.Append("<figure");
+                WriteStyleAttribute(html, [.. AlignStyle(image.Align), "margin:1em 0"]);
                 html.Append('>');
                 WriteImage(html, image.Image);
-                html.Append("</p>");
+                html.Append("</figure>");
                 return;
 
             default:
@@ -497,24 +501,123 @@ public sealed class HtmlExporter : IDocumentExporter
         return $"rgba({color.R},{color.G},{color.B},{alpha})";
     }
 
-    /// <summary>Quotes a font family name when CSS requires it.</summary>
+    /// <summary>Writes a font family the way CSS reads one back as the same names.</summary>
     /// <remarks>
-    /// An unquoted family may only be a sequence of identifiers, so anything with a space, a
-    /// comma or a quote in it has to be quoted — and a name that arrived already quoted, or that
-    /// is a list of fallbacks, must be left exactly as it is or the list becomes one long name.
+    /// A family the host set as a list of fallbacks stays a list. Each name in it is written as a
+    /// bare identifier when it is one and as a CSS string otherwise — never raw. A name written
+    /// raw because it looked like a list or arrived quoted was a name that could close its own
+    /// declaration: imported as <c>x\" ;background-image:url(…);</c>, it came back out as a live
+    /// declaration the sanitizer had removed on the way in.
     /// </remarks>
-    private static string CssFontFamily(string family)
+    private static string CssFontFamily(string family) =>
+        string.Join(
+            ", ",
+            FamilyNames(family)
+                .Select(name => name.Trim())
+                .Where(name => name.Length > 0)
+                .Select(CssFamilyName));
+
+    /// <summary>Splits a font stack at the commas that separate its names.</summary>
+    /// <remarks>
+    /// A comma inside a name the host quoted is part of that name: <c>"ACME, Inc.", Arial</c> is two
+    /// families, not three. The stack is the host's notation rather than CSS — a bare name may hold
+    /// a quote, a backslash or a tab of its own, which a CSS parser would reject or collapse — so it
+    /// is not handed to one. A quote opens a name only at its start, as <see cref="CssFamilyName"/>
+    /// reads it, a backslash keeps the next character from closing it, and a quote that never
+    /// closes is just a character.
+    /// </remarks>
+    private static IEnumerable<string> FamilyNames(string family)
     {
-        if (family.Contains(',', StringComparison.Ordinal)
-            || family.StartsWith('"')
-            || family.StartsWith('\''))
+        var start = 0;
+
+        while (start <= family.Length)
         {
-            return family;
+            var at = start;
+
+            while (at < family.Length && char.IsWhiteSpace(family[at]))
+            {
+                at++;
+            }
+
+            if (at < family.Length && family[at] is '"' or '\'' && ClosingQuote(family, at) is var close and >= 0)
+            {
+                at = close + 1;
+            }
+
+            var end = family.IndexOf(',', at);
+
+            if (end < 0)
+            {
+                end = family.Length;
+            }
+
+            yield return family[start..end];
+            start = end + 1;
+        }
+    }
+
+    private static int ClosingQuote(string family, int open)
+    {
+        for (var at = open + 1; at < family.Length; at++)
+        {
+            if (family[at] == '\\')
+            {
+                at++;
+            }
+            else if (family[at] == family[open])
+            {
+                return at;
+            }
         }
 
-        return family.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_')
-            ? $"\"{family.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
-            : family;
+        return -1;
+    }
+
+    private static string CssFamilyName(string name)
+    {
+        // A name the host wrote with its own quotes means the name inside them.
+        if (name.Length >= 2 && (name[0] is '"' or '\'') && name[^1] == name[0])
+        {
+            name = name[1..^1];
+        }
+
+        var identifier = name.Length > 0
+            && !char.IsAsciiDigit(name[0])
+            && !name.StartsWith('-')
+            && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
+        return identifier ? name : CssString(name);
+    }
+
+    /// <summary>A CSS string literal holding exactly <paramref name="value"/>.</summary>
+    /// <remarks>
+    /// The three characters that end or escape a string are escaped — the quote, the backslash
+    /// and a line break — and so is every other control character, as a hexadecimal escape with
+    /// its terminating space, because a raw one is either invalid or invisible in the output.
+    /// </remarks>
+    private static string CssString(string value)
+    {
+        var css = new StringBuilder(value.Length + 2).Append('"');
+
+        foreach (var c in value)
+        {
+            if (c is '"' or '\\')
+            {
+                css.Append('\\').Append(c);
+            }
+            else if (char.IsControl(c))
+            {
+                css.Append('\\')
+                    .Append(((int)c).ToString("x", CultureInfo.InvariantCulture))
+                    .Append(' ');
+            }
+            else
+            {
+                css.Append(c);
+            }
+        }
+
+        return css.Append('"').ToString();
     }
 
     private static string Attribute(string value)

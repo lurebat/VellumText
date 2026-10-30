@@ -5,6 +5,7 @@ using global::Avalonia.Controls;
 using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Media;
+using global::Avalonia.Media.Imaging;
 using VellumText.Avalonia;
 
 namespace VellumText.Tests.Avalonia;
@@ -409,6 +410,102 @@ public class RichTextViewFindTests
             findBrush: Brushes.Transparent);
 
         Assert.Equal(quiet, loud);
+    }
+
+    /// <remarks>
+    /// F-13. Painting now looks only at the matches inside the blocks on screen, found by binary
+    /// search. Scrolled to the middle of a document of identical paragraphs, aligned so a block
+    /// starts exactly at the top, the screen has to be the same picture as the top of the
+    /// document, highlights included: a search that started a match late, or stopped a block
+    /// early, would leave the first or last line on screen unpainted.
+    /// </remarks>
+    [AvaloniaFact]
+    public void MatchesArePaintedTheSameAfterScrollingDeepIntoTheDocument()
+    {
+        var doc = new DocumentNode(Enumerable.Range(0, 3_000)
+            .Select(_ => (BlockNode)ParagraphNode.FromText("needle in the haystack, needle"))
+            .ToArray());
+
+        var top = ScrolledPixels(doc, "needle", block: 0);
+        var middle = ScrolledPixels(doc, "needle", block: 1_500);
+
+        Assert.True(CountOf(top, Colors.Blue) > 0, "nothing was painted blue");
+        Assert.Equal(top, middle);
+    }
+
+    /// <remarks>
+    /// A font change throws every layout away until the next measure pass, and a frame can be
+    /// painted in between. With a search open, painting the highlights then has no realized
+    /// blocks to look the matches up against, and must paint none rather than index an empty
+    /// block list.
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingWithASearchOpenAfterTheLayoutIsDroppedPaintsNothingAndDoesNotThrow()
+    {
+        var view = Realized(DocumentNode.FromParagraphs("the cat sat", "on the cat"));
+
+        view.Find("cat");
+        view.FontSize = 31;
+
+        using var bitmap = new RenderTargetBitmap(new PixelSize((int)Width, (int)Height));
+        using var context = bitmap.CreateDrawingContext();
+
+        view.Render(context);
+    }
+
+    /// <summary>
+    /// Renders <paramref name="doc"/> scrolled so that <paramref name="block"/> starts at the top
+    /// of the window, with every match of <paramref name="search"/> painted in solid blue.
+    /// </summary>
+    private static byte[] ScrolledPixels(DocumentNode doc, string search, int block)
+    {
+        var view = new RichTextView
+        {
+            State = EditorState.Create(doc),
+            SelectionBrush = null,
+            FindHighlightBrush = Brushes.Blue,
+        };
+
+        var window = new Window { Content = view, Width = Width, Height = Height };
+
+        window.Show();
+        window.Measure(new Size(Width, Height));
+        window.Arrange(new Rect(0, 0, Width, Height));
+
+        view.Find(search);
+
+        // Twice: the first pass lays out the blocks around the target and replaces their
+        // estimated heights with real ones, which moves the target; the second lands on it.
+        for (var i = 0; i < 2; i++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + view.BlockOrigin(block).Y);
+            window.Measure(new Size(Width, Height));
+            window.Arrange(new Rect(0, 0, Width, Height));
+        }
+
+        Assert.Equal(0, view.BlockOrigin(block).Y, 3);
+
+        using var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("nothing was rendered");
+
+        var size = frame.PixelSize;
+        var buffer = new byte[size.Width * size.Height * 4];
+        var pin = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+
+        try
+        {
+            frame.CopyPixels(
+                new PixelRect(0, 0, size.Width, size.Height),
+                pin.AddrOfPinnedObject(),
+                buffer.Length,
+                size.Width * 4);
+        }
+        finally
+        {
+            pin.Free();
+        }
+
+        return buffer;
     }
 
     [AvaloniaFact]

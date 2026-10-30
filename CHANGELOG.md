@@ -94,9 +94,42 @@ awaits `PasteAsync`.
   (default 100,000 per import) on `HtmlImportOptions`, `MarkdownImportOptions`
   and `RtfImportOptions`. A table over budget becomes paragraphs with a
   `Downgraded` diagnostic.
+- **The decoded-image cache is bounded by memory, not only by count.** A GIF
+  states its canvas size in its header and decodes to it whatever its frames
+  hold, so 1 KB of pasted HTML naming 7999×7999 GIFs pinned gigabytes in
+  `BitmapEmbedRenderer.Shared`, which is process-wide. The renderer now evicts
+  the least recently used images until the rest fit `CacheBudgetBytes` (new,
+  default 256 MiB); `CacheLimit` stays as a second cap. An image larger than the
+  whole budget is still kept, alone, so it is not decoded on every frame.
+- **Image decompression bombs are refused from their header in every common
+  format, not just PNG.** GIF, BMP, JPEG and WebP were decoded in full before
+  `MaximumPixels` was checked: a 38-byte WebP cost 642 MB, and a 287-byte JPEG
+  or a 64-byte BMP 2 GB, through a paste and one render. Their declared
+  dimensions are now read from the header and checked first, including ICO and
+  WBMP, a GIF's first frame where it lies outside the screen, and a JPEG frame
+  header behind stray bytes. An inline image whose dimensions cannot be read
+  from its header, such as a TIFF, is refused without being decoded.
+- **HTML export can no longer turn an imported font name back into CSS the
+  sanitizer removed.** A pasted
+  `font-family:"x\" ;background-image:url(http://tracker.invalid/p.png);"` kept
+  its CSS escape in the model, and the exporter escaped the quote but not the
+  backslash, so a copy carried a live `background-image` — a tracking fetch the
+  import had stripped. Import now reads the family the CSS actually states, and
+  export writes every family name through one CSS string serializer that
+  escapes `\`, `"` and control characters. A host's list of fallbacks
+  (`Segoe UI, Arial`) stays a list.
 
 ### Fixed
 
+- **A registered exporter that throws during a copy is reported, not silent.**
+  The copy already went ahead without that format, but nothing said so, so a
+  broken exporter only showed as a paste elsewhere arriving with less
+  formatting. `RichTextView`, `RichTextViewer` and `RichTextEditor` raise
+  `ExportFailed` (format and exception), the failure is written to
+  `System.Diagnostics.Trace`, and Ctrl+C still never throws: plain text and
+  every other format still reach the clipboard. `RichTextClipboard.Build` and
+  `WriteAsync` take an optional `exportFailed` callback for hosts that write
+  the clipboard themselves.
 - **The font box shows a family name with a comma as the user knows it.** A
   name such as `ACME, Inc.` is stored quoted (`"ACME, Inc."`) so that it stays
   one family through export, and the box showed those quotes. It now shows
@@ -214,7 +247,6 @@ awaits `PasteAsync`.
   `InsertColumns` in a host's own transaction stays in its row and column. The
   step's map matched rows and cells by value, and an inserted empty cell equals
   its empty neighbours, so the caret landed one column left or one row up.
-
 - **A browser's "Copy image" pastes the image.** Chrome puts an `<img>` pointing
   at the network beside the bitmap; the sanitizer removed the remote image and
   the paste inserted nothing while returning `true`. Paste and drop now resolve a
@@ -233,6 +265,205 @@ awaits `PasteAsync`.
   styles. The DOM is now built without CSS support, each distinct style value is
   sanitized once by the same sanitizer and parsed once, and the import allocates
   about 110 MB.
+- **A read-only view, or one with a cell rectangle selected, no longer reads and
+  parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
+  was checked only when the decoded document was about to be applied, so a
+  viewer ran every registered importer on untrusted content for a paste that
+  could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
+  refuse before the first clipboard read.
+- **A dropped or pasted image file larger than the image store accepts is no
+  longer read whole first.** With the default `DataUriImageStore` (4 MB), a
+  64 MB file allocated 192 MB only to be refused. The file is now read only up
+  to the store's `MaximumBytes`; past that, the drop stops reading and raises
+  `ImageRefused` with the file's size. A custom `IImageStore`, whose limit the
+  editor cannot know, still receives the whole file.
+- **Undoing a format applied to a large selection is no longer quadratic.**
+  Ctrl+A, Ctrl+I, Ctrl+Z put the recorded formatting back by trying every
+  recorded span against every paragraph: 272 ms at 8,000 plain paragraphs and
+  4 s with every other word bold, growing 3.5× per doubling (minutes at
+  50,000). Each paragraph now looks only at the spans that reach into it, found
+  by binary search, so the undo is linear like the command it undoes; redo
+  shares the fix. A hand-built `RestoreMarksStep` whose spans are out of order
+  or overlap is still applied exactly as before.
+- **Ctrl+Z after a burst of typing replays one step, not one per keystroke.**
+  Typing without a 500 ms pause is still one undo, but each keystroke's inverse
+  was kept and replayed separately, every one a rebuild of the document's
+  spine: 100 characters took 0.6 s (104 MB) to undo at 50,000 paragraphs and
+  400 took 2.3 s, growing with every character. History now folds neighbouring
+  text edits within one paragraph into a single step as each keystroke is
+  recorded, for typing, Backspace and Delete alike, so the undo costs the same
+  however long the burst was. What is grouped is unchanged; a split, a join or
+  any other structural step in a burst keeps its own step.
+- **A frame painted with a search open no longer walks every match in the
+  document.** Each frame — a caret blink, a scroll step, a keystroke — looked at
+  every match and, for each, at every realized block: 81 ms a frame for a
+  query of "e" at 50,000 paragraphs, 21 ms for one match per paragraph. The
+  painter now binary-searches the matches for the ones inside the realized
+  blocks, so its cost no longer depends on the document's size, and works out a
+  block's position only for the blocks a range actually   reaches.
+- **Typing, Enter and Backspace at 50,000 paragraphs no longer allocate
+  megabytes a keystroke.** Every change re-flattened the whole document into a
+  new block list (3.2 MB), Enter and a join fell back to cutting the whole
+  document in two and splicing it back (2.4 MB), a join also listed every leaf
+  block to find its neighbour (3.2 MB), and the height index was reallocated
+  for each block added or removed (1 MB): 4.2 MB for a keystroke, 6.9 MB for
+  Enter and 10.1 MB for a join, with a gen-2 collection every few keys. The
+  block list is now patched in place for just the top-level blocks an edit
+  replaced; Enter and a join rebuild only the blocks they touch and splice the
+  document's block array once; the join finds its neighbour by walking out from
+  the caret; the height index shifts in place; and typing sets the document's
+  top-level entry without a second copy. A keystroke now allocates about
+  0.6 MB at 50,000 paragraphs, and Enter and a join about the same — the one
+  copy of the document's block array an immutable edit makes, which stays
+  linear in the document by design.
+- **Reading a large selection's formatting no longer looks at every
+  character.** The toolbar asks what formatting the selection shares on every
+  state change, and with everything selected that was a lookup per character:
+  143 ms at 50,000 paragraphs, paid again by Ctrl+B. It now walks the
+  selection's stretches of formatting from the first block the selection
+  reaches, and stops as soon as nothing is shared, so a mixed selection costs a
+  few lookups whatever its size. The HTML, RTF and Markdown exporters read
+  formatting runs the same way, off the mark spans instead of one lookup per
+  character.
+- **Whole-word search no longer treats letters outside the basic plane as word
+  boundaries.** The characters either side of a match were read one UTF-16 code
+  unit at a time, and neither half of a surrogate pair is a letter, so "cat"
+  matched as a whole word inside "𝐀cat" or next to a Deseret letter. The
+  neighbours are now read as whole characters (`Rune`); an emoji is still a
+  boundary and an astral digit is still part of the word.
+- **`DocumentPreview.IsLongerThan` stops inside a leading table or list once
+  the budget is beaten.** A container was measured by building its whole plain
+  text, so asking whether a document opening with a 50,000-row table was longer
+  than 80 characters allocated 17 MB and took 15 ms, against the method's own
+  promise to cost about the budget. It now counts the container paragraph by
+  paragraph, exactly as its plain text would be laid out, and stops there.
+- **Markdown export no longer throws, or silently changes text, around
+  emphasis.** One styled escaped or astral character — the italic `&` in
+  "R&D", a bold 👍 — threw `IndexOutOfRangeException` out of
+  `MarkdownFormat.Export` (and on copy the Markdown flavour was silently
+  missing). A run's closing delimiter and the next run's opening one could
+  touch and merge, so bold "Price" beside italic "$5" came back as bold
+  "Price" and the literal text `*$5*`, with no diagnostic. The inline writer
+  now judges every delimiter against what is really written beside it,
+  including the neighbouring run's delimiters, and writes `**Price**_$5_`.
+  Bold text that changes colour no longer closes and reopens its bold.
+- **A Markdown paragraph ending in a line break no longer comes back ending in
+  a backslash.** The break has no notation there; it is dropped with a
+  `Downgraded` diagnostic. A break at the end of a link's text is written just
+  after the link instead of being lost.
+- **Inline code straight after a literal backtick stays code.** The backtick
+  was written as a backslash escape directly before the code span's fence,
+  which a reader refuses to open there, so the code came back as plain text
+  with two extra backticks; the literal backtick is now written `&#96;`.
+- **Exporting a styled run with long whitespace at its edges is linear.** 40,000
+  trailing spaces in a bold run took 2.3 s and 3.2 GB of allocation.
+- **A numbered list nested in a list item keeps its start number in Markdown.**
+  One starting anywhere but 1 was written straight under its item's paragraph,
+  which it cannot interrupt, so `- Steps` / `2. second` came back as the one
+  paragraph "Steps 2. second". It now gets the blank line a top-level one does.
+- **RTF export writes tables from the grid.** A cell spanning two rows left the
+  row below one cell short, and its cells were written a column too far left;
+  a cell's paragraphs ran together ("Hello" and "World" became "HelloWorld");
+  and a list, rule or image in a cell was written outside the table and split
+  it in two. Row spans are now written as `\clvmgf`/`\clvmrg` merges, every
+  paragraph in a cell is marked `\intbl` and keeps its alignment, and two
+  tables written back to back get the empty paragraph RTF needs between them
+  instead of running together. A table inside a cell is written as the cell's
+  paragraphs, row by row: nested tables are not understood consistently by RTF
+  readers.
+- **A quote or a backslash in a link no longer breaks the RTF hyperlink, and a
+  semicolon no longer cuts a font name short.** A quote ended the HYPERLINK
+  field's argument, so the link was dropped — and
+  `https://ok.example/" "javascript:alert(1)` became a second argument, which
+  RtfPipe-based readers take as the target. A quote in an address is now
+  written `%22` and a backslash is escaped for the field. `Weird;Font` was the
+  font "Weird" followed by stray text; the semicolon is left out of the name.
+- **A block image comes back a block image through HTML and Markdown.** No
+  importer ever built one, so every copy or save turned a block image into a
+  paragraph holding an inline picture — no block selection, no resize — with
+  no diagnostic. HTML export now writes a block image as a `<figure>` holding
+  only the image, and HTML import reads such a figure (with its alignment) as a
+  block image; a figure with a caption, or inside a link, is unchanged.
+  Markdown import reads a paragraph that is nothing but one image as a block
+  image, so Markdown export now reports an inline image that is the whole of
+  its paragraph (`image-paragraph`), since that one comes back as a block image
+  too. RTF is unchanged: its reader cannot tell the two apart.
+- **An explicit font size inside a heading no longer grows on every RTF copy
+  and paste.** It was multiplied by the heading's scale on the way out and read
+  back as the explicit size, so 12 px in a Heading 1 became 24, then 48, then
+  96. The heading's scale now applies only to text that asked for no size.
+- **RTF lists keep their nesting, their boundaries and their start number.**
+  Depth was carried only by the indent and every paragraph repeated an
+  old-style `\pn` numbering with no level and no identity, so a nested list
+  came back flat and two lists written back to back came back as one. Lists are
+  now written with a `\listtable`: each top-level list has its own `\ls`,
+  nested lists are its deeper `\ilvl` levels with their own kind and start, and
+  the marker is still written as literal `\listtext` for readers that know no
+  list table. A heading inside a list item now keeps its `\outlinelevel`.
+- **RTF export writes a link's title and an image's alternative text.** Neither
+  was in the RTF at all. A title is now the HYPERLINK field's `\o` tooltip, and
+  alt text is the picture's `wzDescription` property, which Word reads.
+- **A JSON document with deeply nested lists or tables now opens again.** The
+  writer saved nesting up to its own limit of 1,000 JSON levels, but the reader
+  stopped at the default 64, so 19 nested lists or 11 nested tables saved
+  without complaint and came back as an empty document with a `Malformed`
+  diagnostic. The reader now accepts 2,048 levels, more than the writer can
+  emit; it still parses on its own large-stack thread.
+- **A range copied from Excel pastes as a table again, not as one paragraph.**
+  Excel's clipboard HTML opens the copied fragment after `<table>` and before
+  `<col>`, so the fragment alone is rows and cells with no table around them;
+  the parser dropped them as stray tags and a 6×4 range arrived as one line of
+  every cell's text. A fragment that opens with table rows is now read inside
+  the document it was cut from, keeping only what lies between the fragment
+  markers and the elements around them, so the range keeps its rows, columns
+  and merged cells. A single copied cell, which Excel marks as just the cell,
+  still pastes as its text, as Excel's own RTF of the same copy does.
+- **A blank line pasted as `<p><br></p>` is one empty paragraph, not two lines.**
+  Browsers, mail clients and RtfPipe (for `\par\par`) all write a blank line as
+  a paragraph holding only `<br>`, and the importer kept that break as a newline
+  character, so every blank line arrived twice as tall and a Markdown save
+  turned it into a stray backslash. A break that ends a block now only ends it:
+  `<p>a<br></p>` is "a", `<p><br></p>` is an empty paragraph, and a break in the
+  middle of a paragraph is still a line break.
+- **One bad character or one absurd margin no longer empties a whole paste.**
+  The model refuses text that is not well-formed UTF-16 and formatting that
+  starts or ends inside a surrogate pair, and HTML, Markdown and RTF (where
+  `\u-10240?` is a lone surrogate) could deliver both; the refusal was caught
+  and the entire import came back empty with a `Malformed` diagnostic. The
+  importer now repairs these where paragraphs are built: an unpaired surrogate
+  becomes U+FFFD and a formatting edge inside a character moves to the start of
+  that character, each with a `Downgraded` diagnostic, and the rest of the
+  paste survives. Likewise a nested `margin-left:1e300px` computed an indent of
+  `int.MaxValue`, which wrapped negative once the enclosing indent was added and
+  discarded everything; the level is now capped at 8 before it is added.
+- **An inline image the importer accepts is one the editor can draw.** The
+  sanitizer, the image renderer and the RTF exporter each parsed `data:` URLs by
+  their own rules, so `<img src=" data:image/png;base64,…">` (leading
+  whitespace), `…;base64;x=y,…` and `…;base64x,…` were imported without a
+  diagnostic and then drawn as a missing-image box, and the RTF exporter wrote
+  `image/pngx` as a PNG. All of them, and the data-URL image store, now share
+  one reading: `;base64` must end the header and the media type is matched
+  exactly. The importer strips the whitespace HTML strips around any URL and
+  stores the clean URL, so the first case now imports and draws; the others are
+  refused with a `Dropped` diagnostic.
+- **A bulleted or numbered list copied from Word pastes as a list.** Word's
+  clipboard HTML has no `<ul>` or `<ol>`: each item is a paragraph styled
+  `mso-list:l0 level1 lfo1`, with its bullet written out as text inside
+  `<![if !supportLists]>`. The importer read those as ordinary paragraphs, so
+  the list arrived as "·" paragraphs in the Symbol font. Word list paragraphs
+  are now rebuilt into lists before the HTML is sanitized: the written-out
+  marker is removed and decides bullets or numbering, the level decides
+  nesting, and a different Word list, a change of marker kind or any other
+  paragraph in between starts a new list. Word's numbered headings stay
+  headings.
+- **A Markdown link whose address contains a backslash now says that its
+  address changed.** CommonMark reads `[a](/a\b)` as a literal backslash and
+  writes it as `%5C`, so the link points at `/a%5Cb`, where an HTML link with the
+  same address, kept as written by the HTML and RTF importers, means `/a/b` to a
+  browser. The import used to change the address silently; it now reports a
+  `Downgraded` diagnostic. The address itself is left as CommonMark reads it,
+  because keeping the backslash would mean rendering links outside Markdig or
+  restoring an address the sanitizer never checked.
 
 ### Changed
 
@@ -259,12 +490,15 @@ awaits `PasteAsync`.
   converts points to pixels (12 sets 16) and `SelectionFontSize` reports points
   (that heading reads 20). A host that read `SelectionFontSize` as pixels needs
   to multiply by 4/3.
-- **A read-only view, or one with a cell rectangle selected, no longer reads and
-  parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
-  was checked only when the decoded document was about to be applied, so a
-  viewer ran every registered importer on untrusted content for a paste that
-  could never land (600 KB of HTML: 912 ms against 4 ms). Both paste methods now
-  refuse before the first clipboard read.
+- **The benchmark now carries the codebase audit's reproductions, and the test
+  suite pins their shape without a clock.** `bench/VellumText.Bench` gains the
+  `a-*` scenarios each performance finding was confirmed with (`a-undo`,
+  `a-undofmt`, `a-findrender`, `a-structure`, `a-stages`, `a-sustained`,
+  `a-selectall`, `a-exports`, `a-preview` and the rest), so a fix is
+  re-measured against the shape that found the problem. Timings still need a
+  quiet machine, so CI runs `ScalingGuardTests` instead: each row measures
+  bytes allocated or a work counter at doubling sizes and fails on growth above
+  2.5× per doubling, or allocates against a budget at AC12's 50,000 paragraphs.
 
 ## [0.7.0] - 2026-08-20
 

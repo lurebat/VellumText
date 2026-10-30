@@ -185,6 +185,61 @@ public class DocumentBlocksTests
     public void ADocumentIsRequired() =>
         Assert.Throws<ArgumentNullException>(() => DocumentBlocks.Flatten(null!));
 
+    /// <remarks>
+    /// <see cref="DocumentBlocks.LeafBeside"/> walks out from one block instead of listing every
+    /// leaf, so that a join at the end of a large document does not build a slot for every block
+    /// in it. Its answer has to be the list's, for every paragraph, in both directions — through
+    /// list items, nested lists, table cells, a table nested in a cell, a rule and an image, and
+    /// at both ends of the document.
+    /// </remarks>
+    [Fact]
+    public void TheLeafBesideABlockIsTheOneTheLeafListPutsBesideIt()
+    {
+        DocumentNode[] documents =
+        [
+            Mixed(),
+            DocumentNode.FromParagraphs("only"),
+            new([
+                RuleNode.Instance,
+                new TableNode([
+                    new TableRowNode([
+                        new TableCellNode([ParagraphNode.FromText("a"), ParagraphNode.FromText("a2")]),
+                        new TableCellNode([
+                            new TableNode([new TableRowNode([TableCellNode.FromText("inner")])]),
+                        ]),
+                    ]),
+                    new TableRowNode([TableCellNode.FromText("c"), TableCellNode.FromText("d")]),
+                ]),
+                new BlockImageNode(new ImageEmbed("data:image/png;base64,AA==")),
+                new ListNode([new ListItemNode([new ListNode([ListItemNode.FromText("deep")])])]),
+            ]),
+        ];
+
+        foreach (var doc in documents)
+        {
+            var leaves = DocumentBlocks.Leaves(doc);
+
+            for (var i = 0; i < leaves.Length; i++)
+            {
+                if (leaves[i].Node is not ParagraphNode)
+                {
+                    continue;
+                }
+
+                var at = doc.Resolve(leaves[i].Start);
+
+                foreach (var forward in new[] { false, true })
+                {
+                    var expected = i + (forward ? 1 : -1) is var j && j >= 0 && j < leaves.Length
+                        ? leaves[j]
+                        : (BlockSlot?)null;
+
+                    Assert.Equal(expected, DocumentBlocks.LeafBeside(at, at.Depth, forward));
+                }
+            }
+        }
+    }
+
     private static DocumentNode Mixed() =>
         new([
             ParagraphNode.FromText("opening"),

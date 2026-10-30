@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace VellumText;
 
 /// <summary>
@@ -103,6 +105,89 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
         return new ReplaceStep(from.Pos, Math.Max(from.Pos, to.Pos), Content);
     }
 
+    /// <summary>
+    /// Whether this step, applied to <paramref name="doc"/>, replaces text inside one paragraph
+    /// with text and touches nothing else.
+    /// </summary>
+    /// <param name="doc">The document the step applies to.</param>
+    /// <remarks>
+    /// The shape <see cref="FollowedBy"/> is sound for: typing, Backspace and Delete within a
+    /// paragraph. A split, a join or a paste of blocks changes the tree, and two of those folded
+    /// into one step are not shown to mean what the pair meant.
+    /// </remarks>
+    internal bool IsTextEditIn(DocumentNode doc)
+    {
+        var textOnly = Content.IsEmpty
+            || (Content.Content.Length == 1
+                && Content.OpenStart == 1
+                && Content.OpenEnd == 1
+                && Content.Content[0] is ParagraphNode);
+
+        if (!textOnly || From < 0 || To < From || To > doc.ContentSize)
+        {
+            return false;
+        }
+
+        var start = doc.Resolve(From);
+
+        return start.Paragraph is { } paragraph
+            && To <= start.Start(start.Depth) + paragraph.Content.Length;
+    }
+
+    /// <summary>
+    /// This step and then <paramref name="next"/> as a single step, or null if their ranges do
+    /// not meet.
+    /// </summary>
+    /// <param name="next">The step applied to the document this one produced.</param>
+    /// <remarks>
+    /// <para>
+    /// Only for two steps that are each <see cref="IsTextEditIn">a text edit</see> of the
+    /// document it applies to, which the caller checks: their ranges then meet inside one
+    /// paragraph, and replacing two touching stretches of its text one after the other is the
+    /// same as replacing their union once. ProseMirror's <c>ReplaceStep.merge</c> is the same
+    /// idea; history uses it so that undoing a burst of typing replays one step rather than one
+    /// per keystroke.
+    /// </para>
+    /// <para>
+    /// Two ways to meet. <paramref name="next"/> can start where this step's inserted content
+    /// ends — undoing typing deletes leftwards, so each earlier keystroke's range follows the one
+    /// just removed — or end where this step starts, which is how undoing Backspace re-inserts.
+    /// </para>
+    /// </remarks>
+    internal ReplaceStep? FollowedBy(ReplaceStep next)
+    {
+        if (From + Content.Size == next.From)
+        {
+            return new ReplaceStep(From, To + (next.To - next.From), Joined(Content, next.Content));
+        }
+
+        if (next.To == From)
+        {
+            return new ReplaceStep(next.From, To, Joined(next.Content, Content));
+        }
+
+        return null;
+    }
+
+    /// <summary>Two slices of text, one after the other, as one.</summary>
+    private static Slice Joined(Slice first, Slice second)
+    {
+        if (first.IsEmpty)
+        {
+            return second;
+        }
+
+        if (second.IsEmpty)
+        {
+            return first;
+        }
+
+        var before = (ParagraphNode)first.Content[0];
+        var after = (ParagraphNode)second.Content[0];
+
+        return new Slice([before.WithContent(before.Content.Concat(after.Content))], 1, 1);
+    }
+
     /// <summary>Whether closing the range back up would merge two parts of a table.</summary>
     /// <remarks>
     /// <para>
@@ -149,11 +234,11 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
         // The slice arrives at whatever depth it was cut from, so it has to be re-wrapped in
         // the ancestors of the position it is going into before the seams can be joined. The
         // wrapping stops at the pivot: above it nothing is cut, so there is nothing to wrap for.
-        // Depth 0 is included when there is no pivot, which is where the whole-document route
-        // gets the container it splices against.
+        // With no pivot it stops at the top-level blocks, which the document's own block array
+        // is spliced around.
         IReadOnlyList<Node> middle = Content.Content;
 
-        for (var depth = extra; depth > pivot; depth--)
+        for (var depth = extra; depth > Math.Max(pivot, 0); depth--)
         {
             if (start.NodeAt(depth) is ParagraphNode paragraph)
             {
@@ -170,13 +255,11 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
             }
         }
 
-        // Exactly one node either way: below the pivot the loop above wrapped everything into
-        // one, and at the pivot itself the slice is a single node or there is no pivot.
-        var joined = middle[0];
-
+        // With a pivot, exactly one node: below it the loop above wrapped everything into one,
+        // and at the pivot itself the slice is a single node.
         return pivot < 0
-            ? RebuildWholeDocument(doc, start, end, joined)
-            : RebuildOneChild(doc, start, end, pivot, joined);
+            ? RebuildTopLevel(doc, start, end, middle)
+            : RebuildOneChild(doc, start, end, pivot, middle[0]);
     }
 
     /// <summary>
@@ -210,28 +293,90 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
             start.SharedDepth(end) - 1,
             Content.Content.Length == 1 ? extra : extra - 1);
 
-    /// <summary>Cuts the document in two, splices the slice in, and joins it back up.</summary>
+    /// <summary>
+    /// Replaces the top-level blocks the range touches, splicing the document's block array once.
+    /// </summary>
     /// <param name="doc">The document being changed.</param>
     /// <param name="start">Where the replaced range starts.</param>
     /// <param name="end">Where it ends.</param>
-    /// <param name="middle">The slice, wrapped up to a node that sits beside the document's own.</param>
-    private static StepResult RebuildWholeDocument(
-        DocumentNode doc, ResolvedPos start, ResolvedPos end, Node middle)
+    /// <param name="middle">The slice, wrapped up to top-level blocks.</param>
+    /// <remarks>
+    /// <para>
+    /// The route for an edit no level of the tree survives unchanged in length, which is what
+    /// Enter (one paragraph becomes two) and a join (two become one) are at the top level. It
+    /// used to cut the whole document in two, splice the slice into the left half and the right
+    /// half back on — six copies of the document's block array, 2.4 MB a keystroke at 50,000
+    /// paragraphs. Only the blocks the range reaches are rebuilt here, and the array is copied
+    /// once with them in place.
+    /// </para>
+    /// <para>
+    /// The seams are exactly those of the cut-and-splice it replaces, decided by the same
+    /// <see cref="TreeSurgery.Merge"/>: the block the range starts in, cut short, joins the first
+    /// block of the slice when the start is inside a block; the last block of what that made
+    /// joins the remainder of the block the range ends in when the end is inside one. A start or
+    /// end between top-level blocks has no block to join, and the whole route agreed on that by
+    /// concatenating there.
+    /// </para>
+    /// </remarks>
+    private static StepResult RebuildTopLevel(
+        DocumentNode doc, ResolvedPos start, ResolvedPos end, IReadOnlyList<Node> middle)
     {
-        var left = TreeSurgery.CutBefore(start, 0);
-        var right = TreeSurgery.CutAfter(end, 0);
+        var replaced = new List<Node>(middle.Count + 1);
 
-        if (TreeSurgery.Splice(left, middle, start.Depth) is not { } withMiddle)
+        if (start.Depth > 0)
         {
-            return StepResult.Failed("The slice cannot be joined to the content before it.");
+            // There is a slice to join here: one that leaves the start inside a block is either
+            // open at its start, so it has content, or was wrapped up to a top-level block.
+            if (TreeSurgery.Merge(TreeSurgery.CutBefore(start, 1), middle[0], start.Depth)
+                is not { } first)
+            {
+                return StepResult.Failed("The slice cannot be joined to the content before it.");
+            }
+
+            replaced.Add(first);
+
+            for (var i = 1; i < middle.Count; i++)
+            {
+                replaced.Add(middle[i]);
+            }
+        }
+        else
+        {
+            replaced.AddRange(middle);
         }
 
-        if (TreeSurgery.Splice(withMiddle, right, end.Depth) is not DocumentNode result)
+        if (end.Depth > 0)
         {
-            return StepResult.Failed("The slice cannot be joined to the content after it.");
+            // Never empty here: a start between blocks and nothing to insert means an empty
+            // slice, which is closed, so the end is between blocks too.
+            if (TreeSurgery.Merge(replaced[^1], TreeSurgery.CutAfter(end, 1), end.Depth)
+                is not { } last)
+            {
+                return StepResult.Failed("The slice cannot be joined to the content after it.");
+            }
+
+            replaced[^1] = last;
         }
 
-        return Validated(result, doc);
+        var blocks = doc.Blocks;
+        var from = start.IndexAt(0);
+        var to = end.Depth > 0 ? end.IndexAt(0) + 1 : end.IndexAt(0);
+        var spliced = new BlockNode[blocks.Length - (to - from) + replaced.Count];
+
+        blocks.CopyTo(0, spliced, 0, from);
+
+        for (var i = 0; i < replaced.Count; i++)
+        {
+            spliced[from + i] = replaced[i] as BlockNode ?? throw new ArgumentException(
+                $"Expected BlockNode but found {replaced[i].TypeName}.");
+        }
+
+        blocks.CopyTo(to, spliced, from + replaced.Count, blocks.Length - to);
+
+        // Handed over rather than copied: the array is new and nothing else holds it, and copying
+        // it again into the document's own would be the second of the copies this route exists
+        // to avoid.
+        return Validated(new DocumentNode(ImmutableCollectionsMarshal.AsImmutableArray(spliced)), doc);
     }
 
     /// <summary>

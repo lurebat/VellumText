@@ -144,12 +144,15 @@ public partial class RichTextView
                 continue;
             }
 
+            // Per file, inside a drop nothing awaits: one unreadable file must not lose the rest.
+            // ast-grep-ignore: broad-catch
             try
             {
-                using var stream = await file.OpenReadAsync().ConfigureAwait(true);
-                using var buffer = new MemoryStream();
+                var limit = ImageStore is DataUriImageStore store ? store.MaximumBytes : (int?)null;
 
-                await stream.CopyToAsync(buffer).ConfigureAwait(true);
+                using var stream = await file.OpenReadAsync().ConfigureAwait(true);
+
+                var bytes = await ReadAtMost(stream, limit).ConfigureAwait(true);
 
                 // Re-checked per file. A multi-file drop can take long enough for the document
                 // to change between one file and the next, and the files after that point
@@ -161,7 +164,22 @@ public partial class RichTextView
                     break;
                 }
 
-                if (InsertImage(buffer.ToArray(), mediaType))
+                if (bytes is null)
+                {
+                    // Past what the store accepts, so it was not read any further: the store
+                    // would only have refused it after the whole file was in memory. Reported as
+                    // the store's own refusal would be, unless the drop could not land anyway.
+                    if (WouldPaste(ImageDocument("probe:")))
+                    {
+                        ImageRefused?.Invoke(
+                            this,
+                            new ImageRefusedEventArgs(await SizeOf(file, limit!.Value).ConfigureAwait(true), mediaType));
+                    }
+
+                    continue;
+                }
+
+                if (InsertImage(bytes, mediaType))
                 {
                     inserted = true;
 
@@ -182,6 +200,52 @@ public partial class RichTextView
         return inserted;
     }
 
+    /// <summary>
+    /// Reads a dropped file, or stops as soon as it is longer than <paramref name="limit"/>.
+    /// </summary>
+    /// <returns>The bytes, or null when there were more than <paramref name="limit"/>.</returns>
+    /// <remarks>
+    /// The default store refuses anything over four megabytes, and the whole file used to be read
+    /// first, into a buffer that doubles as it grows and was then copied: a 64 MB file cost
+    /// 192 MB to be refused. A store whose limit is not known here — a host's own — is given the
+    /// whole file, as before; it is the store's call.
+    /// </remarks>
+    private static async Task<byte[]?> ReadAtMost(Stream stream, int? limit)
+    {
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+
+        while ((read = await stream.ReadAsync(chunk).ConfigureAwait(true)) > 0)
+        {
+            if (buffer.Length + read > limit)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
+    /// <summary>The size a file reports, for a refusal; past the limit if it reports none.</summary>
+    private static async Task<int> SizeOf(IStorageFile file, int limit)
+    {
+        try
+        {
+            if ((await file.GetBasicPropertiesAsync().ConfigureAwait(true)).Size is { } size)
+            {
+                return (int)Math.Min(size, int.MaxValue);
+            }
+        }
+        catch (Exception)
+        {
+            // Only for the report: an unreadable size is no reason to lose the refusal.
+        }
+
+        return limit + 1;
+    }
 
     /// <summary>The media type a filename implies, or null when it is not an image.</summary>
     /// <remarks>
@@ -249,6 +313,8 @@ public partial class RichTextView
 
     private async Task DropAsync(TransferSource source, EditOrigin origin, CancellationToken cancellation)
     {
+        // Nothing awaits a drop (see the catch below), so anything escaping here would reach no handler.
+        // ast-grep-ignore: broad-catch
         try
         {
             var resolution = await RichTextClipboard

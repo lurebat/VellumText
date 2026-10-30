@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using VellumText.Interop.Html;
 
 namespace VellumText.Interop.Rtf;
 
@@ -19,7 +20,8 @@ namespace VellumText.Interop.Rtf;
 /// understood since Word 97, because the receiving application is not known and the ones that
 /// matter — Word, Outlook, WordPad, LibreOffice — disagree about everything newer. Where a
 /// construct has a modern spelling and a legacy spelling, both are written when they can coexist,
-/// which is why lists carry a <c>\pntext</c> group as well as their numbering definition.
+/// which is why a list item carries its marker as literal <c>\listtext</c> as well as naming its
+/// list and level in the list table.
 /// </para>
 /// <para>
 /// RTF has no heading, so one is written as its visual consequence — bold, and at the size the
@@ -77,9 +79,10 @@ public sealed class RtfExporter : IDocumentExporter
         // the body is built first and the header is prepended.
         var fonts = new FontTable();
         var colours = new ColourTable();
+        var lists = new ListTable();
         var body = new StringBuilder();
 
-        var writer = new Writer(body, fonts, colours);
+        var writer = new Writer(body, fonts, colours, lists);
 
         writer.WriteBlocks(doc.Blocks);
 
@@ -88,6 +91,7 @@ public sealed class RtfExporter : IDocumentExporter
         rtf.Append(@"{\rtf1\ansi\ansicpg1252\deff0\uc1");
         fonts.Write(rtf);
         colours.Write(rtf);
+        lists.Write(rtf);
         rtf.Append(body);
         rtf.Append('}');
 
@@ -127,6 +131,10 @@ public sealed class RtfExporter : IDocumentExporter
             return _fonts.Count - 1;
         }
 
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
+
         internal void Write(StringBuilder rtf)
         {
             rtf.Append(@"{\fonttbl");
@@ -138,8 +146,13 @@ public sealed class RtfExporter : IDocumentExporter
                     .Append(@"\fnil ");
 
                 // A font name is text like any other: it can contain a brace, a backslash or a
-                // character outside the code page, and Word's own output regularly does.
-                Text.Write(rtf, _fonts[i]);
+                // character outside the code page, and Word's own output regularly does. A
+                // semicolon is the exception: it ends the entry, and no escape un-ends it, so
+                // "Weird;Font" was the font "Weird" followed by stray text. It is left out. A name
+                // stored quoted because it holds a comma is one name, and the entry is that name.
+                Text.Write(
+                    rtf,
+                    FamilyNameQuoting.Unquote(_fonts[i]).Replace(";", string.Empty, StringComparison.Ordinal));
 
                 rtf.Append(";}");
             }
@@ -180,6 +193,10 @@ public sealed class RtfExporter : IDocumentExporter
             return index + 1;
         }
 
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
+
         internal void Write(StringBuilder rtf)
         {
             rtf.Append(@"{\colortbl;");
@@ -196,6 +213,155 @@ public sealed class RtfExporter : IDocumentExporter
         }
     }
 
+    /// <summary>The numbering definitions of a document's lists, one per top-level list.</summary>
+    /// <remarks>
+    /// <para>
+    /// A list's nesting and numbering live here, in <c>\listtable</c> and
+    /// <c>\listoverridetable</c>, and each paragraph only names its list (<c>\ls</c>) and level
+    /// (<c>\ilvl</c>). The old per-paragraph <c>\pn</c> carried no level, so readers flattened
+    /// nested lists, and it carried no identity, so two lists written back to back merged.
+    /// </para>
+    /// <para>
+    /// A level's kind and start come from the first list at that depth. RTF numbers a level the
+    /// same way throughout its list, so a nested list whose kind or start differs from what its
+    /// level already says gets a list definition of its own, copied from its ancestors' levels,
+    /// and its own <c>\ls</c>. Before, it was written with the first sibling's numbering, and a
+    /// reader that honours <c>\listtable</c> read a numbered sublist starting at 3 back as
+    /// bullets from 1 (rubber-duck review 5.2).
+    /// </para>
+    /// </remarks>
+    private sealed class ListTable
+    {
+        /// <summary>The deepest level RTF defines; deeper nesting shares it.</summary>
+        private const int MaxLevel = 8;
+
+        private readonly List<(ListKind Kind, int Start)?[]> _lists = [];
+
+        /// <summary>The <c>\ls</c> of each nested list that needed a definition of its own.</summary>
+        private readonly Dictionary<ListNode, int> _own = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The <c>\ilvl</c> for a nesting depth.</summary>
+        internal static int Level(int depth) => Math.Min(depth, MaxLevel);
+
+        /// <summary>Defines a top-level list, and returns its <c>\ls</c> number.</summary>
+        internal int Add(ListNode list)
+        {
+            var levels = new (ListKind Kind, int Start)?[MaxLevel + 1];
+
+            _lists.Add(levels);
+
+            var number = _lists.Count;
+
+            Collect(list, 0, levels);
+
+            return number;
+        }
+
+        /// <summary>The <c>\ls</c> a nested list is written with: its own, or its parent's.</summary>
+        internal int NumberOf(ListNode list, int parent) => _own.TryGetValue(list, out var own) ? own : parent;
+
+        private void Collect(ListNode list, int depth, (ListKind Kind, int Start)?[] levels)
+        {
+            if (depth > MaxLevel)
+            {
+                return;
+            }
+
+            var definition = Definition(list);
+
+            if (levels[depth] is { } recorded && recorded != definition)
+            {
+                // Its ancestors' levels as they are, its own at its depth, and its descendants'
+                // to come; nothing a sibling put deeper.
+                var own = new (ListKind Kind, int Start)?[MaxLevel + 1];
+
+                Array.Copy(levels, own, depth);
+                levels = own;
+                _lists.Add(levels);
+                _own[list] = _lists.Count;
+            }
+
+            levels[depth] = definition;
+
+            foreach (var item in list.Items)
+            {
+                foreach (var block in item.Blocks)
+                {
+                    if (block is ListNode nested)
+                    {
+                        Collect(nested, depth + 1, levels);
+                    }
+                }
+            }
+        }
+
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
+
+        internal void Write(StringBuilder rtf)
+        {
+            if (_lists.Count == 0)
+            {
+                return;
+            }
+
+            rtf.Append(@"{\*\listtable");
+
+            for (var i = 0; i < _lists.Count; i++)
+            {
+                var id = (i + 1).ToString(CultureInfo.InvariantCulture);
+
+                rtf.Append(@"{\list\listtemplateid").Append(id);
+
+                for (var level = 0; level <= MaxLevel; level++)
+                {
+                    WriteLevel(rtf, level, _lists[i][level] ?? (ListKind.Unordered, 1));
+                }
+
+                rtf.Append(@"{\listname ;}\listid").Append(id).Append('}');
+            }
+
+            rtf.Append(@"}{\*\listoverridetable");
+
+            for (var i = 0; i < _lists.Count; i++)
+            {
+                var id = (i + 1).ToString(CultureInfo.InvariantCulture);
+
+                rtf.Append(@"{\listoverride\listid").Append(id)
+                    .Append(@"\listoverridecount0\ls").Append(id).Append('}');
+            }
+
+            rtf.Append('}');
+        }
+
+        /// <summary>One level's definition: its numbering, start and indent.</summary>
+        /// <remarks>
+        /// <c>\leveltext</c> is a length byte then the text, in which a number placeholder is the
+        /// index of the level it shows: <c>\'02\'00.</c> is "level 0's number, then a full stop".
+        /// The bullet is <c>\'95</c>, which is "•" in the code page the header names.
+        /// </remarks>
+        private static void WriteLevel(StringBuilder rtf, int level, (ListKind Kind, int Start) definition)
+        {
+            var ordered = definition.Kind == ListKind.Ordered;
+            var format = ordered ? "0" : "23";
+
+            rtf.Append(@"{\listlevel\levelnfc").Append(format)
+                .Append(@"\levelnfcn").Append(format)
+                .Append(@"\leveljc0\leveljcn0\levelfollow0\levelstartat")
+                .Append((ordered ? definition.Start : 1).ToString(CultureInfo.InvariantCulture))
+                .Append(@"\levelspace0\levelindent0");
+
+            rtf.Append(ordered
+                ? $@"{{\leveltext\'02\'0{level.ToString(CultureInfo.InvariantCulture)}.;}}{{\levelnumbers\'01;}}"
+                : @"{\leveltext\'01\'95;}{\levelnumbers;}");
+
+            rtf.Append(@"\fi-").Append(HangingIndentTwips.ToString(CultureInfo.InvariantCulture))
+                .Append(@"\li").Append(((level + 1) * IndentTwips).ToString(CultureInfo.InvariantCulture))
+                .Append('}');
+        }
+    }
+
     /// <summary>Escaping, which is the same everywhere text appears.</summary>
     private static class Text
     {
@@ -204,6 +370,46 @@ public sealed class RtfExporter : IDocumentExporter
             foreach (var c in text)
             {
                 Write(rtf, c);
+            }
+        }
+
+        /// <summary>Writes a quoted argument of a field instruction.</summary>
+        /// <param name="rtf">The output.</param>
+        /// <param name="value">The argument.</param>
+        /// <param name="address">
+        /// Whether it is a URL, where a quote is percent-encoded rather than escaped.
+        /// </param>
+        /// <remarks>
+        /// A field instruction has its own quoting inside RTF's: a quote ends the argument and a
+        /// backslash escapes the next character. Written as plain text, <c>a\b</c> came back as
+        /// <c>ab</c>, and a quote ended the address — dropping the link, or, for
+        /// <c>" "javascript:…</c>, starting a second argument that RtfPipe-based readers take as
+        /// the target. A backslash is doubled for the field and again for RTF. A quote in an address
+        /// is <c>%22</c>, which every URL parser reads as the same address and no field reader can
+        /// mistake; a quote in other text has to stay a quote, so it is escaped.
+        /// </remarks>
+        internal static void WriteFieldArgument(StringBuilder rtf, string value, bool address)
+        {
+            foreach (var c in value)
+            {
+                switch (c)
+                {
+                    case '"' when address:
+                        rtf.Append("%22");
+                        break;
+
+                    case '"':
+                        rtf.Append(@"\\""");
+                        break;
+
+                    case '\\':
+                        rtf.Append(@"\\\\");
+                        break;
+
+                    default:
+                        Write(rtf, c);
+                        break;
+                }
             }
         }
 
@@ -254,14 +460,41 @@ public sealed class RtfExporter : IDocumentExporter
     }
 
     /// <summary>Walks the document, holding the state RTF needs to be told about explicitly.</summary>
-    private sealed class Writer(StringBuilder rtf, FontTable fonts, ColourTable colours)
+    private sealed class Writer(StringBuilder rtf, FontTable fonts, ColourTable colours, ListTable lists)
     {
+        /// <summary>How many table cells the block being written is inside.</summary>
+        /// <remarks>
+        /// Every paragraph in a cell has to say so with <c>\intbl</c>, and a reader that meets one
+        /// without it ends the table there: a list or a second paragraph in a cell used to be
+        /// written as ordinary paragraphs and split the table in two.
+        /// </remarks>
+        private int _cellDepth;
+
+        /// <summary>Whether the cell being written is a header cell, whose text is bold.</summary>
+        private bool _headerCell;
+
+        /// <summary>Whether the last block written was a table, which the next table cannot touch.</summary>
+        private bool _afterTable;
+
         internal void WriteBlocks(IEnumerable<BlockNode> blocks)
         {
             foreach (var block in blocks)
             {
                 WriteBlock(block);
             }
+        }
+
+        /// <summary>Starts a paragraph, inside a table if one is being written.</summary>
+        private void Pard()
+        {
+            rtf.Append(@"\pard");
+
+            if (_cellDepth > 0)
+            {
+                rtf.Append(@"\intbl");
+            }
+
+            _afterTable = false;
         }
 
         private void WriteBlock(BlockNode block)
@@ -276,18 +509,30 @@ public sealed class RtfExporter : IDocumentExporter
                     WriteList(list, depth: 0);
                     return;
 
+                case TableNode table when _cellDepth > 0:
+                    FlattenTable(table);
+                    return;
+
                 case TableNode table:
                     WriteTable(table);
                     return;
 
                 case RuleNode:
                     // There is no horizontal rule in RTF, only a paragraph with a rule drawn under
-                    // it. \pard afterwards is what keeps the border off the paragraph that follows.
-                    rtf.Append(@"\pard\brdrb\brdrs\brdrw10\brsp20\par\pard");
+                    // it. \pard afterwards is what keeps the border off the paragraph that follows;
+                    // inside a cell the next paragraph or the end of the cell resets it anyway.
+                    Pard();
+                    rtf.Append(@"\brdrb\brdrs\brdrw10\brsp20\par");
+
+                    if (_cellDepth == 0)
+                    {
+                        rtf.Append(@"\pard");
+                    }
+
                     return;
 
                 case BlockImageNode image:
-                    rtf.Append(@"\pard");
+                    Pard();
                     WriteAlignment(image.Align);
                     WriteImage(image.Image);
                     rtf.Append(@"\par");
@@ -303,9 +548,12 @@ public sealed class RtfExporter : IDocumentExporter
 
         private void WriteParagraph(ParagraphNode paragraph)
         {
-            rtf.Append(@"\pard");
+            Pard();
             WriteParagraphProperties(paragraph);
-            WriteContent(paragraph.Content, HeadingScale(paragraph.Kind), Emphasised(paragraph.Kind));
+            WriteContent(
+                paragraph.Content,
+                HeadingScale(paragraph.Kind),
+                Emphasised(paragraph.Kind) || _headerCell);
             rtf.Append(@"\par");
         }
 
@@ -347,7 +595,7 @@ public sealed class RtfExporter : IDocumentExporter
 
         /// <summary>Writes inline content as a sequence of runs, each in its own group.</summary>
         /// <param name="content">The content.</param>
-        /// <param name="scale">A multiplier on the text size, for headings.</param>
+        /// <param name="scale">A multiplier on the default text size, for headings; an explicit size is not scaled.</param>
         /// <param name="alwaysBold">Whether the whole run is bold regardless of its marks.</param>
         /// <remarks>
         /// A group is used per run rather than turning each property off again afterwards.
@@ -367,8 +615,18 @@ public sealed class RtfExporter : IDocumentExporter
                 if (link is not null)
                 {
                     rtf.Append(@"{\field{\*\fldinst{HYPERLINK """);
-                    Text.Write(rtf, link.Href);
-                    rtf.Append(@"""}}{\fldrslt");
+                    Text.WriteFieldArgument(rtf, link.Href, address: true);
+                    rtf.Append('"');
+
+                    // The \o switch is the link's tooltip, which is what a title is.
+                    if (link.Title is { } title)
+                    {
+                        rtf.Append(@" \\o """);
+                        Text.WriteFieldArgument(rtf, title, address: false);
+                        rtf.Append('"');
+                    }
+
+                    rtf.Append(@"}}{\fldrslt");
                 }
 
                 rtf.Append('{');
@@ -410,8 +668,11 @@ public sealed class RtfExporter : IDocumentExporter
                 rtf.Append(@"\f").Append(fonts.IndexOf(family).ToString(CultureInfo.InvariantCulture));
             }
 
+            // The heading's scale is the size of text that asked for none. Text that asked for a
+            // size is that size: scaling it too wrote 12px in a Heading1 as 24, which reads back as
+            // an explicit 24 and doubled again on every copy and paste.
             var halfPoints = (int)Math.Round(
-                (mark.FontSize is { } size ? size * 1.5 : DefaultHalfPoints) * scale,
+                mark.FontSize is { } size ? size * 1.5 : DefaultHalfPoints * scale,
                 MidpointRounding.AwayFromZero);
 
             if (halfPoints != DefaultHalfPoints)
@@ -477,8 +738,9 @@ public sealed class RtfExporter : IDocumentExporter
             }
         }
 
-        private void WriteList(ListNode list, int depth)
+        private void WriteList(ListNode list, int depth, int? listNumber = null)
         {
+            var ls = listNumber ?? lists.Add(list);
             var number = list.Start;
 
             foreach (var item in list.Items)
@@ -487,22 +749,39 @@ public sealed class RtfExporter : IDocumentExporter
                     ? $"{number.ToString(CultureInfo.InvariantCulture)}."
                     : "\u2022";
 
-                WriteListItem(item, marker, depth, list.Kind, list.Start);
+                WriteListItem(item, marker, depth, ls);
                 number++;
             }
         }
 
-        private void WriteListItem(ListItemNode item, string marker, int depth, ListKind kind, int start)
+        /// <summary>Writes one list item: its first paragraph numbered, the rest under it.</summary>
+        /// <remarks>
+        /// <para>
+        /// The first paragraph names its list and level with <c>\ls</c> and <c>\ilvl</c>, which is
+        /// what readers nest and number by. Depth carried by the indent alone, as it used to be, is
+        /// not nesting to any reader — a nested list came back flat — and two lists that share a
+        /// numbering definition are one list, which merged lists written back to back. The marker
+        /// is also written as literal text in <c>\listtext</c>, for readers that know no list
+        /// table and print it instead.
+        /// </para>
+        /// <para>
+        /// The item's later paragraphs are written as indented paragraphs outside the numbering,
+        /// which is how Word writes them. RTF has no multi-paragraph list item, so a reader either
+        /// ends the list there or takes the paragraph for a new item; neither is this writer's to
+        /// fix.
+        /// </para>
+        /// </remarks>
+        private void WriteListItem(ListItemNode item, string marker, int depth, int ls)
         {
             var first = true;
 
             foreach (var block in item.Blocks)
             {
-                // A nested list is a list, not a paragraph of this one: it carries its own
-                // markers and its own depth.
+                // A nested list is the next level of this list, not a list of its own: one \ls
+                // with a deeper \ilvl is what a reader nests.
                 if (block is ListNode nested)
                 {
-                    WriteList(nested, depth + 1);
+                    WriteList(nested, depth + 1, lists.NumberOf(nested, ls));
                     continue;
                 }
 
@@ -514,36 +793,39 @@ public sealed class RtfExporter : IDocumentExporter
 
                 var indent = ((depth + 1) * IndentTwips) + (paragraph.IndentLevel * IndentTwips);
 
-                rtf.Append(@"\pard");
+                Pard();
                 WriteAlignment(paragraph.Align);
+
+                if (first)
+                {
+                    rtf.Append(@"\ls").Append(ls.ToString(CultureInfo.InvariantCulture))
+                        .Append(@"\ilvl").Append(ListTable.Level(depth).ToString(CultureInfo.InvariantCulture));
+                }
+
                 rtf.Append(@"\li").Append(indent.ToString(CultureInfo.InvariantCulture));
 
                 if (first)
                 {
-                    // The marker hangs to the left of the text, which is what a list looks like,
-                    // and is written both as a numbering definition and as literal text. Readers
-                    // that understand \pn use the definition; the rest still see the bullet.
+                    // The marker hangs to the left of the text, which is what a list looks like.
                     rtf.Append(@"\fi-").Append(HangingIndentTwips.ToString(CultureInfo.InvariantCulture));
+                }
 
-                    if (kind == ListKind.Ordered)
-                    {
-                        rtf.Append(@"{\*\pn\pnlvlbody\pndec\pnindent0\pnstart")
-                            .Append(start.ToString(CultureInfo.InvariantCulture))
-                            .Append(@"{\pntxta .}}");
-                    }
-                    else
-                    {
-                        // \'B7 is the bullet in the code page named by the header, which is what
-                        // a numbering definition has to use: \u is not allowed inside one.
-                        rtf.Append(@"{\*\pn\pnlvlblt\pnf0\pnindent0{\pntxtb\'B7}}");
-                    }
+                if (OutlineLevel(paragraph.Kind) is { } level)
+                {
+                    rtf.Append(@"\outlinelevel").Append(level.ToString(CultureInfo.InvariantCulture));
+                }
 
-                    rtf.Append(@"{\pntext ");
+                if (first)
+                {
+                    rtf.Append(@"{\listtext ");
                     Text.Write(rtf, marker);
                     rtf.Append(@"\tab}");
                 }
 
-                WriteContent(paragraph.Content, HeadingScale(paragraph.Kind), Emphasised(paragraph.Kind));
+                WriteContent(
+                    paragraph.Content,
+                    HeadingScale(paragraph.Kind),
+                    Emphasised(paragraph.Kind) || _headerCell);
                 rtf.Append(@"\par");
                 first = false;
             }
@@ -551,25 +833,82 @@ public sealed class RtfExporter : IDocumentExporter
 
         /// <summary>Writes a table as rows of cells, each row declaring its own geometry.</summary>
         /// <remarks>
+        /// <para>
         /// RTF has no table element. A row is a run of paragraphs that happens to be preceded by
         /// a row definition and punctuated by <c>\cell</c>, and the definition has to be repeated
         /// in front of every row because a reader keeps no memory of the last one.
+        /// </para>
+        /// <para>
+        /// The rows are written from the grid <see cref="TableGeometry.Place"/> works out, never from
+        /// each row's cell array. A cell spanning rows leaves the rows below it holding fewer cells
+        /// than the table is wide; written in order, every one of them landed a column too far left.
+        /// From the grid, the first row of a span is <c>\clvmgf</c> and each covered slot below it is
+        /// an empty <c>\clvmrg</c> cell of the same width, so everything after it stays in its
+        /// column. A column span is the width of its <c>\cellx</c>, which readers line up across
+        /// rows; <c>\clmgf</c> is not used, because RtfPipe reads it as a span of the wrong cell.
+        /// </para>
+        /// <para>
+        /// A table inside a cell is flattened into that cell's paragraphs, row by row: nested
+        /// tables need RTF 1.8's <c>\itap</c> and <c>\nesttableprops</c>, which readers handle
+        /// inconsistently — RtfPipe turns one into an extra row of the outer table. The text and
+        /// its formatting survive; the inner grid does not.
+        /// </para>
         /// </remarks>
         private void WriteTable(TableNode table)
         {
             const int DefaultCellTwips = 1440;
 
+            // Two tables with nothing between them are one table to every reader: the second's
+            // rows simply continue the first. An empty paragraph is the separator Word itself uses.
+            if (_afterTable)
+            {
+                rtf.Append(@"\pard\par");
+            }
+
+            var placements = TableGeometry.Place(table, out var width);
+            var rows = table.Rows.Length;
+            var owner = new (TableCellNode Cell, CellPlacement Place)?[rows, width];
+            var index = 0;
+
             foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    var place = placements[index++];
+
+                    for (var r = place.Top; r < Math.Min(place.Bottom, rows); r++)
+                    {
+                        for (var c = place.Left; c < Math.Min(place.Right, width); c++)
+                        {
+                            owner[r, c] = (cell, place);
+                        }
+                    }
+                }
+            }
+
+            for (var r = 0; r < rows; r++)
             {
                 rtf.Append(@"\trowd\trgaph108\trleft0");
 
-                var edge = 0;
+                var slots = new List<(TableCellNode Cell, bool Continued)>();
 
-                foreach (var cell in row.Cells)
+                for (var c = 0; c < width;)
                 {
-                    var width = cell.ColumnSpan * DefaultCellTwips;
+                    if (owner[r, c] is not { } slot)
+                    {
+                        // A row shorter than the table, with nothing below a span to fill it. The
+                        // row simply ends; padding it would invent cells the document never had.
+                        break;
+                    }
 
-                    edge += width;
+                    var (cell, place) = slot;
+                    var continued = place.Top < r;
+                    var spansRows = Math.Min(place.Bottom, rows) - place.Top > 1;
+
+                    if (spansRows)
+                    {
+                        rtf.Append(continued ? @"\clvmrg" : @"\clvmgf");
+                    }
 
                     if (cell.Background is { } background)
                     {
@@ -577,36 +916,92 @@ public sealed class RtfExporter : IDocumentExporter
                             .Append(colours.IndexOf(background).ToString(CultureInfo.InvariantCulture));
                     }
 
+                    var right = Math.Min(place.Right, width);
+
                     rtf.Append(@"\clbrdrt\brdrs\clbrdrl\brdrs\clbrdrb\brdrs\clbrdrr\brdrs");
-                    rtf.Append(@"\cellx").Append(edge.ToString(CultureInfo.InvariantCulture));
+                    rtf.Append(@"\cellx").Append((right * DefaultCellTwips).ToString(CultureInfo.InvariantCulture));
+
+                    slots.Add((cell, continued));
+                    c = right;
                 }
 
-                foreach (var cell in row.Cells)
+                foreach (var (cell, continued) in slots)
                 {
-                    rtf.Append(@"\pard\intbl");
-
-                    foreach (var block in cell.Blocks)
+                    if (continued)
                     {
-                        if (block is ParagraphNode paragraph)
-                        {
-                            WriteContent(
-                                paragraph.Content,
-                                HeadingScale(paragraph.Kind),
-                                Emphasised(paragraph.Kind) || cell.IsHeader);
-                        }
-                        else
-                        {
-                            WriteBlock(block);
-                        }
+                        rtf.Append(@"\pard\intbl\cell");
+                        continue;
                     }
 
-                    rtf.Append(@"\cell");
+                    WriteCell(cell);
                 }
 
                 rtf.Append(@"\row");
             }
 
             rtf.Append(@"\pard");
+            _afterTable = true;
+        }
+
+        /// <summary>Writes one cell's blocks, each one a paragraph inside the table.</summary>
+        /// <remarks>
+        /// Paragraphs inside a cell are separated by <c>\par</c> and the last one is ended by
+        /// <c>\cell</c> instead — a cell's text written without either ran its paragraphs together,
+        /// "Hello" and "World" arriving as "HelloWorld".
+        /// </remarks>
+        private void WriteCell(TableCellNode cell)
+        {
+            var header = _headerCell;
+            var start = rtf.Length;
+
+            _cellDepth++;
+            _headerCell = cell.IsHeader;
+
+            try
+            {
+                WriteBlocks(cell.Blocks);
+            }
+            finally
+            {
+                _cellDepth--;
+                _headerCell = header;
+            }
+
+            const string Par = @"\par";
+
+            if (rtf.Length - start >= Par.Length
+                && rtf.ToString(rtf.Length - Par.Length, Par.Length) == Par)
+            {
+                rtf.Length -= Par.Length;
+                rtf.Append(@"\cell");
+            }
+            else
+            {
+                rtf.Append(@"\pard\intbl\cell");
+            }
+        }
+
+        /// <summary>Writes a table that is inside a cell as the cell's own paragraphs.</summary>
+        private void FlattenTable(TableNode table)
+        {
+            foreach (var row in table.Rows)
+            {
+                foreach (var cell in row.Cells)
+                {
+                    var header = _headerCell;
+
+                    _headerCell = header || cell.IsHeader;
+
+                    try
+                    {
+                        WriteBlocks(cell.Blocks);
+                    }
+                    finally
+                    {
+                        _headerCell = header;
+                    }
+                }
+            }
         }
 
         /// <summary>Writes an image, when its bytes are something RTF can be given.</summary>
@@ -619,7 +1014,7 @@ public sealed class RtfExporter : IDocumentExporter
         /// </remarks>
         private void WriteImage(ImageEmbed image)
         {
-            if (!DataUri.TryDecode(image.Source, out var bytes, out var kind))
+            if (!TryReadPicture(image.Source, out var bytes, out var kind))
             {
                 if (image.AltText is { Length: > 0 } alt)
                 {
@@ -629,7 +1024,18 @@ public sealed class RtfExporter : IDocumentExporter
                 return;
             }
 
-            rtf.Append(@"{\pict").Append(kind);
+            rtf.Append(@"{\pict");
+
+            // Word reads a picture's alternative text from its wzDescription shape property.
+            // Without it the alt text was simply not in the RTF.
+            if (image.AltText is { Length: > 0 } description)
+            {
+                rtf.Append(@"{\*\picprop{\sp{\sn wzDescription}{\sv ");
+                Text.Write(rtf, description);
+                rtf.Append("}}}");
+            }
+
+            rtf.Append(kind);
 
             if (image.Width is { } width)
             {
@@ -667,63 +1073,40 @@ public sealed class RtfExporter : IDocumentExporter
 
     private static int? OutlineLevel(ParagraphKind kind) => HeadingAppearance.OutlineLevel(kind);
 
-    /// <summary>Reads the bytes out of a <c>data:</c> URI.</summary>
-    private static class DataUri
+    /// <summary>Reads the picture bytes, and the control word naming their format, out of a <c>data:</c> URI.</summary>
+    private static bool TryReadPicture(string source, out byte[] bytes, out string kind)
     {
-        internal static bool TryDecode(string source, out byte[] bytes, out string kind)
+        bytes = [];
+        kind = string.Empty;
+
+        if (!DataUri.TryParse(source, out var mediaType, out var base64))
         {
-            bytes = [];
-            kind = string.Empty;
-
-            if (!source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            var comma = source.IndexOf(',', StringComparison.Ordinal);
-
-            if (comma < 0)
-            {
-                return false;
-            }
-
-            var header = source[5..comma];
-
-            if (!header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            // Only the two formats every RTF reader has a control word for. A GIF or an SVG would
-            // have to be re-encoded, and an exporter is the wrong place to be decoding images.
-            kind = header switch
-            {
-                var h when h.StartsWith("image/png", StringComparison.OrdinalIgnoreCase) => @"\pngblip",
-                var h when h.StartsWith("image/jpeg", StringComparison.OrdinalIgnoreCase) => @"\jpegblip",
-                var h when h.StartsWith("image/jpg", StringComparison.OrdinalIgnoreCase) => @"\jpegblip",
-                _ => string.Empty,
-            };
-
-            if (kind.Length == 0)
-            {
-                return false;
-            }
-
-            return TryReadBase64(source[(comma + 1)..], out bytes);
+            return false;
         }
 
-        private static bool TryReadBase64(string text, out byte[] bytes)
+        // Only the two formats every RTF reader has a control word for. A GIF or an SVG would
+        // have to be re-encoded, and an exporter is the wrong place to be decoding images.
+        kind = mediaType.ToLowerInvariant() switch
         {
-            try
-            {
-                bytes = Convert.FromBase64String(text);
-                return true;
-            }
-            catch (FormatException)
-            {
-                bytes = [];
-                return false;
-            }
+            "image/png" => @"\pngblip",
+            "image/jpeg" or "image/jpg" => @"\jpegblip",
+            _ => string.Empty,
+        };
+
+        if (kind.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            bytes = Convert.FromBase64String(base64.ToString());
+            return true;
+        }
+        catch (FormatException)
+        {
+            bytes = [];
+            return false;
         }
     }
 }

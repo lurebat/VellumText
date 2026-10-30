@@ -267,9 +267,23 @@ public partial class RichTextView
         // Every caller of this starts it without awaiting it, so an exception out of here would
         // reach no handler at all.
         return await RichTextClipboard
-            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text)
+            .WriteAsync(clipboard, SelectedDocument(), Formats.OfType<IDocumentExporter>(), text, ReportExportFailure)
             .ConfigureAwait(true);
     }
+
+    /// <summary>Raised when a registered exporter threw while the selection was being copied.</summary>
+    /// <remarks>
+    /// The copy goes ahead without that format: Ctrl+C never throws, and plain text and every other
+    /// registered format still reach the clipboard. Exporters are not supposed to throw, so this
+    /// reports a bug in one — which without it would only have shown as a paste somewhere else
+    /// arriving with less formatting than it should. The failure is also written to
+    /// <see cref="System.Diagnostics.Trace"/>. Raised on the UI thread, during the copy; an
+    /// exception a handler throws is the host's and is not caught.
+    /// </remarks>
+    public event EventHandler<ExportFailedEventArgs>? ExportFailed;
+
+    private void ReportExportFailure(IDocumentExporter exporter, Exception exception) =>
+        ExportFailed?.Invoke(this, new ExportFailedEventArgs(exporter.Format, exception));
 
     /// <summary>
     /// The clipboard payload for the current selection: plain text, plus a flavour for each
@@ -283,7 +297,7 @@ public partial class RichTextView
     /// must not paste the document back in.
     /// </remarks>
     internal DataTransfer BuildCopyData(string text) =>
-        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text);
+        RichTextClipboard.Build(SelectedDocument(), Formats.OfType<IDocumentExporter>(), text, ReportExportFailure);
 
     /// <summary>The selection as a document in its own right.</summary>
     internal DocumentNode SelectedDocument()
@@ -395,6 +409,9 @@ public partial class RichTextView
         var cancellation = BeginImport();
         TransferResolution resolution;
 
+        // Only the clipboard read and the decode are inside (plan 7.4). Host handlers run in Insert,
+        // after this block, so their exceptions reach the caller.
+        // ast-grep-ignore: broad-catch
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);
@@ -500,6 +517,9 @@ public partial class RichTextView
         var cancellation = BeginImport();
         string? text;
 
+        // Only the clipboard read is inside; the insert comes after this block, so nothing it
+        // raises is swallowed here.
+        // ast-grep-ignore: broad-catch
         try
         {
             using var data = await clipboard.TryGetDataAsync().ConfigureAwait(true);

@@ -145,6 +145,122 @@ public class HtmlImportTests
         Assert.Null(OnlyPara(await Import("<span style='font-size:2em'>x</span>")).Content.MarkAt(0).FontSize);
     }
 
+    // ---- css value conversion ---------------------------------------------------------------
+    //
+    // CssStyles turns declared values into marks one table entry at a time, and each entry is a
+    // line that can change without anything else noticing. These pin the table: every absolute
+    // unit, every keyword the importer gives a meaning to, and the values it deliberately ignores.
+
+    /// <summary>Every absolute CSS unit converts to pixels at the reference 96 per inch.</summary>
+    [Theory]
+    [InlineData("12px", 12.0)]
+    [InlineData("18pt", 24.0)]
+    [InlineData("2pc", 32.0)]
+    [InlineData("0.25in", 24.0)]
+    [InlineData("1cm", 37.795)]
+    [InlineData("5mm", 18.898)]
+    public async Task A_font_size_in_any_absolute_unit_is_converted_to_pixels(string css, double pixels)
+    {
+        var size = OnlyPara(await Import($"<span style='font-size:{css}'>x</span>")).Content.MarkAt(0).FontSize;
+
+        Assert.NotNull(size);
+        Assert.Equal(pixels, size.Value, 3);
+    }
+
+    /// <summary>A size of zero or less is not a size a run can be drawn at, so it is ignored.</summary>
+    [Theory]
+    [InlineData("0")]
+    [InlineData("0px")]
+    [InlineData("-4px")]
+    public async Task A_font_size_of_zero_or_less_is_ignored(string css) =>
+        Assert.Null(OnlyPara(await Import($"<span style='font-size:{css}'>x</span>")).Content.MarkAt(0).FontSize);
+
+    [Theory]
+    [InlineData("font-weight:bold", TextStyle.Bold)]
+    [InlineData("font-weight:bolder", TextStyle.Bold)]
+    [InlineData("font-weight:600", TextStyle.Bold)]
+    [InlineData("font-weight:500", TextStyle.None)]
+    [InlineData("font-weight:lighter", TextStyle.None)]
+    [InlineData("font-style:italic", TextStyle.Italic)]
+    [InlineData("font-style:oblique", TextStyle.Italic)]
+    [InlineData("vertical-align:super", TextStyle.Super)]
+    [InlineData("vertical-align:sub", TextStyle.Sub)]
+    public async Task A_weight_slant_or_baseline_keyword_becomes_its_style(string css, TextStyle expected) =>
+        Assert.Equal(expected, StyleAt(OnlyPara(await Import($"<span style='{css}'>x</span>")), 0));
+
+    /// <summary>
+    /// The values that switch formatting off undo what an enclosing element switched on — both
+    /// halves of the pair, since the model keeps superscript and subscript apart.
+    /// </summary>
+    [Theory]
+    [InlineData("<sup><span style='vertical-align:baseline'>x</span></sup>")]
+    [InlineData("<sub><span style='vertical-align:baseline'>x</span></sub>")]
+    [InlineData("<u><span style='text-decoration:none'>x</span></u>")]
+    [InlineData("<s><span style='text-decoration:none'>x</span></s>")]
+    [InlineData("<b><span style='font-weight:normal'>x</span></b>")]
+    [InlineData("<i><span style='font-style:normal'>x</span></i>")]
+    public async Task A_reset_value_undoes_what_an_enclosing_element_set(string html) =>
+        Assert.Equal(TextStyle.None, StyleAt(OnlyPara(await Import(html)), 0));
+
+    /// <summary>
+    /// A generic family names a category, not a font a platform has: the three with a dependable
+    /// stand-in get it, and the rest leave the run in the surrounding font, as the CSS-wide
+    /// keywords do.
+    /// </summary>
+    [Theory]
+    [InlineData("sans-serif", "Segoe UI")]
+    [InlineData("serif", "Times New Roman")]
+    [InlineData("monospace", "Consolas")]
+    [InlineData("cursive", null)]
+    [InlineData("fantasy", null)]
+    [InlineData("system-ui", null)]
+    [InlineData("inherit", null)]
+    [InlineData("initial", null)]
+    [InlineData("Georgia, serif", "Georgia")]
+    public async Task A_generic_family_becomes_a_real_font_or_none(string css, string? expected) =>
+        Assert.Equal(
+            expected,
+            OnlyPara(await Import($"<span style='font-family:{css}'>x</span>")).Content.MarkAt(0).FontFamily);
+
+    /// <summary>A fully transparent background is the absence of a highlight, not a clear one.</summary>
+    [Theory]
+    [InlineData("transparent")]
+    [InlineData("rgba(255, 255, 0, 0)")]
+    public async Task A_transparent_background_is_no_highlight(string css)
+    {
+        var p = OnlyPara(await Import($"<span style='background-color:{css}'>x</span>"));
+
+        Assert.Null(p.Content.MarkAt(0).Highlight);
+    }
+
+    /// <summary>
+    /// A <c>font</c> element's attributes reach the parser as written. In a style the same values
+    /// arrive already normalised by the CSS parser, so this is the only route into the
+    /// functional colour notations, the quoted family and the legacy size scale.
+    /// </summary>
+    [Theory]
+    [InlineData("<font color='hsl(120,100%,25%)'>x</font>", 0, 128, 0, 255)]
+    [InlineData("<font color='hsl(0,150%,25%)'>x</font>", 128, 0, 0, 255)]
+    [InlineData("<font color='rgba(255,0,0,50%)'>x</font>", 255, 0, 0, 128)]
+    public async Task A_font_elements_colour_is_read_in_the_functional_notations(
+        string html, byte r, byte g, byte b, byte a)
+    {
+        var colour = OnlyPara(await Import(html)).Content.MarkAt(0).Foreground;
+
+        Assert.NotNull(colour);
+        Assert.Equal((r, g, b), (colour.Value.R, colour.Value.G, colour.Value.B));
+        Assert.InRange(colour.Value.A, (byte)(a - 1), a);
+    }
+
+    [Fact]
+    public async Task A_font_elements_quoted_face_and_size_are_read()
+    {
+        var mark = OnlyPara(await Import("<font face=\"'Comic Sans MS'\" size='5'>x</font>")).Content.MarkAt(0);
+
+        Assert.Equal("Comic Sans MS", mark.FontFamily);
+        Assert.Equal(24, mark.FontSize);
+    }
+
     [Fact]
     public async Task A_link_becomes_a_mark_that_spans_exactly_its_text()
     {
@@ -249,6 +365,65 @@ public class HtmlImportTests
     }
 
     [Fact]
+    public async Task A_paragraph_holding_only_a_break_is_one_blank_line()
+    {
+        // <p><br></p> is how browsers, mail clients and RtfPipe spell an empty line. The break
+        // only gives the paragraph a height; kept as a character it made the blank line two lines.
+        var blocks = (await Import("<p>a</p><p><br></p><p>b</p>")).Doc.Blocks;
+
+        Assert.Equal(3, blocks.Length);
+        Assert.Equal("a", Assert.IsType<ParagraphNode>(blocks[0]).Content.Text);
+        Assert.Equal("", Assert.IsType<ParagraphNode>(blocks[1]).Content.Text);
+        Assert.Equal("b", Assert.IsType<ParagraphNode>(blocks[2]).Content.Text);
+    }
+
+    [Fact]
+    public async Task A_break_that_ends_a_block_does_not_add_a_line()
+    {
+        Assert.Equal("a", OnlyPara((await Import("<p>a<br></p>"))).Content.Text);
+        Assert.Equal("a", OnlyPara((await Import("<div>a<br> </div>"))).Content.Text);
+
+        // Only one: the second break is a line of its own, as a browser draws it.
+        Assert.Equal("a\n", OnlyPara((await Import("<p>a<br><br></p>"))).Content.Text);
+    }
+
+    [Fact]
+    public async Task A_formatted_break_that_ends_a_block_takes_its_formatting_with_it()
+    {
+        var p = OnlyPara((await Import("<p><b>a<br></b></p>")));
+
+        Assert.Equal("a", p.Content.Text);
+        Assert.Equal(TextStyle.Bold, StyleAt(p, 0));
+        Assert.Single(p.Content.Marks);
+        Assert.Equal(1, p.Content.Marks[0].Length);
+
+        // And a break outside the formatting leaves the formatting alone.
+        var outside = OnlyPara((await Import("<p><b>a</b><br></p>")));
+
+        Assert.Equal("a", outside.Content.Text);
+        Assert.Equal(TextStyle.Bold, StyleAt(outside, 0));
+        Assert.Equal(1, Assert.Single(outside.Content.Marks).Length);
+    }
+
+    [Fact]
+    public async Task A_bold_blank_line_is_an_empty_paragraph_without_marks()
+    {
+        var blocks = (await Import("<p>a</p><p><b><br></b></p>")).Doc.Blocks;
+
+        Assert.Equal(2, blocks.Length);
+        var blank = Assert.IsType<ParagraphNode>(blocks[1]);
+        Assert.Equal("", blank.Content.Text);
+        Assert.Empty(blank.Content.Marks);
+    }
+
+    [Fact]
+    public async Task A_newline_that_ends_preformatted_text_is_content_not_a_break()
+    {
+        // Only a break the importer made from <br> is dropped; a newline in <pre> is text.
+        Assert.Equal("a\n", OnlyPara((await Import("<pre>a\n</pre>"))).Content.Text);
+    }
+
+    [Fact]
     public async Task A_rule_becomes_a_rule_and_ends_the_paragraph_before_it()
     {
         var blocks = (await Import("<p>a</p><hr><p>b</p>")).Doc.Blocks;
@@ -274,6 +449,8 @@ public class HtmlImportTests
     [InlineData("right", TextAlign.Right)]
     [InlineData("justify", TextAlign.Justify)]
     [InlineData("left", TextAlign.Left)]
+    [InlineData("start", TextAlign.Left)]
+    [InlineData("end", TextAlign.Right)]
     public async Task Alignment_comes_through(string css, TextAlign expected)
     {
         Assert.Equal(expected, OnlyPara(await Import($"<p style='text-align:{css}'>x</p>")).Align);
@@ -287,6 +464,24 @@ public class HtmlImportTests
         Assert.Equal(2, OnlyPara(await Import("<p style='margin-left:96px'>x</p>")).IndentLevel);
         Assert.Equal(0, OnlyPara(await Import("<p style='margin-left:4px'>x</p>")).IndentLevel);
     }
+
+    /// <summary>
+    /// A margin that falls exactly between two levels rounds away from zero, to the deeper one —
+    /// two and a half steps is three levels, not the even two.
+    /// </summary>
+    [Fact]
+    public async Task A_margin_halfway_between_two_levels_rounds_to_the_deeper_one() =>
+        Assert.Equal(3, OnlyPara(await Import("<p style='margin-left:120px'>x</p>")).IndentLevel);
+
+    /// <summary>
+    /// <c>pre-line</c> keeps newlines but still collapses spaces, so it is not preformatted text;
+    /// <c>pre-wrap</c> is the control, keeping the same run of spaces.
+    /// </summary>
+    [Theory]
+    [InlineData("pre-line", "a b")]
+    [InlineData("pre-wrap", "a  b")]
+    public async Task Only_a_white_space_rule_that_keeps_spaces_makes_text_preformatted(string css, string expected) =>
+        Assert.Equal(expected, OnlyPara(await Import($"<p style='white-space:{css}'>a  b</p>")).Content.Text);
 
     // ---- lists ------------------------------------------------------------------------------
 
