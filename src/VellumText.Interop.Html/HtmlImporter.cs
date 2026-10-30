@@ -671,13 +671,24 @@ public static class HtmlImporter
                 }
             }
 
+            // Validating the table walks the whole grid it spans, holes included, so the bounding
+            // rectangle is what is charged: one wide row over a thousand narrow ones occupies
+            // little but is a thousand rows of the wide row's width. The width comes from the
+            // same placement the schema uses, so the two cannot disagree; it is worked out only
+            // once the occupied area is known to fit, because placing costs that area.
+            if (slots <= _tableSlotsLeft)
+            {
+                TableGeometry.Place(new TableNode(rows), out var width);
+                slots = (long)rows.Count * width;
+            }
+
             if (slots > _tableSlotsLeft)
             {
                 Downgrade(
                     rows,
                     block,
                     sink,
-                    $"its cells cover {slots} grid slots, more than the {options.MaxTableSlots} one import may lay out");
+                    $"it spans {slots} grid slots, more than the {options.MaxTableSlots} one import may lay out");
                 return;
             }
 
