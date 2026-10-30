@@ -177,6 +177,35 @@ public class WordListTests
         Assert.Equal(["b"], ItemTexts(Assert.IsType<ListNode>(blocks[1])));
     }
 
+    /// <summary>
+    /// The list item replaces Word's paragraph, and the paragraph's own formatting went with it: a
+    /// right-aligned item came in with the default alignment, though the same style on a plain
+    /// paragraph kept it (rubber-duck review 4.4). The list's indent, written as a margin or a
+    /// padding, must not come back with it, or the item would be indented by the list and again
+    /// by its paragraph.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(";padding-left:36.0pt")]
+    public void An_item_keeps_its_paragraph_formatting_but_not_the_list_indent(string indent)
+    {
+        const string style = "text-align:right;font-weight:bold";
+        var list = Assert.IsType<ListNode>(Assert.Single(Import(
+            Item("l0", 1, "1.", "Important").Replace("lfo1'>", $"lfo1;{style}{indent}'>", StringComparison.Ordinal))
+            .Doc.Blocks));
+        var plain = Assert.IsType<ParagraphNode>(Assert.Single(Import($"<p style='{style}'>Important</p>").Doc.Blocks));
+
+        var item = Assert.IsType<ParagraphNode>(Assert.Single(Assert.Single(list.Items).Blocks));
+
+        Assert.Equal("Important", item.Content.Text);
+        Assert.Equal(TextAlign.Right, item.Align);
+        Assert.Equal(0, item.IndentLevel);
+        Assert.NotEmpty(plain.Content.Marks);
+        Assert.Equal(
+            plain.Content.Marks.Select(span => span.ToString()),
+            item.Content.Marks.Select(span => span.ToString()));
+    }
+
     [Fact]
     public void A_paragraph_between_items_ends_the_list()
     {

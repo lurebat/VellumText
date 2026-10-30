@@ -26,7 +26,7 @@ namespace VellumText.Interop.Html;
 /// </remarks>
 internal static class WordLists
 {
-    private readonly record struct Item(IElement Paragraph, string List, int Level, bool Ordered);
+    private readonly record struct Item(IElement Paragraph, string List, int Level, bool Ordered, string Style);
 
     /// <summary>Rewrites every run of Word list paragraphs in <paramref name="document"/> as lists.</summary>
     /// <param name="document">The parsed document.</param>
@@ -97,8 +97,40 @@ internal static class WordLists
             return null;
         }
 
-        return new Item(paragraph, list ?? string.Empty, level, IsNumbering(TakeMarker(paragraph, parser)));
+        return new Item(
+            paragraph,
+            list ?? string.Empty,
+            level,
+            IsNumbering(TakeMarker(paragraph, parser)),
+            ParagraphStyle(parser, style));
     }
+
+    /// <summary>The paragraph's own formatting, without what made it a list item.</summary>
+    /// <remarks>
+    /// Word writes the item's place in the list as <c>mso-list</c> and its indent as a margin and
+    /// a hanging <c>text-indent</c>. The list says both now, and an indent left on the paragraph
+    /// would indent the item a second time.
+    /// </remarks>
+    private static string ParagraphStyle(CssParser parser, string style)
+    {
+        if (parser.ParseDeclaration(style) is not { } declaration)
+        {
+            return string.Empty;
+        }
+
+        foreach (var name in declaration.Select(property => property.Name).Where(IsListLayout).ToList())
+        {
+            declaration.RemoveProperty(name);
+        }
+
+        return declaration.CssText;
+    }
+
+    private static bool IsListLayout(string property) =>
+        property.StartsWith("mso-", StringComparison.OrdinalIgnoreCase)
+        || property.StartsWith("margin", StringComparison.OrdinalIgnoreCase)
+        || property.StartsWith("padding", StringComparison.OrdinalIgnoreCase)
+        || property.Equals("text-indent", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Removes the bullet or number Word wrote as text, and returns it.</summary>
     private static string TakeMarker(IElement paragraph, CssParser parser)
@@ -237,10 +269,22 @@ internal static class WordLists
             }
 
             var element = document.CreateElement("li");
+            INode content = element;
+
+            if (item.Style.Length > 0)
+            {
+                // On a paragraph inside the item, because that is where alignment and the like are
+                // read from: an item's own style is not.
+                var paragraph = document.CreateElement("p");
+
+                paragraph.SetAttribute("style", item.Style);
+                element.AppendChild(paragraph);
+                content = paragraph;
+            }
 
             while (item.Paragraph.FirstChild is { } child)
             {
-                element.AppendChild(child);
+                content.AppendChild(child);
             }
 
             open[^1].List.AppendChild(element);
