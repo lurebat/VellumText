@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace VellumText.Avalonia;
 
@@ -355,17 +356,23 @@ public class RichTextToolbar : TemplatedControl
 
     /// <summary>Closes a colour button's flyout once anything in it has been clicked.</summary>
     /// <remarks>
+    /// <para>
     /// Picking a colour is the whole point of opening it, so a flyout that stayed open over the
     /// document after the pick was a second step for nothing (owner decision). Handled on the
     /// flyout's content rather than on each swatch: the swatches come from a palette template, and
-    /// a click on any of them, or on the clear button, bubbles up to it. Not marked handled, so
-    /// the swatch's command still runs.
+    /// a click on any of them, or on the clear button, bubbles up to it.
+    /// </para>
+    /// <para>
+    /// The hide is posted, not done in the handler. A button raises Click before it runs its
+    /// command, and hiding the flyout there took the swatch out of the tree — and its command
+    /// binding with it — so the click closed the flyout and applied nothing (found live).
+    /// </para>
     /// </remarks>
     private static void CloseOnPick(Button? button)
     {
         if (button?.Flyout is Flyout { Content: Control content } flyout)
         {
-            content.AddHandler(Button.ClickEvent, (_, _) => flyout.Hide());
+            content.AddHandler(Button.ClickEvent, (_, _) => Dispatcher.UIThread.Post(flyout.Hide));
         }
     }
     /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>

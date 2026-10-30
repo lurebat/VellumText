@@ -230,6 +230,12 @@ triple-click selects a paragraph, dragging past the top or bottom edge keeps scr
 inserts a soft break inside the paragraph rather than starting a new one, and Ctrl+Shift+V pastes
 as plain text.
 
+Lists behave as in a word processor. Enter in a bullet starts the next bullet, carrying whatever
+follows the caret with it, and Enter in an empty bullet leaves the list. Tab nests the bullet under
+the one above it and Shift+Tab lifts only the bullet the caret is in, out of the list at the top
+level. Backspace at the start of a bullet takes the bullet off and keeps the words; a second
+Backspace joins them onto the line above.
+
 Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and
 the selection is picked up; a caret follows the pointer to show where it will land, and releasing
 drops it there, selected. Releasing before those four pixels is an ordinary click and collapses the
