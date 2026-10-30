@@ -262,6 +262,19 @@ public class RtfImportTests
     }
 
     [Fact]
+    public async Task A_picture_the_reader_cannot_convert_is_reported_once()
+    {
+        // Rubber-duck review finding 9.6: the converter's own reasons for dropping a picture were
+        // thrown away, and a metafile vanished without a word.
+        var result = await RtfImporter.ImportAsync(
+            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}");
+
+        Assert.Equal("beforemidafter", PlainText(result));
+        Assert.True(result.AnythingDropped);
+        Assert.Single(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped);
+    }
+
+    [Fact]
     public async Task Outlooks_encapsulated_html_keeps_its_bold()
     {
         // Rubber-duck review finding 9.4: hoisting the fallback's font invalidated the HTML, and

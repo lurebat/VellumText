@@ -114,6 +114,7 @@ public static class RtfImporter
         RtfReadResult read;
         string? encapsulated;
         string html;
+        IReadOnlyList<HtmlRtfConversionDiagnostic> converted = [];
 
         try
         {
@@ -129,7 +130,15 @@ public static class RtfImporter
         try
         {
             encapsulated = Encapsulated(read.Document);
-            html = encapsulated ?? ToHtml(read.Document, hoist: true);
+
+            if (encapsulated is null)
+            {
+                (html, converted) = ToHtml(read.Document, hoist: true);
+            }
+            else
+            {
+                html = encapsulated;
+            }
         }
         catch (Exception ex)
         {
@@ -139,7 +148,8 @@ public static class RtfImporter
         var result = HtmlImporter.ImportOnCurrentStack(
             html, encapsulated is null ? options.ToHtmlOptions() : options.ToEncapsulatedHtmlOptions());
 
-        return new ImportResult(result.Doc, [.. ReaderDiagnostics(read), .. result.Diagnostics]);
+        return new ImportResult(
+            result.Doc, [.. ReaderDiagnostics(read), .. ConverterDiagnostics(converted), .. result.Diagnostics]);
     }
 
     /// <summary>The HTML the reader makes of <paramref name="rtf"/>, before the HTML stage.</summary>
@@ -153,7 +163,7 @@ public static class RtfImporter
     {
         var document = RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document;
 
-        return Encapsulated(document) ?? ToHtml(document, hoist);
+        return Encapsulated(document) ?? ToHtml(document, hoist).Html;
     }
 
     /// <summary>
@@ -173,14 +183,18 @@ public static class RtfImporter
             ? html
             : null;
 
-    /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
-    private static string ToHtml(RtfDocument document, bool hoist)
+    /// <summary>
+    /// The reader's HTML for a document, with its shared font written once, and what the
+    /// converter reported writing it.
+    /// </summary>
+    private static (string Html, IReadOnlyList<HtmlRtfConversionDiagnostic> Diagnostics) ToHtml(RtfDocument document, bool hoist)
     {
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
+        var result = document.ToHtmlResult(HtmlOptions);
 
-        return RtfFormattingHoist.Wrap(document.ToHtml(HtmlOptions), css);
+        return (RtfFormattingHoist.Wrap(result.RequireValue(), css), result.RtfDiagnostics);
     }
     /// <summary>What the reader may do, given what the host trusts.</summary>
     /// <remarks>
@@ -233,6 +247,37 @@ public static class RtfImporter
         IncludeMetadata = false,
         IncludeRoundTripMetadata = false,
     };
+
+    /// <summary>The converter's findings that cost the document a picture, once per format.</summary>
+    /// <remarks>
+    /// The converter embeds PNG and JPEG only, and leaves out any other picture, a Windows
+    /// metafile for one, which the reader binds without complaint (rubber-duck review finding 9.6).
+    /// </remarks>
+    private static IEnumerable<ImportDiagnostic> ConverterDiagnostics(IReadOnlyList<HtmlRtfConversionDiagnostic> diagnostics)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var diagnostic in diagnostics)
+        {
+            if (diagnostic.Code != "RtfHtmlImageFormatUnsupported" || !reported.Add(diagnostic.Source ?? string.Empty))
+            {
+                continue;
+            }
+
+            var format = diagnostic.Source switch
+            {
+                nameof(RtfImageFormat.Wmf) => "a Windows metafile",
+                nameof(RtfImageFormat.Emf) => "an enhanced metafile",
+                nameof(RtfImageFormat.Dib) => "a device-independent bitmap",
+                _ => "a format it does not recognise",
+            };
+
+            yield return new ImportDiagnostic(
+                DiagnosticSeverity.Dropped,
+                $"Removed a picture stored as {format}, which this reader cannot convert.",
+                "pict");
+        }
+    }
 
     /// <summary>The fallback skip count above which a <c>\uc</c> is reported.</summary>
     /// <remarks>
