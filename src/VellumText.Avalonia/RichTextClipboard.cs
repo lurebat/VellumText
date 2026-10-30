@@ -338,6 +338,8 @@ public static class RichTextClipboard
 
         try
         {
+            ImportResult? empty = null;
+
             foreach (var importer in InPreferenceOrder(importers))
             {
                 // Bytes, deliberately, and never as a string. See the type's remarks.
@@ -350,13 +352,19 @@ public static class RichTextClipboard
                 var result = await ImportOnBackgroundAsync(importer, bytes, CancellationToken.None)
                     .ConfigureAwait(true);
 
-                if (!result.Doc.Blocks.IsEmpty)
+                // Not Doc.Blocks.IsEmpty: a document always has a block, so that kept a flavour
+                // that imported to one empty paragraph and never read the rest (rubber-duck
+                // review 6.3). The empty one is kept in case nothing else is there, since a
+                // payload the sanitizer emptied is not the same as an empty clipboard.
+                if (!result.IsEmpty)
                 {
                     return result;
                 }
+
+                empty ??= result;
             }
 
-            return FromPlainText(await data.TryGetTextAsync().ConfigureAwait(true));
+            return FromPlainText(await data.TryGetTextAsync().ConfigureAwait(true)) ?? empty;
         }
         catch (Exception)
         {
