@@ -275,17 +275,26 @@ internal static class ToolbarHarness
 
     /// <summary>
     /// Asserts that no laid-out line overlaps the one after it, across the whole document: for
-    /// every line N, line N+1's top is at or below line N's bottom.
+    /// every line N, line N+1's top is at or below line N's bottom — both the lines' boxes and the
+    /// glyphs drawn on them.
     /// </summary>
     /// <remarks>
-    /// A line's box is the taller of its own height and the glyphs on it — the ascent and descent
-    /// of every run at its baseline. The line height alone cannot see the failure that shipped:
-    /// lines are stacked by their heights, so they never overlap by that measure, while 48-pixel
-    /// text on 22.4-pixel lines was drawn far into the line below.
+    /// <para>
+    /// The boxes alone cannot see the failure that shipped: lines are stacked by their heights, so
+    /// within a paragraph they never overlap by that measure, while 48-pixel text on 22.4-pixel
+    /// lines was drawn far into the line below. So the ink of each line's glyphs, placed at its
+    /// baseline, must also end above where the next line's ink begins.
+    /// </para>
+    /// <para>
+    /// Ink against ink, rather than ink against the next line's box, and the glyphs' ink rather
+    /// than the font's ascent and descent: a heading's deliberately tight leading lets its
+    /// descenders dip a pixel or two below its own line box, and the font's ascent keeps room for
+    /// accents above the capitals, so either stricter measure fails text whose glyphs do not touch.
+    /// </para>
     /// </remarks>
     public static void AssertNoOverlappingLines(RichTextView view)
     {
-        var boxes = new List<(string Name, double Top, double Bottom)>();
+        var boxes = new List<(string Name, double Top, double Bottom, double InkTop, double InkBottom)>();
 
         for (var block = 0; block < view.Blocks.Count; block++)
         {
@@ -301,19 +310,29 @@ internal static class ToolbarHarness
 
             foreach (var line in paragraph.Layout.TextLines)
             {
-                var ascent = 0.0;
-                var descent = 0.0;
+                var above = double.PositiveInfinity;
+                var below = double.NegativeInfinity;
 
                 foreach (var run in line.TextRuns.OfType<ShapedTextRun>())
                 {
-                    ascent = Math.Min(ascent, run.TextMetrics.Ascent);
-                    descent = Math.Max(descent, run.TextMetrics.Descent);
+                    // Ink bounds are relative to the glyph run's own origin; its baseline origin
+                    // turns them into offsets from the baseline.
+                    var ink = run.GlyphRun.InkBounds;
+                    var baseline = run.GlyphRun.BaselineOrigin.Y;
+
+                    if (ink.Height > 0)
+                    {
+                        above = Math.Min(above, ink.Top - baseline);
+                        below = Math.Max(below, ink.Bottom - baseline);
+                    }
                 }
 
                 boxes.Add((
                     $"block {block} line {index++}",
-                    Math.Min(top, top + line.Baseline + ascent),
-                    Math.Max(top + line.Height, top + line.Baseline + descent)));
+                    top,
+                    top + line.Height,
+                    top + line.Baseline + above,
+                    top + line.Baseline + below));
 
                 top += line.Height;
             }
@@ -326,6 +345,12 @@ internal static class ToolbarHarness
             Assert.True(
                 boxes[i].Top >= boxes[i - 1].Bottom - 0.01,
                 $"{boxes[i].Name} starts at {boxes[i].Top:0.##}, above the bottom of {boxes[i - 1].Name} at {boxes[i - 1].Bottom:0.##}");
+
+            // A line with no ink (blank, or only spaces) has nothing to draw over anything.
+            Assert.True(
+                !double.IsFinite(boxes[i].InkTop) || !double.IsFinite(boxes[i - 1].InkBottom)
+                    || boxes[i].InkTop >= boxes[i - 1].InkBottom - 0.01,
+                $"the glyphs of {boxes[i].Name} start at {boxes[i].InkTop:0.##}, above the bottom of the glyphs of {boxes[i - 1].Name} at {boxes[i - 1].InkBottom:0.##}");
         }
     }
 

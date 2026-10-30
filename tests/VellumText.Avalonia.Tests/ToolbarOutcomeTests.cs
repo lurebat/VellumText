@@ -490,6 +490,67 @@ public class ToolbarOutcomeTests
     private static double TextLeft(RichTextView view, int block) =>
         view.BlockOrigin(block).X + Assert.IsType<ParagraphView>(view.Blocks[block]).GetCaretRect(0).X;
 
+    /// <summary>
+    /// A paragraph-kind button makes exactly the selected paragraphs that kind — drawn larger as a
+    /// heading, set in behind a bar as a quote, smaller as code — with lines that make room for it,
+    /// and pressed again, makes them body text again.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Heading 1", ParagraphKind.Heading1)]
+    [InlineData("Heading 2", ParagraphKind.Heading2)]
+    [InlineData("Heading 3", ParagraphKind.Heading3)]
+    [InlineData("Block quote", ParagraphKind.Quote)]
+    [InlineData("Code block", ParagraphKind.Code)]
+    public void AParagraphKindButtonChangesExactlyTheSelectedParagraphsAndPressedAgainChangesThemBack(string tip, ParagraphKind kind)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var button = Toggle(bar, tip);
+        var body = Toggle(bar, "Body text");
+        var bodySize = RunAt(view, 2, 0).FontRenderingEmSize;
+        var left = TextLeft(view, 2);
+
+        SelectAcross(view);
+        UserClick(button);
+
+        Assert.Equal([kind, kind, ParagraphKind.Body], Paragraphs(editor.State.Doc).Select(p => p.Kind));
+        Assert.Equal(kind, bar.ParagraphKind);
+        Assert.True(button.IsChecked);
+        Assert.False(body.IsChecked);
+
+        // On screen, for both selected paragraphs, against the body paragraph after them.
+        for (var block = 0; block < 2; block++)
+        {
+            var size = RunAt(view, block, 0).FontRenderingEmSize;
+
+            switch (kind)
+            {
+                case ParagraphKind.Quote:
+                    Assert.Equal(bodySize, size, 3);
+                    Assert.True(TextLeft(view, block) > left, "a quote is not set in behind its bar");
+                    break;
+                case ParagraphKind.Code:
+                    Assert.True(size < bodySize, $"code is drawn at {size}, body at {bodySize}");
+                    break;
+                default:
+                    Assert.True(size > bodySize, $"a heading is drawn at {size}, body at {bodySize}");
+                    break;
+            }
+        }
+
+        Assert.Equal(bodySize, RunAt(view, 2, 0).FontRenderingEmSize, 3);
+        Assert.Equal(left, TextLeft(view, 2), 3);
+        AssertNoOverlappingLines(view);
+
+        UserClick(button);
+
+        Assert.All(Paragraphs(editor.State.Doc), p => Assert.Equal(ParagraphKind.Body, p.Kind));
+        Assert.False(button.IsChecked);
+        Assert.True(body.IsChecked);
+        Assert.Equal(bodySize, RunAt(view, 0, 0).FontRenderingEmSize, 3);
+        Assert.Equal(left, TextLeft(view, 0), 3);
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
