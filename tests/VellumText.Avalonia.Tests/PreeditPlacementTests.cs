@@ -72,6 +72,43 @@ public class PreeditPlacementTests
         Assert.Equal(firstLine.Y, view.CaretRect().Y);
     }
 
+    /// <summary>
+    /// The composition lives in the paragraph the selection starts in, so that is the one to clear
+    /// when the caret leaves. Clearing the head's paragraph instead left the composed text drawn in
+    /// "hello" with nothing composing any more.
+    /// </summary>
+    [AvaloniaFact]
+    public void Moving_the_caret_away_from_a_cross_paragraph_composition_drops_it()
+    {
+        var view = Shown("hello", "world", "third");
+
+        view.MoveTo(2, extend: false);
+        view.MoveTo(10, extend: true);
+        Assert.True(view.SetPreedit("\u3042"));
+
+        view.MoveTo(15, extend: false);
+
+        Assert.False(view.IsComposing);
+        Assert.DoesNotContain(view.Blocks.OfType<ParagraphView>(), b => b.Preedit is not null);
+    }
+
+    /// <summary>The input method's cancel after that move leaves no composed text anywhere.</summary>
+    [AvaloniaFact]
+    public void Cancelling_after_moving_away_from_a_cross_paragraph_composition_leaves_nothing_behind()
+    {
+        var view = Shown("hello", "world", "third");
+
+        view.MoveTo(2, extend: false);
+        view.MoveTo(10, extend: true);
+        Assert.True(view.SetPreedit("\u3042"));
+
+        view.MoveTo(15, extend: false);
+        view.SetPreedit(null);
+
+        Assert.False(view.IsComposing);
+        Assert.DoesNotContain(view.Blocks.OfType<ParagraphView>(), b => b.Preedit is not null);
+    }
+
     /// <summary>The control: within one paragraph the composition always sat at the selection's start.</summary>
     [AvaloniaFact]
     public void A_preedit_over_a_selection_in_one_paragraph_sits_at_its_start()

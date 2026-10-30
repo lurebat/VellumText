@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using VellumText.ImportProbe;
 
 namespace VellumText.Interop.Html.Tests;
@@ -65,5 +67,24 @@ public sealed class HostileNestingTests
         var result = ProbeRunner.Run("html-clipboard", html);
 
         Assert.True(result.ExitCode == 0, result.ToString());
+    }
+
+    /// <summary>
+    /// Brackets that close inside CSS comments hid 200,000 levels of <c>calc()</c> from the style
+    /// nesting limit; the CSS parser took 291 s over the 1.2 MB attribute.
+    /// </summary>
+    [Fact]
+    public void Css_nesting_hidden_behind_comments_imports_quickly()
+    {
+        const int n = 200_000;
+        var html = "<p style=\"font-size:calc(" + string.Concat(Enumerable.Repeat("(/*)*/", n)) + "1px"
+            + new string(')', n) + ")\">x</p><p>after</p>";
+
+        var result = ProbeRunner.Run("html", html, TimeSpan.FromSeconds(30));
+
+        Assert.True(result.ExitCode == 0, result.ToString());
+        Assert.True(long.Parse(result.Value("ms")!, CultureInfo.InvariantCulture) < 5_000, result.ToString());
+        Assert.Contains("after", result.Value("text"), StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, d => d.Contains("|style-nesting|", StringComparison.Ordinal));
     }
 }

@@ -369,6 +369,8 @@ public static class RichTextClipboard
         // ast-grep-ignore: broad-catch
         try
         {
+            ImportResult? empty = null;
+
             foreach (var importer in InPreferenceOrder(importers))
             {
                 // Bytes, deliberately, and never as a string. See the type's remarks.
@@ -381,13 +383,19 @@ public static class RichTextClipboard
                 var result = await ImportOnBackgroundAsync(importer, bytes, CancellationToken.None)
                     .ConfigureAwait(true);
 
-                if (!result.Doc.Blocks.IsEmpty)
+                // Not Doc.Blocks.IsEmpty: a document always has a block, so that kept a flavour
+                // that imported to one empty paragraph and never read the rest (rubber-duck
+                // review 6.3). The empty one is kept in case nothing else is there, since a
+                // payload the sanitizer emptied is not the same as an empty clipboard.
+                if (!result.IsEmpty)
                 {
                     return result;
                 }
+
+                empty ??= result;
             }
 
-            return FromPlainText(await data.TryGetTextAsync().ConfigureAwait(true));
+            return FromPlainText(await data.TryGetTextAsync().ConfigureAwait(true)) ?? empty;
         }
         catch (Exception)
         {
@@ -429,6 +437,7 @@ public static class RichTextClipboard
         CancellationToken cancellationToken)
     {
         ImportResult? rich = null;
+        ImportResult? empty = null;
 
         foreach (var importer in InPreferenceOrder(importers))
         {
@@ -442,11 +451,16 @@ public static class RichTextClipboard
             var result = await ImportOnBackgroundAsync(importer, bytes, cancellationToken)
                 .ConfigureAwait(true);
 
-            if (!result.Doc.Blocks.IsEmpty)
+            // Not Doc.Blocks.IsEmpty: a document always has a block, so that let a flavour that
+            // imported to one empty paragraph win and shut out every flavour after it.
+            if (result.IsEmpty)
             {
-                rich = result;
-                break;
+                empty ??= result;
+                continue;
             }
+
+            rich = result;
+            break;
         }
 
         if (rich is not null && !LostAnImage(rich))
@@ -470,9 +484,14 @@ public static class RichTextClipboard
             return new TransferResolution(Document: rich);
         }
 
-        return await source.TextAsync().ConfigureAwait(true) is { Length: > 0 } text
-            ? new TransferResolution(Text: text)
-            : TransferResolution.Nothing;
+        if (await source.TextAsync().ConfigureAwait(true) is { Length: > 0 } text)
+        {
+            return new TransferResolution(Text: text);
+        }
+
+        // Only when nothing else was there. A flavour the sanitizer emptied still goes through
+        // the import seam, so that the host hears what was removed rather than nothing at all.
+        return empty is not null ? new TransferResolution(Document: empty) : TransferResolution.Nothing;
     }
 
     private static bool LostAnImage(ImportResult result) =>
