@@ -251,13 +251,13 @@ public class MarkdownExportTests
             Export(new ParagraphNode(InlineContent.FromText("var x = 1;"), ParagraphKind.Code)));
 
     /// <summary>
-    /// A fenced block always ends with a newline before its closing fence, so content that already
-    /// ends in one must not be written with both or the block grows a line on every round trip.
+    /// Code ending in a newline ends in an empty line, and that line is written like any other:
+    /// the newline before the closing fence only ends it, and the importer reads it that way.
     /// </summary>
     [Fact]
-    public void A_code_block_ending_in_a_newline_does_not_gain_a_blank_line() =>
+    public void A_code_block_ending_in_a_newline_keeps_its_empty_last_line() =>
         Assert.Equal(
-            "```\nvar x = 1;\n```\n",
+            "```\nvar x = 1;\n\n```\n",
             Export(new ParagraphNode(InlineContent.FromText("var x = 1;\n"), ParagraphKind.Code)));
 
     [Fact]

@@ -106,7 +106,8 @@ public partial class RichTextView
     /// lifting the item one level, out of the list at the top — and keeps the words, as word
     /// processors do; joining the words onto the item above is the next Backspace. In an empty
     /// code block it turns the block into an ordinary paragraph, which is the way out of a code
-    /// block that has nothing in it yet.
+    /// block that has nothing in it yet. At the very start of a quote it takes the quote off
+    /// first, as Notion and Tiptap do, and the next Backspace joins.
     /// </remarks>
     /// <returns>Whether anything changed.</returns>
     public bool Backspace()
@@ -116,12 +117,17 @@ public partial class RichTextView
             && _state.Doc.Resolve(_state.Selection.From) is
                 { Parent: ParagraphNode { Kind: ParagraphKind.Code, Content.Text.Length: 0 } } code)
         {
-            var transaction = _state.Transaction()
-                .As(TransactionKind.Format)
-                .Step(new SetBlockAttrStep(
-                    code.Before(code.Depth), BlockAttr.ParagraphKind, (int)ParagraphKind.Body));
+            return MakeBody(code, TransactionKind.Format, defaultAlign: false);
+        }
 
-            return Apply(transaction);
+        // Joining straight away put the quoted words into the paragraph above as body text, which
+        // is rarely what taking the quote off was for.
+        if (Rectangle is null
+            && _state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is
+                { ParentOffset: 0, Parent: ParagraphNode { Kind: ParagraphKind.Quote } } quote)
+        {
+            return MakeBody(quote, TransactionKind.Format, defaultAlign: false);
         }
 
         if (Rectangle is null
@@ -149,6 +155,37 @@ public partial class RichTextView
             && at.NodeAt(at.Depth - 1) is ListItemNode;
     }
 
+    /// <summary>Whether a position is at the very end of a heading.</summary>
+    private static bool AtEndOfHeading(DocumentNode doc, int position) =>
+        doc.Resolve(position) is
+            { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } heading } at
+        && at.ParentOffset == heading.ContentSize;
+
+    /// <summary>Turns the paragraph a position is in into body text, where it is.</summary>
+    /// <param name="at">A position inside the paragraph.</param>
+    /// <param name="kind">How the edit is grouped for undo.</param>
+    /// <param name="defaultAlign">
+    /// Whether the alignment goes back to the default as well: leaving a block leaves its
+    /// alignment, while taking the kind off a paragraph keeps the alignment that paragraph had.
+    /// </param>
+    /// <returns>Whether anything changed.</returns>
+    private bool MakeBody(ResolvedPos at, TransactionKind kind, bool defaultAlign)
+    {
+        var start = at.Before(at.Depth);
+        var transaction = _state.Transaction()
+            .As(kind)
+            .Step(new SetBlockAttrStep(start, BlockAttr.ParagraphKind, (int)ParagraphKind.Body));
+
+        if (defaultAlign && at.Parent is ParagraphNode { Align: not TextAlign.Default })
+        {
+            transaction.Step(new SetBlockAttrStep(start, BlockAttr.Align, (int)TextAlign.Default));
+        }
+
+        _goalX = null;
+
+        return Apply(transaction);
+    }
+
     /// <summary>Deletes the selection, or one cluster forward from the caret.</summary>
     /// <returns>Whether anything changed.</returns>
     public bool Delete() => DeleteAround(forward: true);
@@ -158,9 +195,8 @@ public partial class RichTextView
     /// <para>
     /// The half that follows the caret keeps the block's presentation — its kind, alignment and
     /// indent — because pressing Enter in the middle of a quote should give two quotes rather
-    /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the case
-    /// where users usually want a body paragraph instead, and that is a deliberate omission
-    /// here: it is a policy about heading kinds, and kinds arrive in the next piece of work.
+    /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the
+    /// exception users expect: what follows is body text, at the default alignment.
     /// </para>
     /// <para>
     /// A code block is the exception: its lines are newlines in its text, so Enter there breaks
@@ -183,6 +219,16 @@ public partial class RichTextView
             return OnEmptyLinesAtEndOfCode() ? LeaveCodeBlock(trim: true) : InsertLineBreak();
         }
 
+        // Enter on an empty quote line leaves the quote, the way Enter in an empty bullet leaves
+        // the list: the line becomes body text where it is, so in the middle of a quote the quote
+        // is split around it. Before the list rules, so a quote in a bullet is left first.
+        if (_state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is
+                { Parent: ParagraphNode { Kind: ParagraphKind.Quote, Content.Text.Length: 0 } } quote)
+        {
+            return MakeBody(quote, TransactionKind.Structure, defaultAlign: true);
+        }
+
         // Enter in an empty bullet leaves the list rather than adding another empty one. It is
         // the only way out of a list that does not require knowing a shortcut, and every editor
         // a user has met behaves this way.
@@ -201,6 +247,14 @@ public partial class RichTextView
 
         var at = selection.From;
         var tail = Block.Paragraph.WithContent(InlineContent.Empty);
+
+        // Enter at the end of a heading starts body text, as in every word processor: the next
+        // thing written under a title is not another title. Only the kind and the alignment are
+        // the heading's; the indent is where the user put the text and stays.
+        if (AtEndOfHeading(transaction.Doc, at))
+        {
+            tail = tail.WithKind(ParagraphKind.Body).WithAlign(TextAlign.Default);
+        }
 
         _goalX = null;
 
@@ -455,6 +509,17 @@ public partial class RichTextView
         }
 
         var neighbour = index + (forward ? 1 : -1);
+
+        // Backspace at the very start of the document has nothing to join. In a heading it takes
+        // the heading off instead, as Notion and Tiptap do, rather than leaving the toolbar as the
+        // only way to turn the first line back into text.
+        if (!forward
+            && index == 0
+            && _state.Doc.Resolve(head) is
+                { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } } first)
+        {
+            return MakeBody(first, TransactionKind.Format, defaultAlign: false);
+        }
 
         if (index < 0 || neighbour < 0 || neighbour >= leaves.Length)
         {
