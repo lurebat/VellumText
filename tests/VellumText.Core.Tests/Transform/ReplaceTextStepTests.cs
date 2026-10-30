@@ -278,6 +278,47 @@ public class ReplaceTextStepTests
         Assert.Equal(Step((2, 3, "y")), batches[2]);
     }
 
+    /// <summary>
+    /// Deleting every one of a run of abutting matches — every "a" in "aaaa…" — is one step. Shared
+    /// out to the first step each would not touch, the run halved into ⌈log₂ M⌉ + 1 steps, each
+    /// copying the paragraph and the block array, and undo replayed as many.
+    /// </summary>
+    /// <remarks>
+    /// Two abutting deletions are one deletion of both: the seam between them is deleted either
+    /// way and lands where both collapse, which the comparison with the per-match steps checks
+    /// position by position.
+    /// </remarks>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(8)]
+    [InlineData(4_096)]
+    public void AbuttingDeletionsAreOneStep(int count)
+    {
+        var doc = DocumentNode.FromParagraphs("x" + new string('a', count) + "y", "z");
+        var replacements = Enumerable.Range(0, count)
+            .Select(i => new TextReplacement(2 + i, 3 + i, InlineContent.Empty))
+            .ToArray();
+
+        var batch = Assert.Single(ReplaceTextStep.Batches(replacements));
+
+        Assert.Equal(Step((2, 2 + count, string.Empty)), batch);
+
+        if (count <= 8)
+        {
+            AssertSameAsPerReplacement(EditorState.Create(doc, TextSelection.Cursor(2 + (count / 2))), replacements);
+        }
+    }
+
+    [Fact]
+    public void ADeletionAbuttingAReplacementIsNotMergedWithIt()
+    {
+        var batches = ReplaceTextStep.Batches(Step((1, 2, string.Empty), (2, 3, string.Empty), (3, 4, "x")).Replacements);
+
+        Assert.Equal(2, batches.Count);
+        Assert.Equal(Step((1, 3, string.Empty)), batches[0]);
+        Assert.Equal(Step((1, 2, "x")), batches[1]);
+    }
+
     /// <remarks>
     /// Where an insertion lands against a neighbour it touches depends on the order the two are
     /// applied in, so a list holding one keeps the old order: one step per replacement, last first.
