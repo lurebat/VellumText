@@ -219,14 +219,27 @@ internal static class HtmlInputGuard
 
             if (token.Type == HtmlTokenType.StartTag)
             {
-                if (open.ForeignDepth == 0 && TextContent.TryGetValue(name, out var mode))
+                var inSelect = skipping is null && open.InSelect;
+                var rawText = false;
+
+                // Inside a select the tree builder ignores these start tags or makes them ordinary
+                // elements, so its tokenizer stays where it was; only a script is still raw text.
+                // Switching here regardless would stop this scan reading tags the parser goes on
+                // nesting.
+                if (open.ForeignDepth == 0
+                    && (!inSelect || name == "script")
+                    && TextContent.TryGetValue(name, out var mode))
                 {
                     tokenizer.State = mode;
+                    rawText = true;
                 }
 
                 if (skipping is not null)
                 {
-                    if (name == skipping && !tag.IsSelfClosing)
+                    // Both skipped elements are HTML and not void, so a self-closing slash on one
+                    // is ignored and it opens like any other: not counting it would end the skip
+                    // at the first end tag and release the rest of the body as text.
+                    if (name == skipping)
                     {
                         skipNesting++;
                     }
@@ -240,12 +253,14 @@ internal static class HtmlInputGuard
                     open.CloseImplied(name);
                 }
 
-                var isVoid = Void.Contains(name)
-                    || (tag.IsSelfClosing && (open.ForeignDepth > 0 || name is "svg" or "math"));
+                // In a select the tree builder pushes even a void or self-closed name as an element.
+                var isVoid = !inSelect
+                    && (Void.Contains(name)
+                        || (tag.IsSelfClosing && (open.ForeignDepth > 0 || name is "svg" or "math")));
 
                 var keep = isVoid
                     || open.EmittedDepth < options.MaxElementDepth
-                    || (open.ForeignDepth == 0 && TextContent.ContainsKey(name));
+                    || rawText;
 
                 if (!keep)
                 {
@@ -319,18 +334,60 @@ internal static class HtmlInputGuard
         return new Outcome(output.ToString(), droppedDeep, droppedAttributes, droppedStyles);
     }
 
-    /// <summary>The deepest bracket nesting in a CSS value.</summary>
+    /// <summary>The deepest bracket nesting in a CSS value, or an upper bound on it.</summary>
     /// <remarks>
-    /// Quotes and escapes are not understood, deliberately: a bracket inside a string counts too,
-    /// which can only make a hostile value look deeper. Real stylesheets nest two or three levels.
+    /// <para>
+    /// A bracket inside a comment, a string or an escape is not a bracket to the CSS parser, and
+    /// counting it anyway is not the safe side: a closing one cancels an opening one that the
+    /// parser does nest, so <c>calc(</c> and then <c>(/*)*/</c> two hundred thousand times measured
+    /// two deep. Comments are skipped, because where one starts and ends cannot be mistaken while
+    /// no string, escape or <c>url(</c> has been seen.
+    /// </para>
+    /// <para>
+    /// Those three are not modelled. Where AngleSharp.Css ends one depends on rules a copy here
+    /// could get subtly wrong — an escape swallows the newline after it, a quoted
+    /// <c>url("…")</c> is a single token, a bad URL is skipped by counting brackets — and wrong in
+    /// the direction that reopens this. So from the first of them on, every opening bracket counts
+    /// and no closing one does: at least as deep as any reading of the rest. Real styles nest two
+    /// or three levels and have a handful of brackets in all.
+    /// </para>
     /// </remarks>
     internal static int BracketDepth(string css)
     {
         var depth = 0;
         var deepest = 0;
 
-        foreach (var c in css)
+        for (var i = 0; i < css.Length; i++)
         {
+            var c = css[i];
+
+            if (c == '/' && i + 1 < css.Length && css[i + 1] == '*')
+            {
+                var end = css.IndexOf("*/", i + 2, StringComparison.Ordinal);
+
+                if (end < 0)
+                {
+                    break;
+                }
+
+                i = end + 1;
+                continue;
+            }
+
+            if (c is '"' or '\'' or '\\'
+                || (c is 'u' or 'U' && css.AsSpan(i).StartsWith("url(", StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var rest in css.AsSpan(i))
+                {
+                    if (rest is '(' or '[' or '{')
+                    {
+                        depth++;
+                    }
+                }
+
+                return Math.Max(deepest, depth);
+            }
+
             switch (c)
             {
                 case '(' or '[' or '{':
@@ -402,6 +459,24 @@ internal static class HtmlInputGuard
 
         internal int ForeignDepth { get; private set; }
 
+        /// <summary>A <c>select</c> is open, so the tree builder may be in its select mode.</summary>
+        /// <remarks>
+        /// <para>
+        /// In that mode the tree builder implies no closes but an option's, closes an element on
+        /// its end tag only when it is the current node, and pushes any other start tag as an
+        /// ordinary element unless the select itself is the current node; this model pushes it
+        /// then too. It is not told which of the parser's paths out of the mode it took — a table
+        /// tag, an input, a template — so it stays in its own select mode until the select is the
+        /// current node and is closed. Where the two disagree this model has more elements open
+        /// than the parser, never fewer.
+        /// </para>
+        /// <para>
+        /// The cost is that markup after a select left open in an unusual way is measured
+        /// without implied closes, as deeper than it is. A browser writes every select closed.
+        /// </para>
+        /// </remarks>
+        internal bool InSelect => Nearest("select") >= 0;
+
         internal void Push(string name, bool emitted)
         {
             var index = _entries.Count;
@@ -449,6 +524,16 @@ internal static class HtmlInputGuard
         /// <summary>Applies the closes a start tag implies, as the tree builder would.</summary>
         internal void CloseImplied(string name)
         {
+            if (InSelect)
+            {
+                if (name is "option" or "optgroup" && Top() == "option")
+                {
+                    PopTo(_entries.Count - 1);
+                }
+
+                return;
+            }
+
             switch (name)
             {
                 case "li":
@@ -507,7 +592,9 @@ internal static class HtmlInputGuard
         /// </remarks>
         internal bool? CloseFor(string name)
         {
-            var index = Nearest(name);
+            var index = InSelect
+                ? (Top() == name ? _entries.Count - 1 : -1)
+                : Nearest(name);
 
             if (index < 0 || Last(_special) > index)
             {

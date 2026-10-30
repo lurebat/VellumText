@@ -240,6 +240,50 @@ public class RichTextClipboardTests
         Assert.Equal("two", ((ParagraphNode)result.Doc.Blocks[1]).Content.Text);
     }
 
+    /// <summary>
+    /// A rich flavour that imports to nothing gives way to the text beside it. The check meant to
+    /// skip it asked whether the document had no blocks, which a document never has, so an empty
+    /// HTML flavour was the answer and the text was never read (rubber-duck review 6.3).
+    /// </summary>
+    [AvaloniaFact]
+    public async Task ARichFlavourThatImportsToNothingGivesWayToTheText()
+    {
+        var item = new DataTransferItem();
+
+        item.Set(RichTextClipboard.FlavorFor("html").DataFormat, System.Text.Encoding.UTF8.GetBytes("<p></p>"));
+        item.SetText("the text");
+
+        var data = new DataTransfer();
+
+        data.Add(item);
+
+        var result = await RichTextClipboard.ReadAsync(data, [HtmlFormat.Instance]);
+
+        Assert.NotNull(result);
+        Assert.Equal("the text", DocumentText.Of(result.Doc));
+    }
+
+    /// <summary>
+    /// With nothing else to read, the empty import is still the answer, diagnostics and all: a
+    /// payload the sanitizer emptied is not the same as an empty clipboard.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task AnEmptyImportWithNothingElseIsStillTheAnswer()
+    {
+        var item = new DataTransferItem();
+
+        item.Set(RichTextClipboard.FlavorFor("html").DataFormat, System.Text.Encoding.UTF8.GetBytes("<script>x</script>"));
+
+        var data = new DataTransfer();
+
+        data.Add(item);
+
+        var result = await RichTextClipboard.ReadAsync(data, [HtmlFormat.Instance]);
+
+        Assert.NotNull(result);
+        Assert.True(result.IsEmpty);
+        Assert.NotEmpty(result.Diagnostics);
+    }
     [AvaloniaFact]
     public async Task AnEmptyClipboardReadsAsNothingRatherThanAnEmptyDocument()
     {
