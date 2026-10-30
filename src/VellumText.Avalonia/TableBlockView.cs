@@ -1596,32 +1596,52 @@ internal sealed class TableBlockView : BlockView
     /// and settles the row's height — composed text can wrap the cell onto another line — and
     /// drawing does not reach the row before then. Passed down, for a table inside the cell.
     /// </remarks>
-    public override void ParagraphChanged(int localPosition)
+    public override bool ParagraphChanged(ParagraphView paragraph, int localPosition)
     {
-        var r = RowAt(localPosition);
+        // The row at the position almost always holds it; every row is searched only when the
+        // document has moved the paragraph since.
+        var hinted = RowAt(localPosition);
 
-        // A row nobody realized has no paragraph views to have changed.
-        if (r < 0 || _rows[r].Cells is not { } cells)
+        if (hinted >= 0 && Holds(hinted))
         {
-            return;
+            return true;
         }
 
-        _rows[r].Dirty = true;
-
-        var rowStart = _rowStarts[r];
-
-        foreach (var cell in cells)
+        for (var r = 0; r < _rows.Length; r++)
         {
-            foreach (var child in cell.Blocks)
+            if (r != hinted && Holds(r))
             {
-                if (localPosition >= rowStart + child.Start
-                    && localPosition <= rowStart + child.Start + child.View.ContentSize)
-                {
-                    child.View.ParagraphChanged(localPosition - rowStart - child.Start);
+                return true;
+            }
+        }
 
-                    return;
+        return false;
+
+        bool Holds(int r)
+        {
+            // A row nobody realized has no paragraph views to have changed.
+            if (_rows[r].Cells is not { } cells)
+            {
+                return false;
+            }
+
+            var rowStart = _rowStarts[r];
+
+            foreach (var cell in cells)
+            {
+                foreach (var child in cell.Blocks)
+                {
+                    if (ReferenceEquals(child.View, paragraph)
+                        || child.View.ParagraphChanged(paragraph, localPosition - rowStart - child.Start))
+                    {
+                        _rows[r].Dirty = true;
+
+                        return true;
+                    }
                 }
             }
+
+            return false;
         }
     }
 
