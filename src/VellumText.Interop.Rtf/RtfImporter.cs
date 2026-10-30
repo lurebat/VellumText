@@ -112,7 +112,9 @@ public static class RtfImporter
     private static ImportResult ImportOnLargeStack(string rtf, RtfImportOptions options)
     {
         RtfReadResult read;
+        string? encapsulated;
         string html;
+        IReadOnlyList<HtmlRtfConversionDiagnostic> converted = [];
 
         try
         {
@@ -127,16 +129,27 @@ public static class RtfImporter
 
         try
         {
-            html = ToHtml(read.Document, hoist: true);
+            encapsulated = Encapsulated(read.Document);
+
+            if (encapsulated is null)
+            {
+                (html, converted) = ToHtml(read.Document, hoist: true);
+            }
+            else
+            {
+                html = encapsulated;
+            }
         }
         catch (Exception ex)
         {
             return Unreadable(ex);
         }
 
-        var result = HtmlImporter.ImportOnCurrentStack(html, options.ToHtmlOptions());
+        var result = HtmlImporter.ImportOnCurrentStack(
+            html, encapsulated is null ? options.ToHtmlOptions() : options.ToEncapsulatedHtmlOptions());
 
-        return new ImportResult(result.Doc, [.. ReaderDiagnostics(read), .. result.Diagnostics]);
+        return new ImportResult(
+            result.Doc, [.. ReaderDiagnostics(read), .. ConverterDiagnostics(converted), .. result.Diagnostics]);
     }
 
     /// <summary>The HTML the reader makes of <paramref name="rtf"/>, before the HTML stage.</summary>
@@ -146,17 +159,42 @@ public static class RtfImporter
     /// Whether the shared font is hoisted (<see cref="RtfFormattingHoist"/>); false only to test that
     /// hoisting changes nothing.
     /// </param>
-    internal static string ReadToHtml(string rtf, bool hoist = true) =>
-        ToHtml(RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document, hoist);
+    internal static string ReadToHtml(string rtf, bool hoist = true)
+    {
+        var document = RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document;
 
-    /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
-    private static string ToHtml(RtfDocument document, bool hoist)
+        return Encapsulated(document) ?? ToHtml(document, hoist).Html;
+    }
+
+    /// <summary>
+    /// The HTML Outlook encapsulated in the RTF (<c>\fromhtml1</c>), or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// It goes to the HTML stage as it is, not through the converter, which reads it back into
+    /// RTF first: the converter refuses HTML of more than 10,000 nodes, so a 40 KB message came
+    /// out empty (rubber-duck review finding 9.3), and no paste is capped by its total size. The
+    /// HTML stage has its own limits on depth and work. Asked before anything edits the model —
+    /// the list-shadow correction and the hoist both do — since an edit makes the encapsulation
+    /// stale, and the converter would then write the plain-text fallback beside it instead
+    /// (finding 9.4).
+    /// </remarks>
+    private static string? Encapsulated(RtfDocument document) =>
+        document.IsHtmlEncapsulationCurrent && document.HtmlEncapsulation is { Html: { } html } && !string.IsNullOrWhiteSpace(html)
+            ? html
+            : null;
+
+    /// <summary>
+    /// The reader's HTML for a document, with its shared font written once, and what the
+    /// converter reported writing it.
+    /// </summary>
+    private static (string Html, IReadOnlyList<HtmlRtfConversionDiagnostic> Diagnostics) ToHtml(RtfDocument document, bool hoist)
     {
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
+        var result = document.ToHtmlResult(HtmlOptions);
 
-        return RtfFormattingHoist.Wrap(document.ToHtml(HtmlOptions), css);
+        return (RtfFormattingHoist.Wrap(result.RequireValue(), css), result.RtfDiagnostics);
     }
     /// <summary>What the reader may do, given what the host trusts.</summary>
     /// <remarks>
@@ -209,6 +247,37 @@ public static class RtfImporter
         IncludeMetadata = false,
         IncludeRoundTripMetadata = false,
     };
+
+    /// <summary>The converter's findings that cost the document a picture, once per format.</summary>
+    /// <remarks>
+    /// The converter embeds PNG and JPEG only, and leaves out any other picture, a Windows
+    /// metafile for one, which the reader binds without complaint (rubber-duck review finding 9.6).
+    /// </remarks>
+    private static IEnumerable<ImportDiagnostic> ConverterDiagnostics(IReadOnlyList<HtmlRtfConversionDiagnostic> diagnostics)
+    {
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var diagnostic in diagnostics)
+        {
+            if (diagnostic.Code != "RtfHtmlImageFormatUnsupported" || !reported.Add(diagnostic.Source ?? string.Empty))
+            {
+                continue;
+            }
+
+            var format = diagnostic.Source switch
+            {
+                nameof(RtfImageFormat.Wmf) => "a Windows metafile",
+                nameof(RtfImageFormat.Emf) => "an enhanced metafile",
+                nameof(RtfImageFormat.Dib) => "a device-independent bitmap",
+                _ => "a format it does not recognise",
+            };
+
+            yield return new ImportDiagnostic(
+                DiagnosticSeverity.Dropped,
+                $"Removed a picture stored as {format}, which this reader cannot convert.",
+                "pict");
+        }
+    }
 
     /// <summary>The fallback skip count above which a <c>\uc</c> is reported.</summary>
     /// <remarks>

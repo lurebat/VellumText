@@ -27,8 +27,16 @@ public partial class RichTextView
 {
     private readonly RichTextInputMethodClient _inputMethod;
 
+    /// <summary>The paragraph a composition is drawn in, or null if nothing is composing.</summary>
+    /// <remarks>
+    /// Kept rather than looked up again, because the lookup answers where a composition would go
+    /// now, not where the one on screen is. Once the selection has moved the two differ, and
+    /// clearing the paragraph the lookup found left the composed text drawn in the other.
+    /// </remarks>
+    private ParagraphView? _composing;
+
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    public Preedit? Preedit => CompositionText?.View.Preedit;
+    public Preedit? Preedit => _composing?.Preedit;
 
     /// <summary>
     /// The paragraph a composition is drawn in: the one holding the start of the selection,
@@ -68,6 +76,11 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool SetPreedit(string? text, int? cursorPosition = null)
     {
+        if (string.IsNullOrEmpty(text))
+        {
+            return Recomposed(ClearComposition());
+        }
+
         if (CompositionText is not { } at)
         {
             return false;
@@ -75,7 +88,7 @@ public partial class RichTextView
 
         var block = at.View;
 
-        if (IsReadOnly && !string.IsNullOrEmpty(text))
+        if (IsReadOnly)
         {
             return false;
         }
@@ -92,17 +105,46 @@ public partial class RichTextView
         // The cursor is clamped rather than validated: it comes from a platform input method,
         // and a client that throws at one is a client that crashes the application on a stray
         // report from somebody else's IME.
-        var preedit = string.IsNullOrEmpty(text)
-            ? null
-            : new Preedit(
-                text,
-                anchor,
-                cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
+        var preedit = new Preedit(
+            text,
+            anchor,
+            cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
 
-        if (!block.SetPreedit(preedit))
+        var moved = !ReferenceEquals(_composing, block) && ClearComposition();
+        var changed = block.SetPreedit(preedit);
+
+        _composing = block;
+
+        return Recomposed(moved | changed);
+    }
+
+    /// <summary>Removes the composition from the paragraph it is drawn in.</summary>
+    /// <returns>Whether there was one to remove.</returns>
+    private bool ClearComposition()
+    {
+        var cleared = _composing?.SetPreedit(null) ?? false;
+
+        _composing = null;
+
+        return cleared;
+    }
+
+    /// <summary>Brings the view up to date after the composition changed, if it did.</summary>
+    /// <param name="changed">Whether it did.</param>
+    /// <returns><paramref name="changed"/>.</returns>
+    private bool Recomposed(bool changed)
+    {
+        if (!changed)
         {
             return false;
         }
+
+        // The paragraph dropped its layout without the block holding it being updated, and a
+        // table measures only the rows it knows have changed: told nothing, it would answer for
+        // and draw this paragraph unmeasured.
+        var index = BlockIndexOf(at.Start);
+
+        _views[index].ParagraphChanged(at.Start - _slots[index].Start);
 
         // Laid out eagerly, for the same reason a state change is: the composition dropped the
         // layout, and the input method asks for CursorRectangle immediately after handing over

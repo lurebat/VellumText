@@ -43,6 +43,12 @@ public static class Program
         var input = File.ReadAllText(args[1], Encoding.UTF8);
         ImportResult? result = null;
         Exception? failure = null;
+
+        // Loading and compiling the importer costs most of a second the first time, which would
+        // swamp the timing of a small payload.
+        Import(format, string.Empty);
+
+        var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         var watch = Stopwatch.StartNew();
 
         var caller = new Thread(
@@ -63,6 +69,9 @@ public static class Program
         caller.Join();
         watch.Stop();
 
+        // Process-wide, because the import runs on its own thread.
+        var allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+
         if (failure is not null)
         {
             Console.Out.WriteLine($"threw={failure.GetType().Name}: {failure.Message}");
@@ -72,6 +81,7 @@ public static class Program
         var doc = result!.Doc;
 
         Console.Out.WriteLine($"ms={watch.ElapsedMilliseconds}");
+        Console.Out.WriteLine($"allocatedMb={allocated / (1024 * 1024)}");
         Console.Out.WriteLine($"blocks={doc.Children.Length}");
         Console.Out.WriteLine($"text={DocumentText.Of(doc).Replace("\n", "\\n", StringComparison.Ordinal)}");
 
