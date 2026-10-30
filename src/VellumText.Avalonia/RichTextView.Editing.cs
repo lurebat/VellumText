@@ -101,8 +101,38 @@ public partial class RichTextView
     }
 
     /// <summary>Deletes the selection, or one cluster back from the caret.</summary>
+    /// <remarks>
+    /// At the very start of a list item's first paragraph it takes the bullet off instead —
+    /// lifting the item one level, out of the list at the top — and keeps the words, as word
+    /// processors do; joining the words onto the item above is the next Backspace.
+    /// </remarks>
     /// <returns>Whether anything changed.</returns>
-    public bool Backspace() => DeleteAround(forward: false);
+    public bool Backspace()
+    {
+        if (Rectangle is null
+            && _state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is { ParentOffset: 0 } at
+            && at.Depth >= 2
+            && at.Parent is ParagraphNode
+            && at.NodeAt(at.Depth - 1) is ListItemNode
+            && at.IndexAt(at.Depth - 1) == 0
+            && LiftListItem())
+        {
+            return true;
+        }
+
+        return DeleteAround(forward: false);
+    }
+
+    /// <summary>Whether a position is inside a paragraph that is directly a list item's.</summary>
+    private static bool InListItemParagraph(DocumentNode doc, int position)
+    {
+        var at = doc.Resolve(position);
+
+        return at.Depth >= 2
+            && at.Parent is ParagraphNode
+            && at.NodeAt(at.Depth - 1) is ListItemNode;
+    }
 
     /// <summary>Deletes the selection, or one cluster forward from the caret.</summary>
     /// <returns>Whether anything changed.</returns>
@@ -144,6 +174,25 @@ public partial class RichTextView
         var tail = Block.Paragraph.WithContent(InlineContent.Empty);
 
         _goalX = null;
+
+        // In a list item, Enter starts the next item, carrying what follows the caret with it,
+        // as every word processor does. Splitting only the paragraph left the new line inside the
+        // same item: it had no bullet, Tab could not nest it, and Shift+Tab lifted both lines.
+        if (InListItemParagraph(transaction.Doc, at))
+        {
+            transaction
+                .Replace(
+                    at,
+                    at,
+                    new Slice([new ListItemNode([ParagraphNode.Empty]), new ListItemNode([tail])], 2, 2))
+
+                // Four positions: the paragraph and its item close, the next item and its
+                // paragraph open.
+                .SetSelection(TextSelection.Cursor(at + 4))
+                .SetStoredMarks(null);
+
+            return Apply(transaction);
+        }
 
         transaction
             .Replace(at, at, new Slice([ParagraphNode.Empty, tail], 1, 1))
