@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using VellumText.Interop.Html;
 
 namespace VellumText.Interop.Rtf;
 
@@ -151,8 +152,11 @@ public sealed class RtfExporter : IDocumentExporter
                 // A font name is text like any other: it can contain a brace, a backslash or a
                 // character outside the code page, and Word's own output regularly does. A
                 // semicolon is the exception: it ends the entry, and no escape un-ends it, so
-                // "Weird;Font" was the font "Weird" followed by stray text. It is left out.
-                Text.Write(rtf, _fonts[i].Replace(";", string.Empty, StringComparison.Ordinal));
+                // "Weird;Font" was the font "Weird" followed by stray text. It is left out. A name
+                // stored quoted because it holds a comma is one name, and the entry is that name.
+                Text.Write(
+                    rtf,
+                    FamilyNameQuoting.Unquote(_fonts[i]).Replace(";", string.Empty, StringComparison.Ordinal));
 
                 rtf.Append(";}");
             }

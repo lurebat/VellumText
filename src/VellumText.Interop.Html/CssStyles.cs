@@ -546,7 +546,7 @@ internal static class CssStyles
             _ when first.Equals("cursive", StringComparison.OrdinalIgnoreCase) => null,
             _ when first.Equals("fantasy", StringComparison.OrdinalIgnoreCase) => null,
             _ when first.Equals("system-ui", StringComparison.OrdinalIgnoreCase) => null,
-            _ => first,
+            _ => FamilyNameQuoting.Quote(first),
         };
 
         return family is not null;
