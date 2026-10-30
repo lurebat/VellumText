@@ -337,7 +337,8 @@ public class ToolbarOutcomeTests
 
     /// <summary>
     /// Picks an item from a box's open list the way a click on it does, or types into the box and
-    /// presses Enter, which is the box's own key binding.
+    /// presses Enter, which is the box's own key binding. A string is typed; a number or a
+    /// <see cref="PickedItem"/> is picked.
     /// </summary>
     private static void Commit(ComboBox box, object value)
     {
@@ -350,10 +351,47 @@ public class ToolbarOutcomeTests
         }
 
         box.IsDropDownOpen = true;
-        box.SelectedItem = value;
+        box.SelectedItem = value is PickedItem picked ? picked.Value : value;
         box.IsDropDownOpen = false;
         Layout(WindowOf(box));
     }
+
+    /// <summary>
+    /// A family picked from the list, or typed and committed with Enter, lands on exactly the
+    /// selection, the box shows it, and the selection is drawn in it.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheFontBoxSetsExactlyTheSelectionsFamily(bool typed)
+    {
+        const string family = "Courier New";
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, "PART_FontBox");
+
+        // A headless platform may report no installed fonts; the pick is what is under test.
+        if (!typed && !box.Items.Contains(family))
+        {
+            box.ItemsSource = new[] { "Arial", family };
+        }
+
+        SelectAcross(view);
+        Commit(box, typed ? family : (object)new PickedItem(family));
+
+        AssertMarkedExactly(editor.State.Doc, Across, marks => marks.FontFamily == family, family);
+        Assert.Equal(family, bar.SelectionFontFamily);
+        Assert.Equal(family, box.Text);
+
+        Assert.Equal(family, RunAt(view, 0, 6).Typeface.FontFamily.Name);
+        Assert.Equal(family, RunAt(view, 1, 0).Typeface.FontFamily.Name);
+        Assert.NotEqual(family, RunAt(view, 0, 0).Typeface.FontFamily.Name);
+        Assert.NotEqual(family, RunAt(view, 1, 7).Typeface.FontFamily.Name);
+        AssertNoOverlappingLines(view);
+    }
+
+    /// <summary>A string to pick from a box's list rather than to type into it.</summary>
+    private sealed record PickedItem(string Value);
 
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
