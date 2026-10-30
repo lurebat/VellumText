@@ -321,7 +321,9 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen.
+  painting a selection of the whole table realizes only the rows on screen. A
+  table inside a cell is not row-virtualized: it is laid out whole, as every
+  table was before, though only its rows on screen are drawn.
 - **Typing into a cell of a long table no longer re-validates the whole table.**
   Each step re-placed every cell of the edited table to prove it still tiled its
   grid: about 6 MB a keystroke at 10,000 rows. A table already known to tile,

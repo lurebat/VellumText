@@ -356,6 +356,13 @@ public partial class RichTextView
             }
 
             common = common is { } far ? Intersect(far, mark) : mark;
+
+            // The same give-up as between leaves, but within one: a long paragraph of mixed
+            // formatting would otherwise be walked to its end for an answer its second stretch gave.
+            if (common is { IsEmpty: true })
+            {
+                return common;
+            }
         }
 
         return common;

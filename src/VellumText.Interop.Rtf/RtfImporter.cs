@@ -133,7 +133,7 @@ public static class RtfImporter
 
             if (encapsulated is null)
             {
-                (html, converted) = ToHtml(read.Document, hoist: true);
+                (html, converted) = ToHtml(read.Document, hoist: true, options);
             }
             else
             {
@@ -149,7 +149,7 @@ public static class RtfImporter
             html, encapsulated is null ? options.ToHtmlOptions() : options.ToEncapsulatedHtmlOptions());
 
         return new ImportResult(
-            result.Doc, [.. ReaderDiagnostics(read), .. ConverterDiagnostics(converted), .. result.Diagnostics]);
+            result.Doc, [.. ReaderDiagnostics(read), .. ConverterDiagnostics(converted, options), .. result.Diagnostics]);
     }
 
     /// <summary>The HTML the reader makes of <paramref name="rtf"/>, before the HTML stage.</summary>
@@ -163,7 +163,7 @@ public static class RtfImporter
     {
         var document = RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document;
 
-        return Encapsulated(document) ?? ToHtml(document, hoist).Html;
+        return Encapsulated(document) ?? ToHtml(document, hoist, RtfImportOptions.Default).Html;
     }
 
     /// <summary>
@@ -187,12 +187,13 @@ public static class RtfImporter
     /// The reader's HTML for a document, with its shared font written once, and what the
     /// converter reported writing it.
     /// </summary>
-    private static (string Html, IReadOnlyList<HtmlRtfConversionDiagnostic> Diagnostics) ToHtml(RtfDocument document, bool hoist)
+    private static (string Html, IReadOnlyList<HtmlRtfConversionDiagnostic> Diagnostics) ToHtml(
+        RtfDocument document, bool hoist, RtfImportOptions options)
     {
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
-        var result = document.ToHtmlResult(HtmlOptions);
+        var result = document.ToHtmlResult(HtmlOptions(options));
 
         return (RtfFormattingHoist.Wrap(result.RequireValue(), css), result.RtfDiagnostics);
     }
@@ -202,8 +203,9 @@ public static class RtfImporter
     /// The reader's own budgets on whole-document size (characters, tokens, groups, blocks, total
     /// image bytes) are lifted: the library caps no paste by its total size, because a large paste
     /// is not a dangerous one (architecture §7), and an over-budget document would otherwise be
-    /// refused whole. Per-image size is left to the HTML stage, which drops the one image over
-    /// <see cref="RtfImportOptions.MaxDataImageBytes"/> and says so, instead of losing the paste.
+    /// refused whole. So is the reader's per-image limit, which also refuses the whole document:
+    /// the one image over <see cref="RtfImportOptions.MaxDataImageBytes"/> is dropped by the
+    /// converter instead (<see cref="HtmlOptions"/>), and the paste kept.
     /// </para>
     /// <para>
     /// What stays is the reader's group-depth limit, which bounds its recursion; content nested
@@ -235,30 +237,65 @@ public static class RtfImporter
 
     /// <summary>A self-contained HTML fragment, images inline, for the HTML stage to judge.</summary>
     /// <remarks>
-    /// Images are embedded at any size so that the HTML stage's own limit decides and reports, and
-    /// nothing the converter adds for display (default styles, metadata) is asked for.
+    /// <para>
+    /// A picture the host's options refuse is not embedded at all. Written out as a data URL only
+    /// for the HTML stage to drop, a picture cost about 12.6 times the RTF that carried it — the
+    /// base64, the markup around it, and the sanitizer's pass over both (rubber-duck review
+    /// finding 9.1). The converter compares the decoded bytes with the limit, as the HTML stage
+    /// does, and its findings are reported as the HTML stage would report them
+    /// (<see cref="ConverterDiagnostics"/>). The HTML stage still checks what is embedded.
+    /// </para>
+    /// <para>
+    /// Nothing the converter adds for display (default styles, metadata) is asked for.
+    /// </para>
     /// </remarks>
-    private static readonly RtfToHtmlOptions HtmlOptions = new()
+    private static RtfToHtmlOptions HtmlOptions(RtfImportOptions options) => new()
     {
         FragmentOnly = true,
-        EmbedImagesAsDataUri = true,
-        MaxEmbeddedImageBytes = int.MaxValue,
+        EmbedImagesAsDataUri = options.AllowDataImages,
+        MaxEmbeddedImageBytes = options.MaxDataImageBytes,
         IncludeDefaultStyles = false,
         IncludeMetadata = false,
         IncludeRoundTripMetadata = false,
     };
 
-    /// <summary>The converter's findings that cost the document a picture, once per format.</summary>
+    /// <summary>The converter's findings that cost the document a picture, each reported once.</summary>
     /// <remarks>
     /// The converter embeds PNG and JPEG only, and leaves out any other picture, a Windows
     /// metafile for one, which the reader binds without complaint (rubber-duck review finding 9.6).
+    /// A picture the host's options refuse (<see cref="HtmlOptions"/>) is reported in the HTML
+    /// stage's words, since that is where it was reported before the converter left it out.
     /// </remarks>
-    private static IEnumerable<ImportDiagnostic> ConverterDiagnostics(IReadOnlyList<HtmlRtfConversionDiagnostic> diagnostics)
+    private static IEnumerable<ImportDiagnostic> ConverterDiagnostics(
+        IReadOnlyList<HtmlRtfConversionDiagnostic> diagnostics, RtfImportOptions options)
     {
         var reported = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var diagnostic in diagnostics)
         {
+            if (diagnostic.Code == "RtfHtmlImageEmbeddingDisabled")
+            {
+                if (reported.Add(diagnostic.Code))
+                {
+                    yield return new ImportDiagnostic(DiagnosticSeverity.Dropped, "Removed an inline image.", "data:");
+                }
+
+                continue;
+            }
+
+            if (diagnostic.Code == "RtfHtmlImageEmbeddingLimitExceeded")
+            {
+                if (reported.Add(diagnostic.Code))
+                {
+                    yield return new ImportDiagnostic(
+                        DiagnosticSeverity.Dropped,
+                        $"Removed an inline image larger than {options.MaxDataImageBytes} bytes.",
+                        "data:");
+                }
+
+                continue;
+            }
+
             if (diagnostic.Code != "RtfHtmlImageFormatUnsupported" || !reported.Add(diagnostic.Source ?? string.Empty))
             {
                 continue;

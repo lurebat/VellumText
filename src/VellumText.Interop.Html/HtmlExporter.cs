@@ -512,10 +512,66 @@ public sealed class HtmlExporter : IDocumentExporter
     private static string CssFontFamily(string family) =>
         string.Join(
             ", ",
-            family.Split(',')
+            FamilyNames(family)
                 .Select(name => name.Trim())
                 .Where(name => name.Length > 0)
                 .Select(CssFamilyName));
+
+    /// <summary>Splits a font stack at the commas that separate its names.</summary>
+    /// <remarks>
+    /// A comma inside a name the host quoted is part of that name: <c>"ACME, Inc.", Arial</c> is two
+    /// families, not three. The stack is the host's notation rather than CSS — a bare name may hold
+    /// a quote, a backslash or a tab of its own, which a CSS parser would reject or collapse — so it
+    /// is not handed to one. A quote opens a name only at its start, as <see cref="CssFamilyName"/>
+    /// reads it, a backslash keeps the next character from closing it, and a quote that never
+    /// closes is just a character.
+    /// </remarks>
+    private static IEnumerable<string> FamilyNames(string family)
+    {
+        var start = 0;
+
+        while (start <= family.Length)
+        {
+            var at = start;
+
+            while (at < family.Length && char.IsWhiteSpace(family[at]))
+            {
+                at++;
+            }
+
+            if (at < family.Length && family[at] is '"' or '\'' && ClosingQuote(family, at) is var close and >= 0)
+            {
+                at = close + 1;
+            }
+
+            var end = family.IndexOf(',', at);
+
+            if (end < 0)
+            {
+                end = family.Length;
+            }
+
+            yield return family[start..end];
+            start = end + 1;
+        }
+    }
+
+    private static int ClosingQuote(string family, int open)
+    {
+        for (var at = open + 1; at < family.Length; at++)
+        {
+            if (family[at] == '\\')
+            {
+                at++;
+            }
+            else if (family[at] == family[open])
+            {
+                return at;
+            }
+        }
+
+        return -1;
+    }
 
     private static string CssFamilyName(string name)
     {

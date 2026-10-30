@@ -874,6 +874,15 @@ internal sealed class ParagraphView : BlockView
 >   `TableBlockView.GetCellRects(cells, start, visible)` take the realized window, so selecting all
 >   of a long table paints its screenful without realizing every row; `SelectionBounds` reports the
 >   realized part, as it already did for paragraphs outside the window.
+> - **A table inside a cell is not row-virtualized.** Only the presenter calls `SetWindow`, and only
+>   for top-level blocks, so a nested table keeps the infinite window it starts with and realizes
+>   and measures all of its rows whenever the outer table measures the row holding it (a
+>   10,000 × 3 table in a cell: 110 MB for the first layout, against 5.5 MB at the top level).
+>   Drawing it is still clipped to the rows on screen. Passing a window down is not a local change:
+>   the outer table measures a band only when it is stale, so the nested table would need measuring
+>   on every pass with its estimate-driven height pushed into the outer row; drawing skips rows
+>   outside the window, so a nested window that fell behind would draw blank rows; and `Settle`
+>   anchors on a top-level row, which a nested estimate moving would slide from under the viewport.
 >
 > Measured by `ScalingGuardTests`: laying out the top of a 2,500-, 5,000- or 10,000-row table builds
 > and measures 95 cells; scrolling to its middle measures one window; laying out a 10,000-row table

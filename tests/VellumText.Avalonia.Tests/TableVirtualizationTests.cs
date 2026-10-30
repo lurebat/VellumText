@@ -638,6 +638,64 @@ public class TableVirtualizationTests
             Assert.IsType<ParagraphNode>(doc.Resolve(clicked).Parent).Content.Text);
     }
 
+    [AvaloniaTheory]
+    [InlineData("image")]
+    [InlineData("click")]
+    [InlineData("boundary")]
+    [InlineData("paragraph")]
+    public void AFarRowRealizedByAGeometryQuestionIsInTheHeightThePresenterRecords(string question)
+    {
+        // The last quarter of the rows are six lines tall, far taller than the one-line rows the
+        // window at the top measures, so realizing one of them moves the table's height. Their
+        // last cell is empty, so selecting its paragraph finds the paragraph and selects nothing.
+        var table = new TableNode(Enumerable.Range(0, 2_000).Select(r => new TableRowNode([
+            r >= 1_500
+                ? new TableCellNode(Enumerable.Range(0, 6).Select(i => (BlockNode)ParagraphNode.FromText($"line {i}")))
+                : Cell(r, 0, false),
+            Cell(r, 1, false),
+            r >= 1_500 ? TableCellNode.FromText(string.Empty) : Cell(r, 2, false),
+        ])));
+        var (window, view) = Shown(table, height: 300);
+        var tableView = (TableBlockView)view.Blocks[0];
+        var height = tableView.Size.Height;
+
+        Assert.Equal(height, view.BlockOrigin(1).Y + view.Offset.Y, 6);
+        Assert.False(tableView.IsRowMeasured(1_900));
+
+        // Asked without a layout pass in between, as a hover or an image lookup is.
+        var y = view.BlockOrigin(0).Y + tableView.RowOffset(1_900, 0.5);
+
+        switch (question)
+        {
+            case "image":
+                Assert.Null(view.ImageRect(PositionIn(view.State.Doc, 0, 1_900, 0)));
+                break;
+            case "click":
+                view.PositionAt(new Point(20, y));
+                break;
+            case "boundary":
+                view.ColumnBoundaryAt(new Point(20, y), 1);
+                break;
+            default:
+                Assert.False(view.SelectParagraphAt(PositionIn(view.State.Doc, 0, 1_900, 2) - 1));
+                break;
+        }
+
+        Assert.True(tableView.IsRowMeasured(1_900));
+        Assert.NotEqual(height, tableView.Size.Height);
+
+        // The block after the table starts where the table now ends, and the scroll extent is
+        // already what the next layout pass makes it.
+        Assert.Equal(tableView.Size.Height, view.BlockOrigin(1).Y + view.Offset.Y, 6);
+
+        var recorded = view.Extent.Height;
+
+        view.InvalidateMeasure();
+        Layout(window);
+
+        Assert.Equal(view.Extent.Height, recorded, 6);
+    }
+
     private static readonly TextStyleResolver Styles = new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
     private static BlockView Create(BlockNode block) => block switch
