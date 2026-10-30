@@ -782,6 +782,57 @@ public class ScalingGuardTests
 
         return (replace, GC.GetAllocatedBytesForCurrentThread() - before);
     }
+
+    /// <summary>
+    /// F-32, inside one paragraph: once two stretches share nothing, the rest of the paragraph is
+    /// not looked at.
+    /// </summary>
+    /// <remarks>
+    /// The give-up was only checked between paragraphs, so a single long paragraph of mixed
+    /// formatting was walked stretch by stretch to its end although the first two already
+    /// disagreed: the work grew with the paragraph, for an answer of "nothing shared" that the
+    /// second stretch gave.
+    /// </remarks>
+    [AvaloniaFact]
+    public void OneLongMixedParagraphStopsOnceNothingIsShared()
+    {
+        int[] sizes = [500, 1_000, 2_000];
+
+        var examined = Growth.Measure(
+            sizes,
+            n =>
+            {
+                var view = Shown(new DocumentNode([new ParagraphNode(AlternatelyBoldAndItalic(n))]));
+
+                view.SelectAll();
+                view.MarkRunsExamined = 0;
+
+                var marks = view.SelectionMarks;
+
+                Assert.False(marks.Has(TextStyle.Bold));
+                Assert.False(marks.Has(TextStyle.Italic));
+
+                return view.MarkRunsExamined;
+            });
+
+        Growth.AssertFlat(examined, "stretches examined in one mixed paragraph");
+        Assert.True(examined[^1] <= 4, $"examined {string.Join(", ", examined)}");
+
+        // Back to back, so the first two stretches are bold and then italic with no unformatted
+        // gap between them to end the walk on its own.
+        static InlineContent AlternatelyBoldAndItalic(int stretches)
+        {
+            const int Stretch = 4;
+            var bold = new MarkSet { Style = TextStyle.Bold };
+            var italic = new MarkSet { Style = TextStyle.Italic };
+            var spans = Enumerable.Range(0, stretches)
+                .Select(i => new ValueSpan<MarkSet>(i * Stretch, Stretch, i % 2 == 0 ? bold : italic))
+                .ToList();
+
+            return InlineContent.Create(new string('a', stretches * Stretch), spans, []);
+        }
+    }
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };

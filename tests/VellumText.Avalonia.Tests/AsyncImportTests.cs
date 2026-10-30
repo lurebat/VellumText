@@ -85,7 +85,7 @@ public class AsyncImportTests
         return item;
     }
 
-    private static async Task Put(RichTextView view, DataTransfer data) =>
+    private static async Task Put(RichTextView view, IAsyncDataTransfer data) =>
         await TopLevel.GetTopLevel(view)!.Clipboard!.SetDataAsync(data);
 
     private static async Task Drop(RichTextView view, DataTransfer data)
@@ -588,6 +588,99 @@ public class AsyncImportTests
         Assert.Single(Images(view));
     }
 
+    /// <summary>
+    /// Clipboard text that arrives only when the test releases it, as text owned by another
+    /// process can. The headless clipboard otherwise answers at once, which leaves no window for a
+    /// plain-text paste to be overtaken in.
+    /// </summary>
+    private sealed class SlowText(string text) : IAsyncDataTransfer, IAsyncDataTransferItem
+    {
+        public TaskCompletionSource Reading { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyList<DataFormat> Formats => [DataFormat.Text];
+
+        public IReadOnlyList<IAsyncDataTransferItem> Items => [this];
+
+        public async Task<object?> TryGetRawAsync(DataFormat format)
+        {
+            Reading.TrySetResult();
+            await Release.Task;
+
+            return text;
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+Shift+V is a gesture like any other paste, so it supersedes one still importing. It
+    /// started no import of its own, so the older rich paste was not cancelled: it landed while
+    /// the text was read, and the plain-text paste then found the document moved and dropped the
+    /// user's latest gesture.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_plain_text_paste_supersedes_a_rich_paste_still_importing()
+    {
+        var importer = new Gated();
+        var view = Shown(importer);
+
+        await Put(view, Transfer("gated", "rich"));
+
+        var paste = view.PasteAsync();
+
+        await importer.Started.Task;
+
+        var text = new SlowText("plain");
+
+        await Put(view, text);
+
+        var plain = view.PasteTextAsync();
+
+        await text.Reading.Task;
+        importer.Release.SetResult();
+
+        Assert.False(await paste);
+
+        text.Release.SetResult();
+
+        Assert.True(await plain);
+        Assert.Contains("plain", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+        Assert.DoesNotContain("rich", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+    }
+
+    /// <summary>The reverse: a newer paste supersedes a plain-text paste still reading.</summary>
+    [AvaloniaFact]
+    public async Task A_rich_paste_supersedes_a_plain_text_paste_still_reading()
+    {
+        var importer = new Gated();
+        var view = Shown(importer);
+        var text = new SlowText("plain");
+
+        await Put(view, text);
+
+        var plain = view.PasteTextAsync();
+
+        await text.Reading.Task;
+        await Put(view, Transfer("gated", "rich"));
+
+        var paste = view.PasteAsync();
+
+        await importer.Started.Task;
+        text.Release.SetResult();
+
+        Assert.False(await plain);
+
+        importer.Release.SetResult();
+
+        Assert.True(await paste);
+        Assert.Contains("rich", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+        Assert.DoesNotContain("plain", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+    }
+
     // ---- 7.4: paste and drop resolve a transfer by one rule (F-10, OD-4b) ------------------
 
     /// <summary>
@@ -654,6 +747,60 @@ public class AsyncImportTests
         Assert.Contains("caption", DocumentText.Of(dropped.State.Doc), StringComparison.Ordinal);
         Assert.Empty(Images(pasted));
         Assert.Empty(Images(dropped));
+    }
+
+    /// <summary>
+    /// Every way the sanitizer can refuse an image's source counts as losing the image, not only
+    /// the network one. An inline SVG and a relative address were each reported in a context of
+    /// their own — the media type, the address — so the bitmap beside them was never looked at
+    /// and the paste inserted nothing.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("<img src=\"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=\" alt=\"cat\">")]
+    [InlineData("<img src=\"foo.png\" alt=\"cat\">")]
+    public async Task An_image_the_sanitizer_refused_for_any_reason_gives_way_to_the_bitmap(string html)
+    {
+        DataTransfer Both()
+        {
+            var data = Transfer("html", $"<p>caption</p>{html}");
+
+            data.Add(BitmapItem());
+
+            return data;
+        }
+
+        var pasted = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+
+        await Put(pasted, Both());
+
+        Assert.True(await pasted.PasteAsync());
+        Assert.StartsWith("data:image/png", Assert.Single(Images(pasted)).Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("caption", DocumentText.Of(pasted.State.Doc), StringComparison.Ordinal);
+
+        var dropped = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+
+        await Drop(dropped, Both());
+
+        Assert.Single(Images(dropped));
+    }
+
+    /// <summary>
+    /// The other direction: inline data refused somewhere other than an image is not a lost image.
+    /// A <c>data:</c> link was reported in the same context as a refused inline picture, so a
+    /// bitmap beside it replaced rich content that had lost nothing but a link.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_refused_data_link_is_not_a_lost_image_and_keeps_the_rich_content()
+    {
+        var view = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+        var data = Transfer("html", "<p><a href=\"data:text/plain,x\">link</a></p>");
+
+        data.Add(BitmapItem());
+        await Put(view, data);
+
+        Assert.True(await view.PasteAsync());
+        Assert.Contains("link", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+        Assert.Empty(Images(view));
     }
 
     private static DataTransferItem Flavour(string format, string payload)

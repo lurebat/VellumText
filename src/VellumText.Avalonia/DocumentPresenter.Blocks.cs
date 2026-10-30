@@ -363,8 +363,11 @@ public abstract partial class DocumentPresenter
         var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
         var slot = _slots[index];
         var view = EnsureMeasured(index);
+        var found = view.ParagraphAt(Math.Clamp(position - slot.Start, 0, view.ContentSize));
 
-        if (view.ParagraphAt(Math.Clamp(position - slot.Start, 0, view.ContentSize)) is not { } at)
+        RecordHeight(index);
+
+        if (found is not { } at)
         {
             return null;
         }
@@ -395,9 +398,11 @@ public abstract partial class DocumentPresenter
 
         var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
         var slot = _slots[index];
-        var view = EnsureMeasured(index);
+        var found = EnsureMeasured(index).GetImageRect(position - slot.Start);
 
-        if (view.GetImageRect(position - slot.Start) is not { } rect)
+        RecordHeight(index);
+
+        if (found is not { } rect)
         {
             return null;
         }
@@ -433,9 +438,12 @@ public abstract partial class DocumentPresenter
         }
 
         var origin = BlockOrigin(index);
-
-        return table.BoundaryAt(
+        var boundary = table.BoundaryAt(
             point, _slots[index].Start, new Vector(origin.X, origin.Y), tolerance);
+
+        RecordHeight(index);
+
+        return boundary;
     }
 
     /// <summary>The document position nearest a point in this control's coordinates.</summary>
@@ -451,7 +459,11 @@ public abstract partial class DocumentPresenter
         var slot = _slots[index];
         var origin = BlockOrigin(index);
 
-        return slot.Start + EnsureMeasured(index).HitTest(point - origin);
+        var hit = EnsureMeasured(index).HitTest(point - origin);
+
+        RecordHeight(index);
+
+        return slot.Start + hit;
     }
 
     /// <summary>
@@ -735,15 +747,30 @@ public abstract partial class DocumentPresenter
     /// <param name="index">The block's index.</param>
     private protected BlockView EnsureMeasured(int index)
     {
-        var height = _views[index].Measure(_width).Height;
+        _views[index].Measure(_width);
+        RecordHeight(index);
+
+        return _views[index];
+    }
+
+    /// <summary>Records the height a block has now in the height index and the extent.</summary>
+    /// <remarks>
+    /// Also wanted after a geometry question has been answered, not only after a measure: a long
+    /// table realizes and measures the rows a question reaches outside its window, which changes
+    /// its height — those rows, and the estimate every unmeasured row is priced at — after
+    /// <see cref="EnsureMeasured"/> recorded it. Nothing else records it again until the block is
+    /// measured in a layout pass, which for a block outside the realized window may never come.
+    /// </remarks>
+    /// <param name="index">The block's index.</param>
+    private protected void RecordHeight(int index)
+    {
+        var height = _views[index].Size.Height;
 
         if (!_heights.Measured(index) || Math.Abs(_heights.HeightOf(index) - height) > 0.01)
         {
             _heights.SetHeight(index, height);
             SetExtent(_extent.WithHeight(_heights.TotalHeight));
         }
-
-        return _views[index];
     }
 
     /// <summary>

@@ -701,6 +701,18 @@ internal sealed class TableBlockView : BlockView
     /// Measuring any row also moves the estimate and so every unmeasured row, which is the other
     /// reason nothing here is remembered in pixels.
     /// </para>
+    /// <para>
+    /// Only the presenter calls this, and only for its own blocks. A table inside a cell is never
+    /// given a window, so it keeps the infinite one it starts with and realizes and measures every
+    /// one of its rows whenever the outer table measures the row holding it: a 10,000 × 3 table in a
+    /// cell allocated 110 MB laying out the top of the document, against 5.5 MB for the same table
+    /// at the top level. Passing a window down is not a local change. The outer table measures a
+    /// band only when it is stale, so the nested table would have to be measured again on every
+    /// pass and its height, which moves with its own estimate, pushed into the outer row; drawing
+    /// skips rows outside the window, so a nested window that fell behind would draw blank rows;
+    /// and the presenter keeps the viewport still by anchoring on a top-level row, which a nested
+    /// estimate moving would slide out from under it.
+    /// </para>
     /// </remarks>
     public override void SetWindow(double anchor, double above, double below)
     {

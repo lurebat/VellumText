@@ -90,4 +90,61 @@ public class CssFontFamilyTests
         Assert.Contains("Segoe UI", items[0].CssText, StringComparison.Ordinal);
         Assert.Contains("Arial", items[1].CssText, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// A comma inside a name the host quoted belongs to the name (rubber-duck review finding 5.3).
+    /// Splitting on every comma wrote <c>"\"ACME", "Inc.\"", Arial</c>, which a recipient reads as
+    /// three families, the first of them <c>"ACME</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("\"ACME, Inc.\", Arial")]
+    [InlineData("'ACME, Inc.', Arial")]
+    [InlineData("  \"ACME, Inc.\" ,Arial,")]
+    public async Task A_comma_inside_a_quoted_family_name_stays_in_the_name(string family)
+    {
+        var html = HtmlExporter.Instance.Export(WithFamily(family));
+
+        Assert.Equal(["ACME, Inc.", "Arial"], RecipientFamilies(html));
+        Assert.Equal("ACME, Inc.", FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
+    }
+
+    /// <summary>An escaped quote does not close the name it is in, so the comma after it does not split.</summary>
+    [Fact]
+    public void An_escaped_quote_does_not_end_a_quoted_family_name()
+    {
+        var html = HtmlExporter.Instance.Export(WithFamily("\"ACME \\\", Inc.\", Arial"));
+        var families = RecipientFamilies(html);
+
+        Assert.Equal(2, families.Length);
+        Assert.EndsWith(", Inc.", families[0], StringComparison.Ordinal);
+        Assert.Equal("Arial", families[1]);
+    }
+
+    /// <summary>
+    /// A quote that never closes is a character of the name, not the start of one that swallows
+    /// the rest of the stack.
+    /// </summary>
+    [Fact]
+    public void An_unclosed_quote_does_not_swallow_the_rest_of_the_stack()
+    {
+        var html = HtmlExporter.Instance.Export(WithFamily("\"ACME, Arial"));
+
+        Assert.Equal(["\"ACME", "Arial"], RecipientFamilies(html));
+    }
+
+    /// <summary>The family names a recipient reads out of the exported span's style, in order.</summary>
+    private static string[] RecipientFamilies(string html)
+    {
+        var property = RecipientStyle(html).Single(p => p.Name == "font-family");
+
+        return ((System.Collections.IEnumerable)property.RawValue!)
+            .Cast<ICssValue>()
+            .Select(value => value switch
+            {
+                AngleSharp.Css.Values.CssStringValue quoted => quoted.Value,
+                AngleSharp.Css.Values.CssIdentifierValue bare => bare.Value,
+                _ => value.CssText,
+            })
+            .ToArray();
+    }
 }

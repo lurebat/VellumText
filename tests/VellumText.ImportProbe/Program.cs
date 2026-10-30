@@ -14,7 +14,8 @@ namespace VellumText.ImportProbe;
 /// <para>
 /// Usage: <c>VellumText.ImportProbe &lt;format&gt; &lt;input-file&gt;</c>, where format is one of
 /// <c>html</c>, <c>html-unbounded</c>, <c>html-clipboard</c>, <c>markdown</c>,
-/// <c>markdown-current-stack</c>, <c>rtf</c> or <c>json</c>.
+/// <c>markdown-current-stack</c>, <c>rtf</c>, <c>rtf-no-data-images</c>, <c>rtf-small-data-images</c>
+/// or <c>json</c>.
 /// </para>
 /// <para>
 /// The import is called from a thread with a 1 MiB stack — what a Windows main thread or a
@@ -116,6 +117,8 @@ public static class Program
         // The Markdown stage without the large stack in front of it; see ImportOnCurrentStack.
         "markdown-current-stack" => MarkdownImporter.ImportOnCurrentStack(input, MarkdownImportOptions.Default),
         "rtf" => RtfImporter.ImportAsync(input).GetAwaiter().GetResult(),
+        "rtf-no-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { AllowDataImages = false }).GetAwaiter().GetResult(),
+        "rtf-small-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { MaxDataImageBytes = 1024 }).GetAwaiter().GetResult(),
         "json" => JsonFormat.Instance.ImportAsync(input, CancellationToken.None).GetAwaiter().GetResult(),
         _ => throw new ArgumentException($"unknown format '{format}'"),
     };
