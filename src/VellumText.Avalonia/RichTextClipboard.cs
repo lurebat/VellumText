@@ -397,7 +397,9 @@ public static class RichTextClipboard
     /// </para>
     /// <para>
     /// "Lost an image" is read from the sanitizer's diagnostics: a <see cref="DiagnosticSeverity.Dropped"/>
-    /// in context <c>img</c> (a network image) or <c>data:</c> (an inline image it refused).
+    /// in context <c>img</c>, which the HTML sanitizer reports for every image source it refuses,
+    /// whatever the reason. Inline data it refuses anywhere else, such as a <c>data:</c> link, is
+    /// reported in context <c>data:</c> and is not a lost image.
     /// </para>
     /// </remarks>
     internal static async Task<TransferResolution> ResolveAsync(
@@ -464,7 +466,7 @@ public static class RichTextClipboard
     }
 
     private static bool LostAnImage(ImportResult result) =>
-        result.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Dropped && d.Context is "img" or "data:");
+        result.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Dropped && d.Context is "img");
 
     /// <summary>Plain text as a document of one paragraph per line, or null if there is none.</summary>
     /// <remarks>

@@ -221,6 +221,49 @@ public class HtmlSecurityTests
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("larger than"));
     }
 
+    /// <summary>
+    /// Every refusal of an image's source is reported in context <c>img</c>, whatever the reason.
+    /// </summary>
+    /// <remarks>
+    /// A paste reads that context to decide whether the rich flavour lost a picture and the bitmap
+    /// beside it should win instead (OD-4b). Unsupported types, relative addresses and disallowed
+    /// schemes were reported in contexts of their own and so read as nothing lost.
+    /// </remarks>
+    [Theory]
+    [InlineData("<img src='https://tracker.test/pixel.gif'>", null)]
+    [InlineData("<img src='foo.png'>", null)]
+    [InlineData("<img src='javascript:alert(1)'>", null)]
+    [InlineData("<img src='data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='>", null)]
+    [InlineData("<img src='data:image/png;base64,!!!!'>", null)]
+    [InlineData("<img src='data:image/png;base64,AAAAAAAAAAAAAAAA'>", 4)]
+    [InlineData("<img src='data:image/png;base64,AAAA'>", -1)]
+    public async Task Every_refused_image_source_is_reported_as_a_removed_image(string html, int? limit)
+    {
+        var options = limit switch
+        {
+            null => new HtmlImportOptions(),
+            -1 => new HtmlImportOptions { AllowDataImages = false },
+            _ => new HtmlImportOptions { MaxDataImageBytes = limit.Value },
+        };
+
+        var result = await Import(html, options);
+
+        Assert.Empty(Images(result));
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped && d.Context == "img");
+    }
+
+    [Theory]
+    [InlineData("<a href='data:text/plain,x'>link</a>")]
+    [InlineData("<a href='javascript:alert(1)'>link</a>")]
+    [InlineData("<a href='foo.html'>link</a>")]
+    public async Task A_refused_address_that_is_not_an_image_source_is_not_reported_as_one(string html)
+    {
+        var result = await Import(html);
+
+        Assert.True(result.AnythingDropped);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context == "img");
+    }
+
     [Fact]
     public async Task Styles_that_are_not_formatting_are_removed()
     {
