@@ -551,6 +551,47 @@ public class ToolbarOutcomeTests
         Assert.Equal(left, TextLeft(view, 0), 3);
     }
 
+    /// <summary>
+    /// Outside a list, Increase and Decrease indent move exactly the selected paragraphs one step
+    /// at a time, and stop at the margin.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheIndentButtonsMoveExactlyTheSelectedParagraphs()
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var left = TextLeft(view, 2);
+        var step = ParagraphView.DefaultIndentStep;
+
+        SelectAcross(view);
+
+        UserClick(bar, "Increase indent");
+        UserClick(bar, "Increase indent");
+        AssertIndented(2);
+
+        UserClick(bar, "Decrease indent");
+        AssertIndented(1);
+
+        UserClick(bar, "Decrease indent");
+        AssertIndented(0);
+
+        var before = editor.State.Doc;
+
+        UserClick(bar, "Decrease indent");
+
+        Assert.Same(before, editor.State.Doc);
+
+        void AssertIndented(int level)
+        {
+            Assert.Equal([level, level, 0], Paragraphs(editor.State.Doc).Select(p => p.IndentLevel));
+            Assert.Equal(left + (level * step), TextLeft(view, 0), 3);
+            Assert.Equal(left + (level * step), TextLeft(view, 1), 3);
+            Assert.Equal(left, TextLeft(view, 2), 3);
+            Assert.All(view.Blocks, b => Assert.Null(((ParagraphView)b).MarkerText));
+            AssertNoOverlappingLines(view);
+        }
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
