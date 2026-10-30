@@ -321,7 +321,9 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen. Typing into a cell of a very long table still allocates about 6 MB a
+  painting a selection of the whole table realizes only the rows on screen. A
+  table inside a cell is not row-virtualized: it is laid out whole, as every
+  table was before, though only its rows on screen are drawn. Typing into a cell of a very long table still allocates about 6 MB a
   keystroke in the document model, which validates the whole edited table after
   each step.
 - **Whole-word search no longer treats letters outside the basic plane as word
