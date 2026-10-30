@@ -432,6 +432,7 @@ internal sealed partial class TableBlockView : BlockView
 
                 row.Cells = cells;
                 row.Dirty = true;
+                ForgetKnown(r);
                 RowsUnlaid();
                 _changes++;
             }
@@ -1100,6 +1101,35 @@ internal sealed partial class TableBlockView : BlockView
         }
     }
 
+    /// <summary>
+    /// Takes back what the band holding a row taught: a row of it was edited or composed in, so
+    /// what was known of it is no longer, though it stays where it was until it is laid out again.
+    /// </summary>
+    /// <remarks>
+    /// Its placement keeps the height it had; the estimate and <see cref="ExactHeight"/> count it
+    /// as a band nobody has measured until <see cref="SettleBand"/> records it again. Kept, the
+    /// lines an edit cut from a row off screen stayed known height in this table and every table
+    /// holding it.
+    /// </remarks>
+    private void ForgetKnown(int row)
+    {
+        var start = _bandStart[row];
+
+        if (double.IsNaN(_rowSamples[start]))
+        {
+            return;
+        }
+
+        for (var r = start; r < _bandEnd[start]; r++)
+        {
+            _estimate.Remove(_rowSamples[r]);
+            _sampleSum -= _rowSamples[r];
+            _rowSamples[r] = double.NaN;
+        }
+
+        _unmeasuredBands++;
+    }
+
     /// <summary>A cell's height with each table in it at what is known of it (<see cref="ExactHeight"/>).</summary>
     private static double ExactHeightOf(Cell cell)
     {
@@ -1129,11 +1159,12 @@ internal sealed partial class TableBlockView : BlockView
     private void SetRowHeight(int row, double height, double sample)
     {
         var was = _rowHeights[row];
+        var known = _rowSamples[row];
 
-        if (!double.IsNaN(was))
+        if (!double.IsNaN(known))
         {
-            _estimate.Remove(_rowSamples[row]);
-            _sampleSum -= _rowSamples[row];
+            _estimate.Remove(known);
+            _sampleSum -= known;
         }
         else if (row == _bandStart[row])
         {
@@ -2168,6 +2199,7 @@ internal sealed partial class TableBlockView : BlockView
                         || child.View.ParagraphChanged(paragraph, localPosition - rowStart - child.Start))
                     {
                         _rows[r].Dirty = true;
+                        ForgetKnown(r);
                         RowsUnlaid();
                         _changes++;
 

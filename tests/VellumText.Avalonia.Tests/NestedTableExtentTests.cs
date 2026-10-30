@@ -131,6 +131,113 @@ public class NestedTableExtentTests
         AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, "after a resize to 360");
     }
 
+    // ---- what is known of a table, after what it knew is edited away -----------------------------
+
+    /// <summary>
+    /// A table in a cell two tables deep, every row of it measured by scrolling through it, whose
+    /// tall first row — one cell of sixty lines, or a cell spanning two rows — is cut to one line
+    /// while the viewport is far below it, so nothing lays it out again: no table on the path
+    /// counts the lines cut as known height (each is at most what a fully laid-out copy measures),
+    /// after the cut, its undo and its redo.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinesEditedAwayFromARowOffScreenAreNoLongerCountedAsKnown(bool spanning)
+    {
+        var (window, view) = ScrolledFarBelowATallFirstRow(spanning);
+        var first = PositionOf(view.State.Doc, "tall 1") - 1;
+        var last = PositionOf(view.State.Doc, "tall 59") - 1;
+
+        view.Apply(view.State.Transaction().Delete(first, last + ParagraphNode.FromText("tall 59").NodeSize));
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the cut");
+
+        Assert.True(view.Undo());
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the undo");
+
+        Assert.True(view.Redo());
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the redo");
+    }
+
+    /// <summary>
+    /// The same tall row made taller by a composition, laid out while it was composed, and the
+    /// composition then dropped by moving the caret back on screen far below: the composed lines are
+    /// no longer counted as known height anywhere on the path.
+    /// </summary>
+    [AvaloniaFact]
+    public void ACompositionDroppedFromARowOffScreenIsNoLongerCountedAsKnown()
+    {
+        var (window, view) = ScrolledFarBelowATallFirstRow(spanning: false);
+        var offset = view.Offset;
+
+        view.MoveTo(PositionOf(view.State.Doc, "tall 0") + 2, extend: false);
+        Layout(window);
+        Assert.True(view.SetPreedit(string.Join(" ", Enumerable.Repeat("composed", 600))));
+        Layout(window);
+
+        view.Offset = offset;
+        Layout(window);
+        view.MoveTo(view.PositionAt(new Point(20, Height / 2)), extend: false);
+        Layout(window);
+
+        Assert.False(view.IsComposing);
+        AssertKnownAtMostTheTruth(view, "after the composition was dropped");
+    }
+
+    /// <summary>
+    /// A 300-row table whose first row is sixty lines tall (in a cell spanning two rows, if asked),
+    /// in the only cell of a one-row table in the only cell of another; scrolled through to its
+    /// end, so every row of it is measured, and left with the caret on screen there.
+    /// </summary>
+    private static (Window Window, RichTextView View) ScrolledFarBelowATallFirstRow(bool spanning)
+    {
+        var tall = new TableCellNode(Enumerable.Range(0, 60).Select(i => (BlockNode)ParagraphNode.FromText($"tall {i}")), rowSpan: spanning ? 2 : 1);
+        var rows = Enumerable.Range(0, 300).Select(r => new TableRowNode(
+            r == 0 ? [tall, TableCellNode.FromText("a r0c1")]
+            : r == 1 && spanning ? [TableCellNode.FromText("a r1c1")]
+            : [TableCellNode.FromText($"a r{r}c0"), TableCellNode.FromText($"a r{r}c1")]));
+        var doc = NestedTableVirtualizationTests.Nested(2, new TableNode(rows));
+        var (window, view) = Shown(doc);
+        var end = PositionOf(doc, "a r299c0");
+
+        while (GeometryTransactionTests.ScreenTop(view, end) > Height - 60)
+        {
+            view.Offset += new Vector(0, Height);
+            Layout(window);
+        }
+
+        view.MoveTo(view.PositionAt(new Point(20, Height / 2)), extend: false);
+        Layout(window);
+
+        return (window, view);
+    }
+
+    /// <summary>Every table on the path down is known to be no taller than a fully laid-out copy has it.</summary>
+    private static void AssertKnownAtMostTheTruth(RichTextView view, string what)
+    {
+        var mine = (TableBlockView)view.Blocks[0];
+        var theirs = (TableBlockView)GeometryTransactionTests.FullyLaidOut(view.State.Doc, Width).Blocks[0];
+
+        for (var depth = 0; ; depth++)
+        {
+            Assert.True(
+                mine.ExactHeight <= theirs.Size.Height + 0.5,
+                $"{what}: the table {depth} deep is known to be {mine.ExactHeight:F1} tall, more than the {theirs.Size.Height:F1} it is");
+
+            if (mine.NestedTables.FirstOrDefault() is not { } next)
+            {
+                return;
+            }
+
+            (mine, theirs) = (next, theirs.NestedTables.First());
+        }
+    }
+
+    private static int PositionOf(DocumentNode doc, string text) => NestedTableVirtualizationTests.TextAt(doc, text);
+
     /// <summary>
     /// The extent is at most <paramref name="over"/> times the height of a fully laid-out copy at
     /// the same width, and at least a <see cref="Under"/>th of it.
