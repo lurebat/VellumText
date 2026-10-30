@@ -395,6 +395,85 @@ public class ToolbarOutcomeTests
     private sealed record PickedItem(string Value);
 
     /// <summary>
+    /// A family name holding a comma is stored quoted, so it stays one family — but the font box
+    /// shows the name the user knows, without the quotes (owner decision on review finding 5.3).
+    /// </summary>
+    [AvaloniaFact]
+    public void TheFontBoxShowsAQuotedCommaFamilyWithoutItsQuotes()
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, "PART_FontBox");
+
+        SelectAcross(view);
+        Assert.True(view.SetFontFamily("\"ACME, Inc.\""));
+        Layout(WindowOf(box));
+
+        Assert.Equal("\"ACME, Inc.\"", bar.SelectionFontFamily);
+        Assert.Equal("ACME, Inc.", box.Text);
+    }
+
+    /// <summary>
+    /// Picking or typing a name with a comma stores its quoted form, the one an export reads as
+    /// a single family, and the box shows it back without the quotes.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AFamilyWithACommaPickedOrTypedIsStoredQuotedAndShownBare(bool typed)
+    {
+        const string family = "ACME, Inc.";
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, "PART_FontBox");
+
+        if (!typed)
+        {
+            box.ItemsSource = new[] { "Arial", family };
+        }
+
+        SelectAcross(view);
+        Commit(box, typed ? family : (object)new PickedItem(family));
+
+        AssertMarkedExactly(editor.State.Doc, Across, marks => marks.FontFamily == "\"ACME, Inc.\"", "\"ACME, Inc.\"");
+        Assert.Equal("ACME, Inc.", box.Text);
+    }
+
+    /// <summary>
+    /// Committing what the box shows changes nothing, and a name the user already quoted, or one
+    /// with no comma, is stored exactly as typed.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("ACME, Inc.", "\"ACME, Inc.\"")]
+    [InlineData("\"ACME, Inc.\"", "\"ACME, Inc.\"")]
+    [InlineData("Say \"hi\", Ltd", "'Say \"hi\", Ltd'")]
+    [InlineData("Courier New", "Courier New")]
+    public void ATypedFamilyIsStoredInTheFormThatKeepsItOneName(string typed, string stored)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, "PART_FontBox");
+
+        SelectAcross(view);
+        Commit(box, typed);
+        Assert.Equal(stored, bar.SelectionFontFamily);
+
+        // Enter again on exactly what the box now shows is the same family, not a re-quoted one.
+        Assert.Equal(DisplayedName(stored), box.Text);
+        box.GetVisualDescendants().OfType<TextBox>().First().Focus();
+        TypeAndEnter(box, string.Empty);
+        AssertMarkedExactly(editor.State.Doc, Across, marks => marks.FontFamily == stored, stored);
+    }
+
+    /// <summary>What the box should show for a stored family: a quoted comma name, unquoted.</summary>
+    private static string DisplayedName(string stored) => stored switch
+    {
+        "\"ACME, Inc.\"" => "ACME, Inc.",
+        "'Say \"hi\", Ltd'" => "Say \"hi\", Ltd",
+        _ => stored,
+    };
+
+    /// <summary>
     /// A colour or highlight picked with a real click across two paragraphs lands on exactly the
     /// selection and is drawn there, the button's swatch shows it, and "No colour" / "No
     /// highlight" clicked the same way takes it off again, on screen too.
