@@ -136,6 +136,29 @@ internal abstract class BlockView
     public virtual TextAt? ParagraphAt(int localPosition) => null;
 
     /// <summary>
+    /// Tells the block that a paragraph inside it, one <see cref="ParagraphAt"/> handed out, has
+    /// dropped its layout without the block being updated — a composition does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The default holds no paragraphs of its own, which is right for a block that lays its
+    /// paragraphs out whenever it is measured. A block that measures only the parts it knows have
+    /// changed has to count this as a change, or it goes on answering for a paragraph that cannot
+    /// answer.
+    /// </para>
+    /// <para>
+    /// The paragraph is named by reference and the position is only where to look first. A
+    /// composition is cleared from the paragraph it was drawn in, after the selection has left it
+    /// and perhaps after the document has moved it, so the position it was found at may no longer
+    /// lead to it.
+    /// </para>
+    /// </remarks>
+    /// <param name="paragraph">The paragraph that changed.</param>
+    /// <param name="localPosition">Where the paragraph is likely to be, as a local position.</param>
+    /// <returns>Whether the paragraph is inside this block.</returns>
+    public virtual bool ParagraphChanged(ParagraphView paragraph, int localPosition) => false;
+
+    /// <summary>
     /// The box an image at a local position is drawn in, or null if there is no image there.
     /// </summary>
     /// <remarks>

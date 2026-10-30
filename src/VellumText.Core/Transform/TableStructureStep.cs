@@ -215,16 +215,23 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
         ranges.Add(new ReplacedRange(start, oldSize, newSize));
     }
 
-    /// <summary>Whether the two tables have any node below them in common, by identity.</summary>
+    /// <summary>Whether the two tables have any row or cell in common, by identity.</summary>
     /// <remarks>
+    /// <para>
     /// <see cref="TableEdits"/> builds the new table from the old one's untouched cells, so its
     /// steps always do; a table a host built separately does not, and is diffed by value.
+    /// </para>
+    /// <para>
+    /// Only rows and cells count. What a cell holds is shared between tables that have no cell in
+    /// common — every blank cell holds the one <see cref="ParagraphNode.Empty"/> — so finding it in
+    /// both says nothing about whether the new table was built from the old one.
+    /// </para>
     /// </remarks>
     internal static bool SharesAny(Node before, Node after)
     {
-        // A shared node found anywhere is the whole answer, and a step from TableEdits keeps the
+        // A shared cell found anywhere is the whole answer, and a step from TableEdits keeps the
         // cells of the first or the last row - all of them, for a column insert - so look there
-        // before collecting every node of the table. The set below is still what decides "no":
+        // before collecting every row and cell of the table. The set below is still what decides "no":
         // a witness can only ever prove sharing, never rule it out.
         var a = before.Children;
         var b = after.Children;
@@ -234,22 +241,12 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
             return true;
         }
 
-        var seen = new HashSet<Node>(Descendants(before), ReferenceEqualityComparer.Instance);
+        var seen = new HashSet<Node>(RowsAndCells(before), ReferenceEqualityComparer.Instance);
 
-        return Descendants(after).Any(seen.Contains);
+        return RowsAndCells(after).Any(seen.Contains);
 
-        static IEnumerable<Node> Descendants(Node node)
-        {
-            foreach (var child in node.Children)
-            {
-                yield return child;
-
-                foreach (var below in Descendants(child))
-                {
-                    yield return below;
-                }
-            }
-        }
+        static IEnumerable<Node> RowsAndCells(Node table) =>
+            table.Children.SelectMany(row => row.Children.Prepend(row));
     }
 
     /// <summary>Whether two rows hold any cell that is the very same object.</summary>
@@ -272,9 +269,10 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
 
         return false;
     }
+
     /// <summary>
-    /// Whether a node is the same one in both versions: the very same object, or a container
-    /// rebuilt around exactly the same children.
+    /// Whether a node is the same one in both versions: the very same object, or a row rebuilt
+    /// around exactly the same cells.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -284,9 +282,11 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     /// child is new.
     /// </para>
     /// <para>
-    /// Structural rather than plain identity, because <see cref="TableEdits"/> rebuilds every row
-    /// around reused cells when it inserts a row. A node without children — a paragraph — has to
-    /// be the same object: a new blank cell's empty paragraph is value-equal to every other.
+    /// A row may be rebuilt rather than reused, because <see cref="TableEdits"/> rebuilds every
+    /// row around reused cells when it inserts a row. A cell has to be the same object. Its
+    /// content is no evidence: every blank cell holds the one <see cref="ParagraphNode.Empty"/>,
+    /// so two different blank cells hold the very same paragraph, and matching them by it put an
+    /// inserted column at the far end of a run of blank cells.
     /// </para>
     /// </remarks>
     private static bool SameIdentity(Node x, Node y)
@@ -296,14 +296,17 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
             return true;
         }
 
-        if (x.Children.Length == 0 || x.Children.Length != y.Children.Length || !x.Equals(y))
+        if (x is not TableRowNode
+            || x.Children.Length == 0
+            || x.Children.Length != y.Children.Length
+            || !x.Equals(y))
         {
             return false;
         }
 
         for (var i = 0; i < x.Children.Length; i++)
         {
-            if (!SameIdentity(x.Children[i], y.Children[i]))
+            if (!ReferenceEquals(x.Children[i], y.Children[i]))
             {
                 return false;
             }

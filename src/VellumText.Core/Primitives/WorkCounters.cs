@@ -76,6 +76,13 @@ internal static class WorkCounters
     [ThreadStatic]
     internal static long TableCellsExamined;
 
+    /// <summary>
+    /// Table rows a table view has checked are laid out before drawing them, one per row of each
+    /// band checked.
+    /// </summary>
+    [ThreadStatic]
+    internal static long TableRowsChecked;
+
     /// <summary>Table cells a table view has walked to build or update their views.</summary>
     [ThreadStatic]
     internal static long TableCellsBuilt;

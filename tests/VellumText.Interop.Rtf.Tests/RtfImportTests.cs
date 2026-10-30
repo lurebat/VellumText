@@ -262,6 +262,56 @@ public class RtfImportTests
     }
 
     [Fact]
+    public async Task A_picture_the_reader_cannot_convert_is_reported_once()
+    {
+        // Rubber-duck review finding 9.6: the converter's own reasons for dropping a picture were
+        // thrown away, and a metafile vanished without a word.
+        var result = await RtfImporter.ImportAsync(
+            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("beforemidafter", PlainText(result));
+        Assert.True(result.AnythingDropped);
+        Assert.Single(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped);
+    }
+
+    [Fact]
+    public async Task Outlooks_encapsulated_html_keeps_its_bold()
+    {
+        // Rubber-duck review finding 9.4: hoisting the fallback's font invalidated the HTML, and
+        // the import was the fallback, unbolded.
+        var result = await Import(RtfFormattingHoistTests.OutlookBold);
+
+        Assert.Equal("hello", PlainText(result));
+        Assert.True(AnyRunHas(result, m => m.Style.HasFlag(TextStyle.Bold)));
+    }
+
+    [Fact]
+    public async Task A_large_outlook_message_is_imported_whole()
+    {
+        // Rubber-duck review finding 9.3: the converter refuses encapsulated HTML of more than
+        // 10,000 nodes, and the import of a 40 KB message was empty. No paste is capped by its size.
+        const int Count = 5_001;
+        var html = string.Concat(Enumerable.Range(0, Count).Select(i => $"<p>p{i}</p>"));
+        var result = await Import(
+            @"{\rtf1\ansi\fromhtml1{\*\htmltag1 <html><body>" + html + @"</body></html>}\htmlrtf1 fallback\htmlrtf0\par}");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
+        Assert.Equal(Count, Paragraphs(result).Count());
+        Assert.Equal($"p{Count - 1}", Paragraphs(result).Last().Content.Text);
+    }
+
+    [Fact]
+    public async Task Outlooks_encapsulated_html_is_read_as_html()
+    {
+        // It reaches the HTML stage as it is, and white space in HTML collapses; the reader's own
+        // HTML is the one that keeps every space.
+        var result = await Import(
+            @"{\rtf1\ansi\fromhtml1{\*\htmltag1 <html><body><p>a    b</p></body></html>}\htmlrtf1 a    b\htmlrtf0\par}");
+
+        Assert.Equal("a b", PlainText(result));
+    }
+
+    [Fact]
     public async Task A_link_to_somewhere_dangerous_does_not_survive_the_trip_through_html()
     {
         // Going through the HTML importer is what makes this true; a second RTF-specific idea of

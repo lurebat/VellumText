@@ -137,7 +137,9 @@ public static class DocumentPreview
             {
                 var any = false;
 
-                Count(block.Children, maxCharacters, ref seen, ref any);
+                // The block itself, not only its children: a block image has none, and counts as its
+                // alt text, as DocumentText reads it.
+                Count([block], maxCharacters, ref seen, ref any);
             }
 
             if (seen > maxCharacters)
@@ -155,8 +157,8 @@ public static class DocumentPreview
     /// </summary>
     /// <remarks>
     /// The same count <see cref="DocumentText.Of(IEnumerable{Node})"/> would give the container:
-    /// each paragraph's text with every embed as its fallback text, and a newline between
-    /// paragraphs.
+    /// each paragraph's text with every embed as its fallback text, a block image as its alt text,
+    /// and a newline between them.
     /// </remarks>
     private static void Count(ImmutableArray<Node> nodes, int maxCharacters, ref int seen, ref bool any)
     {
@@ -175,6 +177,11 @@ public static class DocumentPreview
                     seen += embed.PlainTextFallback.Length;
                 }
 
+                any = true;
+            }
+            else if (node is BlockImageNode { Image.PlainTextFallback: { Length: > 0 } alt })
+            {
+                seen += (any ? 1 : 0) + alt.Length;
                 any = true;
             }
             else

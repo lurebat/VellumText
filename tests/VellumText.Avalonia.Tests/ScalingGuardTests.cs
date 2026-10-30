@@ -502,6 +502,54 @@ public class ScalingGuardTests
     }
 
     /// <summary>
+    /// Painting a frame of a table one cell of which spans every row looks at each row once.
+    /// </summary>
+    /// <remarks>
+    /// Such a cell makes the whole table one band, and a frame showing the bottom of it walks
+    /// every row from the top, where the cell starts. Each row checked that its whole band was
+    /// laid out before drawing it, so the frame looked at rows × rows: about 10⁸ checks at 10,000
+    /// rows (rubber-duck review finding 10.3).
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingAFrameOfATableSpannedByOneCellIsLinearInItsRows()
+    {
+        var work = Growth.Measure(
+            [1_000, 2_000, 4_000],
+            n =>
+            {
+                var doc = new DocumentNode([
+                    new TableNode(Enumerable.Range(0, n).Select(r => new TableRowNode(r == 0
+                        ? [new TableCellNode([ParagraphNode.FromText("spanning every row")], rowSpan: n), TableCellNode.FromText("r0")]
+                        : [TableCellNode.FromText($"r{r}")]))),
+                    ParagraphNode.FromText("After the table."),
+                ]);
+                var view = new RichTextView { State = EditorState.Create(doc) };
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                view.Offset = new Vector(0, view.Extent.Height - Height);
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                WorkCounters.TableCellsRendered = 0;
+                WorkCounters.TableCellsExamined = 0;
+                WorkCounters.TableRowsChecked = 0;
+
+                using var frame = window.CaptureRenderedFrame();
+
+                Assert.NotNull(frame);
+                Assert.True(WorkCounters.TableCellsRendered > 0, "no cell was painted");
+
+                return WorkCounters.TableCellsExamined + WorkCounters.TableRowsChecked;
+            });
+
+        Growth.AssertAtMostLinear(work, "table rows and cells looked at to paint one frame of the bottom of a spanned table");
+    }
+
+    /// <summary>
     /// F-35: a keystroke in a table cell rebuilds the row it is in, not every row.
     /// </summary>
     /// <remarks>

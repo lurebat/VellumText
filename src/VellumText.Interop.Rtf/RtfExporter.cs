@@ -134,6 +134,10 @@ public sealed class RtfExporter : IDocumentExporter
             return _fonts.Count - 1;
         }
 
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
+
         internal void Write(StringBuilder rtf)
         {
             rtf.Append(@"{\fonttbl");
@@ -189,6 +193,10 @@ public sealed class RtfExporter : IDocumentExporter
             return index + 1;
         }
 
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
+
         internal void Write(StringBuilder rtf)
         {
             rtf.Append(@"{\colortbl;");
@@ -215,9 +223,11 @@ public sealed class RtfExporter : IDocumentExporter
     /// </para>
     /// <para>
     /// A level's kind and start come from the first list at that depth. RTF numbers a level the
-    /// same way throughout its list, so a second nested list of another kind under the same
-    /// top-level list is written with the first one's numbering; its <c>\listtext</c> still shows
-    /// its own marker.
+    /// same way throughout its list, so a nested list whose kind or start differs from what its
+    /// level already says gets a list definition of its own, copied from its ancestors' levels,
+    /// and its own <c>\ls</c>. Before, it was written with the first sibling's numbering, and a
+    /// reader that honours <c>\listtable</c> read a numbered sublist starting at 3 back as
+    /// bullets from 1 (rubber-duck review 5.2).
     /// </para>
     /// </remarks>
     private sealed class ListTable
@@ -227,6 +237,9 @@ public sealed class RtfExporter : IDocumentExporter
 
         private readonly List<(ListKind Kind, int Start)?[]> _lists = [];
 
+        /// <summary>The <c>\ls</c> of each nested list that needed a definition of its own.</summary>
+        private readonly Dictionary<ListNode, int> _own = new(ReferenceEqualityComparer.Instance);
+
         /// <summary>The <c>\ilvl</c> for a nesting depth.</summary>
         internal static int Level(int depth) => Math.Min(depth, MaxLevel);
 
@@ -235,20 +248,40 @@ public sealed class RtfExporter : IDocumentExporter
         {
             var levels = new (ListKind Kind, int Start)?[MaxLevel + 1];
 
-            Collect(list, 0, levels);
             _lists.Add(levels);
 
-            return _lists.Count;
+            var number = _lists.Count;
+
+            Collect(list, 0, levels);
+
+            return number;
         }
 
-        private static void Collect(ListNode list, int depth, (ListKind Kind, int Start)?[] levels)
+        /// <summary>The <c>\ls</c> a nested list is written with: its own, or its parent's.</summary>
+        internal int NumberOf(ListNode list, int parent) => _own.TryGetValue(list, out var own) ? own : parent;
+
+        private void Collect(ListNode list, int depth, (ListKind Kind, int Start)?[] levels)
         {
             if (depth > MaxLevel)
             {
                 return;
             }
 
-            levels[depth] ??= (list.Kind, list.Start);
+            var definition = Definition(list);
+
+            if (levels[depth] is { } recorded && recorded != definition)
+            {
+                // Its ancestors' levels as they are, its own at its depth, and its descendants'
+                // to come; nothing a sibling put deeper.
+                var own = new (ListKind Kind, int Start)?[MaxLevel + 1];
+
+                Array.Copy(levels, own, depth);
+                levels = own;
+                _lists.Add(levels);
+                _own[list] = _lists.Count;
+            }
+
+            levels[depth] = definition;
 
             foreach (var item in list.Items)
             {
@@ -261,6 +294,10 @@ public sealed class RtfExporter : IDocumentExporter
                 }
             }
         }
+
+        /// <summary>What a level's definition records of a list: its kind, and its start if numbered.</summary>
+        private static (ListKind Kind, int Start) Definition(ListNode list) =>
+            (list.Kind, list.Kind == ListKind.Ordered ? list.Start : 1);
 
         internal void Write(StringBuilder rtf)
         {
@@ -744,7 +781,7 @@ public sealed class RtfExporter : IDocumentExporter
                 // with a deeper \ilvl is what a reader nests.
                 if (block is ListNode nested)
                 {
-                    WriteList(nested, depth + 1, ls);
+                    WriteList(nested, depth + 1, lists.NumberOf(nested, ls));
                     continue;
                 }
 

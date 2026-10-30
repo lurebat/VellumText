@@ -27,8 +27,19 @@ public partial class RichTextView
 {
     private readonly RichTextInputMethodClient _inputMethod;
 
+    /// <summary>The paragraph a composition is drawn in, or null if nothing is composing.</summary>
+    /// <remarks>
+    /// Kept rather than looked up again, because the lookup answers where a composition would go
+    /// now, not where the one on screen is. Once the selection has moved the two differ, and
+    /// clearing the paragraph the lookup found left the composed text drawn in the other.
+    /// </remarks>
+    private ParagraphView? _composing;
+
+    /// <summary>Where <see cref="_composing"/> started when it was composed in.</summary>
+    private int _composingStart;
+
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    internal Preedit? Preedit => CompositionText?.View.Preedit;
+    internal Preedit? Preedit => _composing?.Preedit;
 
     /// <summary>
     /// The paragraph a composition is drawn in: the one holding the start of the selection,
@@ -68,6 +79,11 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     internal bool SetPreedit(string? text, int? cursorPosition = null)
     {
+        if (string.IsNullOrEmpty(text))
+        {
+            return Recomposed(ClearComposition());
+        }
+
         if (CompositionText is not { } at)
         {
             return false;
@@ -75,7 +91,7 @@ public partial class RichTextView
 
         var block = at.View;
 
-        if (IsReadOnly && !string.IsNullOrEmpty(text))
+        if (IsReadOnly)
         {
             return false;
         }
@@ -92,14 +108,88 @@ public partial class RichTextView
         // The cursor is clamped rather than validated: it comes from a platform input method,
         // and a client that throws at one is a client that crashes the application on a stray
         // report from somebody else's IME.
-        var preedit = string.IsNullOrEmpty(text)
-            ? null
-            : new Preedit(
-                text,
-                anchor,
-                cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
+        var preedit = new Preedit(
+            text,
+            anchor,
+            cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
 
-        if (!block.SetPreedit(preedit))
+        var moved = !ReferenceEquals(_composing, block) && ClearComposition();
+        var changed = block.SetPreedit(preedit);
+
+        _composing = block;
+        _composingStart = at.Start;
+
+        if (changed)
+        {
+            Unmeasured(block, at.Start);
+        }
+
+        return Recomposed(moved | changed);
+    }
+
+    /// <summary>Removes the composition from the paragraph it is drawn in.</summary>
+    /// <returns>Whether there was one to remove.</returns>
+    private bool ClearComposition()
+    {
+        if (_composing is not { } composing)
+        {
+            return false;
+        }
+
+        _composing = null;
+
+        if (!composing.SetPreedit(null))
+        {
+            return false;
+        }
+
+        Unmeasured(composing, _composingStart);
+
+        return true;
+    }
+
+    /// <summary>Tells the block holding a paragraph that the paragraph dropped its layout.</summary>
+    /// <remarks>
+    /// The paragraph dropped its layout without the block holding it being updated, and a table
+    /// measures only the rows it knows have changed: told nothing, it would answer for and draw
+    /// this paragraph unmeasured. The block is found from the paragraph itself, not from the
+    /// selection — a composition is cleared after the selection has left it.
+    /// </remarks>
+    /// <param name="paragraph">The paragraph.</param>
+    /// <param name="start">Where the paragraph started when it was composed in.</param>
+    private void Unmeasured(ParagraphView paragraph, int start)
+    {
+        if (_views.Count == 0)
+        {
+            return;
+        }
+
+        var hinted = BlockIndexOf(start);
+
+        if (Holds(hinted))
+        {
+            return;
+        }
+
+        for (var i = 0; i < _views.Count; i++)
+        {
+            if (i != hinted && Holds(i))
+            {
+                return;
+            }
+        }
+
+        bool Holds(int i) =>
+            ReferenceEquals(_views[i], paragraph)
+            || _views[i].ParagraphChanged(paragraph, start - _slots[i].Start);
+    }
+
+    /// <summary>Brings the view up to date after the composition changed, if it did.</summary>
+    /// <param name="changed">Whether it did.</param>
+    /// <returns><paramref name="changed"/>.</returns>
+    private bool Recomposed(bool changed)
+    {
+        if (!changed)
         {
             return false;
         }

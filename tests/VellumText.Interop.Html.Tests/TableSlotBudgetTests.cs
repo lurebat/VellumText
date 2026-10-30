@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
+
+using VellumText.ImportProbe;
 
 namespace VellumText.Interop.Html.Tests;
 
@@ -58,6 +61,45 @@ public sealed class TableSlotBudgetTests
         Assert.Contains(
             result.Diagnostics,
             d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "table" && d.Message.Contains("grid slots", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// One wide row over many narrow ones occupies few slots but makes a grid as wide as the wide
+    /// row and as tall as the table, and validating that grid is what costs: 9 KB of this took
+    /// 5.3 s and 2.9 GB before the budget charged the rectangle rather than the occupied cells.
+    /// </summary>
+    /// <remarks>Run in a child process, so a regression costs one process rather than the test host.</remarks>
+    [Theory]
+    [InlineData(99)]
+    [InlineData(999)]
+    public void A_sparse_table_is_charged_for_the_whole_grid_it_spans(int narrowRows)
+    {
+        var html = "<table><tr>"
+            + string.Concat(Enumerable.Repeat("<td colspan=1000>x", 10))
+            + string.Concat(Enumerable.Repeat("<tr><td>x", narrowRows))
+            + "</table>";
+
+        var result = ProbeRunner.Run("html", html, TimeSpan.FromSeconds(60));
+
+        Assert.True(result.ExitCode == 0, result.ToString());
+        Assert.True(long.Parse(result.Value("ms")!, CultureInfo.InvariantCulture) < 2_000, result.ToString());
+        Assert.True(long.Parse(result.Value("allocatedMb")!, CultureInfo.InvariantCulture) < 200, result.ToString());
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.StartsWith("Downgraded|table|", StringComparison.Ordinal) && d.Contains("grid slots", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A cell spanning down from the row above does not widen the rows it reaches into, so the
+    /// grid charged for an ordinary table with a rowspan is exactly the grid it has.
+    /// </summary>
+    [Fact]
+    public async Task A_rowspan_is_charged_for_the_grid_it_really_makes()
+    {
+        const string html = "<table><tr><td rowspan=2>a<td>b<td>c<tr><td>d<td>e</table>";
+
+        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 6 }, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
+        Assert.DoesNotContain((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 5 }, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks, b => b is TableNode);
     }
 
     [Fact]

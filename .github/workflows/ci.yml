@@ -41,15 +41,13 @@ jobs:
           set -euo pipefail
           mac=true
           if [ "$EVENT" = pull_request ]; then
-            # Captured first: piping git diff into `grep -q` lets grep exit early, and the
-            # SIGPIPE that hands git fails the step under pipefail.
+            # The list of paths that need macOS lives in the script, with its tests beside it.
             changed=$(git diff --name-only "$BASE...$HEAD")
-            if printf '%s\n' "$changed" | grep -Eq \
-              '^(src/VellumText\.Avalonia/|tests/VellumText\.Avalonia\.Tests/|samples/|Directory\.Build\.props$|global\.json$|VellumText\.sln$|\.github/workflows/ci\.yml$)'; then
+            mac=$(bash .github/scripts/needs-macos.sh <<<"$changed")
+            if [ "$mac" = true ]; then
               echo "This pull request touches Avalonia or build files; macOS runs."
             else
               echo "Nothing macOS-specific changed; macOS runs on the merge to main instead."
-              mac=false
             fi
           fi
           if [ "$mac" = true ]; then
@@ -115,6 +113,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # The platform picker decides whether macOS runs at all, so a bug in it fails silently.
+      - name: Workflow script tests
+        run: bash .github/scripts/needs-macos.test.sh
 
       - name: Install ast-grep
         run: npm install --global @ast-grep/cli@0.51.0

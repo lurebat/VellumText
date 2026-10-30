@@ -488,30 +488,35 @@ public sealed partial class RichTextView : DocumentPresenter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The caret's block, so that <see cref="OnReconciled"/> can tell whether the caret has
-    /// moved to a different paragraph while a composition was in progress.
+    /// The paragraph being composed in, so that <see cref="OnReconciled"/> can tell whether the
+    /// selection has left it while a composition was in progress.
     /// </remarks>
-    private protected override BlockView? Anchor =>
-        _caretBlock < _views.Count ? _views[_caretBlock] : null;
+    private protected override BlockView? Anchor => _composing;
 
     /// <inheritdoc/>
     private protected override void OnReconciled(BlockView? before)
     {
         _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
-        // A composition belongs to the block the caret was in. If the caret has left, the
-        // composition has to go with it: leaving it behind would draw composed text in a
-        // paragraph the input method is no longer talking about, and it would never be
-        // committed there.
-        if (before is ParagraphView left
-            && !ReferenceEquals(left, _views.Count == 0 ? null : _views[_caretBlock]))
+        // A composition belongs to the paragraph the commit will replace the selection in. If
+        // the selection has left it, the composition has to go: leaving it behind would draw
+        // composed text in a paragraph the input method is no longer talking about, and it would
+        // never be committed there. The head's paragraph is not that one when the selection
+        // crosses paragraphs, so it is the composing paragraph itself that is checked.
+        if (before is ParagraphView composing
+            && (composing.Preedit is null || !ReferenceEquals(composing, CompositionText?.View)))
         {
-            left.SetPreedit(null);
+            ClearComposition();
         }
     }
 
     /// <inheritdoc/>
-    private protected override void OnLayoutDropped() => _caretBlock = 0;
+    /// <remarks>The composition goes with the views: none of the new ones is drawing it.</remarks>
+    private protected override void OnLayoutDropped()
+    {
+        _caretBlock = 0;
+        _composing = null;
+    }
 
     /// <inheritdoc/>
     /// <summary>
