@@ -29,7 +29,7 @@ namespace VellumText.Interop.Html;
 public static class ClipboardHtml
 {
     private const string StartFragmentComment = "<!--StartFragment-->";
-    private const string EndFragmentComment = "<!--EndFragment-->";
+    internal const string EndFragmentComment = "<!--EndFragment-->";
 
     /// <summary>Start tags that only mean something between a table and its cells.</summary>
     private static readonly HashSet<string> TableRowContext = new(StringComparer.Ordinal)

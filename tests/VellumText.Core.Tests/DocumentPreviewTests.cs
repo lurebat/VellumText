@@ -246,6 +246,35 @@ public class DocumentPreviewTests
         Assert.True(DocumentPreview.IsLongerThan(doc, 80));
         Assert.NotSame(doc, DocumentPreview.Truncate(doc, 80));
     }
+
+    /// <remarks>
+    /// A container counts each image as its fallback text, and images can share one alt text, so
+    /// a paragraph's count is not bounded by anything held in memory. It was kept in an
+    /// <see cref="int"/> and checked only once the paragraph was done: 2,049 images sharing one
+    /// mebi-character alt text add up to 2³¹ + 2²⁰, which wrapped to a negative count and
+    /// answered "not longer" at every budget. The count is a <see cref="long"/> now and is checked
+    /// after each image, so the second question costs one image, not 2,049.
+    /// </remarks>
+    [Fact]
+    public void ACountPastTwoBillionDoesNotWrapAround()
+    {
+        const int Images = 2_049;
+        var image = new ImageEmbed("data:image/png;base64,AA==", altText: new string('a', 1 << 20));
+        var content = InlineContent.Create(
+            new string(InlineContent.Placeholder, Images),
+            [],
+            Enumerable.Repeat<InlineEmbed>(image, Images));
+        var doc = new DocumentNode(
+            [new TableNode([new TableRowNode([new TableCellNode([new ParagraphNode(content)])])])]);
+
+        Assert.True(DocumentPreview.IsLongerThan(doc, int.MaxValue));
+
+        WorkCounters.PreviewEmbedsMeasured = 0;
+
+        Assert.True(DocumentPreview.IsLongerThan(doc, 80));
+        Assert.Equal(1, WorkCounters.PreviewEmbedsMeasured);
+    }
+
     [Fact]
     public void TheArgumentsAreChecked()
     {
