@@ -396,7 +396,12 @@ awaits `PasteAsync`.
   laid out whole costs a screenful a page, however long it is. A table whose
   windows do not settle, or whose window cannot be worked out — a coordinate
   that is not a number, or a viewport anchor that names nothing inside it — is
-  laid out whole, counted and traced, never left blank.
+  laid out whole, counted and traced, never left blank. The scroll range stays
+  of the order of the document's real height: a row holding a table only partly
+  laid out teaches the estimate for the rows nobody measured only what is known
+  of that table, not that table's own estimate, which had made the extent grow
+  as the product of the row counts along the path (34.6 billion pixels for a
+  document 5.8 million tall, after a resize).
 - **The text at the top of the viewport is held through the spacing around its
   lines, a jump to rows nobody had laid out, and questions about far points.**
   Scrolling a long table moved its text by up to 5.6 DIP more or less than the

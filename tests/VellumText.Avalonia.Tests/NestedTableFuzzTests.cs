@@ -125,6 +125,7 @@ public class NestedTableFuzzTests
 
             Check(view, what);
             CheckLedger(view, what);
+            NestedTableExtentTests.AssertNearTheTruth(view, twin.Of(view.State.Doc, window.Width), NestedTableExtentTests.Over, what);
             CheckSettled(window, view, what);
 
             // A frame of every step, asking nothing first: drawing lays nothing out (in DEBUG it
@@ -663,7 +664,7 @@ public class NestedTableFuzzTests
     }
 
     /// <summary>Random documents with tables in cells.</summary>
-    private sealed class Generator(Random random)
+    internal sealed class Generator(Random random)
     {
         private int _text;
 

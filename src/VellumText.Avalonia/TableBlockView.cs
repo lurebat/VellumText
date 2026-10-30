@@ -72,6 +72,9 @@ internal sealed partial class TableBlockView : BlockView
     private double[] _columnEdges = [];
     private double _width = double.NaN;
     private double[] _rowHeights = [];
+    private double[] _rowSamples = [];
+    private double _sampleSum;
+    private int _unmeasuredBands;
     private double[] _rowEdges = [0];
     private int _edgesFrom;
     private double _edgesEstimate = double.NaN;
@@ -180,7 +183,7 @@ internal sealed partial class TableBlockView : BlockView
     /// </remarks>
     private void Rebuild(TableNode table)
     {
-        var old = new Previous(_rows, _rowFirstCell, _bandStart, _bandEnd, _rowHeights);
+        var old = new Previous(_rows, _rowFirstCell, _bandStart, _bandEnd, _rowHeights, _rowSamples);
         var placements = TableGeometry.Place(table, out _columns);
         var rows = new Row[table.Rows.Length];
         var firstCell = new int[rows.Length + 1];
@@ -200,6 +203,7 @@ internal sealed partial class TableBlockView : BlockView
         UpdateRowStarts();
 
         _rowHeights = new double[rows.Length];
+        _rowSamples = new double[rows.Length];
         _rowEdges = new double[rows.Length + 1];
         ForgetHeights();
 
@@ -245,7 +249,7 @@ internal sealed partial class TableBlockView : BlockView
                     }
 
                     rows[r].Cells = moved;
-                    SetRowHeight(r, old.Heights[was]);
+                    SetRowHeight(r, old.Heights[was], old.Samples[was]);
                 }
 
                 continue;
@@ -348,7 +352,8 @@ internal sealed partial class TableBlockView : BlockView
         int[] FirstCell,
         int[] BandStart,
         int[] BandEnd,
-        double[] Heights);
+        double[] Heights,
+        double[] Samples);
 
     /// <summary>The cell with a row-major index among some rows, or null if it was never realized.</summary>
     private static Cell? CellAt(Row[] rows, int[] firstCell, int index)
@@ -657,6 +662,17 @@ internal sealed partial class TableBlockView : BlockView
     /// </remarks>
     public override Size Size => double.IsNaN(_width) ? default : new Size(_width, RowTop(_rows.Length));
 
+    /// <summary>
+    /// How tall this table is known to be at least: every measured row at what is known of it, and
+    /// every band nobody has measured at the least a band can be, its padding — no estimate.
+    /// </summary>
+    /// <remarks>
+    /// What a row holding this table teaches its own table's estimate (see <c>SetRowHeight</c>).
+    /// Kept as rows are recorded and forgotten, so reading it costs nothing. A table wholly laid
+    /// out is its height.
+    /// </remarks>
+    internal double ExactHeight => double.IsNaN(_width) ? 0 : _sampleSum + (2 * CellPadding * _unmeasuredBands);
+
     /// <summary>How many columns the table turned out to be.</summary>
     /// <remarks>
     /// Not <c>Rows[0].Cells.Length</c>: a row-spanning cell means a row can carry fewer cells
@@ -901,6 +917,15 @@ internal sealed partial class TableBlockView : BlockView
         LayoutGuard.Changing("a table's row heights forgotten");
 
         Array.Fill(_rowHeights, double.NaN);
+        Array.Fill(_rowSamples, double.NaN);
+        _sampleSum = 0;
+        _unmeasuredBands = 0;
+
+        for (var start = 0; start < _rows.Length; start = _bandEnd[start])
+        {
+            _unmeasuredBands++;
+        }
+
         RowsUnlaid();
         _changes++;
         _estimate.Restart();
@@ -997,6 +1022,7 @@ internal sealed partial class TableBlockView : BlockView
 
         var end = _bandEnd[start];
         var heights = new double[end - start];
+        var samples = new double[end - start];
 
         for (var r = start; r < end; r++)
         {
@@ -1010,6 +1036,7 @@ internal sealed partial class TableBlockView : BlockView
                     // by ChildOrigin, so that measuring and drawing cannot disagree about it.
                     child.Top = content;
                     content += child.Height;
+                    child.Exact = child.View is TableBlockView nested ? nested.ExactHeight : child.Height;
                 }
 
                 var height = content + (2 * CellPadding);
@@ -1023,6 +1050,7 @@ internal sealed partial class TableBlockView : BlockView
                 if (cell.Placement.Bottom - cell.Placement.Top == 1)
                 {
                     heights[r - start] = Math.Max(heights[r - start], height);
+                    samples[r - start] = Math.Max(samples[r - start], ExactHeightOf(cell));
                 }
             }
         }
@@ -1050,25 +1078,71 @@ internal sealed partial class TableBlockView : BlockView
                 {
                     heights[bottom - 1 - start] += cell.Height - covered;
                 }
+
+                // The same push, for what is known of each row.
+                var known = 0.0;
+
+                for (var k = cell.Placement.Top; k < bottom; k++)
+                {
+                    known += samples[k - start];
+                }
+
+                if (bottom > cell.Placement.Top && known < ExactHeightOf(cell))
+                {
+                    samples[bottom - 1 - start] += ExactHeightOf(cell) - known;
+                }
             }
         }
 
         for (var r = start; r < end; r++)
         {
-            SetRowHeight(r, heights[r - start]);
+            SetRowHeight(r, heights[r - start], samples[r - start]);
         }
     }
 
-    private void SetRowHeight(int row, double height)
+    /// <summary>A cell's height with each table in it at what is known of it (<see cref="ExactHeight"/>).</summary>
+    private static double ExactHeightOf(Cell cell)
+    {
+        var content = 0.0;
+
+        foreach (var child in cell.Blocks)
+        {
+            content += child.Exact;
+        }
+
+        return content + (2 * CellPadding);
+    }
+
+    /// <summary>
+    /// Records a row's height, and what of it the estimate for the rows nobody measured learns from.
+    /// </summary>
+    /// <remarks>
+    /// The estimate learns from <paramref name="sample"/>: the row's height with every table in
+    /// its cells taken at what is known of it, never at that table's own estimate (see
+    /// <see cref="ExactHeight"/>). A row holding a table only partly laid out is as tall as that
+    /// table's estimate says; learning from that, every other row of this table was priced like
+    /// it, and the table holding this one learned from rows priced so, so the estimate grew as the
+    /// product of the row counts along the path — 3.46e10 DIP for a document a fully laid-out copy
+    /// measured at 5.8e6. A row with no table in it, or only tables wholly laid out, is its own
+    /// sample.
+    /// </remarks>
+    private void SetRowHeight(int row, double height, double sample)
     {
         var was = _rowHeights[row];
 
         if (!double.IsNaN(was))
         {
-            _estimate.Remove(was);
+            _estimate.Remove(_rowSamples[row]);
+            _sampleSum -= _rowSamples[row];
+        }
+        else if (row == _bandStart[row])
+        {
+            _unmeasuredBands--;
         }
 
-        _estimate.Add(height);
+        _estimate.Add(sample);
+        _sampleSum += sample;
+        _rowSamples[row] = sample;
         _rowHeights[row] = height;
         _changes++;
 
@@ -2628,5 +2702,11 @@ internal sealed partial class TableBlockView : BlockView
 
         /// <summary>The height the block measured to when its row was last laid out.</summary>
         public double Height { get; set; }
+
+        /// <summary>
+        /// How much of <see cref="Height"/> is known rather than estimated, when its row was last
+        /// settled: all of it, unless the block is a table in a cell (<see cref="ExactHeight"/>).
+        /// </summary>
+        public double Exact { get; set; }
     }
 }

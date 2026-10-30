@@ -902,7 +902,17 @@ internal sealed class ParagraphView : BlockView
 >   wholly laid out, which the decisions beside the anchor ask on every pass, is kept as the bands
 >   found complete (`CompleteBefore`) until a row of any table stops being laid out — an edited or
 >   composed row, heights forgotten for a width — so a table laid out whole beside the one being
->   scrolled costs a screenful a page, not its length. Point
+>   scrolled costs a screenful a page, not its length. A row holding a table not wholly laid out is
+>   placed at its height, but teaches its table's estimate for unmeasured rows only what is known of
+>   that table (`ExactHeight`: measured rows at what is known of them, each band nobody measured at
+>   its padding), kept as rows are recorded and forgotten. Learning from the height, which includes
+>   that table's own estimate, made every level price its rows like the one on screen, so the extent
+>   grew as the product of the row counts along the path: after a resize, 37 times the truth two
+>   levels deep, 6,000 times three deep. What remains is the ordinary limit of an estimate: rows
+>   nobody has seen are
+>   priced from those that have been, at every depth, so a document whose unseen rows hold most of
+>   its content can show an extent hundreds of times too small until they are reached (the fuzz
+>   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). Point
 >   questions lay out every row whose closed band touches the point before answering, and the
 >   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
 >   (`LayoutGuard.Painting`, `PreparePaintDependencies`).

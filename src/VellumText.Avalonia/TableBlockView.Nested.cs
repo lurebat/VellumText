@@ -318,6 +318,7 @@ internal sealed partial class TableBlockView
         foreach (var start in bands)
         {
             var moved = false;
+            var learned = false;
 
             for (var r = start; r < _bandEnd[start]; r++)
             {
@@ -342,6 +343,8 @@ internal sealed partial class TableBlockView
                             child.Height = height;
                             moved = true;
                         }
+
+                        learned |= !nested.ExactHeight.Equals(child.Exact);
                     }
                 }
             }
@@ -350,6 +353,12 @@ internal sealed partial class TableBlockView
             {
                 SettleBand(start);
                 changed = true;
+            }
+            else if (learned)
+            {
+                // Only what is known of a table in it moved, not its height: the rows are where
+                // they were, and what the estimate learns from them is brought up to date.
+                SettleBand(start);
             }
         }
 
