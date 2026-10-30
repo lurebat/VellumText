@@ -59,6 +59,92 @@ public class ToolbarOutcomeTests
         Assert.False(Drawn(RunAt(view, selected[0].Block, selected[0].From), style), $"the selection is still drawn {style}");
     }
 
+    /// <summary>
+    /// In a list, Decrease indent lifts the item out of the list it is nested in. It used to
+    /// lower the paragraph's own indent level, which inside a list was already zero, so the click
+    /// did nothing visible and the item stayed nested (found live: "two" nested under "one").
+    /// </summary>
+    [AvaloniaFact]
+    public void DecreaseIndentInANestedItemLiftsIt()
+    {
+        var bar = Templated(out var editor, new DocumentNode([
+            new ListNode(
+                [new ListItemNode([ParagraphNode.FromText("one"), new ListNode([ListItemNode.FromText("two")], ListKind.Unordered)])],
+                ListKind.Unordered),
+            ParagraphNode.FromText("after"),
+        ]));
+        var view = editor.View!;
+        var nestedAt = Bullet(view, 1);
+
+        view.MoveTo(view.Slots[1].Start + 1, extend: false);
+
+        UserClick(bar, "Decrease indent");
+
+        // One flat list: "one" and "two" side by side, nothing nested, no stray indent.
+        var list = Assert.IsType<ListNode>(editor.State.Doc.Blocks[0]);
+
+        Assert.Equal(["one", "two"], list.Items.Select(item => Assert.IsType<ParagraphNode>(Assert.Single(item.Blocks)).Content.Text));
+        Assert.All(Paragraphs(editor.State.Doc), p => Assert.Equal(0, p.IndentLevel));
+        Assert.Equal(ListKind.Unordered, bar.ListKind);
+
+        // On screen: the bullet moved left, to where the first item's is.
+        Assert.True(Bullet(view, 1) < nestedAt, $"the bullet stayed at {Bullet(view, 1)}, nested at {nestedAt}");
+        Assert.Equal(Bullet(view, 0), Bullet(view, 1), 3);
+        AssertNoOverlappingLines(view);
+    }
+
+    /// <summary>
+    /// In a list, Increase indent nests the item under the one before it. It used to raise the
+    /// paragraph's own indent level: the bullet moved right without the item becoming a sub-item —
+    /// the misleading bullet Tab's remarks rule out.
+    /// </summary>
+    [AvaloniaFact]
+    public void IncreaseIndentOnASecondItemNestsItUnderTheFirst()
+    {
+        var bar = Templated(out var editor, new DocumentNode([
+            new ListNode([ListItemNode.FromText("one"), ListItemNode.FromText("two")], ListKind.Unordered),
+            ParagraphNode.FromText("after"),
+        ]));
+        var view = editor.View!;
+        var flatAt = Bullet(view, 1);
+
+        view.MoveTo(view.Slots[1].Start + 1, extend: false);
+
+        UserClick(bar, "Increase indent");
+
+        // "two" is now the one item of a list inside "one"'s item.
+        var item = Assert.Single(Assert.IsType<ListNode>(editor.State.Doc.Blocks[0]).Items);
+
+        Assert.Equal("one", Assert.IsType<ParagraphNode>(item.Blocks[0]).Content.Text);
+        Assert.Equal("two", Assert.IsType<ParagraphNode>(Assert.Single(Assert.IsType<ListNode>(item.Blocks[1]).Items).Blocks[0]).Content.Text);
+        Assert.All(Paragraphs(editor.State.Doc), p => Assert.Equal(0, p.IndentLevel));
+        Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[1]);
+
+        // On screen: the bullet moved right by one nesting step.
+        Assert.Equal(flatAt + ParagraphView.DefaultIndentStep, Bullet(view, 1), 3);
+        Assert.Equal("\u2022", ((ParagraphView)view.Blocks[1]).MarkerText);
+        AssertNoOverlappingLines(view);
+
+        // And back: Decrease indent lifts it again rather than leaving it nested.
+        UserClick(bar, "Decrease indent");
+
+        Assert.Equal(2, Assert.IsType<ListNode>(editor.State.Doc.Blocks[0]).Items.Length);
+        Assert.Equal(flatAt, Bullet(view, 1), 3);
+    }
+
+    /// <summary>
+    /// Where a list item's text starts, which its bullet is drawn a fixed distance in front of:
+    /// when this moves, the bullet moves with it.
+    /// </summary>
+    private static double Bullet(RichTextView view, int block)
+    {
+        var paragraph = Assert.IsType<ParagraphView>(view.Blocks[block]);
+
+        Assert.NotNull(paragraph.MarkerText);
+
+        return paragraph.GetCaretRect(0).X;
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {

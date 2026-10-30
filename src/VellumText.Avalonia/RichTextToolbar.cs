@@ -207,8 +207,8 @@ public class RichTextToolbar : TemplatedControl
         SetHighlightCommand = Command<object?>(colour => _view?.SetHighlight(Colour(colour)));
         SetFontFamilyCommand = Command<string?>(family => _view?.SetFontFamily(family));
         SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size) * PixelsPerPoint));
-        IndentCommand = Command(() => _view?.Indent());
-        OutdentCommand = Command(() => _view?.Outdent());
+        IndentCommand = Command(() => _view?.ChangeLevel(outward: false));
+        OutdentCommand = Command(() => _view?.ChangeLevel(outward: true));
         ClearFormattingCommand = Command(() => _view?.ClearFormatting());
         UndoCommand = Command(() => _view?.Undo());
         RedoCommand = Command(() => _view?.Redo());
@@ -336,10 +336,15 @@ public class RichTextToolbar : TemplatedControl
     /// </remarks>
     public ICommand SetFontSizeCommand { get; }
 
-    /// <summary>Indents every selected paragraph one level.</summary>
+    /// <summary>Indents every selected paragraph one level, or in a list, nests the selected items.</summary>
+    /// <remarks>
+    /// What Tab does. In a list it is the nesting that changes, not the indent: a bullet that
+    /// moved right without becoming a sub-item would look nested and not be.
+    /// </remarks>
     public ICommand IndentCommand { get; }
 
-    /// <summary>Outdents every selected paragraph one level.</summary>
+    /// <summary>Outdents every selected paragraph one level, or in a list, lifts the selected items.</summary>
+    /// <remarks>What Shift+Tab does; see <see cref="IndentCommand"/>.</remarks>
     public ICommand OutdentCommand { get; }
 
     /// <summary>Strips character formatting from the selection.</summary>
