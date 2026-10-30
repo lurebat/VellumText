@@ -128,6 +128,10 @@ public static class RtfImporter
             return Unreadable(ex);
         }
 
+        // The importer contract: no input makes an import throw. Finding the encapsulated HTML and
+        // converting the model both run the reader's code over whatever the document holds, so a
+        // failure in either is the document's, and becomes a diagnostic rather than a crash.
+        // ast-grep-ignore: broad-catch
         try
         {
             encapsulated = Encapsulated(read.Document);
