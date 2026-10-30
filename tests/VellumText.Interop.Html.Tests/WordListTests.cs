@@ -70,10 +70,33 @@ public class WordListTests
         Assert.Equal(ListKind.Ordered, list.Kind);
     }
 
+    /// <summary>
+    /// Word's outline and legal numbering writes every level's number into the marker. Only a
+    /// single number or letter counted as numbering, so "1.1." made a bulleted list (rubber-duck
+    /// review 4.3).
+    /// </summary>
     [Theory]
+    [InlineData("1.1.", "1.2.")]
+    [InlineData("2.3.1", "2.3.2")]
+    [InlineData("10.1)", "10.2)")]
+    public async Task Compound_numbering_is_numbering_too(string first, string second)
+    {
+        var list = Assert.IsType<ListNode>(Assert.Single(
+            (await Import(Item("l1", 1, first, "One") + Item("l1", 1, second, "Two"))).Doc.Blocks));
+
+        Assert.Equal(ListKind.Ordered, list.Kind);
+        Assert.Equal(["One", "Two"], ItemTexts(list));
+    }
+
+    [Theory]
+    [InlineData("·")]
     [InlineData("o")]
     [InlineData("§")]
+    [InlineData("Ø")]
     [InlineData("-")]
+    [InlineData(".")]
+    [InlineData("o.o")]
+    [InlineData("1..2")]
     public async Task Any_other_marker_is_a_bullet(string marker)
     {
         var list = Assert.IsType<ListNode>(Assert.Single((await Import(Item("l1", 1, marker, "x"))).Doc.Blocks));
@@ -153,6 +176,35 @@ public class WordListTests
         Assert.Equal(2, blocks.Length);
         Assert.Equal(["a"], ItemTexts(Assert.IsType<ListNode>(blocks[0])));
         Assert.Equal(["b"], ItemTexts(Assert.IsType<ListNode>(blocks[1])));
+    }
+
+    /// <summary>
+    /// The list item replaces Word's paragraph, and the paragraph's own formatting went with it: a
+    /// right-aligned item came in with the default alignment, though the same style on a plain
+    /// paragraph kept it (rubber-duck review 4.4). The list's indent, written as a margin or a
+    /// padding, must not come back with it, or the item would be indented by the list and again
+    /// by its paragraph.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(";padding-left:36.0pt")]
+    public async Task An_item_keeps_its_paragraph_formatting_but_not_the_list_indent(string indent)
+    {
+        const string style = "text-align:right;font-weight:bold";
+        var list = Assert.IsType<ListNode>(Assert.Single((await Import(
+            Item("l0", 1, "1.", "Important").Replace("lfo1'>", $"lfo1;{style}{indent}'>", StringComparison.Ordinal)))
+            .Doc.Blocks));
+        var plain = Assert.IsType<ParagraphNode>(Assert.Single((await Import($"<p style='{style}'>Important</p>")).Doc.Blocks));
+
+        var item = Assert.IsType<ParagraphNode>(Assert.Single(Assert.Single(list.Items).Blocks));
+
+        Assert.Equal("Important", item.Content.Text);
+        Assert.Equal(TextAlign.Right, item.Align);
+        Assert.Equal(0, item.IndentLevel);
+        Assert.NotEmpty(plain.Content.Marks);
+        Assert.Equal(
+            plain.Content.Marks.Select(span => span.ToString()),
+            item.Content.Marks.Select(span => span.ToString()));
     }
 
     [Fact]

@@ -100,12 +100,12 @@ public class CssFontFamilyTests
     [InlineData("\"ACME, Inc.\", Arial")]
     [InlineData("'ACME, Inc.', Arial")]
     [InlineData("  \"ACME, Inc.\" ,Arial,")]
-    public void A_comma_inside_a_quoted_family_name_stays_in_the_name(string family)
+    public async Task A_comma_inside_a_quoted_family_name_stays_in_the_name(string family)
     {
         var html = HtmlExporter.Instance.Export(WithFamily(family));
 
         Assert.Equal(["ACME, Inc.", "Arial"], RecipientFamilies(html));
-        Assert.Equal("ACME, Inc.", FamilyOf(HtmlImporter.Import(html).Doc));
+        Assert.Equal("ACME, Inc.", FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
     }
 
     /// <summary>An escaped quote does not close the name it is in, so the comma after it does not split.</summary>
