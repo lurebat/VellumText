@@ -253,6 +253,44 @@ public class HtmlSecurityTests
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped && d.Context == "img");
     }
 
+    /// <summary>
+    /// Images refused for different reasons are each reported, all in context <c>img</c>.
+    /// </summary>
+    /// <remarks>
+    /// Sharing one context must not make the first refusal hide the others: the caller would be
+    /// told a picture was relative when another was also refused for its type and a third for its
+    /// size.
+    /// </remarks>
+    [Fact]
+    public async Task Images_refused_for_different_reasons_report_every_reason()
+    {
+        var result = await Import(
+            "<img src='data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='>"
+            + "<img src='foo.png'>"
+            + "<img src='data:image/png;base64,AAAAAAAAAAAAAAAA'>",
+            new HtmlImportOptions { MaxDataImageBytes = 4 });
+
+        var messages = result.Diagnostics.Where(d => d.Context == "img").ToList();
+
+        Assert.Empty(Images(result));
+        Assert.Equal(3, messages.Count);
+        Assert.All(messages, d => Assert.Equal(DiagnosticSeverity.Dropped, d.Severity));
+        Assert.Contains(messages, d => d.Message.Contains("supported image type", StringComparison.Ordinal));
+        Assert.Contains(messages, d => d.Message.Contains("relative", StringComparison.Ordinal));
+        Assert.Contains(messages, d => d.Message.Contains("larger than 4 bytes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Images_refused_for_the_same_reason_are_reported_once()
+    {
+        var html = string.Concat(Enumerable.Repeat("<img src='foo.png'>", 100));
+
+        var result = await Import(html);
+
+        Assert.Empty(Images(result));
+        Assert.Single(result.Diagnostics, d => d.Context == "img");
+    }
+
     [Theory]
     [InlineData("<a href='data:text/plain,x'>link</a>")]
     [InlineData("<a href='javascript:alert(1)'>link</a>")]

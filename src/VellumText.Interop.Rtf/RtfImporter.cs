@@ -115,6 +115,7 @@ public static class RtfImporter
         string? encapsulated;
         string html;
         IReadOnlyList<HtmlRtfConversionDiagnostic> converted = [];
+        var pictures = new InlinePictures();
 
         try
         {
@@ -127,13 +128,17 @@ public static class RtfImporter
             return Unreadable(ex);
         }
 
+        // The importer contract: no input makes an import throw. Finding the encapsulated HTML and
+        // converting the model both run the reader's code over whatever the document holds, so a
+        // failure in either is the document's, and becomes a diagnostic rather than a crash.
+        // ast-grep-ignore: broad-catch
         try
         {
             encapsulated = Encapsulated(read.Document);
 
             if (encapsulated is null)
             {
-                (html, converted) = ToHtml(read.Document, hoist: true, options);
+                (html, converted) = ToHtml(read.Document, hoist: true, options, pictures);
             }
             else
             {
@@ -146,7 +151,7 @@ public static class RtfImporter
         }
 
         var result = HtmlImporter.ImportOnCurrentStack(
-            html, encapsulated is null ? options.ToHtmlOptions() : options.ToEncapsulatedHtmlOptions());
+            html, encapsulated is null ? options.ToHtmlOptions() with { Pictures = pictures } : options.ToEncapsulatedHtmlOptions());
 
         return new ImportResult(
             result.Doc, [.. ReaderDiagnostics(read), .. ConverterDiagnostics(converted, options), .. result.Diagnostics]);
@@ -163,7 +168,7 @@ public static class RtfImporter
     {
         var document = RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document;
 
-        return Encapsulated(document) ?? ToHtml(document, hoist, RtfImportOptions.Default).Html;
+        return Encapsulated(document) ?? ToHtml(document, hoist, RtfImportOptions.Default, pictures: null).Html;
     }
 
     /// <summary>
@@ -188,12 +193,12 @@ public static class RtfImporter
     /// converter reported writing it.
     /// </summary>
     private static (string Html, IReadOnlyList<HtmlRtfConversionDiagnostic> Diagnostics) ToHtml(
-        RtfDocument document, bool hoist, RtfImportOptions options)
+        RtfDocument document, bool hoist, RtfImportOptions options, InlinePictures? pictures)
     {
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
-        var result = document.ToHtmlResult(HtmlOptions(options));
+        var result = document.ToHtmlResult(HtmlOptions(options, pictures));
 
         return (RtfFormattingHoist.Wrap(result.RequireValue(), css), result.RtfDiagnostics);
     }
@@ -248,8 +253,15 @@ public static class RtfImporter
     /// <para>
     /// Nothing the converter adds for display (default styles, metadata) is asked for.
     /// </para>
+    /// <para>
+    /// A picture that will be kept — one the converter embeds (PNG, JPEG), within the host's limit —
+    /// is not written out at all: the converter is given a token for it (<see cref="InlinePictures"/>),
+    /// and the HTML stage takes the picture from its bytes. As a data URL it went through the input
+    /// guard, the parser and the DOM, about 17 times the RTF as a string for a 4 MiB picture. Any
+    /// other picture gets no token, and the converter handles it as it always has.
+    /// </para>
     /// </remarks>
-    private static RtfToHtmlOptions HtmlOptions(RtfImportOptions options) => new()
+    private static RtfToHtmlOptions HtmlOptions(RtfImportOptions options, InlinePictures? pictures) => new()
     {
         FragmentOnly = true,
         EmbedImagesAsDataUri = options.AllowDataImages,
@@ -257,7 +269,26 @@ public static class RtfImporter
         IncludeDefaultStyles = false,
         IncludeMetadata = false,
         IncludeRoundTripMetadata = false,
+        ImageSourceResolver = pictures is null ? null! : image => Token(image, options, pictures)!,
     };
+
+    /// <summary>The token for a picture that will be kept, or null to leave it to the converter.</summary>
+    private static string? Token(RtfImage image, RtfImportOptions options, InlinePictures pictures)
+    {
+        var mediaType = image.Format switch
+        {
+            RtfImageFormat.Png => "image/png",
+            RtfImageFormat.Jpeg => "image/jpeg",
+            _ => null,
+        };
+
+        return mediaType is null
+            || !options.AllowDataImages
+            || image.Data is not { Length: > 0 } bytes
+            || bytes.Length > options.MaxDataImageBytes
+            ? null
+            : pictures.Add(mediaType, bytes);
+    }
 
     /// <summary>The converter's findings that cost the document a picture, each reported once.</summary>
     /// <remarks>
