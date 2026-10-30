@@ -65,6 +65,12 @@ NuGet; packages are published to a local feed, and
 - **Backspace at the start of a heading that is the first block makes it body
   text.** With nothing above to join to it did nothing. A heading further down
   still joins onto the paragraph above.
+- **A Markdown code block comes back with exactly its text.** Every fenced or
+  indented code block was imported with the newline before its closing fence
+  as part of the code, which showed as an empty last line; content that really
+  ended in an empty line lost it on export to make up for that. The importer now
+  reads the lines without that final line ending and the exporter writes every
+  line, so export then import is exact.
 - **Enter in a code block adds a line to the same block.** It split the block,
   so every line of code became a code block of its own and the toolbar was the
   only way out of the last one. The lines stay newlines in the one block now, as
