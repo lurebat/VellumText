@@ -441,6 +441,55 @@ public class ToolbarOutcomeTests
     private static Border ButtonSwatch(RichTextToolbar bar, string tip) =>
         Find(bar, tip)!.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("VellumText-swatch"));
 
+    /// <summary>
+    /// A list button makes exactly the selected paragraphs a list — drawn with their bullets or
+    /// numbers, and set in from the paragraph after them — and pressed again, takes them out.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Bulleted list (Ctrl+Shift+8)", ListKind.Unordered, "\u2022", "\u2022")]
+    [InlineData("Numbered list (Ctrl+Shift+7)", ListKind.Ordered, "1.", "2.")]
+    public void AListButtonListsExactlyTheSelectedParagraphsAndPressedAgainUnlistsThem(
+        string tip, ListKind kind, string firstMarker, string secondMarker)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var button = Toggle(bar, tip);
+        var other = Toggle(bar, kind == ListKind.Ordered ? "Bulleted list (Ctrl+Shift+8)" : "Numbered list (Ctrl+Shift+7)");
+        var left = TextLeft(view, 2);
+
+        SelectAcross(view);
+        UserClick(button);
+
+        var list = Assert.IsType<ListNode>(editor.State.Doc.Blocks[0]);
+
+        Assert.Equal(kind, list.Kind);
+        Assert.Equal([First, Second], list.Items.Select(item => Assert.IsType<ParagraphNode>(Assert.Single(item.Blocks)).Content.Text));
+        Assert.Equal(Third, Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[1]).Content.Text);
+        Assert.Equal(kind, bar.ListKind);
+        Assert.True(button.IsChecked);
+        Assert.False(other.IsChecked);
+
+        // On screen: a marker in front of each item and none in front of the paragraph after;
+        // the items' text set in by one step, the paragraph's where it was.
+        Assert.Equal([firstMarker, secondMarker, null], view.Blocks.Select(b => ((ParagraphView)b).MarkerText));
+        Assert.Equal(left + ParagraphView.DefaultIndentStep, TextLeft(view, 0), 3);
+        Assert.Equal(left + ParagraphView.DefaultIndentStep, TextLeft(view, 1), 3);
+        Assert.Equal(left, TextLeft(view, 2), 3);
+        AssertNoOverlappingLines(view);
+
+        UserClick(button);
+
+        Assert.Equal([First, Second, Third], editor.State.Doc.Blocks.Select(b => Assert.IsType<ParagraphNode>(b).Content.Text));
+        Assert.Null(bar.ListKind);
+        Assert.False(button.IsChecked);
+        Assert.All(view.Blocks, b => Assert.Null(((ParagraphView)b).MarkerText));
+        Assert.Equal(left, TextLeft(view, 0), 3);
+    }
+
+    /// <summary>Where a block's text starts, in the view's coordinates.</summary>
+    private static double TextLeft(RichTextView view, int block) =>
+        view.BlockOrigin(block).X + Assert.IsType<ParagraphView>(view.Blocks[block]).GetCaretRect(0).X;
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
