@@ -334,6 +334,40 @@ internal sealed class SanitizingReader
 
         string ContextOf(string url) => isImageSource ? RemovedImage : url;
 
+        // A picture the RTF importer handed over as bytes. It gets the checks a data image gets,
+        // made on the bytes, and keeps its token: the walker writes the data URL.
+        if (isImageSource && _options.Pictures is { } pictures && pictures.TryGet(original, out var pictureType, out var picture))
+        {
+            e.SanitizedUrl = null;
+
+            if (!_options.AllowDataImages)
+            {
+                ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", RemovedImage);
+            }
+            else if (!DataImageTypes.Contains(pictureType))
+            {
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    "Removed inline data that does not declare a supported image type.",
+                    RemovedImage);
+            }
+            else if (picture.Length == 0 || picture.Length > _options.MaxDataImageBytes)
+            {
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    picture.Length == 0
+                        ? "Removed an inline image whose data is not valid base64."
+                        : $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
+                    RemovedImage);
+            }
+            else
+            {
+                e.SanitizedUrl = original;
+            }
+
+            return;
+        }
+
         if (e.SanitizedUrl is not null)
         {
             // The sanitizer resolves relative addresses against the base the caller gave it. If
