@@ -446,7 +446,7 @@ internal sealed class SanitizingReader
     }
 
     /// <summary>What inspecting the payload of a <c>data:</c> image concluded.</summary>
-    private enum DataImageVerdict
+    internal enum DataImageVerdict
     {
         /// <summary>The payload decodes and is within the size limit.</summary>
         Usable,
@@ -472,18 +472,18 @@ internal sealed class SanitizingReader
     /// an embed and fail later, at draw time, far away from anything that could explain it.
     /// </para>
     /// </remarks>
-    private static DataImageVerdict MeasureDataImage(ReadOnlySpan<char> payload, int maxBytes)
+    internal static DataImageVerdict MeasureDataImage(ReadOnlySpan<char> payload, int maxBytes)
     {
         // Four characters become three bytes, so the decoded size is at least this, less padding.
-        // Checking it first means an enormous payload is rejected without allocating room for it.
+        // Checking it first means an enormous payload is rejected without reading it.
         if ((long)(payload.Length / 4) * 3 - 2 > maxBytes)
         {
             return DataImageVerdict.TooLarge;
         }
 
-        var buffer = new byte[(payload.Length / 4 * 3) + 3];
-
-        if (!Convert.TryFromBase64Chars(payload, buffer, out var written))
+        // Validated in place: the decoded length is all this needs, and decoding into a buffer to
+        // learn it allocated the whole picture again.
+        if (!System.Buffers.Text.Base64.IsValid(payload, out var written))
         {
             return DataImageVerdict.Undecodable;
         }
