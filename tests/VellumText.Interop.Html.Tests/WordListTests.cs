@@ -107,6 +107,33 @@ public class WordListTests
         Assert.IsType<ParagraphNode>(Assert.Single(nested.Items).Blocks[0]);
     }
 
+    /// <summary>
+    /// A copy that starts part-way down a nested list repeats its first level as siblings. The
+    /// count of lists already open was compared with Word's declared level, so two level-2 items
+    /// with nothing above them nested one inside the other (rubber-duck review 4.2).
+    /// </summary>
+    [Fact]
+    public void Items_at_a_repeated_deeper_level_are_siblings()
+    {
+        var list = Assert.IsType<ListNode>(Assert.Single(Import(
+            Item("l0", 2, "o", "A") + Item("l0", 2, "o", "B") + Item("l0", 2, "o", "C")).Doc.Blocks));
+
+        Assert.Equal(["A", "B", "C"], ItemTexts(list));
+        Assert.All(list.Items, item => Assert.Single(item.Blocks));
+    }
+
+    [Fact]
+    public void Items_after_a_skipped_level_are_siblings_under_the_item_above()
+    {
+        var list = Assert.IsType<ListNode>(Assert.Single(Import(
+            Item("l0", 1, "·", "One") + Item("l0", 3, "§", "X") + Item("l0", 3, "§", "Y") + Item("l0", 1, "·", "Two"))
+            .Doc.Blocks));
+
+        Assert.Equal(["One", "Two"], ItemTexts(list));
+        var nested = Assert.IsType<ListNode>(list.Items[0].Blocks[1]);
+        Assert.Equal(["X", "Y"], ItemTexts(nested));
+        Assert.All(nested.Items, item => Assert.Single(item.Blocks));
+    }
     [Fact]
     public void A_change_of_marker_kind_at_one_level_starts_a_new_list()
     {
