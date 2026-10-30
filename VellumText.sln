@@ -41,6 +41,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VellumText.Interop.Markdown
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VellumText.ImportProbe", "tests\VellumText.ImportProbe\VellumText.ImportProbe.csproj", "{A85FFE2E-AEC5-4B64-B0D1-E3CCD2620CD1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VellumText.LayoutProbe", "tests\VellumText.LayoutProbe\VellumText.LayoutProbe.csproj", "{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -231,6 +233,18 @@ Global
 		{A85FFE2E-AEC5-4B64-B0D1-E3CCD2620CD1}.Release|x64.Build.0 = Release|Any CPU
 		{A85FFE2E-AEC5-4B64-B0D1-E3CCD2620CD1}.Release|x86.ActiveCfg = Release|Any CPU
 		{A85FFE2E-AEC5-4B64-B0D1-E3CCD2620CD1}.Release|x86.Build.0 = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|x64.Build.0 = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Debug|x86.Build.0 = Debug|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|x64.ActiveCfg = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|x64.Build.0 = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|x86.ActiveCfg = Release|Any CPU
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -251,5 +265,6 @@ Global
 		{175BF0B3-AC64-45CD-BEFF-5FDA3464A414} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{6F642858-8B4F-46E7-BD91-E93E1D06F6BA} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{A85FFE2E-AEC5-4B64-B0D1-E3CCD2620CD1} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{B3BE4823-D5EC-4E06-83C9-7B3AB29F6FDF} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal
