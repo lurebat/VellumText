@@ -82,16 +82,24 @@ public sealed record RtfImportOptions
     public int MaxTableSlots { get; init; } = 100_000;
 
     /// <summary>The equivalent HTML options for the internal HTML stage.</summary>
-    internal HtmlImportOptions ToHtmlOptions() => new()
+    internal HtmlImportOptions ToHtmlOptions() => ToEncapsulatedHtmlOptions() with
+    {
+        KeepSpaceRuns = true,
+        RemoveBeforeSanitizing = "[data-officeimo-rtf-list-marker]",
+        QuietStylePrefix = "--officeimo-",
+        BorderedEmptyParagraphIsRule = true,
+    };
+
+    /// <summary>
+    /// The HTML stage's options for the HTML a sender encapsulated in the RTF (<c>\fromhtml1</c>),
+    /// which is ordinary HTML rather than the reader's, so none of the reader's conventions apply.
+    /// </summary>
+    internal HtmlImportOptions ToEncapsulatedHtmlOptions() => new()
     {
         AllowRemoteImages = AllowRemoteImages,
         AllowDataImages = AllowDataImages,
         MaxDataImageBytes = MaxDataImageBytes,
         BaseUri = BaseUri,
         MaxTableSlots = MaxTableSlots,
-        KeepSpaceRuns = true,
-        RemoveBeforeSanitizing = "[data-officeimo-rtf-list-marker]",
-        QuietStylePrefix = "--officeimo-",
-        BorderedEmptyParagraphIsRule = true,
     };
 }

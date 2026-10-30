@@ -81,6 +81,64 @@ public class RtfExportFidelityTests
     }
 
     /// <summary>
+    /// Sibling nested lists keep their own kind and start in the \listtable. A level's numbering
+    /// came from the first list at that depth, so a numbered sublist starting at 3 beside a
+    /// bulleted one was written with the bullets' definition, and a reader that honours
+    /// \listtable (Word does) read it as bullets from 1 (rubber-duck review 5.2).
+    /// </summary>
+    /// <remarks>
+    /// Read from the RTF itself rather than through this branch's importer: RtfPipe treats a
+    /// paragraph naming another \ls as a new top-level list, so it cannot read a sublist that
+    /// needs a definition of its own. Phase 8's reader (OfficeIMO) does, and is tested there.
+    /// </remarks>
+    [Fact]
+    public void Sibling_nested_lists_keep_their_own_kind_and_start()
+    {
+        var doc = new DocumentNode([
+            new ListNode(
+                [
+                    Item(ParagraphNode.FromText("a"), new ListNode([ListItemNode.FromText("a1")], ListKind.Unordered)),
+                    Item(ParagraphNode.FromText("b"), new ListNode([ListItemNode.FromText("b1"), ListItemNode.FromText("b2")], ListKind.Ordered, 3)),
+                    Item(ParagraphNode.FromText("c"), new ListNode([ListItemNode.FromText("c1")], ListKind.Unordered)),
+                ],
+                ListKind.Unordered),
+        ]);
+
+        var rtf = RtfExporter.Instance.Export(doc);
+
+        foreach (var (text, numbered, start) in new[] { ("a1", false, 1), ("b1", true, 3), ("b2", true, 3), ("c1", false, 1) })
+        {
+            var (ls, ilvl) = ListOf(rtf, text);
+            var level = LevelOf(rtf, ls, ilvl);
+
+            Assert.Equal(1, ilvl);
+            Assert.Equal(numbered, level.Contains(@"\levelnfc0", StringComparison.Ordinal));
+            Assert.Contains(@"\levelstartat" + start.ToString(System.Globalization.CultureInfo.InvariantCulture), level, StringComparison.Ordinal);
+        }
+
+        // The outer list is still one list: its items share one \ls.
+        Assert.Equal(ListOf(rtf, "a").Ls, ListOf(rtf, "c").Ls);
+    }
+
+    /// <summary>The <c>\ls</c> and <c>\ilvl</c> of the paragraph whose text is exactly <paramref name="text"/>.</summary>
+    private static (int Ls, int Ilvl) ListOf(string rtf, string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Matches(rtf, @"\\pard\\ls(\d+)\\ilvl(\d+)[^{}]*\{\\listtext [^{}]*\}\{" + System.Text.RegularExpressions.Regex.Escape(text) + @"\}\\par")
+            .Single();
+
+        return (int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>The definition of level <paramref name="ilvl"/> of the list <c>\ls</c> <paramref name="ls"/> names.</summary>
+    private static string LevelOf(string rtf, int ls, int ilvl)
+    {
+        var id = System.Text.RegularExpressions.Regex.Match(rtf, @"\{\\listoverride\\listid(\d+)\\listoverridecount0\\ls" + ls.ToString(System.Globalization.CultureInfo.InvariantCulture) + @"\}").Groups[1].Value;
+        var list = System.Text.RegularExpressions.Regex.Match(rtf, @"\{\\list\\listtemplateid\d+((?:\{\\listlevel(?:[^{}]|\{[^{}]*\})*\})+)\{\\listname ;\}\\listid" + id + @"\}").Groups[1].Value;
+
+        return System.Text.RegularExpressions.Regex.Matches(list, @"\{\\listlevel(?:[^{}]|\{[^{}]*\})*\}")[ilvl].Value;
+    }
+    /// <summary>
     /// F-56: two lists written back to back were one list to a reader. Each list now has its own
     /// <c>\ls</c>, which is what tells a reader where one ends.
     /// </summary>

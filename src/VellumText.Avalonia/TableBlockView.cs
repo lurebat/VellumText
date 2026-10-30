@@ -1071,6 +1071,7 @@ internal sealed class TableBlockView : BlockView
         // Inflated by the border, which is drawn centred on a cell's edge and so reaches half its
         // width outside the cell.
         var reach = visible?.Inflate(BorderThickness);
+        var current = false;
 
         for (var r = _coverTop[first]; r <= last; r++)
         {
@@ -1078,7 +1079,16 @@ internal sealed class TableBlockView : BlockView
             // at this width, which the presenter's window sees to for every row on screen; laying
             // one out here would move the estimate, and with it every unmeasured row and the
             // table's height, in the middle of a frame and behind the presenter's back.
-            if (_rows[r].Cells is not { } cells || !IsCurrent(r))
+            //
+            // Checked once a band, as the walk enters it: a cell spanning every row makes the
+            // table one band, and checking the band again for each of its rows made drawing the
+            // bottom of such a table quadratic in its rows.
+            if (r == _coverTop[first] || r == _bandStart[r])
+            {
+                current = IsCurrent(r);
+            }
+
+            if (_rows[r].Cells is not { } cells || !current)
             {
                 continue;
             }
@@ -1128,6 +1138,8 @@ internal sealed class TableBlockView : BlockView
     {
         for (var r = _bandStart[row]; r < _bandEnd[row]; r++)
         {
+            WorkCounters.TableRowsChecked++;
+
             if (_rows[r].Cells is null || _rows[r].Dirty || double.IsNaN(_rowHeights[r]))
             {
                 return false;
@@ -1576,6 +1588,41 @@ internal sealed class TableBlockView : BlockView
             Start = rowStart + child.Start + inner.Start,
             Origin = new Point(origin.X + inner.Origin.X, origin.Y + inner.Origin.Y),
         };
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The row is marked edited, so the next measurement of its band lays the paragraph out again
+    /// and settles the row's height — composed text can wrap the cell onto another line — and
+    /// drawing does not reach the row before then. Passed down, for a table inside the cell.
+    /// </remarks>
+    public override void ParagraphChanged(int localPosition)
+    {
+        var r = RowAt(localPosition);
+
+        // A row nobody realized has no paragraph views to have changed.
+        if (r < 0 || _rows[r].Cells is not { } cells)
+        {
+            return;
+        }
+
+        _rows[r].Dirty = true;
+
+        var rowStart = _rowStarts[r];
+
+        foreach (var cell in cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                if (localPosition >= rowStart + child.Start
+                    && localPosition <= rowStart + child.Start + child.View.ContentSize)
+                {
+                    child.View.ParagraphChanged(localPosition - rowStart - child.Start);
+
+                    return;
+                }
+            }
+        }
     }
 
     /// <inheritdoc/>

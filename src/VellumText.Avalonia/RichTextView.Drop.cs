@@ -128,10 +128,12 @@ public partial class RichTextView
 
     /// <summary>Inserts every image among some dropped or pasted files.</summary>
     /// <remarks>
-    /// The origin is checked after each file read, not before: reading from disk is the longest
-    /// await on any of these paths and so the likeliest to outlive the document it started in.
+    /// The origin and the token are checked after each file read, not before: reading from disk
+    /// is the longest await on any of these paths and so the likeliest to outlive the document it
+    /// started in, or to be overtaken by a newer paste or drop.
     /// </remarks>
-    private async Task<bool> InsertImageFiles(IEnumerable<IStorageItem> files, EditOrigin origin)
+    private async Task<bool> InsertImageFiles(
+        IEnumerable<IStorageItem> files, EditOrigin origin, CancellationToken cancellation)
     {
         var inserted = false;
 
@@ -154,8 +156,10 @@ public partial class RichTextView
 
                 // Re-checked per file. A multi-file drop can take long enough for the document
                 // to change between one file and the next, and the files after that point
-                // would otherwise land in it.
-                if (!StillAt(origin))
+                // would otherwise land in it. The token as well as the origin: a newer import
+                // still in flight has not changed the document yet, and landing these first
+                // would make it fail its own origin check, so the older gesture would win.
+                if (cancellation.IsCancellationRequested || !StillAt(origin))
                 {
                     break;
                 }
