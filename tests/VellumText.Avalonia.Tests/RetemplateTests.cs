@@ -109,6 +109,51 @@ public class RetemplateTests
     }
 
     [AvaloniaFact]
+    public void Derived_text_styles_still_follow_the_font_after_retemplating()
+    {
+        var editor = new RichTextEditor { State = EditorState.Create(DocumentNode.FromParagraphs("hello")) };
+        var window = new Window { Width = 400, Height = 300, Content = editor };
+
+        window.Show();
+
+        var early = editor.EnsureView();
+
+        // Reading the derived resolver is what the move to the new view does; it must not pin it.
+        Assert.NotNull(early.TextStyles);
+
+        editor.Template = Chrome();
+        editor.ApplyTemplate();
+
+        var late = editor.EnsureView();
+
+        Assert.NotSame(early, late);
+
+        editor.FontSize = 40;
+        editor.Foreground = global::Avalonia.Media.Brushes.Red;
+
+        Assert.Equal(40, late.TextStyles.Default.FontRenderingEmSize);
+        Assert.Same(global::Avalonia.Media.Brushes.Red, late.TextStyles.Default.ForegroundBrush);
+    }
+
+    [AvaloniaFact]
+    public void Explicit_text_styles_survive_retemplating_and_ignore_the_font()
+    {
+        var editor = new RichTextEditor { State = EditorState.Create(DocumentNode.FromParagraphs("hello")) };
+        var styles = new TextStyleResolver(new global::Avalonia.Media.Typeface(global::Avalonia.Media.FontFamily.Default), 13, global::Avalonia.Media.Brushes.Black);
+        var window = new Window { Width = 400, Height = 300, Content = editor };
+
+        window.Show();
+        editor.TextStyles = styles;
+
+        editor.Template = Chrome();
+        editor.ApplyTemplate();
+
+        editor.FontSize = 40;
+
+        Assert.Same(styles, editor.EnsureView().TextStyles);
+    }
+
+    [AvaloniaFact]
     public void A_handler_removed_after_retemplating_is_removed_from_the_new_view()
     {
         var editor = new RichTextEditor { State = EditorState.Create(DocumentNode.FromParagraphs("hello")) };
