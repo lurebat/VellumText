@@ -515,6 +515,8 @@ internal sealed class TableBlockView : BlockView
             return cells;
         }
 
+        LayoutGuard.Changing("a table row realized");
+
         var first = _rowFirstCell[row];
 
         cells = new Cell[target.Node.Cells.Length];
@@ -818,6 +820,8 @@ internal sealed class TableBlockView : BlockView
     /// <summary>Marks every row unmeasured, keeping the arrays.</summary>
     private void ForgetHeights()
     {
+        LayoutGuard.Changing("a table's row heights forgotten");
+
         Array.Fill(_rowHeights, double.NaN);
         _estimate.Restart();
         _edgesFrom = 0;
@@ -850,6 +854,8 @@ internal sealed class TableBlockView : BlockView
         {
             return;
         }
+
+        LayoutGuard.Changing("a band of table rows laid out");
 
         var heights = new double[end - start];
 
@@ -1844,7 +1850,14 @@ internal sealed class TableBlockView : BlockView
 
                     var origin = ChildOrigin(cell, child);
 
-                    foreach (var rect in child.View.GetSelectionRects(start, end))
+                    // Painting passes what can be seen down to a table in the cell, as drawing
+                    // does: asked for the whole range, a nested table laid out every row the
+                    // selection or a find match reached, in the middle of a frame.
+                    var inner = visible is { } shown
+                        ? child.View.GetSelectionRects(start, end, shown.Translate(new Vector(-origin.X, -origin.Y)))
+                        : child.View.GetSelectionRects(start, end);
+
+                    foreach (var rect in inner)
                     {
                         rects.Add(rect.Translate(new Vector(origin.X, origin.Y)));
                     }
@@ -1998,9 +2011,20 @@ internal sealed class TableBlockView : BlockView
 
         EnsureBand(r);
 
-        var rowStart = _rowStarts[r];
+        return Locate(r, localPosition);
+    }
 
-        foreach (var cell in _rows[r].Cells!)
+    /// <summary>The block in a realized row a local position is inside, without laying anything out.</summary>
+    private (Cell Cell, Child Child, int RowStart)? Locate(int row, int localPosition)
+    {
+        if (_rows[row].Cells is not { } cells)
+        {
+            return null;
+        }
+
+        var rowStart = _rowStarts[row];
+
+        foreach (var cell in cells)
         {
             foreach (var child in cell.Blocks)
             {
@@ -2013,6 +2037,47 @@ internal sealed class TableBlockView : BlockView
         }
 
         return null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The row holding the position, its band, and the same in a table inside the cell, so that
+    /// every question about the position can then be answered without laying anything out.
+    /// </remarks>
+    internal override void PrepareAt(int localPosition)
+    {
+        var r = RowAt(localPosition);
+
+        if (r < 0)
+        {
+            return;
+        }
+
+        EnsureBand(r);
+
+        if (Locate(r, localPosition) is { } found)
+        {
+            found.Child.View.PrepareAt(localPosition - found.RowStart - found.Child.Start);
+        }
+    }
+
+    /// <inheritdoc/>
+    internal override bool IsPreparedAt(int localPosition)
+    {
+        var r = RowAt(localPosition);
+
+        if (r < 0)
+        {
+            return true;
+        }
+
+        if (double.IsNaN(_width) || !IsLaidOut(r))
+        {
+            return false;
+        }
+
+        return Locate(r, localPosition) is not { } found
+            || found.Child.View.IsPreparedAt(localPosition - found.RowStart - found.Child.Start);
     }
 
     private Point ChildOrigin(Cell cell, Child child)

@@ -375,6 +375,8 @@ internal sealed class ParagraphView : BlockView
             return Size;
         }
 
+        LayoutGuard.Changing("a paragraph laid out");
+
         // The indent and the padding both eat into the width the text may wrap to, so a padded
         // or indented paragraph wraps where it visually runs out of room rather than where a
         // plain one would. A width smaller than that still has to leave somewhere for the text.
@@ -778,6 +780,10 @@ internal sealed class ParagraphView : BlockView
     /// <summary>The number of visual lines the paragraph wrapped onto.</summary>
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineCount => Lines.Length;
+
+    /// <inheritdoc/>
+    /// <remarks>Whether the paragraph has a layout; the host knows whether it is for the current width.</remarks>
+    internal override bool IsPreparedAt(int localPosition) => IsMeasured;
 
     /// <inheritdoc/>
     /// <remarks>

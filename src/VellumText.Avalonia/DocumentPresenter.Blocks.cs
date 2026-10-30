@@ -391,6 +391,8 @@ public abstract partial class DocumentPresenter
             return null;
         }
 
+        PreparePosition(position);
+
         var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
         var slot = _slots[index];
         var view = EnsureMeasured(index);
@@ -427,6 +429,8 @@ public abstract partial class DocumentPresenter
             return null;
         }
 
+        PreparePosition(position);
+
         var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
         var slot = _slots[index];
         var found = EnsureMeasured(index).GetImageRect(position - slot.Start);
@@ -461,6 +465,8 @@ public abstract partial class DocumentPresenter
             return null;
         }
 
+        PreparePoint(point.Y);
+
         var index = BlockIndexAt(point.Y);
 
         if (EnsureMeasured(index) is not TableBlockView table)
@@ -485,6 +491,8 @@ public abstract partial class DocumentPresenter
         {
             return 0;
         }
+
+        PreparePoint(point.Y);
 
         var index = BlockIndexAt(point.Y);
         var slot = _slots[index];
@@ -606,11 +614,155 @@ public abstract partial class DocumentPresenter
                 }
             }
 
+            // Whatever painting will ask about — the caret, the composition, a drop target far
+            // off screen — is laid out now, while laying out is allowed, and the viewport put back.
+            PreparePaintDependencies();
+
             return Finish(size);
         }
         finally
         {
             _realizing = false;
+        }
+    }
+
+    /// <summary>Lays out every position painting is going to ask about.</summary>
+    /// <remarks>
+    /// Painting lays nothing out (<see cref="LayoutGuard"/>), so a position it asks about has to be
+    /// prepared before the frame: at the end of every layout, and wherever something painting
+    /// depends on changes without one. The default paints nothing that needs it.
+    /// </remarks>
+    private protected virtual void PreparePaintDependencies()
+    {
+    }
+
+    /// <summary>Whether a question about a document position can be answered without laying anything out.</summary>
+    /// <param name="position">The document position.</param>
+    private protected bool IsPositionPrepared(int position)
+    {
+        if (_views.Count == 0)
+        {
+            return true;
+        }
+
+        var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
+
+        return IsPrepared(index, Math.Clamp(position - _slots[index].Start, 0, _views[index].ContentSize));
+    }
+
+    private bool IsPrepared(int index, int local) =>
+        _heights.Count == _views.Count
+            && _heights.Measured(index)
+            && _views[index].Size.Height.Equals(_heights.HeightOf(index))
+            && _views[index].IsPreparedAt(local);
+
+    /// <summary>
+    /// Lays out what a question about a document position needs, keeping the content at the top
+    /// of the viewport where it is.
+    /// </summary>
+    /// <remarks>
+    /// A question about a far position — the caret after Ctrl+End, a find match, a drop target —
+    /// lays out the row or block it is in. That replaces estimates with real heights, and when the
+    /// estimate it replaces prices content above the viewport, the content on screen moves unless
+    /// the viewport moves with it. So the question is answered in two steps: this lays out and puts
+    /// the content at the top back, and the question then reads what is laid out, against the
+    /// positions as they finally are.
+    /// </remarks>
+    /// <param name="position">The document position.</param>
+    private protected void PreparePosition(int position)
+    {
+        if (_views.Count == 0)
+        {
+            return;
+        }
+
+        var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
+        var local = Math.Clamp(position - _slots[index].Start, 0, _views[index].ContentSize);
+
+        if (IsPrepared(index, local))
+        {
+            return;
+        }
+
+        Transact(() =>
+        {
+            _views[index].Measure(_width);
+            _views[index].PrepareAt(local);
+            RecordHeight(index);
+        });
+    }
+
+    /// <summary>
+    /// Lays out everything between the content at the top of the viewport and a point, so that the
+    /// question about the point is answered against real heights.
+    /// </summary>
+    /// <remarks>
+    /// A point far off screen — a drag past the edge — names whatever is that far from what the
+    /// reader sees. Where that is depends on the heights of everything in between, and an answer
+    /// read from estimates names whatever the estimates put there, which laying the answer out then
+    /// moves. So the window is widened from the content at the top to the point, laid out with real
+    /// heights, and the content at the top put back; the point then lands on what is really there.
+    /// The cost is the distance to the point, as scrolling there would be.
+    /// </remarks>
+    /// <param name="y">The point's vertical position, in this control's coordinates.</param>
+    /// <param name="tolerance">How far either side of it must be laid out too.</param>
+    private protected void PreparePoint(double y, double tolerance = 0)
+    {
+        if (_views.Count == 0
+            || !IsVirtualizing
+            || _heights.Count != _views.Count
+            || (y - tolerance >= -Overscan && y + tolerance <= ViewportHeight + Overscan))
+        {
+            return;
+        }
+
+        Transact(() =>
+        {
+            var (index, local) = AnchorAtOffset();
+            var point = _heights.OffsetOf(index) + PointOf(index, local);
+            var top = _offset.Y - point;
+
+            RealizeWindow(
+                index,
+                local,
+                Math.Max(Overscan - top, -(top + y - tolerance)),
+                Math.Max(top + ViewportHeight + Overscan, top + y + tolerance));
+
+            // Back to the window the viewport needs; everything in it is laid out by now.
+            RealizeWindow(index, local, Overscan - top, top + ViewportHeight + Overscan);
+        });
+    }
+
+    /// <summary>
+    /// Runs something that lays out outside the window, then puts the content at the top of the
+    /// viewport back where it was and makes sure the viewport is still covered.
+    /// </summary>
+    private void Transact(Action layOut)
+    {
+        LayoutGuard.Changing("a geometry question laid something out");
+
+        var held = _heights.Count == _views.Count ? AnchorAtOffset() : default((int Block, LocalAnchor Local)?);
+        var before = held is { } h ? _heights.OffsetOf(h.Block) + PointOf(h.Block, h.Local) : 0;
+
+        layOut();
+        AfterPrepare?.Invoke();
+
+        if (held is { } anchor && anchor.Block < _views.Count)
+        {
+            var after = _heights.OffsetOf(anchor.Block) + PointOf(anchor.Block, anchor.Local);
+
+            if (!after.Equals(before))
+            {
+                ApplyOffset(new Vector(_offset.X, _offset.Y + (after - before)), relayout: false);
+            }
+        }
+
+        // Outside a layout pass nothing else checks: a hole now would be drawn blank by the next
+        // frame, so the next frame is made to wait for a layout pass that fills it.
+        if (!_realizing && !IsWindowCovered())
+        {
+            WorkCounters.CoverageRepairs++;
+            InvalidateMeasure();
         }
     }
 
@@ -854,7 +1006,7 @@ public abstract partial class DocumentPresenter
             var last = _last;
             var (index, local) = anchor ??= AnchorAtOffset();
 
-            size = RealizeWindow(index, local, top);
+            size = RealizeWindow(index, local, Overscan - top, top + ViewportHeight + Overscan);
 
             var point = _heights.OffsetOf(index) + PointOf(index, local);
 
@@ -882,6 +1034,9 @@ public abstract partial class DocumentPresenter
 
     /// <summary>Called at the end of every layout pass, for tests that break what a pass left.</summary>
     internal Action? AfterSettle { get; set; }
+
+    /// <summary>Called after a geometry question lays something out, for tests that break what it left.</summary>
+    internal Action? AfterPrepare { get; set; }
 
     /// <summary>The block at the top of the viewport and the content there.</summary>
     private (int Block, LocalAnchor Local) AnchorAtOffset()
@@ -986,8 +1141,9 @@ public abstract partial class DocumentPresenter
     /// </remarks>
     /// <param name="index">The anchor's block.</param>
     /// <param name="local">The anchor's content in it.</param>
-    /// <param name="top">Where the viewport's top is, from the anchor's point.</param>
-    private Size RealizeWindow(int index, LocalAnchor local, double top)
+    /// <param name="above">How far above the anchor's point to lay out.</param>
+    /// <param name="below">How far below it to lay out.</param>
+    private Size RealizeWindow(int index, LocalAnchor local, double above, double below)
     {
         var width = 0d;
 
@@ -1010,9 +1166,6 @@ public abstract partial class DocumentPresenter
             return new Size(width, _heights.TotalHeight);
         }
 
-        // The window, relative to the anchor's point.
-        var above = Overscan - top;
-        var below = top + ViewportHeight + Overscan;
         var anchor = _views[index];
 
         if (anchor is TableBlockView table)
@@ -1112,6 +1265,7 @@ public abstract partial class DocumentPresenter
 
         if (!_heights.Measured(index) || Math.Abs(_heights.HeightOf(index) - height) > 0.01)
         {
+            LayoutGuard.Changing("a block's recorded height");
             _heights.SetHeight(index, height);
             SetExtent(_extent.WithHeight(_heights.TotalHeight));
         }

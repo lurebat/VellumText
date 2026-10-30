@@ -103,6 +103,24 @@ internal abstract class BlockView
     };
 
     /// <summary>
+    /// Lays out whatever a question about a local position needs, so that the question itself
+    /// lays nothing out.
+    /// </summary>
+    /// <remarks>
+    /// Split from the questions so the host can lay out first, put the viewport back, and only
+    /// then ask — and so painting can ask without laying anything out at all. The default has
+    /// nothing beyond <see cref="Measure"/> to lay out.
+    /// </remarks>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual void PrepareAt(int localPosition)
+    {
+    }
+
+    /// <summary>Whether a question about a local position can be answered without laying anything out.</summary>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual bool IsPreparedAt(int localPosition) => true;
+
+    /// <summary>
     /// Finds the position nearest a point in the block's own coordinates.
     /// </summary>
     /// <param name="local">The point, relative to the block's top-left corner.</param>
