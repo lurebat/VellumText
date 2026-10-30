@@ -2,8 +2,10 @@ using System.Globalization;
 using global::Avalonia.Controls;
 using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
+using global::Avalonia.Input;
 using global::Avalonia.Media;
 using global::Avalonia.Media.TextFormatting;
+using global::Avalonia.Threading;
 using global::Avalonia.VisualTree;
 using VellumText;
 using VellumText.Avalonia;
@@ -818,6 +820,75 @@ public class ToolbarOutcomeTests
         Assert.Same(view, Focused(view));
 
         WindowOf(view).KeyTextInput("x");
+
+        Assert.StartsWith("x world", Paragraphs(editor.State.Doc)[0].Content.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// After a pick from the font or size list, or Enter in either box, focus is back in the
+    /// document, as in Word and Docs: the next keystroke types over the selection rather than
+    /// into the box.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("PART_FontBox", "Courier New", false)]
+    [InlineData("PART_FontBox", "Courier New", true)]
+    [InlineData("PART_SizeBox", "18", false)]
+    [InlineData("PART_SizeBox", "18", true)]
+    public void AfterAPickOrEnterInABoxTheNextKeystrokeLandsInTheDocument(string part, string value, bool typed)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, part);
+
+        if (!typed)
+        {
+            box.ItemsSource = new[] { "Arial", value };
+        }
+
+        view.Focus();
+        SelectPart(view);
+        box.GetVisualDescendants().OfType<TextBox>().First().Focus();
+        Commit(box, typed ? value : (object)new PickedItem(value));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Same(view, Focused(view));
+
+        WindowOf(view).KeyTextInput("x");
+
+        Assert.StartsWith("x world", Paragraphs(editor.State.Doc)[0].Content.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Escape in a box gives up what was typed there: nothing is applied, the box shows the
+    /// selection's value again, and focus is back in the document.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("PART_FontBox", "Courier New")]
+    [InlineData("PART_SizeBox", "18")]
+    public void EscapeInABoxReturnsToTheDocumentWithoutApplyingWhatWasTyped(string part, string typed)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, part);
+
+        view.Focus();
+        SelectPart(view);
+
+        var before = editor.State.Doc;
+        var shown = box.Text;
+        var window = WindowOf(view);
+
+        box.GetVisualDescendants().OfType<TextBox>().First().Focus();
+        window.KeyTextInput(typed);
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        Dispatcher.UIThread.RunJobs();
+        Layout(window);
+
+        Assert.Same(before, editor.State.Doc);
+        Assert.Equal(shown ?? string.Empty, box.Text ?? string.Empty);
+        Assert.Same(view, Focused(view));
+
+        window.KeyTextInput("x");
 
         Assert.StartsWith("x world", Paragraphs(editor.State.Doc)[0].Content.Text, StringComparison.Ordinal);
     }

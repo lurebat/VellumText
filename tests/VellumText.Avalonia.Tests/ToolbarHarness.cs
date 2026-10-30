@@ -291,10 +291,17 @@ internal static class ToolbarHarness
     /// descenders dip a pixel or two below its own line box, and the font's ascent keeps room for
     /// accents above the capitals, so either stricter measure fails text whose glyphs do not touch.
     /// </para>
+    /// <para>
+    /// Ink may still reach past the next line's ink by as much as the two fonts draw past their
+    /// own ascent and descent, and no further. A font's glyphs may overhang its metrics — macOS's
+    /// default font does by about a pixel at 32 px bold, which failed a correct, natural layout on
+    /// macOS CI — while text too tall for a forced line overlaps by many pixels with no overhang
+    /// at all. <see cref="OverlapCheckTests"/> pins both sides.
+    /// </para>
     /// </remarks>
     public static void AssertNoOverlappingLines(RichTextView view)
     {
-        var boxes = new List<(string Name, double Top, double Bottom, double InkTop, double InkBottom)>();
+        var lines = new List<(string Name, double Top, TextLine Line)>();
 
         for (var block = 0; block < view.Blocks.Count; block++)
         {
@@ -310,34 +317,78 @@ internal static class ToolbarHarness
 
             foreach (var line in paragraph.Layout.TextLines)
             {
-                var above = double.PositiveInfinity;
-                var below = double.NegativeInfinity;
-
-                foreach (var run in line.TextRuns.OfType<ShapedTextRun>())
-                {
-                    // Ink bounds are relative to the glyph run's own origin; its baseline origin
-                    // turns them into offsets from the baseline.
-                    var ink = run.GlyphRun.InkBounds;
-                    var baseline = run.GlyphRun.BaselineOrigin.Y;
-
-                    if (ink.Height > 0)
-                    {
-                        above = Math.Min(above, ink.Top - baseline);
-                        below = Math.Max(below, ink.Bottom - baseline);
-                    }
-                }
-
-                boxes.Add((
-                    $"block {block} line {index++}",
-                    top,
-                    top + line.Height,
-                    top + line.Baseline + above,
-                    top + line.Baseline + below));
-
+                lines.Add(($"block {block} line {index++}", top, line));
                 top += line.Height;
             }
         }
 
+        AssertNoOverlap(lines);
+    }
+
+    /// <summary>The same check over one laid-out paragraph's lines, stacked from zero.</summary>
+    public static void AssertNoOverlappingLines(IReadOnlyList<TextLine> lines)
+    {
+        var stacked = new List<(string Name, double Top, TextLine Line)>();
+        var top = 0.0;
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            stacked.Add(($"line {i}", top, lines[i]));
+            top += lines[i].Height;
+        }
+
+        AssertNoOverlap(stacked);
+    }
+
+    private static void AssertNoOverlap(List<(string Name, double Top, TextLine Line)> lines) =>
+        AssertNoOverlap(lines.Select(l => Measure(l.Name, l.Top, l.Line)).ToList());
+
+    /// <summary>A laid-out line's box, its glyphs' ink, and how far that ink passes the fonts' own ascent and descent.</summary>
+    public readonly record struct MeasuredLine(
+        string Name, double Top, double Bottom, double InkTop, double InkBottom, double OverhangAbove, double OverhangBelow);
+
+    private static MeasuredLine Measure(string name, double top, TextLine line)
+    {
+        var above = double.PositiveInfinity;
+        var below = double.NegativeInfinity;
+        var overAbove = 0.0;
+        var overBelow = 0.0;
+
+        foreach (var run in line.TextRuns.OfType<ShapedTextRun>())
+        {
+            // Ink bounds are relative to the glyph run's own origin; its baseline origin turns
+            // them into offsets from the baseline.
+            var ink = run.GlyphRun.InkBounds;
+            var baseline = run.GlyphRun.BaselineOrigin.Y;
+
+            if (ink.Height <= 0)
+            {
+                continue;
+            }
+
+            above = Math.Min(above, ink.Top - baseline);
+            below = Math.Max(below, ink.Bottom - baseline);
+
+            // The font's own ascent and descent at this run's size; ink past them is the font's.
+            var metrics = run.GlyphRun.GlyphTypeface.Metrics;
+            var scale = run.GlyphRun.FontRenderingEmSize / metrics.DesignEmHeight;
+
+            overAbove = Math.Max(overAbove, -(ink.Top - baseline) - (-metrics.Ascent * scale));
+            overBelow = Math.Max(overBelow, (ink.Bottom - baseline) - (metrics.Descent * scale));
+        }
+
+        return new(
+            name,
+            top,
+            top + line.Height,
+            top + line.Baseline + above,
+            top + line.Baseline + below,
+            overAbove,
+            overBelow);
+    }
+
+    public static void AssertNoOverlap(IReadOnlyList<MeasuredLine> boxes)
+    {
         Assert.NotEmpty(boxes);
 
         for (var i = 1; i < boxes.Count; i++)
@@ -346,11 +397,16 @@ internal static class ToolbarHarness
                 boxes[i].Top >= boxes[i - 1].Bottom - 0.01,
                 $"{boxes[i].Name} starts at {boxes[i].Top:0.##}, above the bottom of {boxes[i - 1].Name} at {boxes[i - 1].Bottom:0.##}");
 
-            // A line with no ink (blank, or only spaces) has nothing to draw over anything.
+            // A line with no ink (blank, or only spaces) has nothing to draw over anything. Ink may
+            // reach past the line boxes by as much as the fonts themselves draw past their own
+            // ascent and descent — never more: text too tall for a forced line overlaps by far
+            // more than any font overhangs (see OverlapCheckTests).
+            var allowance = boxes[i - 1].OverhangBelow + boxes[i].OverhangAbove;
+
             Assert.True(
                 !double.IsFinite(boxes[i].InkTop) || !double.IsFinite(boxes[i - 1].InkBottom)
-                    || boxes[i].InkTop >= boxes[i - 1].InkBottom - 0.01,
-                $"the glyphs of {boxes[i].Name} start at {boxes[i].InkTop:0.##}, above the bottom of the glyphs of {boxes[i - 1].Name} at {boxes[i - 1].InkBottom:0.##}");
+                    || boxes[i].InkTop >= boxes[i - 1].InkBottom - allowance - 0.01,
+                $"the glyphs of {boxes[i].Name} start at {boxes[i].InkTop:0.##}, above the bottom of the glyphs of {boxes[i - 1].Name} at {boxes[i - 1].InkBottom:0.##} (beyond the fonts' own overhang of {allowance:0.##})");
         }
     }
 
