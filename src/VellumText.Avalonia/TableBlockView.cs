@@ -685,6 +685,9 @@ internal sealed partial class TableBlockView : BlockView
         _rows.SelectMany(row => row.Cells ?? []).SelectMany(cell => cell.Blocks)
             .Select(child => child.View).OfType<TableBlockView>();
 
+    /// <summary>Where a row's top is now, measured or priced at the estimate, for tests.</summary>
+    internal double RowTopOf(int row) => RowTop(row);
+
     /// <summary>Whether a row's height is a measurement of its cells as they are, for tests.</summary>
     internal bool IsRowMeasured(int row) => !double.IsNaN(_rowHeights[row]) && !_rows[row].Dirty;
 
@@ -2139,6 +2142,156 @@ internal sealed partial class TableBlockView : BlockView
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Lays out every row a question about a point reads: each row whose closed band touches the
+    /// point's height — a point exactly on the edge between two rows is in the boxes of both — and
+    /// the row of the cell nearest the point, and the same in the tables inside them; then settles
+    /// any row whose table changed height.
+    /// </summary>
+    /// <remarks>
+    /// Laying a row out moves the rows below it, so which rows touch the point is asked again
+    /// until it no longer changes; every round lays out more and undoes nothing, and the rounds are
+    /// bounded.
+    /// </remarks>
+    /// <param name="local">The point, in this table's coordinates.</param>
+    internal void PreparePoint(Point local)
+    {
+        for (var round = 0; round < 8; round++)
+        {
+            var changed = false;
+
+            foreach (var r in PointRows(local))
+            {
+                if (!IsLaidOut(r))
+                {
+                    EnsureBand(r);
+                    changed = true;
+                }
+
+                foreach (var (cell, child, nested) in PointTables(r, local))
+                {
+                    var origin = ChildOrigin(cell, child);
+                    var inner = new Point(local.X - origin.X, local.Y - origin.Y);
+
+                    if (!nested.IsPreparedForPoint(inner))
+                    {
+                        nested.PreparePoint(inner);
+                        changed = true;
+                    }
+
+                    if (!nested.Size.Height.Equals(child.Height))
+                    {
+                        child.Height = nested.Size.Height;
+                        SettleBand(_bandStart[r]);
+                        changed = true;
+                    }
+                }
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>Whether a question about a point can be answered from what is laid out.</summary>
+    /// <param name="local">The point, in this table's coordinates.</param>
+    internal bool IsPreparedForPoint(Point local)
+    {
+        if (double.IsNaN(_width))
+        {
+            return false;
+        }
+
+        foreach (var r in PointRows(local))
+        {
+            if (!IsLaidOut(r))
+            {
+                return false;
+            }
+
+            foreach (var (cell, child, nested) in PointTables(r, local))
+            {
+                var origin = ChildOrigin(cell, child);
+
+                if (!nested.Size.Height.Equals(child.Height)
+                    || !nested.IsPreparedForPoint(new Point(local.X - origin.X, local.Y - origin.Y)))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The rows a question about a point reads: those whose closed band touches its height, from
+    /// the first row of any cell reaching into them, and the row of the cell nearest it.
+    /// </summary>
+    private List<int> PointRows(Point local)
+    {
+        var rows = new List<int>();
+
+        if (_rows.Length == 0)
+        {
+            return rows;
+        }
+
+        var (first, last) = RowsTouching(local.Y, local.Y);
+
+        for (var r = first <= last ? _coverTop[first] : last + 1; r <= last; r++)
+        {
+            rows.Add(r);
+        }
+
+        if (NearestCell(local) is { } nearest)
+        {
+            rows.Add(nearest.Row);
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The tables in a laid-out row that a question about a point descends into: those whose
+    /// closed height touches the point's (column boundaries are looked for in every one of them)
+    /// and the block nearest the point in the cell nearest it (where a hit test goes).
+    /// </summary>
+    private IEnumerable<(Cell Cell, Child Child, TableBlockView Nested)> PointTables(int row, Point local)
+    {
+        if (_rows[row].Cells is not { } cells || !IsLaidOut(row))
+        {
+            yield break;
+        }
+
+        var nearest = NearestCell(local) is { } found && found.Row == row ? cells[found.Index] : null;
+
+        foreach (var cell in cells)
+        {
+            var bounds = CellBounds(cell.Placement);
+            var aimed = ReferenceEquals(cell, nearest)
+                ? NearestChild(cell, local.Y - bounds.Y - CellPadding)
+                : null;
+
+            foreach (var child in cell.Blocks)
+            {
+                if (child.View is not TableBlockView nested)
+                {
+                    continue;
+                }
+
+                var top = ChildOrigin(cell, child).Y;
+
+                if (ReferenceEquals(child, aimed) || (local.Y >= top && local.Y <= top + nested.Size.Height))
+                {
+                    yield return (cell, child, nested);
+                }
+            }
+        }
     }
 
     /// <inheritdoc/>

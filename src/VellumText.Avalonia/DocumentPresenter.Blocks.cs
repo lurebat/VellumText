@@ -467,16 +467,22 @@ public abstract partial class DocumentPresenter
 
         PreparePoint(point.Y);
 
+        var prepared = PrepareAnswer(point);
+
+        BeforeAnswer?.Invoke();
+
         var index = BlockIndexAt(point.Y);
+        ColumnBoundary? boundary = null;
 
-        if (EnsureMeasured(index) is not TableBlockView table)
+        using (LayoutGuard.Answering(prepared))
         {
-            return null;
-        }
+            if ((prepared ? _views[index] : EnsureMeasured(index)) is TableBlockView table)
+            {
+                var origin = BlockOrigin(index);
 
-        var origin = BlockOrigin(index);
-        var boundary = table.BoundaryAt(
-            point, _slots[index].Start, new Vector(origin.X, origin.Y), tolerance);
+                boundary = table.BoundaryAt(point, _slots[index].Start, new Vector(origin.X, origin.Y), tolerance);
+            }
+        }
 
         RecordHeight(index);
 
@@ -494,11 +500,20 @@ public abstract partial class DocumentPresenter
 
         PreparePoint(point.Y);
 
+        var prepared = PrepareAnswer(point);
+
+        BeforeAnswer?.Invoke();
+
         var index = BlockIndexAt(point.Y);
         var slot = _slots[index];
-        var origin = BlockOrigin(index);
+        int hit;
 
-        var hit = EnsureMeasured(index).HitTest(point - origin);
+        using (LayoutGuard.Answering(prepared))
+        {
+            var view = prepared ? _views[index] : EnsureMeasured(index);
+
+            hit = view.HitTest(point - BlockOrigin(index));
+        }
 
         RecordHeight(index);
 
@@ -732,6 +747,58 @@ public abstract partial class DocumentPresenter
             RealizeWindow(index, local, Overscan - top, top + ViewportHeight + Overscan);
         });
     }
+
+    /// <summary>
+    /// Lays out everything a point question reads to answer — the block at the point and, in a
+    /// table, every row whose closed band touches the point's height, so the row starting exactly
+    /// there as well as the one ending there, and the same in the tables inside them — keeping the
+    /// content at the top of the viewport where it is.
+    /// </summary>
+    /// <remarks>
+    /// Putting the content back moves the block under the point, so what the point names is
+    /// chosen again against the positions as they then are, until it is laid out; a few rounds
+    /// are allowed, as each lays out more and nothing laid out is undone. If they do not settle,
+    /// the answer lays out what it still needs, as it always did, and records the height after.
+    /// </remarks>
+    /// <param name="point">The point, in this control's coordinates.</param>
+    /// <returns>Whether the answer can read everything it needs without laying anything out.</returns>
+    private bool PrepareAnswer(Point point)
+    {
+        if (_heights.Count != _views.Count)
+        {
+            return false;
+        }
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            var index = BlockIndexAt(point.Y);
+
+            if (IsAnswerPrepared(index, point))
+            {
+                return true;
+            }
+
+            Transact(() =>
+            {
+                EnsureMeasured(index);
+
+                if (_views[index] is TableBlockView table)
+                {
+                    table.PreparePoint(point - BlockOrigin(index));
+                    RecordHeight(index);
+                }
+            });
+        }
+
+        return IsAnswerPrepared(BlockIndexAt(point.Y), point);
+    }
+
+    private bool IsAnswerPrepared(int index, Point point) =>
+        _heights.Measured(index)
+            && _views[index].Size.Height.Equals(_heights.HeightOf(index))
+            && (_views[index] is TableBlockView table
+                ? table.IsPreparedForPoint(point - BlockOrigin(index))
+                : _views[index].IsPreparedAt(0));
 
     /// <summary>
     /// Runs something that lays out outside the window, then puts the content at the top of the
@@ -1048,6 +1115,12 @@ public abstract partial class DocumentPresenter
 
     /// <summary>Called after a geometry question lays something out, for tests that break what it left.</summary>
     internal Action? AfterPrepare { get; set; }
+
+    /// <summary>
+    /// Called when a point question has laid out what it needs and starts answering, for tests
+    /// that check the answer itself lays nothing out.
+    /// </summary>
+    internal Action? BeforeAnswer { get; set; }
 
     /// <summary>The block at the top of the viewport and the content there.</summary>
     private (int Block, LocalAnchor Local) AnchorAtOffset()

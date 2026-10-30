@@ -104,6 +104,97 @@ public class GeometryTransactionTests
     }
 
     /// <summary>
+    /// A column-boundary question exactly at the top of a tall row far below the viewport, in a
+    /// table whose rows above the viewport nobody has laid out: everything the answer reads is
+    /// laid out first — the row starting at the point too, not only the one ending there — so the
+    /// answer lays nothing out, matches a fully laid-out copy, and the text on screen stays put.
+    /// </summary>
+    /// <remarks>
+    /// Every row but one is a single line, so the estimate is exact and the far row's top is where
+    /// the point is however much is measured on the way; the one tall row, measured while
+    /// answering, moved the estimate pricing the rows above the viewport.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AColumnBoundaryQuestionExactlyAtAFarRowsTopLaysNothingOutWhileAnswering()
+    {
+        const int Tall = 1_500;
+        var doc = new DocumentNode([
+            new TableNode(Enumerable.Range(0, 2_000).Select(r => new TableRowNode([
+                r == Tall
+                    ? new TableCellNode(Enumerable.Range(0, 40).Select(i => (BlockNode)ParagraphNode.FromText($"tall {i}")))
+                    : TableCellNode.FromText($"r{r}c0"),
+                TableCellNode.FromText($"r{r}c1"),
+            ]))),
+            ParagraphNode.FromText("After."),
+        ]);
+        var (window, view) = Shown(doc);
+        var twin = FullyLaidOut(doc);
+        var table = (TableBlockView)view.Blocks[0];
+
+        view.Offset = new Vector(0, table.RowTopOf(1_000));
+        Layout(window);
+
+        Assert.False(table.IsRowMeasured(500));
+        Assert.False(table.IsRowMeasured(Tall));
+
+        var reference = view.PositionAt(new Point(30, Height / 2));
+        var here = ScreenTop(view, reference);
+        var there = ScreenTop(twin, reference);
+        var point = new Point(view.BlockOrigin(0).X + (table.Size.Width / 2), view.BlockOrigin(0).Y + table.RowTopOf(Tall));
+        var measured = -1L;
+
+        view.BeforeAnswer = () => (WorkCounters.TableCellsMeasured, WorkCounters.CharactersLaidOut) = (0, 0);
+
+        var boundary = view.ColumnBoundaryAt(point, 4);
+
+        measured = WorkCounters.TableCellsMeasured + WorkCounters.CharactersLaidOut;
+        view.BeforeAnswer = null;
+
+        Assert.Equal(0, measured);
+        Assert.Equal(here, ScreenTop(view, reference), 1);
+        Assert.Equal(twin.ColumnBoundaryAt(new Point(point.X, point.Y - here + there), 4)?.Boundary, boundary?.Boundary);
+        Assert.NotNull(boundary);
+    }
+
+    /// <summary>
+    /// The same for the position at a point exactly at the top of a tall paragraph far below the
+    /// viewport, in a document whose paragraphs above the viewport nobody has laid out.
+    /// </summary>
+    [AvaloniaFact]
+    public void APositionQuestionExactlyAtAFarBlocksTopLaysNothingOutWhileAnswering()
+    {
+        const int Tall = 1_500;
+        var doc = new DocumentNode([.. Enumerable.Range(0, 2_000).Select(i => (BlockNode)ParagraphNode.FromText(i == Tall
+            ? string.Concat(Enumerable.Repeat("a tall paragraph far below the viewport ", 200))
+            : $"p{i}"))]);
+        var (window, view) = Shown(doc);
+        var twin = FullyLaidOut(doc);
+        var first = view.Blocks[0].Size.Height;
+
+        view.Offset = new Vector(0, first * 1_000);
+        Layout(window);
+
+        var reference = view.PositionAt(new Point(30, Height / 2));
+        var here = ScreenTop(view, reference);
+        var there = ScreenTop(twin, reference);
+        var point = new Point(30, view.BlockOrigin(Tall).Y);
+        var measured = -1L;
+
+        view.BeforeAnswer = () => (WorkCounters.TableCellsMeasured, WorkCounters.CharactersLaidOut) = (0, 0);
+
+        var hit = view.PositionAt(point);
+
+        measured = WorkCounters.TableCellsMeasured + WorkCounters.CharactersLaidOut;
+        view.BeforeAnswer = null;
+
+        Assert.Equal(0, measured);
+        Assert.Equal(here, ScreenTop(view, reference), 1);
+        // On the edge the point belongs to the block starting there; half a pixel down, the copy
+        // says the same without depending on how the two round the edge.
+        Assert.Equal(twin.PositionAt(new Point(point.X, point.Y - here + there + 0.5)), hit);
+    }
+
+    /// <summary>
     /// Dragging a move onto a rule near the end of a long run of them far below the viewport:
     /// the drop caret goes to the nearest text, which is after the run — past the point, which is
     /// as far as the point's own question laid out — and the frame that draws it lays nothing out.

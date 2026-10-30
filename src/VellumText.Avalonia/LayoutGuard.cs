@@ -21,6 +21,9 @@ internal static class LayoutGuard
     [ThreadStatic]
     private static int s_painting;
 
+    [ThreadStatic]
+    private static int s_answering;
+
     /// <summary>Whether a frame is being painted on this thread.</summary>
     public static bool IsPainting => s_painting > 0;
 
@@ -29,12 +32,29 @@ internal static class LayoutGuard
     {
         s_painting++;
 
-        return default;
+        return new Scope(Scope.Kind.Painting);
+    }
+
+    /// <summary>
+    /// Marks a geometry question as being answered from what was laid out for it, until the scope
+    /// is disposed; or nothing, when its preparation could not be completed.
+    /// </summary>
+    /// <param name="prepared">Whether everything the answer reads was laid out beforehand.</param>
+    public static Scope Answering(bool prepared)
+    {
+        if (!prepared)
+        {
+            return default;
+        }
+
+        s_answering++;
+
+        return new Scope(Scope.Kind.Answering);
     }
 
     /// <summary>Throws, in debug builds, if a frame is being painted.</summary>
     /// <param name="what">What was about to change, for the message.</param>
-    /// <exception cref="InvalidOperationException">A frame is being painted.</exception>
+    /// <exception cref="InvalidOperationException">A frame is being painted, or a prepared question answered.</exception>
     [Conditional("DEBUG")]
     public static void Changing(string what)
     {
@@ -42,12 +62,39 @@ internal static class LayoutGuard
         {
             throw new InvalidOperationException($"Layout changed while painting: {what}.");
         }
+
+        if (s_answering > 0)
+        {
+            throw new InvalidOperationException($"Layout changed while answering a prepared question: {what}.");
+        }
     }
 
-    /// <summary>The extent of a <see cref="Painting"/> scope.</summary>
+    /// <summary>The extent of a <see cref="Painting"/> or <see cref="Answering"/> scope.</summary>
     public readonly struct Scope : IDisposable
     {
+        private readonly Kind _kind;
+
+        internal Scope(Kind kind) => _kind = kind;
+
+        internal enum Kind
+        {
+            None,
+            Painting,
+            Answering,
+        }
+
         /// <inheritdoc/>
-        public void Dispose() => s_painting--;
+        public void Dispose()
+        {
+            switch (_kind)
+            {
+                case Kind.Painting:
+                    s_painting--;
+                    break;
+                case Kind.Answering:
+                    s_answering--;
+                    break;
+            }
+        }
     }
 }
