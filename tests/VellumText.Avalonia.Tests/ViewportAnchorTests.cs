@@ -402,6 +402,117 @@ public class ViewportAnchorTests
     }
 
     /// <summary>
+    /// The top of the viewport in the spacing between two paragraphs of a cell: the text the
+    /// reader sees first is the second paragraph's, and a narrower view that rewraps the first
+    /// leaves the second's first line where it was.
+    /// </summary>
+    [AvaloniaFact]
+    public void ResizingWithTheTopInTheSpacingBetweenParagraphsKeepsTheParagraphBelowStill()
+    {
+        var doc = Doc(1, Long("A", 30), Long("B", 30), Long("C", 30));
+        var (window, view) = Shown(doc);
+        var b = Start(view.State.Doc, "B");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, b) - 2);
+            Layout(window);
+        }
+
+        Assert.Equal(2, ScreenTop(view, b), 1);
+
+        window.Width = Width - 150;
+        Layout(window);
+
+        AssertAt(view, b, 2);
+    }
+
+    /// <summary>
+    /// The top of the viewport in the room a heading leaves above its line: the heading is the
+    /// text held, and stays where it was when the paragraph above it rewraps.
+    /// </summary>
+    [AvaloniaFact]
+    public void ResizingWithTheTopAboveAHeadingsLineKeepsTheHeadingStill()
+    {
+        var heading = new ParagraphNode(InlineContent.FromText("H: a heading in the cell"), ParagraphKind.Heading1);
+        var doc = Doc(1, Long("A", 30), heading, Long("C", 30));
+        var (window, view) = Shown(doc);
+        var h = Start(view.State.Doc, "H");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, h) - 3);
+            Layout(window);
+        }
+
+        Assert.Equal(3, ScreenTop(view, h), 1);
+
+        window.Width = Width - 150;
+        Layout(window);
+
+        AssertAt(view, h, 3);
+    }
+
+    /// <summary>
+    /// Scrolling step by step through a long table whose rows are taller than the first rows
+    /// taught the estimate: the text on screen moves by exactly the scroll, wherever the top of
+    /// the viewport falls — in a line, or in the spacing around one.
+    /// </summary>
+    [AvaloniaFact]
+    public void ScrollingThroughALongTableMovesTheTextByExactlyTheScroll()
+    {
+        var doc = new DocumentNode([GeometryTransactionTests.TallAfterShort(2_000), ParagraphNode.FromText("After.")]);
+        var (window, view) = Shown(doc);
+
+        view.Offset = new Vector(0, view.Blocks[0].Size.Height * 0.4);
+        Layout(window);
+
+        for (var step = 0; step < 25; step++)
+        {
+            var probe = view.PositionAt(new Point(20, Height / 2));
+            var y = ScreenTop(view, probe);
+
+            view.Offset += new Vector(0, 60);
+            Layout(window);
+
+            Assert.True(Math.Abs(ScreenTop(view, probe) - (y - 60)) <= 1, $"step {step}: the text moved from {y:F1} to {ScreenTop(view, probe):F1}, not {y - 60:F1}");
+        }
+    }
+
+    /// <summary>
+    /// Scrolled straight to rows nobody had laid out, the viewport is held by a share of a row
+    /// until they are; once they are drawn, a resize keeps the line the reader sees at the top
+    /// still, not the share of a row that rewrapped (owner decision Q3). The row's height is set
+    /// by the cell beside, whose short lines do not rewrap, so the share and the line part ways.
+    /// </summary>
+    [AvaloniaFact]
+    public void ResizingAfterAJumpToRowsNobodyLaidOutKeepsTheTopLineStill()
+    {
+        var table = new TableNode(Enumerable.Range(0, 400).Select(r => new TableRowNode([
+            new TableCellNode([Long($"R{r}", 12)]),
+            new TableCellNode([.. Enumerable.Range(0, 30).Select(i => (BlockNode)ParagraphNode.FromText($"side {r} {i}"))]),
+        ])));
+        var (window, view) = Shown(new DocumentNode([table, ParagraphNode.FromText("After.")]));
+
+        view.Offset = new Vector(0, view.Blocks[0].Size.Height * (160.2 / 400));
+        Layout(window);
+
+        // The line at the top is in whichever cell has text there; the other cell's nearest text
+        // can have ended far above.
+        var top = new[] { 1, Width * 0.75 }
+            .Select(x => view.PositionAt(new Point(x, 0.5)))
+            .MaxBy(p => ScreenTop(view, p));
+        var y = ScreenTop(view, top);
+
+        Assert.InRange(y, -40, 1);
+
+        window.Width = Width - 150;
+        Layout(window);
+
+        AssertAt(view, top, y);
+    }
+
+    /// <summary>
     /// Two edits applied before the view sees either leave it no mapping to follow; it keeps the
     /// distance it always kept, and draws no row it has not laid out.
     /// </summary>

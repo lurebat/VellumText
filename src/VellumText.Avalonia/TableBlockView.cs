@@ -1121,8 +1121,10 @@ internal sealed class TableBlockView : BlockView
         var local = y - content;
         Child? previous = null;
 
-        foreach (var child in cell.Blocks)
+        for (var i = 0; i < cell.Blocks.Length; i++)
         {
+            var child = cell.Blocks[i];
+
             if (local < child.Top)
             {
                 // In the gap above the block: held from the block below it, as content is.
@@ -1131,6 +1133,15 @@ internal sealed class TableBlockView : BlockView
 
             if (local < child.Top + child.Height)
             {
+                // In the spacing below a block's last line, the first text the reader sees is the
+                // next block's, so that is what is held, as in the gap between blocks.
+                if (i + 1 < cell.Blocks.Length && local >= child.Top + child.View.TextBottom)
+                {
+                    var next = cell.Blocks[i + 1];
+
+                    return new LocalAnchor(rowStart + next.Start, local - next.Top, AnchorKind.Box);
+                }
+
                 return child.View.CaptureAnchor(local - child.Top).Shift(rowStart + child.Start);
             }
 

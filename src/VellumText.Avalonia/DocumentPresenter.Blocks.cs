@@ -1021,6 +1021,17 @@ public abstract partial class DocumentPresenter
             }
         }
 
+        // A share of a row nobody had laid out names no content. The row is laid out now, so what
+        // is held from here on is the text the reader is shown at the top (owner decision Q3):
+        // a resize keeps that line still, not a share of a row that changed height.
+        if (top == 0
+            && anchor is ({ } shared, { Kind: AnchorKind.RowShare })
+            && _views[shared] is TableBlockView sharedTable
+            && _heights.IndexAt(_offset.Y) == shared)
+        {
+            anchor = (shared, sharedTable.CaptureAnchor(_offset.Y - _heights.OffsetOf(shared)));
+        }
+
         // Not when the offset was clamped: then the anchor is not at the top of the viewport, and
         // holding it would name content the reader cannot see there.
         _settled = top == 0 && anchor is var (block, content) && _views[block] is TableBlockView && _slotsFor is { } basis

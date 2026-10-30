@@ -848,11 +848,25 @@ internal sealed class ParagraphView : BlockView
             return null;
         }
 
-        var line = Lines[LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true)];
-        var dy = anchor.Unclamped ? anchor.Dy : Math.Clamp(anchor.Dy, 0, line.Line.Height);
+        var lines = Lines;
+        var index = LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true);
+        var line = lines[index];
+
+        // Held within the line's slot — down to the next line, the last one to the paragraph's
+        // bottom, and the first one up to the paragraph's top — so an offset in the spacing around
+        // a line is kept as it was, and one a reflow left past the line is pulled back to it.
+        var above = index == 0 ? -(Origin.Y + line.Top) : 0;
+        var slot = index + 1 < lines.Length
+            ? lines[index + 1].Top - line.Top
+            : Size.Height - Origin.Y - line.Top;
+        var dy = anchor.Unclamped ? anchor.Dy : Math.Clamp(anchor.Dy, Math.Min(0, above), Math.Max(line.Line.Height, slot));
 
         return Origin.Y + line.Top + dy;
     }
+
+    /// <inheritdoc/>
+    internal override double TextBottom =>
+        IsMeasured && Lines is { Length: > 0 } lines ? Origin.Y + lines[^1].Top + lines[^1].Line.Height : Size.Height;
 
     /// <summary>The index of the visual line a position sits on.</summary>
     /// <remarks>

@@ -90,6 +90,10 @@ internal abstract class BlockView
     /// <param name="y">The offset, from the block's top.</param>
     internal virtual LocalAnchor CaptureAnchor(double y) => new(0, y, AnchorKind.Box);
 
+    /// <summary>The bottom of the block's last line of text, from its top; its height if it has none.</summary>
+    /// <remarks>Below it is only spacing, which the host names from the block that follows.</remarks>
+    internal virtual double TextBottom => Size.Height;
+
     /// <summary>
     /// Where the point an anchor names is now, from the block's top, or null if the content it
     /// names has not been laid out.
