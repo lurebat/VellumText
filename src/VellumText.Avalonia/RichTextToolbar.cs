@@ -3,6 +3,8 @@ using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
 
@@ -404,6 +406,7 @@ public class RichTextToolbar : TemplatedControl
         if (_fontBox is not null)
         {
             _fontBox.SelectionChanged += OnFontPicked;
+            ShowFamiliesBare(_fontBox);
         }
 
         if (_sizeBox is not null)
@@ -412,7 +415,43 @@ public class RichTextToolbar : TemplatedControl
         }
     }
 
-    private void OnFontPicked(object? sender, SelectionChangedEventArgs e) => Picked(_fontBox, SetFontFamilyCommand);
+    /// <summary>
+    /// Shows the selection's family in the font box without the quotes it is stored in, and
+    /// commits what is typed there in its stored form.
+    /// </summary>
+    /// <remarks>
+    /// A family name holding a comma is stored quoted so that it stays one name (owner decision on
+    /// review finding 5.3), but <c>ACME, Inc.</c> is the name the user knows. Applied here rather
+    /// than in the template because a template cannot reach an internal converter, and a public
+    /// one would add API for what is a detail of this box. It replaces the template's own
+    /// <see cref="ComboBox.Text"/> binding and the Enter key's parameter; a template without them
+    /// gets them anyway, since a font box that shows the selection is what the part is for.
+    /// </remarks>
+    private void ShowFamiliesBare(ComboBox box)
+    {
+        box.Bind(ComboBox.TextProperty, new Binding(nameof(SelectionFontFamily))
+        {
+            Source = this,
+            Mode = BindingMode.OneWay,
+            Converter = ToolbarConverters.FamilyName,
+        });
+
+        foreach (var key in box.KeyBindings)
+        {
+            if (key.Gesture?.Key == Key.Enter && key.Gesture.KeyModifiers == KeyModifiers.None)
+            {
+                key.Bind(KeyBinding.CommandParameterProperty, new Binding(nameof(ComboBox.Text))
+                {
+                    Source = box,
+                    Mode = BindingMode.OneWay,
+                    Converter = ToolbarConverters.FamilyToStore,
+                });
+            }
+        }
+    }
+
+    private void OnFontPicked(object? sender, SelectionChangedEventArgs e) =>
+        Picked(_fontBox, SetFontFamilyCommand, item => ToolbarConverters.StoredFamily(item as string) ?? item);
 
     private void OnSizePicked(object? sender, SelectionChangedEventArgs e) => Picked(_sizeBox, SetFontSizeCommand);
 
@@ -421,12 +460,18 @@ public class RichTextToolbar : TemplatedControl
     /// Only while the list is open. The box's text follows the selection, and an editable box may
     /// select the matching item to go with it; reading that as a pick would re-apply the caret's
     /// own size to whatever is selected every time the caret moved. Typing still commits on Enter.
+    /// A family is committed in its stored form, quoted if it holds a comma, as typing it does.
     /// </remarks>
-    private static void Picked(ComboBox? box, ICommand command)
+    private static void Picked(ComboBox? box, ICommand command, Func<object, object>? stored = null)
     {
-        if (box is { IsDropDownOpen: true, SelectedItem: { } item } && command.CanExecute(item))
+        if (box is { IsDropDownOpen: true, SelectedItem: { } item })
         {
-            command.Execute(item);
+            var value = stored is null ? item : stored(item);
+
+            if (command.CanExecute(value))
+            {
+                command.Execute(value);
+            }
         }
     }
 
