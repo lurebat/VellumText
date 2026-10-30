@@ -104,6 +104,11 @@ awaits `PasteAsync`.
   same one a paste of that font produces. A name without a comma, or one already
   typed in quotes, is stored as typed. `SelectionFontFamily` and
   `SetFontFamilyCommand` still carry the stored form.
+- **After a pick or Enter in the font or size box, typing goes on in the
+  document.** Focus stayed in the box, so the next keystroke went into it
+  (`36x`). Picking from either list or pressing Enter now hands the keyboard back
+  to the editor, as Word and Docs do; Escape does too, without applying what was
+  typed, and the box shows the selection's value again.
 - **Enter at the end of a heading starts body text.** It started another
   heading, aligned like the first. The new paragraph is body text at the default
   alignment and keeps the heading's indent; Enter in the middle or at the start of
