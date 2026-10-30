@@ -156,15 +156,15 @@ public class RtfReaderTests
     }
 
     /// <summary>
-    /// A picture that is kept costs a bounded multiple of the RTF it came in. Setting the data URL
-    /// on the image element, which the sanitizer does once as it approves it, made the DOM resolve
-    /// it for an image request that nothing here can make: six copies of the URL, 64 MiB for a
-    /// 4 MiB picture (rubber-duck review finding 9.1, kept pictures).
+    /// A picture that is kept costs a small multiple of the RTF it came in. It went through the
+    /// HTML stage as a data URL several megabytes long: written by the converter, scanned by the
+    /// input guard, tokenized by the parser and resolved by the DOM, about 17 times the RTF as a
+    /// string (rubber-duck review finding 9.1, kept pictures). It now crosses as a short token for
+    /// its bytes, and the data URL is built once, for the document.
     /// </summary>
     /// <remarks>
     /// Run in a child process, which measures allocation over the import alone. What remains is
-    /// the RTF reader, its HTML writer and the HTML parser, each of which holds the picture in a
-    /// form of its own: about 13 times the RTF as a string, against 17 before.
+    /// the reader's tokens and the picture's bytes, and the data URL the document holds.
     /// </remarks>
     [Fact]
     public void A_kept_picture_costs_a_bounded_multiple_of_the_rtf()
@@ -179,12 +179,33 @@ public class RtfReaderTests
         var result = ProbeRunner.Run("rtf", rtf, TimeSpan.FromSeconds(60));
 
         Assert.True(result.ExitCode == 0, result.ToString());
-        Assert.True(int.Parse(result.Value("allocatedMb")!, CultureInfo.InvariantCulture) < 14 * rtfMb, $"RTF {rtfMb} MiB; {result}");
+        Assert.True(int.Parse(result.Value("allocatedMb")!, CultureInfo.InvariantCulture) < 4 * rtfMb, $"RTF {rtfMb} MiB; {result}");
         Assert.Equal("xy", result.Value("text"));
         Assert.Equal("1", result.Value("images"));
         Assert.DoesNotContain(result.Diagnostics, d => d.Contains("|data:|", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A kept picture's source is exactly the data URL the converter wrote for it, for each format
+    /// the converter embeds, beside text, in a table cell and twice in one paragraph.
+    /// </summary>
+    [Theory]
+    [InlineData("pngblip", "image/png")]
+    [InlineData("jpegblip", "image/jpeg")]
+    public async Task A_kept_picture_is_the_data_url_it_always_was(string blip, string mediaType)
+    {
+        var bytes = blip == "pngblip" ? Convert.FromHexString(Png) : Convert.FromHexString("FFD8FFE000104A46494600010100000100010000FFD9");
+        var pict = @"{\pict\" + blip + @"\picw2\pich3 " + Convert.ToHexString(bytes) + "}";
+        var rtf = @"{\rtf1\ansi a" + pict + "b" + pict + @"c\par\trowd\cellx2000 " + pict + @"\cell\row}";
+
+        var result = await RtfImporter.ImportAsync(rtf);
+        var images = All(result.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>().ToArray();
+
+        Assert.Equal(3, images.Length);
+        Assert.All(images, image => Assert.Equal($"data:{mediaType};base64,{Convert.ToBase64String(bytes)}", image.Source));
+        Assert.Contains(All(result.Doc), n => n is TableNode);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context is "img" or "data:");
+    }
     /// <summary>
     /// The size limit means what it means in the HTML stage: a picture of exactly
     /// <see cref="RtfImportOptions.MaxDataImageBytes"/> is kept, one byte more is dropped.
