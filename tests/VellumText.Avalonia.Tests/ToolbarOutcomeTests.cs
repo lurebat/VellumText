@@ -393,6 +393,54 @@ public class ToolbarOutcomeTests
     /// <summary>A string to pick from a box's list rather than to type into it.</summary>
     private sealed record PickedItem(string Value);
 
+    /// <summary>
+    /// A colour or highlight picked with a real click across two paragraphs lands on exactly the
+    /// selection and is drawn there, the button's swatch shows it, and "No colour" / "No
+    /// highlight" clicked the same way takes it off again, on screen too.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Text colour")]
+    [InlineData("Highlight")]
+    public void AColourAcrossTwoParagraphsColoursExactlyThemAndTheClearTakesItOff(string tip)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var foreground = tip == "Text colour";
+        Func<MarkSet, Rgba?> colourOf = marks => foreground ? marks.Foreground : marks.Highlight;
+
+        SelectAcross(view);
+
+        var swatch = Swatches(bar, tip)[8];
+        var colour = Color.Parse((string)swatch.CommandParameter!);
+
+        UserClick(swatch);
+
+        AssertMarkedExactly(editor.State.Doc, Across, marks => colourOf(marks) == colour.ToVellumText(), tip);
+        Assert.Equal(colour.ToVellumText(), foreground ? bar.SelectionForeground : bar.SelectionHighlight);
+        Assert.Equal(colour, Assert.IsAssignableFrom<ISolidColorBrush>(ButtonSwatch(bar, tip).Background).Color);
+
+        Assert.Equal(colour, DrawnColour(RunAt(view, 0, 6), foreground));
+        Assert.Equal(colour, DrawnColour(RunAt(view, 1, 0), foreground));
+        Assert.NotEqual(colour, DrawnColour(RunAt(view, 0, 0), foreground));
+        Assert.NotEqual(colour, DrawnColour(RunAt(view, 1, 7), foreground));
+
+        UserClick(ClearColour(bar, tip));
+
+        AssertMarkedExactly(editor.State.Doc, [], marks => colourOf(marks) is not null, tip);
+        Assert.Null(foreground ? bar.SelectionForeground : bar.SelectionHighlight);
+        Assert.NotEqual(colour, DrawnColour(RunAt(view, 0, 6), foreground));
+        Assert.NotEqual(colour, DrawnColour(RunAt(view, 1, 0), foreground));
+        Assert.False(((Flyout)Find(bar, tip)!.Flyout!).IsOpen);
+    }
+
+    /// <summary>The colour a laid-out run is drawn in, or highlighted with; null for none.</summary>
+    private static Color? DrawnColour(TextRunProperties run, bool foreground) =>
+        (foreground ? run.ForegroundBrush : run.BackgroundBrush) is ISolidColorBrush brush ? brush.Color : null;
+
+    /// <summary>The little swatch on a colour button that says what the selection is.</summary>
+    private static Border ButtonSwatch(RichTextToolbar bar, string tip) =>
+        Find(bar, tip)!.GetVisualDescendants().OfType<Border>().First(b => b.Classes.Contains("VellumText-swatch"));
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
