@@ -189,6 +189,186 @@ public class NestedTableVirtualizationTests
         Growth.AssertFlat(measured, $"bands examined scrolling 20 pages through a long table {depth} deep beside text");
     }
 
+    /// <summary>
+    /// A long table laid out whole beside the table the viewport is held in: scrolling twenty
+    /// pages through the held table examines a screenful per page however long the finished table
+    /// beside it is, and the text in both moves by exactly the scroll and stays where a fully
+    /// laid-out copy has it. Asking whether the finished table was finished walked every row of it
+    /// on every pass.
+    /// </summary>
+    [AvaloniaFact]
+    public void ScrollingBesideALongTableLaidOutWholeExaminesAScreenfulPerPage()
+    {
+        var measured = Growth.Measure(
+            [2_500, 5_000, 10_000],
+            n =>
+            {
+                var doc = new DocumentNode([
+                    new TableNode([new TableRowNode([
+                        new TableCellNode([Uniform(1_000, tag: "a")]),
+                        new TableCellNode([Uniform(n, tag: "b")]),
+                    ])]),
+                    ParagraphNode.FromText("After."),
+                ]);
+                var (window, view) = Shown(doc);
+                var beside = ((TableBlockView)view.Blocks[0]).NestedTables.Last();
+                var end = TextAt(doc, "a r999c0");
+
+                // The end of the held table on screen: the row's bottom could be there, so the
+                // table beside it is laid out whole (decision D2).
+                for (var attempt = 0; attempt < 4; attempt++)
+                {
+                    view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, end) - (Height / 2));
+                    Layout(window);
+                }
+
+                Assert.Equal(n, beside.RealizedRows);
+
+                view.Offset = new Vector(0, Height);
+                Layout(window);
+
+                ResetCounters();
+                WorkCounters.NestedBoundBands = 0;
+
+                for (var page = 0; page < 20; page++)
+                {
+                    var a = view.PositionAt(new Point(Width * 0.25, Height / 2));
+                    var b = view.PositionAt(new Point(Width * 0.75, Height / 2));
+                    var (ya, yb) = (ScreenTop(view, a), ScreenTop(view, b));
+
+                    view.Offset += new Vector(0, Height);
+                    Layout(window);
+
+                    Assert.True(Math.Abs(ScreenTop(view, a) - (ya - Height)) <= 1, $"page {page}: the held table's line moved from {ya:F1} to {ScreenTop(view, a):F1}");
+                    Assert.True(Math.Abs(ScreenTop(view, b) - (yb - Height)) <= 1, $"page {page}: the line beside moved from {yb:F1} to {ScreenTop(view, b):F1}");
+                    AssertScreenLaidOut(view);
+                }
+
+                var examined = WorkCounters.NestedBoundBands;
+
+                AssertNoRepairs();
+
+                var twin = GeometryTransactionTests.FullyLaidOut(doc);
+                var (left, right) = (view.PositionAt(new Point(Width * 0.25, Height / 2)), view.PositionAt(new Point(Width * 0.75, Height / 2)));
+
+                Assert.Equal(
+                    ScreenTop(twin, right) - ScreenTop(twin, left),
+                    ScreenTop(view, right) - ScreenTop(view, left),
+                    1.0);
+
+                return examined;
+            });
+
+        Growth.AssertFlat(measured, "bands examined scrolling 20 pages beside a long table laid out whole");
+    }
+
+    /// <summary>
+    /// A short table beside the held one, laid out whole and ending above the viewport, is made
+    /// much taller by an edit far up it: it now reaches into the viewport, and is drawn there where
+    /// a fully laid-out copy has it — not left at the height it had, as a table that had been found
+    /// complete once and was trusted to still be would be.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnEditFarUpAFinishedTableBesideTheHeldOneShowsItWhereItReallyIs()
+    {
+        var (window, view) = BesideAFinishedTable();
+
+        Place(window, view);
+
+        var top = view.PositionAt(new Point(20, 2));
+        var text = Paragraph(view.State.Doc, top);
+        var into = top - TextAt(view.State.Doc, text);
+        var y = ScreenTop(view, top);
+
+        ResetCounters();
+
+        view.Apply(view.State.Transaction().InsertText(TextAt(view.State.Doc, "b r2c0") + 6, string.Concat(Enumerable.Repeat(" more words in the cell", 60))));
+        Layout(window);
+
+        AssertLineAt(view, text, into, y);
+        AssertPlacedAsInTwin(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc), TextAt(view.State.Doc, text) + into);
+        Assert.True(ScreenTop(view, TextAt(view.State.Doc, "b r39c0")) > 0, "the edited table does not reach into the viewport");
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// The same finished table made taller by a composition far up it rather than an edit: drawn
+    /// where a fully laid-out copy composing the same text has it.
+    /// </summary>
+    [AvaloniaFact]
+    public void ComposingFarUpAFinishedTableBesideTheHeldOneShowsItWhereItReallyIs()
+    {
+        var (window, view) = BesideAFinishedTable();
+        var offset = view.Offset;
+        var caret = TextAt(view.State.Doc, "b r2c0") + 6;
+        var composed = string.Concat(Enumerable.Repeat(" more words in the cell", 60));
+
+        view.MoveTo(caret, extend: false);
+        Layout(window);
+        view.Offset = offset;
+        Layout(window);
+
+        var top = view.PositionAt(new Point(20, 2));
+        var y = ScreenTop(view, top);
+
+        ResetCounters();
+
+        Assert.True(view.SetPreedit(composed));
+        Layout(window);
+
+        Assert.True(Math.Abs(ScreenTop(view, top) - y) <= 1, $"the line at the top is drawn at {ScreenTop(view, top):F1}, not {y:F1}");
+
+        var twin = GeometryTransactionTests.FullyLaidOut(view.State.Doc);
+
+        twin.MoveTo(caret, extend: false);
+        Assert.True(twin.SetPreedit(composed));
+        twin.Measure(new Size(Width, double.PositiveInfinity));
+        twin.Arrange(new Rect(0, 0, Width, twin.DesiredSize.Height));
+
+        AssertPlacedAsInTwin(view, twin, top);
+        Assert.True(ScreenTop(view, TextAt(view.State.Doc, "b r39c0")) > 0, "the composing table does not reach into the viewport");
+
+        // The caret leaves for the held table on screen, which ends the composition: the finished
+        // table is as short as it was, and drawn so.
+        view.MoveTo(top, extend: false);
+        Layout(window);
+
+        Assert.False(view.IsComposing);
+        Assert.True(Math.Abs(ScreenTop(view, top) - y) <= 1, $"the line at the top is drawn at {ScreenTop(view, top):F1}, not {y:F1}");
+
+        var cleared = GeometryTransactionTests.FullyLaidOut(view.State.Doc);
+        var last = TextAt(view.State.Doc, "b r39c0");
+
+        AssertPlacedAsInTwin(view, cleared, top);
+        Assert.Equal(ScreenTop(cleared, last) - ScreenTop(cleared, top), ScreenTop(view, last) - ScreenTop(view, top), 1.0);
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// A long table held at the top of the viewport and, beside it, a short one laid out whole whose
+    /// last row is two hundred pixels above the viewport.
+    /// </summary>
+    private static (Window Window, RichTextView View) BesideAFinishedTable()
+    {
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                new TableCellNode([Uniform(600, tag: "a")]),
+                new TableCellNode([Uniform(40, tag: "b")]),
+            ])]),
+            ParagraphNode.FromText("After."),
+        ]);
+        var (window, view) = Shown(doc);
+        var last = TextAt(doc, "b r39c0");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, last) + 200);
+            Layout(window);
+        }
+
+        return (window, view);
+    }
+
     // ---- nothing blank ------------------------------------------------------------------------
 
     /// <summary>
@@ -1004,6 +1184,51 @@ public class NestedTableVirtualizationTests
                     view.Blocks[index].IsPreparedAt(position - view.Slots[index].Start),
                     $"position {position}, on screen at ({x:F0}, {y:F0}) in a fully laid-out copy, is not laid out");
             }
+        }
+    }
+
+    /// <summary>
+    /// Everything a fully laid-out copy shows in the viewport is laid out in the view and drawn
+    /// where the copy draws it: the copy is aligned on <paramref name="held"/>, a position on
+    /// screen in the view, and every point of a grid over the viewport is looked up in the copy;
+    /// the view must have that position laid out — asked before any geometry is read, so nothing
+    /// is laid out by the check — and its caret there within a pixel of the copy's.
+    /// </summary>
+    internal static void AssertPlacedAsInTwin(RichTextView view, RichTextView twin, int held)
+    {
+        AssertPrepared(view, held, "the held position");
+
+        var shift = Caret(twin, held).Top - Caret(view, held).Top;
+
+        for (var y = 1.0; y < Height; y += Height / 16)
+        {
+            for (var x = 4.0; x < Width; x += Width / 8)
+            {
+                var position = twin.PositionAt(new Point(x, y + shift));
+
+                AssertPrepared(view, position, $"position {position}, on screen at ({x:F0}, {y:F0}) in a fully laid-out copy,");
+
+                var expected = Caret(twin, position).Translate(new Vector(0, -shift));
+                var actual = Caret(view, position);
+
+                Assert.True(
+                    Math.Abs(actual.Top - expected.Top) <= 1 && Math.Abs(actual.Left - expected.Left) <= 1,
+                    $"position {position} is drawn at ({actual.Left:F1}, {actual.Top:F1}), not ({expected.Left:F1}, {expected.Top:F1}) as in a fully laid-out copy");
+            }
+        }
+
+        static void AssertPrepared(RichTextView view, int position, string what)
+        {
+            var index = view.BlockIndexOf(position);
+
+            Assert.True(view.Blocks[index].IsPreparedAt(position - view.Slots[index].Start), $"{what} is not laid out");
+        }
+
+        static Rect Caret(RichTextView view, int position)
+        {
+            var index = view.BlockIndexOf(position);
+
+            return view.Blocks[index].GetCaretRect(position - view.Slots[index].Start).Translate((Vector)view.BlockOrigin(index));
         }
     }
 

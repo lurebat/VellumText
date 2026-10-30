@@ -801,24 +801,73 @@ internal sealed partial class TableBlockView
     }
 
     /// <summary>Whether every row is laid out at the current width, and so is every table in them.</summary>
-    internal bool IsComplete()
+    /// <remarks>
+    /// Every measured row is in the estimate, so fewer of them than rows is a row unmeasured, known
+    /// without walking the table; otherwise the bands are walked from where the last answer
+    /// stopped (<see cref="CompleteBefore"/>).
+    /// </remarks>
+    internal bool IsComplete() =>
+        !double.IsNaN(_width) && _estimate.Count >= _rows.Length && CompleteBefore(_rows.Length);
+
+    /// <summary>
+    /// How many times, on this thread, a row of any table stopped being laid out: made stale by an
+    /// edit or a composition, or forgotten with every height for a new width or a rebuild.
+    /// </summary>
+    /// <remarks>
+    /// Between two of these, rows and the tables in them only become laid out, never less, so the
+    /// bands a table found complete stay complete and asking again starts where the last answer
+    /// stopped. A change anywhere counts for every table, because a table does not see a change
+    /// deep inside its cells. Thread-static because views belong to the thread that made them.
+    /// Without it, a table laid out whole beside the one the viewport is held in was walked row by
+    /// row on every pass of every scroll.
+    /// </remarks>
+    [ThreadStatic]
+    private static long s_rowsUnlaid;
+
+    /// <summary>The value of <see cref="s_rowsUnlaid"/> when <see cref="_completeTo"/> was found.</summary>
+    private long _completeSeen = -1;
+
+    /// <summary>Every band starting before this was complete when it was found.</summary>
+    private int _completeTo;
+
+    /// <summary>Records that a row stopped being laid out, so no table trusts what it found complete before.</summary>
+    private static void RowsUnlaid() => s_rowsUnlaid++;
+
+    /// <summary>Whether every band starting before <paramref name="limit"/> is complete.</summary>
+    private bool CompleteBefore(int limit)
     {
-        // Every measured row is in the estimate, so fewer of them than rows is a row unmeasured,
-        // known without walking the table.
-        if (double.IsNaN(_width) || _estimate.Count < _rows.Length)
+        var start = _completeSeen == s_rowsUnlaid ? _completeTo : 0;
+
+        while (start < limit && BandComplete(start))
         {
-            return false;
+            start = _bandEnd[start];
         }
 
-        for (var start = 0; start < _rows.Length; start = _bandEnd[start])
+        _completeSeen = s_rowsUnlaid;
+        _completeTo = start;
+        CheckComplete(start);
+
+        return start >= limit;
+    }
+
+    /// <summary>
+    /// In debug builds, for a table short enough to check on every question: every band it holds
+    /// complete is.
+    /// </summary>
+    [Conditional("DEBUG")]
+    private void CheckComplete(int before)
+    {
+        if (_rows.Length > 64)
         {
-            if (!BandComplete(start))
-            {
-                return false;
-            }
+            return;
         }
 
-        return true;
+        for (var start = 0; start < before && start < _rows.Length; start = _bandEnd[start])
+        {
+            Invariant.That(
+                IsLaidOut(start) && NestedInBand(start).All(nested => nested.IsComplete()),
+                "the bands a table found complete, with no row anywhere unlaid since, are complete");
+        }
     }
 
     private bool BandComplete(int start)
@@ -909,12 +958,9 @@ internal sealed partial class TableBlockView
         var row = WindowRow;
         var start = _bandStart[row];
 
-        for (var b = 0; b < start; b = _bandEnd[b])
+        if (!CompleteBefore(start))
         {
-            if (!BandComplete(b))
-            {
-                return false;
-            }
+            return false;
         }
 
         if (BandComplete(start))

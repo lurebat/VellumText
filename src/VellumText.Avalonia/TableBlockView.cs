@@ -426,6 +426,7 @@ internal sealed partial class TableBlockView : BlockView
 
                 row.Cells = cells;
                 row.Dirty = true;
+                RowsUnlaid();
                 _changes++;
             }
         }
@@ -879,6 +880,7 @@ internal sealed partial class TableBlockView : BlockView
         LayoutGuard.Changing("a table's row heights forgotten");
 
         Array.Fill(_rowHeights, double.NaN);
+        RowsUnlaid();
         _changes++;
         _estimate.Restart();
         _edgesFrom = 0;
@@ -2071,6 +2073,7 @@ internal sealed partial class TableBlockView : BlockView
                         || child.View.ParagraphChanged(paragraph, localPosition - rowStart - child.Start))
                     {
                         _rows[r].Dirty = true;
+                        RowsUnlaid();
                         _changes++;
 
                         return true;
