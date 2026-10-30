@@ -60,6 +60,9 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
     private protected int _last = -1;
     private EventHandler? _scrollInvalidated;
 
+    /// <summary>Whether the next <c>Realize</c> is to put the document's end at the bottom of the viewport.</summary>
+    private bool _endRequested;
+
     /// <summary>The size of the whole document, measured blocks and estimated ones together.</summary>
     /// <remarks>
     /// Not a fixed number: a block nobody has laid out contributes an estimate, and measuring it
@@ -70,13 +73,25 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
 
     /// <summary>How far the viewport has been scrolled into the document.</summary>
     /// <remarks>
+    /// <para>
     /// Clamped to the document on the way in, so a host may set it freely. Setting it schedules
     /// a layout pass, which is what moves the realized window.
+    /// </para>
+    /// <para>
+    /// An offset at the end of the scroll range is an ordinary scroll, not a request for the end
+    /// of the document: the wheel, the scroll bar and the host all arrive here alike, and a wheel
+    /// that reaches the end of a range that is too small must not jump screens further. Setting it
+    /// does cancel an end request the layout has not carried out yet, so the latest scroll wins.
+    /// </para>
     /// </remarks>
     public Vector Offset
     {
         get => _offset;
-        set => ApplyOffset(value, relayout: true);
+        set
+        {
+            _endRequested = false;
+            ApplyOffset(value, relayout: true);
+        }
     }
 
     /// <summary>The part of the document on screen.</summary>
@@ -168,6 +183,21 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
 
     /// <summary>Whether the view is laying out a window rather than the whole document.</summary>
     private protected bool IsVirtualizing => !double.IsInfinity(_measureHeight) && _canVerticallyScroll;
+
+    /// <summary>
+    /// Asks the next layout pass to lay the window out from the document's end up and put the end
+    /// at the bottom of the viewport.
+    /// </summary>
+    /// <remarks>
+    /// Carried by a flag rather than done here, because where the end is depends on the heights of
+    /// everything above it, which only a layout pass settles. The request lasts until a pass
+    /// carries it out or the offset is set (<see cref="Offset"/>).
+    /// </remarks>
+    private protected void RequestEnd()
+    {
+        _endRequested = true;
+        InvalidateMeasure();
+    }
 
     /// <summary>Records a new extent, telling the scroll viewer if it moved.</summary>
     private void SetExtent(Size value)

@@ -230,6 +230,17 @@ triple-click selects a paragraph, dragging past the top or bottom edge keeps scr
 inserts a soft break inside the paragraph rather than starting a new one, and Ctrl+Shift+V pastes
 as plain text.
 
+Ctrl+End, and the editor's scroll bar dragged or clicked to the bottom, show the true end of the
+document. That is not always the end of the scroll range: the range counts everything nobody has
+scrolled to yet at an estimated height, and rows that each hold a long table can make it far too
+short. The mouse wheel stays a plain scroll and stops at the end of the range. To show the end from
+code without moving the caret, call `ScrollToEnd()` on the view; setting `Offset`, or calling
+`ScrollViewer.ScrollToEnd()`, goes only to the end of the range as estimated:
+
+```csharp
+Editor.EnsureView().ScrollToEnd();   // the caret and the selection stay where they are
+```
+
 Lists behave as in a word processor. Enter in a bullet starts the next bullet, carrying whatever
 follows the caret with it, and Enter in an empty bullet leaves the list. Tab nests the bullet under
 the one above it and Shift+Tab lifts only the bullet the caret is in, out of the list at the top

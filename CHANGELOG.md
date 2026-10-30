@@ -59,6 +59,16 @@ awaits `PasteAsync`.
   step holding the displaced text; and `Map` rebases each range as
   `ReplaceStep` does, dropping ranges whose both ends were deleted. Replace
   All is built on it.
+- **`RichTextView.ScrollToEnd()`** shows the true end of the document at the
+  bottom of the viewport without moving the caret or the selection, as Ctrl+End
+  does with it. The end of the scroll range is not always the end of the
+  document: rows nobody has scrolled to are counted at an estimated height, and
+  when they each hold a long table the range can end many screens short. The
+  editor's scroll bar dragged or clicked to its bottom now asks for the true end
+  the same way; a document ending in such a table used to stop thousands of
+  pixels short. The mouse wheel, `Offset` and `ScrollViewer.ScrollToEnd()` stay a
+  plain scroll to the end of the range.
+
 ### Removed from the public API
 
 - `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
