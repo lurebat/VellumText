@@ -155,6 +155,31 @@ public partial class RichTextView
             { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } heading } at
         && at.ParentOffset == heading.ContentSize;
 
+    /// <summary>Turns the paragraph a position is in into body text, where it is.</summary>
+    /// <param name="at">A position inside the paragraph.</param>
+    /// <param name="kind">How the edit is grouped for undo.</param>
+    /// <param name="defaultAlign">
+    /// Whether the alignment goes back to the default as well: leaving a block leaves its
+    /// alignment, while taking the kind off a paragraph keeps the alignment that paragraph had.
+    /// </param>
+    /// <returns>Whether anything changed.</returns>
+    private bool MakeBody(ResolvedPos at, TransactionKind kind, bool defaultAlign)
+    {
+        var start = at.Before(at.Depth);
+        var transaction = _state.Transaction()
+            .As(kind)
+            .Step(new SetBlockAttrStep(start, BlockAttr.ParagraphKind, (int)ParagraphKind.Body));
+
+        if (defaultAlign && at.Parent is ParagraphNode { Align: not TextAlign.Default })
+        {
+            transaction.Step(new SetBlockAttrStep(start, BlockAttr.Align, (int)TextAlign.Default));
+        }
+
+        _goalX = null;
+
+        return Apply(transaction);
+    }
+
     /// <summary>Deletes the selection, or one cluster forward from the caret.</summary>
     /// <returns>Whether anything changed.</returns>
     public bool Delete() => DeleteAround(forward: true);
@@ -186,6 +211,16 @@ public partial class RichTextView
         if (InCodeBlock(_state.Doc, _state.Selection.From))
         {
             return OnEmptyLinesAtEndOfCode() ? LeaveCodeBlock(trim: true) : InsertLineBreak();
+        }
+
+        // Enter on an empty quote line leaves the quote, the way Enter in an empty bullet leaves
+        // the list: the line becomes body text where it is, so in the middle of a quote the quote
+        // is split around it. Before the list rules, so a quote in a bullet is left first.
+        if (_state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is
+                { Parent: ParagraphNode { Kind: ParagraphKind.Quote, Content.Text.Length: 0 } } quote)
+        {
+            return MakeBody(quote, TransactionKind.Structure, defaultAlign: true);
         }
 
         // Enter in an empty bullet leaves the list rather than adding another empty one. It is

@@ -149,6 +149,135 @@ public class RichTextViewHeadingAndQuoteKeyTests
         Assert.Equal(("Title", 0), Caret(view));
     }
 
+    // ---- Enter in a quote -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Typing a quote from the keyboard and leaving it: Enter continues the quote, and Enter on the
+    /// empty line that made leaves it. That empty line used to be one more quote line, and so on
+    /// for every Enter.
+    /// </summary>
+    [AvaloniaFact]
+    public void Enter_on_an_empty_quote_line_leaves_the_quote()
+    {
+        var view = Laid(Doc(Quote("said")), In(0, 4));
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            quote "said"
+            quote ""
+            """,
+            view);
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            quote "said"
+            p ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+
+        Type(view, "reply");
+
+        Shaped(
+            """
+            quote "said"
+            p "reply"
+            """,
+            view);
+    }
+
+    /// <summary>An empty line in the middle of a quote leaves it there, splitting the quote around it.</summary>
+    [AvaloniaFact]
+    public void Enter_on_an_empty_line_in_the_middle_of_a_quote_splits_the_quote_around_it()
+    {
+        var view = Laid(Doc(Quote("one"), Quote(string.Empty), Quote("two")), In(1, 0));
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            quote "one"
+            p ""
+            quote "two"
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
+    /// <summary>Leaving the quote is leaving its alignment too, as leaving a heading is.</summary>
+    [AvaloniaFact]
+    public void Leaving_a_centred_quote_gives_body_text_at_the_default_alignment()
+    {
+        var view = Laid(Doc(Quote("said", TextAlign.Center), Quote(string.Empty, TextAlign.Center)), In(1, 0));
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            quote "said" align=Center
+            p ""
+            """,
+            view);
+    }
+
+    /// <summary>In a bullet the empty quote line becomes body text in the bullet; the next Enter leaves the list.</summary>
+    [AvaloniaFact]
+    public void Enter_on_an_empty_quote_line_in_a_bullet_leaves_the_quote_before_the_list()
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("one"), new ListItemNode([Quote(string.Empty)])]),
+        ]);
+        var view = Laid(doc, In(1, 0));
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+              list-item
+                p ""
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Enter_on_a_quote_line_with_words_still_continues_the_quote()
+    {
+        var view = Laid(Doc(Quote("said")), In(0, 2));
+
+        Press(view, Key.Enter);
+
+        Shaped(
+            """
+            quote "sa"
+            quote "id"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void One_undo_puts_back_the_quote_line_enter_left()
+    {
+        var view = Laid(Doc(Quote("said"), Quote(string.Empty)), In(1, 0));
+
+        Press(view, Key.Enter);
+        Press(view, Key.Z, KeyModifiers.Control);
+
+        Shaped(
+            """
+            quote "said"
+            quote ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ParagraphNode Heading(string text, TextAlign align = TextAlign.Default) =>
@@ -156,6 +285,7 @@ public class RichTextViewHeadingAndQuoteKeyTests
 
     private static ParagraphNode Quote(string text, TextAlign align = TextAlign.Default) =>
         new(InlineContent.FromText(text), ParagraphKind.Quote, align);
+
     private static ParagraphNode Para(string text) => ParagraphNode.FromText(text);
 
     private static DocumentNode Doc(params BlockNode[] blocks) => new(blocks);

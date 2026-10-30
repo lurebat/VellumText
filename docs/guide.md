@@ -248,7 +248,9 @@ of code per line of text; rich content of more than one paragraph arrives as its
 does in Tiptap.
 
 Enter at the end of a heading starts body text at the default alignment, as in a word processor;
-in the middle of a heading it gives two headings.
+in the middle of a heading it gives two headings. Enter in a quote continues the quote, and Enter on
+an empty quote line leaves it: the line becomes body text, splitting the quote around it if it is in
+the middle.
 
 Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and
 the selection is picked up; a caret follows the pointer to show where it will land, and releasing
