@@ -247,6 +247,9 @@ turns it into an ordinary paragraph. Text pasted or dropped into a code block st
 of code per line of text; rich content of more than one paragraph arrives as its plain text, as it
 does in Tiptap.
 
+Enter at the end of a heading starts body text at the default alignment, as in a word processor;
+in the middle of a heading it gives two headings.
+
 Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and
 the selection is picked up; a caret follows the pointer to show where it will land, and releasing
 drops it there, selected. Releasing before those four pixels is an ordinary click and collapses the

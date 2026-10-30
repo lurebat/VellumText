@@ -50,6 +50,10 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **Enter at the end of a heading starts body text.** It started another
+  heading, aligned like the first. The new paragraph is body text at the default
+  alignment and keeps the heading's indent; Enter in the middle or at the start of
+  a heading is unchanged.
 - **Enter in a code block adds a line to the same block.** It split the block,
   so every line of code became a code block of its own and the toolbar was the
   only way out of the last one. The lines stay newlines in the one block now, as

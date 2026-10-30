@@ -149,6 +149,12 @@ public partial class RichTextView
             && at.NodeAt(at.Depth - 1) is ListItemNode;
     }
 
+    /// <summary>Whether a position is at the very end of a heading.</summary>
+    private static bool AtEndOfHeading(DocumentNode doc, int position) =>
+        doc.Resolve(position) is
+            { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } heading } at
+        && at.ParentOffset == heading.ContentSize;
+
     /// <summary>Deletes the selection, or one cluster forward from the caret.</summary>
     /// <returns>Whether anything changed.</returns>
     public bool Delete() => DeleteAround(forward: true);
@@ -158,9 +164,8 @@ public partial class RichTextView
     /// <para>
     /// The half that follows the caret keeps the block's presentation — its kind, alignment and
     /// indent — because pressing Enter in the middle of a quote should give two quotes rather
-    /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the case
-    /// where users usually want a body paragraph instead, and that is a deliberate omission
-    /// here: it is a policy about heading kinds, and kinds arrive in the next piece of work.
+    /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the
+    /// exception users expect: what follows is body text, at the default alignment.
     /// </para>
     /// <para>
     /// A code block is the exception: its lines are newlines in its text, so Enter there breaks
@@ -201,6 +206,14 @@ public partial class RichTextView
 
         var at = selection.From;
         var tail = Block.Paragraph.WithContent(InlineContent.Empty);
+
+        // Enter at the end of a heading starts body text, as in every word processor: the next
+        // thing written under a title is not another title. Only the kind and the alignment are
+        // the heading's; the indent is where the user put the text and stays.
+        if (AtEndOfHeading(transaction.Doc, at))
+        {
+            tail = tail.WithKind(ParagraphKind.Body).WithAlign(TextAlign.Default);
+        }
 
         _goalX = null;
 
