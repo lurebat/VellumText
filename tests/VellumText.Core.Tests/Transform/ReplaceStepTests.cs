@@ -187,6 +187,78 @@ public class ReplaceStepTests
         Assert.Equal(DocumentNode.FromParagraphs("ab", "cd"), after);
     }
 
+    /// <remarks>
+    /// F-15. Enter turns one top-level paragraph into two and Backspace at a paragraph's start
+    /// turns two into one, so no level of the tree keeps its child count and the step used to
+    /// fall back to cutting the whole document in two and splicing it back: six copies of the
+    /// document's block array per keystroke, 2.4 MB at 50,000 paragraphs. Only the blocks the
+    /// range touches are replaced now, so the block array is copied about twice — once to
+    /// splice it and once to type it — and every untouched block is shared.
+    /// </remarks>
+    [Theory]
+    [InlineData("split")]
+    [InlineData("join")]
+    public void ASplitOrJoinAtTheTopLevelCopiesTheBlockArrayAboutTwice(string edit)
+    {
+        const int Paragraphs = 20_000;
+
+        var doc = DocumentNode.FromParagraphs(
+            Enumerable.Range(0, Paragraphs).Select(i => $"paragraph {i}").ToArray());
+        var lastStart = doc.Resolve(doc.ContentSize - 2).Start(1);
+        var step = edit == "split"
+            ? ReplaceStep.Insert(doc.ContentSize - 3, Slice.ParagraphSplit)
+            : ReplaceStep.Delete(lastStart - 2, lastStart);
+
+        // Resolving a position builds the document's own size index on first use; that is the
+        // document's cost, not the step's.
+        step.Apply(doc);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = step.Apply(doc);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(result.IsOk, result.Failure);
+        Assert.Same(doc.Blocks[0], result.Doc!.Blocks[0]);
+        Assert.Same(doc.Blocks[Paragraphs / 2], result.Doc.Blocks[Paragraphs / 2]);
+
+        var blockArray = (long)IntPtr.Size * Paragraphs;
+
+        Assert.True(
+            allocated <= (blockArray * 5 / 2) + (64 * 1024),
+            $"{edit} allocated {allocated:N0} bytes; one block array is {blockArray:N0}");
+    }
+
+    /// <remarks>
+    /// F-14. A keystroke in a top-level paragraph replaces one entry of the document's block
+    /// array. Replacing it through the general node API copied the array twice — once to set the
+    /// entry and once more to check every entry's type on the way into the new document — 800 KB
+    /// a keystroke at 50,000 paragraphs where 400 KB is what an immutable edit has to cost.
+    /// </remarks>
+    [Fact]
+    public void TypingAtTheTopLevelCopiesTheBlockArrayOnce()
+    {
+        const int Paragraphs = 20_000;
+
+        var doc = DocumentNode.FromParagraphs(
+            Enumerable.Range(0, Paragraphs).Select(i => $"paragraph {i}").ToArray());
+        var step = ReplaceStep.Insert(doc.ContentSize - 3, Slice.OfText("x"));
+
+        step.Apply(doc);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var result = step.Apply(doc);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(result.IsOk, result.Failure);
+        Assert.Same(doc.Blocks[0], result.Doc!.Blocks[0]);
+
+        var blockArray = (long)IntPtr.Size * Paragraphs;
+
+        Assert.True(
+            allocated <= (blockArray * 3 / 2) + (32 * 1024),
+            $"typing allocated {allocated:N0} bytes; one block array is {blockArray:N0}");
+    }
+
     [Fact]
     public void WholeBlocksGoInBetweenExistingOnesUnmerged()
     {

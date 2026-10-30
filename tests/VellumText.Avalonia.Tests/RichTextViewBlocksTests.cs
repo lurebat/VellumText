@@ -183,6 +183,32 @@ public class RichTextViewBlocksTests
         Assert.Same(before[1], view.Blocks[2]);
     }
 
+    /// <remarks>
+    /// The same inside one top-level block. A list is one block of the document, so adding an
+    /// item replaces it whole, and its items have to be matched by paragraph again or every view
+    /// below the new item is handed the paragraph above it to lay out instead of keeping its own.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AnItemInsertedInAListDoesNotDisturbTheItemsBelowIt()
+    {
+        var view = Shown(new DocumentNode(
+        [
+            ParagraphNode.FromText("before"),
+            new ListNode([ListItemNode.FromText("a"), ListItemNode.FromText("b"), ListItemNode.FromText("c")]),
+        ]));
+        var before = view.Blocks.ToArray();
+
+        view.MoveTo(view.Slots[1].End, extend: false);
+        Assert.True(view.Split());
+        view.Measure(new Size(400, 200));
+
+        Assert.Equal(5, view.Blocks.Count);
+        Assert.Same(before[0], view.Blocks[0]);
+        Assert.Same(before[2], view.Blocks[3]);
+        Assert.Same(before[3], view.Blocks[4]);
+        Assert.Equal("b", ((ParagraphView)view.Blocks[3]).Paragraph.Content.Text);
+    }
+
     [AvaloniaFact]
     public void ADeletedParagraphTakesItsViewWithIt()
     {

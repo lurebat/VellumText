@@ -495,39 +495,55 @@ public partial class RichTextView
     {
         // Adjacency in the document, not in the drawn run: two paragraphs inside one table cell
         // are neighbours the user can join, and the drawn run sees only the table around them.
-        var leaves = Leaves;
         var head = _state.Selection.Head;
-        var index = -1;
+        var at = _state.Doc.Resolve(head);
+        BlockSlot slot;
+        BlockSlot other;
 
-        for (var i = 0; i < leaves.Length; i++)
+        if (at.Paragraph is { } paragraph)
         {
-            if (head >= leaves[i].Start && head <= leaves[i].End)
+            // Found by walking out from the caret rather than by listing every leaf in the
+            // document and scanning for it: that list is rebuilt for every new document, and a
+            // join makes one, so a Backspace that joined two paragraphs cost a 3.2 MB list at
+            // 50,000 paragraphs (F-15).
+            slot = new BlockSlot(paragraph, at.Start(at.Depth), 0, null);
+
+            if (DocumentBlocks.LeafBeside(at, at.Depth, forward) is not { } beside)
             {
-                index = i;
-                break;
+                // Backspace at the very start of the document has nothing to join. In a heading
+                // it takes the heading off instead, as Notion and Tiptap do, rather than leaving
+                // the toolbar as the only way to turn the first line back into text.
+                return !forward
+                    && paragraph is { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 }
+                    && MakeBody(at, TransactionKind.Format, defaultAlign: false);
             }
+
+            other = beside;
         }
-
-        var neighbour = index + (forward ? 1 : -1);
-
-        // Backspace at the very start of the document has nothing to join. In a heading it takes
-        // the heading off instead, as Notion and Tiptap do, rather than leaving the toolbar as the
-        // only way to turn the first line back into text.
-        if (!forward
-            && index == 0
-            && _state.Doc.Resolve(head) is
-                { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } } first)
+        else
         {
-            return MakeBody(first, TransactionKind.Format, defaultAlign: false);
-        }
+            var leaves = Leaves;
+            var index = -1;
 
-        if (index < 0 || neighbour < 0 || neighbour >= leaves.Length)
-        {
-            return false;
-        }
+            for (var i = 0; i < leaves.Length; i++)
+            {
+                if (head >= leaves[i].Start && head <= leaves[i].End)
+                {
+                    index = i;
+                    break;
+                }
+            }
 
-        var slot = leaves[index];
-        var other = leaves[neighbour];
+            var neighbour = index + (forward ? 1 : -1);
+
+            if (index < 0 || neighbour < 0 || neighbour >= leaves.Length)
+            {
+                return false;
+            }
+
+            slot = leaves[index];
+            other = leaves[neighbour];
+        }
 
         var (from, to) = other.Node.IsLeaf
             ? (other.Start, other.Start + other.Node.NodeSize)

@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Collections.Immutable;
+using System.Text;
 
 namespace VellumText;
 
@@ -183,12 +185,30 @@ public static class DocumentSearch
     }
 
     /// <remarks>
+    /// <para>
     /// A word character is a letter, a digit or an underscore, which is what every editor's
     /// "whole word" means and is deliberately wider than <see cref="char.IsLetterOrDigit(char)"/>.
+    /// </para>
+    /// <para>
+    /// The neighbours are read as whole characters. Neither half of a surrogate pair is a letter,
+    /// so reading them one <c>char</c> at a time took every letter outside the basic plane — a
+    /// mathematical letter, a historic script — for a word boundary.
+    /// </para>
     /// </remarks>
     private static bool IsWholeWord(string text, int at, int length) =>
-        (at == 0 || !IsWordCharacter(text[at - 1])) &&
-        (at + length == text.Length || !IsWordCharacter(text[at + length]));
+        !EndsInWordCharacter(text, at) && !StartsWithWordCharacter(text, at + length);
 
-    private static bool IsWordCharacter(char c) => char.IsLetterOrDigit(c) || c == '_';
+    /// <summary>Whether the character just before <paramref name="offset"/> is a word character.</summary>
+    private static bool EndsInWordCharacter(string text, int offset) =>
+        offset > 0
+        && Rune.DecodeLastFromUtf16(text.AsSpan(0, offset), out var rune, out _) == OperationStatus.Done
+        && IsWordCharacter(rune);
+
+    /// <summary>Whether the character at <paramref name="offset"/> is a word character.</summary>
+    private static bool StartsWithWordCharacter(string text, int offset) =>
+        offset < text.Length
+        && Rune.DecodeFromUtf16(text.AsSpan(offset), out var rune, out _) == OperationStatus.Done
+        && IsWordCharacter(rune);
+
+    private static bool IsWordCharacter(Rune c) => Rune.IsLetterOrDigit(c) || c.Value == '_';
 }

@@ -11,7 +11,7 @@ namespace VellumText.Avalonia;
 /// <remarks>
 /// <para>
 /// Two lists move together. <see cref="Slots"/> is what the document says — which block, where
-/// it starts, how deep it is nested — and is rebuilt from the tree on every change.
+/// it starts, how deep it is nested — and is patched on every change, only where the change was.
 /// <see cref="Blocks"/> is what has been laid out, and is emphatically <em>not</em> rebuilt,
 /// because a block view owns a text layout and a run cache that cost real time to produce. The
 /// reconciliation between them is the whole point of this file.
@@ -28,18 +28,23 @@ public abstract partial class DocumentPresenter
 {
     private protected readonly BlockHeightIndex _heights = new();
     private protected readonly List<BlockView> _views = [];
-    private protected ImmutableArray<BlockSlot> _slots = [];
+    private protected readonly BlockSlotList _slots = new();
 
-    /// <summary>The document <see cref="_flattened"/> was built from.</summary>
+    /// <summary>The document <see cref="_slots"/> describes, or null when it describes none.</summary>
     /// <remarks>
-    /// Flattening walks every block and allocates a slot for each - measured at 64 bytes per
-    /// block - and it ran on every state change, including a caret move, which cannot have
-    /// changed a single block. Documents are immutable, so the same object is the same block
-    /// list: reference identity is an exact cache key here rather than an approximation of one.
+    /// <para>
+    /// Documents are immutable, so the same object is the same block list: reference identity is
+    /// an exact key here rather than an approximation of one, and a caret move — which cannot
+    /// have changed a block — costs nothing.
+    /// </para>
+    /// <para>
+    /// A different document is compared with this one top-level block by top-level block, and
+    /// only the slots of the blocks that differ are rebuilt. Flattening the whole document again
+    /// on every change allocated a slot per block — 3.2 MB a keystroke at 50,000 paragraphs, and
+    /// the gen-2 collections that came with it (F-14).
+    /// </para>
     /// </remarks>
-    private DocumentNode? _flattenedFor;
-
-    private ImmutableArray<BlockSlot> _flattened = [];
+    private DocumentNode? _slotsFor;
 
     private DocumentNode? _leavesFor;
     private ImmutableArray<BlockSlot> _leaves = [];
@@ -147,7 +152,8 @@ public abstract partial class DocumentPresenter
     public int BlockCount => _views.Count;
 
     /// <summary>What the document says about each block, in document order.</summary>
-    internal ImmutableArray<BlockSlot> Slots => _slots;
+    /// <remarks>A copy, for tests and diagnostics; the presenter itself reads the live list.</remarks>
+    internal ImmutableArray<BlockSlot> Slots => _slots.ToImmutableArray();
 
     /// <summary>The top-left corner of a block, in this control's coordinates.</summary>
     /// <remarks>
@@ -495,7 +501,7 @@ public abstract partial class DocumentPresenter
     {
         if (_slots.IsEmpty)
         {
-            Reconcile(FlattenedSlots());
+            Reconcile();
         }
     }
 
@@ -519,7 +525,7 @@ public abstract partial class DocumentPresenter
     /// <returns>The space the view asks for.</returns>
     private protected Size Realize()
     {
-        Reconcile(FlattenedSlots());
+        Reconcile();
 
         if (_views.Count == 0)
         {
@@ -671,95 +677,153 @@ public abstract partial class DocumentPresenter
         return _views[index];
     }
 
-    /// <summary>The document as a flat block list, rebuilt only when the document changes.</summary>
-    private ImmutableArray<BlockSlot> FlattenedSlots()
-    {
-        var document = PresentedDocument;
-
-        if (!ReferenceEquals(document, _flattenedFor))
-        {
-            _flattened = DocumentBlocks.Flatten(document);
-            _flattenedFor = document;
-        }
-
-        return _flattened;
-    }
-
-    private void Reconcile(ImmutableArray<BlockSlot> slots)
+    /// <summary>
+    /// Brings the slot list and the block views up to date with the document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The top-level blocks the edit did not touch are the same objects in the new document as in
+    /// the old one, so comparing the two block arrays by reference from each end finds the
+    /// replaced run exactly. Only that run is flattened again, and every slot after it moves by
+    /// the number of positions the edit added or removed. That is linear in the document, like
+    /// the edit that caused it, but it allocates only the slots that are new.
+    /// </para>
+    /// <para>
+    /// Within the replaced run the old and new slots are then matched by node reference from each
+    /// end as well, so that a list whose one item changed relays out that item and not the list.
+    /// </para>
+    /// </remarks>
+    private void Reconcile()
     {
         var previous = Anchor;
+        var document = PresentedDocument;
 
+        if (_slotsFor is null)
+        {
+            // Nothing to patch: the first realization, or the layout was dropped.
+            _slots.Reset(DocumentBlocks.Flatten(document));
+            _slotsFor = document;
+            Rebuild(0, [], _slots.Length);
+        }
+        else if (!ReferenceEquals(document, _slotsFor))
+        {
+            var before = _slotsFor.Blocks;
+            var after = document.Blocks;
+            var limit = Math.Min(before.Length, after.Length);
+            var prefix = 0;
+            var position = 0;
+
+            while (prefix < limit && ReferenceEquals(before[prefix], after[prefix]))
+            {
+                position += after[prefix].NodeSize;
+                prefix++;
+            }
+
+            var suffix = 0;
+            var tail = 0;
+
+            while (suffix < limit - prefix
+                && ReferenceEquals(before[^(suffix + 1)], after[^(suffix + 1)]))
+            {
+                tail += after[^(suffix + 1)].NodeSize;
+                suffix++;
+            }
+
+            // Slot starts strictly increase, so the replaced blocks' slots are exactly the ones
+            // starting between where the first replaced block begins and where the unchanged
+            // tail begins in the old document.
+            var first = _slots.FirstStartingAtOrAfter(position);
+            var end = _slots.FirstStartingAtOrAfter(_slotsFor.ContentSize - tail);
+            var replaced = DocumentBlocks.Flatten(
+                ImmutableArray.Create(after, prefix, after.Length - prefix - suffix),
+                position);
+            var old = _slots.Copy(first, end - first);
+
+            _slots.Splice(first, end - first, replaced, document.ContentSize - _slotsFor.ContentSize);
+            _slotsFor = document;
+            Rebuild(first, old, replaced.Length);
+        }
+
+        OnReconciled(previous);
+    }
+
+    /// <summary>Brings the views of a run of slots up to date with them.</summary>
+    /// <param name="first">The index of the first slot in the run.</param>
+    /// <param name="old">The slots the run replaced, which the views still show.</param>
+    /// <param name="count">How many slots the run has now.</param>
+    private void Rebuild(int first, BlockSlot[] old, int count)
+    {
+        var limit = Math.Min(old.Length, count);
         var prefix = 0;
 
-        while (prefix < _views.Count
-            && prefix < slots.Length
-            && ReferenceEquals(_slots[prefix].Node, slots[prefix].Node))
+        while (prefix < limit && ReferenceEquals(old[prefix].Node, _slots[first + prefix].Node))
         {
             prefix++;
         }
 
         var suffix = 0;
 
-        while (suffix < _views.Count - prefix
-            && suffix < slots.Length - prefix
-            && ReferenceEquals(_slots[^(suffix + 1)].Node, slots[^(suffix + 1)].Node))
+        while (suffix < limit - prefix
+            && ReferenceEquals(old[^(suffix + 1)].Node, _slots[first + count - suffix - 1].Node))
         {
             suffix++;
         }
 
-        var oldMiddle = _views.Count - prefix - suffix;
-        var newMiddle = slots.Length - prefix - suffix;
+        var start = first + prefix;
+        var oldMiddle = old.Length - prefix - suffix;
+        var newMiddle = count - prefix - suffix;
 
         // The middle is what actually changed. Views in it are updated in place where they can
         // be — a paragraph whose text was edited keeps its view, and with it the run cache the
         // Increment 0 measurements said is worth keeping across a width change.
         for (var i = 0; i < Math.Min(oldMiddle, newMiddle); i++)
         {
-            var index = prefix + i;
+            var index = start + i;
 
-            if (_views[index] is ParagraphView view && slots[index].Node is ParagraphNode paragraph)
+            if (_views[index] is ParagraphView view && _slots[index].Node is ParagraphNode paragraph)
             {
                 view.Update(paragraph);
             }
-            else if (_views[index] is TableBlockView table && slots[index].Node is TableNode edited)
+            else if (_views[index] is TableBlockView table && _slots[index].Node is TableNode edited)
             {
                 table.Update(edited);
             }
             else
             {
-                _views[index] = Create(slots[index].Node);
+                _views[index] = Create(_slots[index].Node);
             }
         }
 
         if (newMiddle > oldMiddle)
         {
-            var added = Enumerable
-                .Range(prefix + oldMiddle, newMiddle - oldMiddle)
-                .Select(i => Create(slots[i].Node));
+            var added = new BlockView[newMiddle - oldMiddle];
 
-            _views.InsertRange(prefix + oldMiddle, added);
-            _heights.Insert(prefix + oldMiddle, newMiddle - oldMiddle);
+            for (var i = 0; i < added.Length; i++)
+            {
+                added[i] = Create(_slots[start + oldMiddle + i].Node);
+            }
+
+            _views.InsertRange(start + oldMiddle, added);
+            _heights.Insert(start + oldMiddle, added.Length);
         }
         else if (oldMiddle > newMiddle)
         {
-            _views.RemoveRange(prefix + newMiddle, oldMiddle - newMiddle);
-            _heights.Remove(prefix + newMiddle, oldMiddle - newMiddle);
+            _views.RemoveRange(start + newMiddle, oldMiddle - newMiddle);
+            _heights.Remove(start + newMiddle, oldMiddle - newMiddle);
         }
 
-        _slots = slots;
-
-        // Every block, not just the rebuilt middle. A marker is not part of a paragraph, so an
-        // item's number can change while its paragraph node stays the very same object — which
-        // is exactly what the prefix scan matched on and skipped.
-        for (var i = 0; i < _views.Count; i++)
+        // Every block of the run, not just its changed middle. A marker is not part of a
+        // paragraph, so an item's number can change while its paragraph node stays the very same
+        // object — which is exactly what the matching above skipped. Outside the run nothing can
+        // have moved: depth and number come from the lists inside one top-level block, and every
+        // top-level block outside the run is the one it was.
+        for (var i = first; i < first + count; i++)
         {
             if (_views[i] is ParagraphView paragraph)
             {
-                paragraph.SetLead(slots[i].Depth, slots[i].Marker);
+                paragraph.SetLead(_slots[i].Depth, _slots[i].Marker);
             }
         }
-
-        OnReconciled(previous);
     }
 
     private BlockView Create(BlockNode node) => node switch
@@ -790,7 +854,8 @@ public abstract partial class DocumentPresenter
     private protected void DropLayout()
     {
         _views.Clear();
-        _slots = [];
+        _slots.Clear();
+        _slotsFor = null;
         _heights.Reset(0);
         _first = 0;
         _last = -1;

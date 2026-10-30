@@ -168,6 +168,61 @@ public class BlockHeightIndexTests
         Assert.Equal(20, index.TotalHeight);
     }
 
+    /// <remarks>
+    /// F-15. Enter inserts one block and a join removes one, and each used to allocate the index
+    /// afresh — four arrays the length of the document, about a megabyte at 50,000 blocks, on
+    /// every paragraph written. The arrays keep spare room now and are shifted in place, so only
+    /// growing past that room allocates, and it doubles when it does.
+    /// </remarks>
+    [Fact]
+    public void InsertingAndRemovingABlockDoesNotReallocateTheIndex()
+    {
+        var index = Of(50_000, estimate: 10);
+
+        index.SetHeight(100, 33);
+
+        // The first insert may have to grow the arrays; the ones after it must not.
+        index.Insert(25_000, 1);
+        index.Remove(25_000, 1);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (var i = 0; i < 10; i++)
+        {
+            index.Insert(25_000, 1);
+            index.Remove(25_000 + (i % 2), 1);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated < 1024, $"ten inserts and removes allocated {allocated:N0} bytes");
+        Assert.Equal(50_000, index.Count);
+        Assert.Equal(33, index.HeightOf(100));
+
+        // Every unmeasured block is priced at the mean of the measured ones, which is 33.
+        Assert.Equal(50_000 * 33.0, index.TotalHeight);
+    }
+
+    /// <remarks>
+    /// With spare room in the arrays, what lies past <see cref="BlockHeightIndex.Count"/> must
+    /// never be read: a block removed from the end, then one inserted in its place, is a new
+    /// unmeasured block and not the measured one that used to be there.
+    /// </remarks>
+    [Fact]
+    public void ABlockInsertedWhereOneWasRemovedStartsUnmeasured()
+    {
+        var index = Of(3, estimate: 10);
+
+        index.SetHeight(2, 70);
+        index.Remove(2, 1);
+        index.Insert(2, 1);
+
+        Assert.False(index.Measured(2));
+        Assert.Equal(30, index.TotalHeight);
+        Assert.Equal(2, index.IndexAt(25));
+        Assert.Equal(2, index.IndexAt(1_000));
+    }
+
     [Fact]
     public void AResetForgetsMeasurementsButNotWhatWasLearnedFromThem()
     {

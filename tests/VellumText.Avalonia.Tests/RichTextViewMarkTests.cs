@@ -343,6 +343,114 @@ public class RichTextViewMarkTests
         Assert.Null(view.SelectionMarks.FontSize);
     }
 
+    /// <remarks>
+    /// F-32. The shared formatting is read off the mark spans a selection crosses, from the first
+    /// leaf it reaches, and the walk stops once nothing is shared. It must still agree with the
+    /// definition — the formatting every selected character has — for selections that start and
+    /// end inside a stretch, cross unformatted gaps and paragraph boundaries, and reach into
+    /// table cells. The oracle here is that definition, character by character.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheSharedFormattingIsWhatEverySelectedCharacterHas()
+    {
+        var random = new Random(32);
+        var bold = new MarkSet { Style = TextStyle.Bold };
+        var red = new MarkSet { Style = TextStyle.Bold, Foreground = new Rgba(200, 0, 0, 255) };
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("alpha beta gamma"),
+            ParagraphNode.FromText("delta epsilon"),
+            new TableNode([new TableRowNode([TableCellNode.FromText("zeta eta"), TableCellNode.FromText("theta")])]),
+            ParagraphNode.Empty,
+            ParagraphNode.FromText("iota kappa lambda"),
+        ]);
+
+        for (var i = 0; i < 12; i++)
+        {
+            var from = random.Next(doc.ContentSize);
+            var to = Math.Min(doc.ContentSize, from + random.Next(1, 12));
+
+            doc = new AddMarkStep(from, to, random.Next(2) == 0 ? bold : red, MarkFields.All)
+                .Apply(doc).Doc!;
+        }
+
+        var view = new RichTextView { State = EditorState.Create(doc) };
+
+        view.Measure(new Size(400, 300));
+        view.Arrange(new Rect(0, 0, 400, 300));
+
+        var leaves = DocumentBlocks.Leaves(doc).Where(l => l.Node is ParagraphNode).ToArray();
+
+        for (var a = 0; a < leaves.Length; a++)
+        {
+            for (var b = a; b < leaves.Length; b++)
+            {
+                foreach (var (from, to) in new[]
+                {
+                    (leaves[a].Start, leaves[b].End),
+                    (leaves[a].Start + 1, leaves[b].End - 1),
+                    (leaves[a].Start + 3, leaves[b].Start + 4),
+                })
+                {
+                    if (from >= to)
+                    {
+                        continue;
+                    }
+
+                    view.MoveTo(from, extend: false);
+                    view.MoveTo(to, extend: true);
+
+                    var selection = view.State.Selection;
+
+                    // A drag into a table can become a rectangle of cells, which has its own
+                    // reading; this test is about ranges of text.
+                    if (selection is CellSelection)
+                    {
+                        continue;
+                    }
+
+                    Assert.Equal(
+                        Expected(doc, selection.From, selection.To),
+                        view.SelectionMarks);
+                }
+            }
+        }
+
+        // Every character in range, intersected, exactly as the definition says; a selection with
+        // no characters in it reports the formatting typing would get.
+        MarkSet? Expected(DocumentNode document, int from, int to)
+        {
+            MarkSet? common = null;
+
+            foreach (var leaf in DocumentBlocks.Leaves(document))
+            {
+                if (leaf.Node is not ParagraphNode paragraph)
+                {
+                    continue;
+                }
+
+                for (var at = Math.Max(from, leaf.Start); at < Math.Min(to, leaf.End); at++)
+                {
+                    var mark = paragraph.Content.MarkAt(at - leaf.Start);
+
+                    common = common is { } far
+                        ? new MarkSet
+                        {
+                            Style = far.Style & mark.Style,
+                            FontFamily = far.FontFamily == mark.FontFamily ? far.FontFamily : null,
+                            FontSize = far.FontSize == mark.FontSize ? far.FontSize : null,
+                            Foreground = far.Foreground == mark.Foreground ? far.Foreground : null,
+                            Highlight = far.Highlight == mark.Highlight ? far.Highlight : null,
+                            Link = far.Link == mark.Link ? far.Link : null,
+                        }
+                        : mark;
+                }
+            }
+
+            return common ?? view.SelectionMarks;
+        }
+    }
+
     private static RichTextView Shown(params string[] paragraphs)
     {
         var window = new Window { Width = 400, Height = 300 };
