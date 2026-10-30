@@ -148,8 +148,10 @@ public class MarkdownImportTests
     {
         var p = OnlyPara(await Import(markdown));
 
+        // The line ending before the closing fence ends the last line; it is not an empty line
+        // of code.
         Assert.Equal(ParagraphKind.Code, p.Kind);
-        Assert.Equal("var x = 1;\n", p.Content.Text);
+        Assert.Equal("var x = 1;", p.Content.Text);
     }
 
     [Fact]
