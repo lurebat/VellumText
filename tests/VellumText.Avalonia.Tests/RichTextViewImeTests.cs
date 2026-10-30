@@ -525,6 +525,127 @@ public class RichTextViewImeTests
         Assert.InRange(after, 5, 11);
     }
 
+    /// <summary>
+    /// Composing in a table cell keeps the cell laid out, through every step of the composition.
+    /// </summary>
+    /// <remarks>
+    /// The composition drops the paragraph's layout, and the table measures only the rows it
+    /// believes have changed: a row nobody told about the composition kept its old height and an
+    /// unmeasured paragraph, and both the caret query the input method makes next and the next
+    /// frame threw.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ComposingInATableCellKeepsTheCellLaidOut()
+    {
+        var doc = new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new TableNode([
+                new TableRowNode([TableCellNode.FromText("a1"), TableCellNode.FromText("b1")]),
+                new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]),
+            ]),
+        ]);
+        var view = Shown(EditorState.Create(doc));
+
+        view.MoveTo(PositionOf(doc, "b2") + 2, extend: false);
+
+        AssertComposesInPlace(view);
+    }
+
+    /// <summary>
+    /// The same, in a table long enough to be laid out a band of rows at a time, scrolled to its
+    /// middle, and in a table inside a cell of it.
+    /// </summary>
+    [AvaloniaFact]
+    public void ComposingInACellOfARowVirtualizedTableKeepsTheCellLaidOut()
+    {
+        var inner = new TableNode([
+            new TableRowNode([TableCellNode.FromText("inner a"), TableCellNode.FromText("inner b")]),
+        ]);
+        var table = new TableNode(Enumerable.Range(0, 3_000).Select(r => new TableRowNode([
+            r == 1_500 ? new TableCellNode([inner]) : TableCellNode.FromText($"r{r}c0"),
+            TableCellNode.FromText($"r{r}c1"),
+        ])));
+        var doc = new DocumentNode([ParagraphNode.FromText("before"), table, ParagraphNode.FromText("after")]);
+        var view = Shown(EditorState.Create(doc));
+        var block = (TableBlockView)view.Blocks[1];
+
+        view.MoveTo(PositionOf(doc, "r1500c1") + 2, extend: false);
+        view.Measure(new Size(400, 200));
+        view.Arrange(new Rect(0, 0, 400, 200));
+
+        Assert.InRange(block.RealizedRows, 1, 100);
+        AssertComposesInPlace(view);
+
+        view.MoveTo(PositionOf(doc, "inner b") + 3, extend: false);
+
+        AssertComposesInPlace(view);
+        Assert.InRange(block.RealizedRows, 1, 100);
+    }
+
+    /// <summary>
+    /// Starts, updates and clears a composition at the caret, asking for the caret and drawing a
+    /// frame after each step, as the input method and the compositor do.
+    /// </summary>
+    private static void AssertComposesInPlace(RichTextView view)
+    {
+        var before = view.CaretRect();
+
+        Draw(view);
+
+        Assert.True(view.SetPreedit("x"));
+        Assert.True(view.CaretRect().X > before.X);
+        Draw(view);
+
+        // Wide enough to wrap the cell onto another line, so the row it is in has to grow.
+        Assert.True(view.SetPreedit(new string('W', 60)));
+        Assert.True(view.CaretRect().Bottom > before.Bottom);
+        Draw(view);
+
+        Assert.True(view.SetPreedit(null));
+        Assert.Equal(before, view.CaretRect());
+        Draw(view);
+    }
+
+    /// <summary>Draws the view as a frame would, which fails if any block it shows cannot draw.</summary>
+    private static void Draw(RichTextView view)
+    {
+        view.Measure(new Size(400, 200));
+        view.Arrange(new Rect(0, 0, 400, 200));
+
+        using var bitmap = new RenderTargetBitmap(new PixelSize(400, 200));
+        using var context = bitmap.CreateDrawingContext();
+
+        view.Render(context);
+    }
+
+    /// <summary>The document position at the start of the paragraph with some text.</summary>
+    private static int PositionOf(DocumentNode doc, string text)
+    {
+        return Find(doc.Blocks, 0) ?? throw new InvalidOperationException($"No paragraph reads \"{text}\".");
+
+        int? Find(IReadOnlyList<Node> nodes, int start)
+        {
+            var position = start;
+
+            foreach (var node in nodes)
+            {
+                if (node is ParagraphNode paragraph && paragraph.Content.Text == text)
+                {
+                    return position + 1;
+                }
+
+                if (node.Children.Length > 0 && Find(node.Children, position + 1) is { } found)
+                {
+                    return found;
+                }
+
+                position += node.NodeSize;
+            }
+
+            return null;
+        }
+    }
+
     private static string LaidOut(RichTextView view) =>
         string.Concat(Runs(view).Select(r => r.Text.ToString()));
 

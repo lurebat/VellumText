@@ -122,8 +122,10 @@ awaits `PasteAsync`.
   format, not just PNG.** GIF, BMP, JPEG and WebP were decoded in full before
   `MaximumPixels` was checked: a 38-byte WebP cost 642 MB, and a 287-byte JPEG
   or a 64-byte BMP 2 GB, through a paste and one render. Their declared
-  dimensions are now read from the header and checked first. A format the
-  header reader does not recognise is still checked after decoding, as before.
+  dimensions are now read from the header and checked first, including ICO and
+  WBMP, a GIF's first frame where it lies outside the screen, and a JPEG frame
+  header behind stray bytes. An inline image whose dimensions cannot be read
+  from its header, such as a TIFF, is refused without being decoded.
 - **HTML export can no longer turn an imported font name back into CSS the
   sanitizer removed.** A pasted
   `font-family:"x\" ;background-image:url(http://tracker.invalid/p.png);"` kept

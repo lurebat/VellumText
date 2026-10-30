@@ -202,6 +202,19 @@ public class DocumentPreviewTests
                 new ParagraphNode(withImage),
                 new TableNode([new TableRowNode([new TableCellNode([ParagraphNode.Empty, ParagraphNode.FromText("z")])])]),
             ]),
+
+            // Block images count as their alt text, at the top level and nested, as DocumentText
+            // reads them (rubber-duck review 8.1); an image without alt text counts nothing.
+            new([new BlockImageNode(new ImageEmbed("pic.png", altText: "a block picture"))]),
+            new([
+                ParagraphNode.FromText("p"),
+                new BlockImageNode(new ImageEmbed("pic.png", altText: "")),
+                new TableNode([new TableRowNode([new TableCellNode([
+                    ParagraphNode.FromText("q"),
+                    new BlockImageNode(new ImageEmbed("pic.png", altText: "nested")),
+                ])])]),
+                new ListNode([new ListItemNode([new BlockImageNode(new ImageEmbed("pic.png", altText: "in a list"))])]),
+            ]),
         ];
 
         foreach (var doc in documents)
@@ -219,6 +232,20 @@ public class DocumentPreviewTests
         }
     }
 
+    /// <summary>
+    /// A document that is only a block image with long alt text is longer than a short budget,
+    /// and its preview is cut. Phase 6's early-stopping count was merged over phase 7's
+    /// DocumentText, which reads a block image as its alt text; the count looked only at
+    /// children, and a block image has none, so it counted nothing (rubber-duck review 8.1).
+    /// </summary>
+    [Fact]
+    public void ABlockImageCountsItsAltText()
+    {
+        var doc = new DocumentNode([new BlockImageNode(new ImageEmbed("pic.png", altText: new string('a', 200)))]);
+
+        Assert.True(DocumentPreview.IsLongerThan(doc, 80));
+        Assert.NotSame(doc, DocumentPreview.Truncate(doc, 80));
+    }
     [Fact]
     public void TheArgumentsAreChecked()
     {

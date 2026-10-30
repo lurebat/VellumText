@@ -13,13 +13,20 @@ namespace VellumText.Core.Tests;
 /// </remarks>
 public sealed class TableStructureMapTests
 {
-    private static TableCellNode Empty() => new([new ParagraphNode(InlineContent.Empty)]);
+    /// <summary>A blank cell, with a paragraph of its own or the shared empty one.</summary>
+    /// <remarks>
+    /// <see cref="TableEdits"/> and the HTML importer both fill blank cells with the
+    /// <see cref="ParagraphNode.Empty"/> singleton, so two different blank cells can hold the very
+    /// same paragraph. Matching cells by what they hold called those the same cell.
+    /// </remarks>
+    private static TableCellNode Empty(bool shared) =>
+        new([shared ? ParagraphNode.Empty : new ParagraphNode(InlineContent.Empty)]);
 
-    private static (EditorState State, int[] Cells, DocumentNode Doc) Setup(int caretCell)
+    private static (EditorState State, int[] Cells, DocumentNode Doc) Setup(int caretCell, bool shared)
     {
         var doc = new DocumentNode([new TableNode([
-            new TableRowNode([Empty(), Empty(), Empty()]),
-            new TableRowNode([Empty(), Empty(), Empty()]),
+            new TableRowNode([Empty(shared), Empty(shared), Empty(shared)]),
+            new TableRowNode([Empty(shared), Empty(shared), Empty(shared)]),
         ])]);
         var grid = TableGrid.Build(0, (TableNode)doc.Blocks[0]);
         var cells = grid.Cells.OrderBy(kv => kv.Key).Select(kv => kv.Key).ToArray();
@@ -37,10 +44,12 @@ public sealed class TableStructureMapTests
         return TableGrid.ForCell(state.Doc, cell)!.Cells[cell];
     }
 
-    [Fact]
-    public void A_caret_keeps_its_column_through_a_column_inserted_before_it()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_caret_keeps_its_column_through_a_column_inserted_before_it(bool shared)
     {
-        var (state, cells, doc) = Setup(caretCell: 1);
+        var (state, cells, doc) = Setup(caretCell: 1, shared);
         var step = TableEdits.InsertColumns(doc, cells[0], cells[0], after: false)!;
 
         var after = state.Apply(state.Transaction().Step(step));
@@ -49,10 +58,12 @@ public sealed class TableStructureMapTests
         Assert.Equal((0, 2), (slot.Top, slot.Left));
     }
 
-    [Fact]
-    public void A_caret_keeps_its_row_through_a_row_inserted_above_it()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_caret_keeps_its_row_through_a_row_inserted_above_it(bool shared)
     {
-        var (state, cells, doc) = Setup(caretCell: 4);
+        var (state, cells, doc) = Setup(caretCell: 4, shared);
         var step = TableEdits.InsertRows(doc, cells[0], cells[0], below: false)!;
 
         var after = state.Apply(state.Transaction().Step(step));
@@ -61,10 +72,12 @@ public sealed class TableStructureMapTests
         Assert.Equal((2, 1), (slot.Top, slot.Left));
     }
 
-    [Fact]
-    public void A_rectangle_keeps_its_columns_through_a_column_inserted_before_it()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_rectangle_keeps_its_columns_through_a_column_inserted_before_it(bool shared)
     {
-        var (state, cells, doc) = Setup(caretCell: 0);
+        var (state, cells, doc) = Setup(caretCell: 0, shared);
 
         state = state.Apply(state.Transaction().SetSelection(CellSelection.Create(doc, cells[1], cells[5])!));
 
@@ -97,5 +110,27 @@ public sealed class TableStructureMapTests
 
         // Inside "a": past the table, row and cell boundaries and the paragraph's own.
         Assert.Equal(4, map.Map(4));
+    }
+
+    /// <summary>
+    /// The same control with blank cells: the shared empty paragraph in both tables is not a sign
+    /// that the host reused any cell, so the tables are still compared by value.
+    /// </summary>
+    [Fact]
+    public void A_table_built_independently_from_blank_cells_still_maps_an_untouched_row()
+    {
+        var before = new TableNode([
+            new TableRowNode([Empty(shared: true), Empty(shared: true)]),
+            new TableRowNode([Empty(shared: true), Empty(shared: true)]),
+        ]);
+        var after = new TableNode([
+            new TableRowNode([Empty(shared: true), Empty(shared: true)]),
+            new TableRowNode([Empty(shared: true), Empty(shared: true)]),
+            new TableRowNode([Empty(shared: true), Empty(shared: true)]),
+        ]);
+        var map = new TableStructureStep(0, before, after).GetMap();
+
+        // Inside the first cell's paragraph, past the table, row and cell boundaries.
+        Assert.Equal(3, map.Map(3));
     }
 }

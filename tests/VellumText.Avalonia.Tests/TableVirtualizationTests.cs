@@ -244,6 +244,33 @@ public class TableVirtualizationTests
     }
 
     [AvaloniaFact]
+    public void ARowEditedSinceItWasMeasuredIsNotDrawnAndTheRowsAroundItAre()
+    {
+        var table = Uniform(50);
+        var view = Built(table);
+        var rows = table.Rows.ToList();
+
+        // An edit in row 11 that nothing has laid out yet: its first cell's paragraph has no
+        // layout to draw, and the rows either side of it are measured as they were.
+        rows[11] = new TableRowNode([TableCellNode.FromText("edited"), rows[11].Cells[1], rows[11].Cells[2]]);
+        Assert.True(view.Update(new TableNode(rows)));
+        Assert.False(view.IsRowMeasured(11));
+
+        // Rows 9 to 13, then 11 to 13: whether the walk starts on a row that may be drawn or on
+        // one that may not, each row is drawn by what its own band is.
+        foreach (var (first, drawn) in new[] { (9, 4), (11, 2) })
+        {
+            var top = view.RowOffset(first, 0);
+            var area = new Rect(0, top + 2, Width, view.RowOffset(14, 0) - top - 4);
+
+            WorkCounters.TableCellsRendered = 0;
+            Draw(view, area, inked: false);
+
+            Assert.Equal(3 * drawn, WorkCounters.TableCellsRendered);
+        }
+    }
+
+    [AvaloniaFact]
     public void AShapeChangeLeavesRowsRealizedButNotMeasuredUnmeasured()
     {
         var table = Uniform(300);
