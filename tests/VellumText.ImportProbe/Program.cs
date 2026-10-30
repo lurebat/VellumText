@@ -85,6 +85,7 @@ public static class Program
         Console.Out.WriteLine($"allocatedMb={allocated / (1024 * 1024)}");
         Console.Out.WriteLine($"blocks={doc.Children.Length}");
         Console.Out.WriteLine($"text={DocumentText.Of(doc).Replace("\n", "\\n", StringComparison.Ordinal)}");
+        Console.Out.WriteLine($"images={Images(doc)}");
 
         foreach (var diagnostic in result.Diagnostics)
         {
@@ -93,6 +94,14 @@ public static class Program
 
         return 0;
     }
+
+    /// <summary>How many images the document holds, inline or as blocks, at any depth.</summary>
+    private static int Images(Node node) => node switch
+    {
+        ParagraphNode paragraph => paragraph.Content.Embeds.Count(embed => embed is ImageEmbed),
+        BlockImageNode => 1,
+        _ => node.Children.Sum(Images),
+    };
 
     private static readonly HtmlImportOptions Unbounded = HtmlImportOptions.Default with
     {
