@@ -148,6 +148,12 @@ public sealed record HtmlImportOptions
     internal bool BorderedEmptyParagraphIsRule { get; init; }
 
     /// <summary>
+    /// Internal, for the RTF importer: pictures given as their bytes, named in the markup by
+    /// tokens. See <see cref="InlinePictures"/>.
+    /// </summary>
+    internal InlinePictures? Pictures { get; init; }
+
+    /// <summary>
     /// The address relative URLs are resolved against, or null to drop relative URLs.
     /// </summary>
     /// <remarks>
