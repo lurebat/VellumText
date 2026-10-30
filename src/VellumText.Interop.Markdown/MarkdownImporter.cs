@@ -1,6 +1,7 @@
 using Markdig;
 using Markdig.Extensions.EmphasisExtras;
 using Markdig.Extensions.Tables;
+using Markdig.Renderers;
 using Markdig.Renderers.Html;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -98,7 +99,7 @@ public static class MarkdownImporter
 
             Prepare(parsed, options, log);
 
-            html = MarkdigMarkdown.ToHtml(parsed, Pipeline);
+            html = ToHtml(parsed);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -117,6 +118,40 @@ public static class MarkdownImporter
         return log.IsEmpty
             ? result
             : new ImportResult(result.Doc, [.. log.Items, .. result.Diagnostics]);
+    }
+
+    /// <summary>Renders the parsed tree to the HTML the importer reads.</summary>
+    /// <remarks>
+    /// Markdig's own renderer, but for code blocks. A code block's content in CommonMark is its
+    /// lines each with its line ending, so <c>&lt;pre&gt;</c> always ends in a newline that only
+    /// separates the code from the closing fence. A browser does not draw that newline, but in
+    /// this model a trailing newline is an empty last line, so read literally every code block
+    /// came back one line longer than it was written. Writing the lines with newlines only
+    /// between them makes export and import exact.
+    /// </remarks>
+    private static string ToHtml(MarkdownDocument document)
+    {
+        using var writer = new StringWriter();
+        var renderer = new HtmlRenderer(writer);
+
+        Pipeline.Setup(renderer);
+        renderer.ObjectRenderers.Replace<CodeBlockRenderer>(new CodeLinesRenderer());
+        renderer.Render(document);
+        writer.Flush();
+
+        return writer.ToString();
+    }
+
+    /// <summary>A code block as <c>&lt;pre&gt;&lt;code&gt;</c>, without the final line ending.</summary>
+    private sealed class CodeLinesRenderer : HtmlObjectRenderer<CodeBlock>
+    {
+        protected override void Write(HtmlRenderer renderer, CodeBlock obj)
+        {
+            renderer.EnsureLine();
+            renderer.Write("<pre><code").WriteAttributes(obj).Write('>');
+            renderer.WriteLeafRawLines(obj, writeEndOfLines: false, escape: true);
+            renderer.WriteLine("</code></pre>");
+        }
     }
 
     /// <summary>
