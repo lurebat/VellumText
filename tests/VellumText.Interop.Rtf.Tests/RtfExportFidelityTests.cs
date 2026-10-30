@@ -87,9 +87,9 @@ public class RtfExportFidelityTests
     /// \listtable (Word does) read it as bullets from 1 (rubber-duck review 5.2).
     /// </summary>
     /// <remarks>
-    /// Read from the RTF itself rather than through this branch's importer: RtfPipe treats a
-    /// paragraph naming another \ls as a new top-level list, so it cannot read a sublist that
-    /// needs a definition of its own. Phase 8's reader (OfficeIMO) does, and is tested there.
+    /// Read from the RTF itself as well as through the importer: before phase 8, RtfPipe treated a
+    /// paragraph naming another \ls as a new top-level list, so it could not read a sublist that
+    /// needs a definition of its own. OfficeIMO does; see the round trip below.
     /// </remarks>
     [Fact]
     public void Sibling_nested_lists_keep_their_own_kind_and_start()
@@ -118,6 +118,37 @@ public class RtfExportFidelityTests
 
         // The outer list is still one list: its items share one \ls.
         Assert.Equal(ListOf(rtf, "a").Ls, ListOf(rtf, "c").Ls);
+    }
+
+    /// <summary>
+    /// The same sibling sublists read back through the import path: OfficeIMO honours the
+    /// \listtable, so each sublist comes back with its own kind and start under one outer list.
+    /// </summary>
+    [Fact]
+    public async Task Sibling_nested_lists_come_back_with_their_own_kind_and_start()
+    {
+        var doc = new DocumentNode([
+            new ListNode(
+                [
+                    Item(ParagraphNode.FromText("a"), new ListNode([ListItemNode.FromText("a1")], ListKind.Unordered)),
+                    Item(ParagraphNode.FromText("b"), new ListNode([ListItemNode.FromText("b1"), ListItemNode.FromText("b2")], ListKind.Ordered, 3)),
+                    Item(ParagraphNode.FromText("c"), new ListNode([ListItemNode.FromText("c1")], ListKind.Unordered)),
+                ],
+                ListKind.Unordered),
+        ]);
+
+        var outer = Assert.IsType<ListNode>(Assert.Single((await Trip(doc)).Blocks));
+
+        Assert.Equal(ListKind.Unordered, outer.Kind);
+        Assert.Equal(["a", "b", "c"], outer.Items.Select(TextOf));
+
+        var sublists = outer.Items.Select(item => Assert.IsType<ListNode>(item.Blocks[1])).ToArray();
+
+        Assert.Equal([ListKind.Unordered, ListKind.Ordered, ListKind.Unordered], sublists.Select(l => l.Kind));
+        Assert.Equal(3, sublists[1].Start);
+        Assert.Equal(["b1", "b2"], sublists[1].Items.Select(TextOf));
+        Assert.Equal("a1", TextOf(Assert.Single(sublists[0].Items)));
+        Assert.Equal("c1", TextOf(Assert.Single(sublists[2].Items)));
     }
 
     /// <summary>The <c>\ls</c> and <c>\ilvl</c> of the paragraph whose text is exactly <paramref name="text"/>.</summary>
