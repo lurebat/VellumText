@@ -131,6 +131,103 @@ public class NestedTableExtentTests
         AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, "after a resize to 360");
     }
 
+    // ---- what is known of a table, after questions lay all of it out ------------------------------
+
+    /// <summary>
+    /// A table of rows all alike, two and three tables deep, every row of it laid out by questions
+    /// rather than by scrolling — about a position in each row, or a point below each — so its
+    /// height never changes, only how much of it is known: once all of it is, every table on the
+    /// path is known to be exactly as tall as it is, after the questions and after a layout pass.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void QuestionsThatLayOutAWholeTableMakeItKnownAllTheWayUp(int depth, bool points)
+    {
+        var doc = NestedTableVirtualizationTests.Nested(depth, NestedTableVirtualizationTests.Uniform(200));
+        var (window, view) = Shown(doc);
+
+        if (points)
+        {
+            var row = GeometryTransactionTests.ScreenTop(view, PositionOf(doc, "r1c0")) - GeometryTransactionTests.ScreenTop(view, PositionOf(doc, "r0c0"));
+
+            for (var y = Height + 5; y < 200 * row; y += row)
+            {
+                _ = view.PositionAt(new Point(20, y));
+            }
+        }
+        else
+        {
+            for (var r = 0; r < 200; r++)
+            {
+                _ = view.ImageRect(PositionOf(doc, $"r{r}c0"));
+            }
+        }
+
+        AssertKnownExactly(view, "after the questions");
+
+        Layout(window);
+
+        AssertKnownExactly(view, "laid out again");
+    }
+
+    /// <summary>Every table on the path down is known to be exactly as tall as it is.</summary>
+    private static void AssertKnownExactly(RichTextView view, string what) =>
+        AssertKnownExactly((TableBlockView)view.Blocks[0], what);
+
+    /// <summary>
+    /// The same, with the points asked of the table directly — the presenter widens its window to
+    /// a far point before asking, so through it the table's own preparation of a point finds those
+    /// rows laid out already; asked directly, it lays them out itself.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void PointsPreparedInATableMakeItKnownAllTheWayUp(int depth)
+    {
+        BlockNode content = NestedTableVirtualizationTests.Uniform(200);
+
+        for (var d = 1; d < depth; d++)
+        {
+            content = new TableNode([new TableRowNode([new TableCellNode([content])])]);
+        }
+
+        var outer = new TableBlockView(
+            new TableNode([new TableRowNode([new TableCellNode([content])])]),
+            NestedTableVirtualizationTests.Create,
+            global::Avalonia.Media.Brushes.Gray);
+
+        outer.SetWindow(0, 0, Height);
+        outer.Measure(Width);
+
+        for (var y = 2.0; y < outer.Size.Height; y += 10)
+        {
+            outer.PreparePoint(new Point(20, y));
+        }
+
+        AssertKnownExactly(outer, "after the points");
+    }
+
+    private static void AssertKnownExactly(TableBlockView table, string what)
+    {
+        for (var depth = 0; ; depth++)
+        {
+            Assert.True(table.IsComplete(), $"{what}: the table {depth} deep is not wholly laid out");
+            Assert.True(
+                Math.Abs(table.ExactHeight - table.Size.Height) <= 0.01,
+                $"{what}: the table {depth} deep, wholly laid out, is known to be {table.ExactHeight:F1} tall, not the {table.Size.Height:F1} it is");
+
+            if (table.NestedTables.FirstOrDefault() is not { } next)
+            {
+                return;
+            }
+
+            table = next;
+        }
+    }
+
     // ---- what is known of a table, after what it knew is edited away -----------------------------
 
     /// <summary>

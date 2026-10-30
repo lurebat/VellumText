@@ -1693,6 +1693,9 @@ public class NestedTableVirtualizationTests
         }
     }
 
+    /// <summary>Makes the views a table's cells hold, for a table built directly in a test.</summary>
+    internal static BlockView Create(BlockNode block) => CreateWith(block, RuleView.BlockHeight);
+
     private static BlockView CreateWith(BlockNode block, double ruleHeight) => block switch
     {
         ParagraphNode paragraph => new ParagraphView(paragraph, Styles),

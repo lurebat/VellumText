@@ -2337,7 +2337,9 @@ internal sealed partial class TableBlockView : BlockView
                         changed = true;
                     }
 
-                    if (!nested.Size.Height.Equals(child.Height))
+                    // Its height or only what is known of it: either is settled into this row, and
+                    // from there into every table above.
+                    if (!nested.Size.Height.Equals(child.Height) || !nested.ExactHeight.Equals(child.Exact))
                     {
                         child.Height = nested.Size.Height;
                         SettleBand(_bandStart[r]);
@@ -2470,9 +2472,12 @@ internal sealed partial class TableBlockView : BlockView
         {
             found.Child.View.PrepareAt(localPosition - found.RowStart - found.Child.Start);
 
-            // Laying out a far row of a table in the cell changed that table's height, so this row
-            // is settled again, and the change goes up the same way to every table above.
-            if (found.Child.View is TableBlockView nested && !nested.Size.Height.Equals(found.Child.Height))
+            // Laying out a far row of a table in the cell changed that table's height, or only how
+            // much of it is known — a row as tall as the estimate said — so this row is settled again,
+            // and the change goes up the same way to every table above. Settling also tells the next
+            // measure that something changed, so it does not take the last one as still current.
+            if (found.Child.View is TableBlockView nested
+                && (!nested.Size.Height.Equals(found.Child.Height) || !nested.ExactHeight.Equals(found.Child.Exact)))
             {
                 found.Child.Height = nested.Size.Height;
                 SettleBand(_bandStart[r]);
