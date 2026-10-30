@@ -603,6 +603,163 @@ public class RichTextViewCodeBlockTests
         Assert.Equal((string.Empty, 0), Caret(view));
     }
 
+    // ---- paste --------------------------------------------------------------------------------
+    //
+    // Driven through PasteText and PasteImport, the methods Ctrl+Shift+V, Ctrl+V and a drop end in
+    // once the clipboard has been read: the tests here do not touch the real clipboard.
+
+    /// <summary>
+    /// Pasted lines go into the code block as its lines. Each line used to become a paragraph, so
+    /// the block was split into a code block and body paragraphs.
+    /// </summary>
+    [AvaloniaFact]
+    public void Pasting_lines_of_text_into_a_code_block_keeps_them_in_the_block()
+    {
+        var view = Laid(Doc(Code("ab")), In(0, 1));
+
+        Assert.True(view.PasteText("x\r\n  y  \n\n\tz"));
+
+        Shaped(
+            """
+            code "ax\n  y  \n\n\tzb"
+            """,
+            view);
+        Assert.Equal(("ax\n  y  \n\n\tzb", 12), Caret(view));
+    }
+
+    [AvaloniaFact]
+    public void Pasting_lines_into_an_empty_code_block_keeps_it_a_code_block()
+    {
+        var view = Laid(Doc(Code(string.Empty), Para("after")), In(0, 0));
+
+        Assert.True(view.PasteText("a\nb"));
+
+        Shaped(
+            """
+            code "a\nb"
+            p "after"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Pasting_lines_over_a_selection_in_code_replaces_it_inside_the_block()
+    {
+        var view = Laid(Doc(Code("abcd")), In(0, 1), In(0, 3));
+
+        Assert.True(view.PasteText("x\ny"));
+
+        Shaped(
+            """
+            code "ax\nyd"
+            """,
+            view);
+    }
+
+    /// <summary>
+    /// Rich content pasted or dropped into code arrives as its text, a line per paragraph, the way
+    /// Tiptap and ProseMirror paste into code: a heading or a list has no meaning inside a code
+    /// block, and keeping them meant splitting the block around them.
+    /// </summary>
+    [AvaloniaFact]
+    public void Pasting_rich_paragraphs_into_a_code_block_pastes_their_text_as_lines()
+    {
+        var view = Laid(Doc(Code("x")), In(0, 1));
+        var pasted = new DocumentNode([
+            ParagraphNode.FromText("one"),
+            new ParagraphNode(InlineContent.FromText("two"), ParagraphKind.Heading1),
+            new ListNode([ListItemNode.FromText("three")]),
+        ]);
+
+        Assert.True(view.PasteImport(new ImportResult(pasted)));
+
+        Shaped(
+            """
+            code "xone\ntwo\nthree"
+            """,
+            view);
+    }
+
+    /// <summary>Into an empty block a rich paste used to replace the block outright, code and all.</summary>
+    [AvaloniaFact]
+    public void Pasting_rich_paragraphs_into_an_empty_code_block_keeps_it_a_code_block()
+    {
+        var view = Laid(Doc(Code(string.Empty)), In(0, 0));
+
+        Assert.True(view.PasteDocument(Doc(Para("one"), Para("two"))));
+
+        Shaped(
+            """
+            code "one\ntwo"
+            """,
+            view);
+    }
+
+    /// <summary>One pasted paragraph merges into the code, whatever its kind; the block stays code.</summary>
+    [AvaloniaFact]
+    public void Pasting_one_heading_into_an_empty_code_block_keeps_it_a_code_block()
+    {
+        var view = Laid(Doc(Code(string.Empty)), In(0, 0));
+
+        Assert.True(view.PasteDocument(Doc(
+            new ParagraphNode(InlineContent.FromText("h"), ParagraphKind.Heading1))));
+
+        Shaped(
+            """
+            code "h"
+            """,
+            view);
+    }
+
+    /// <summary>
+    /// An image put into a code block lands there as it did before: one paragraph merges into the
+    /// code rather than being reduced to its text, which for an image without alt text is nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_image_inserted_into_a_code_block_still_lands_in_it()
+    {
+        var view = Laid(Doc(Code("ab")), In(0, 1));
+
+        Assert.True(view.InsertImage(Png(2, 2), "image/png"));
+
+        var code = Assert.IsType<ParagraphNode>(Assert.Single(view.State.Doc.Blocks));
+
+        Assert.Equal(ParagraphKind.Code, code.Kind);
+        Assert.IsType<ImageEmbed>(Assert.Single(code.Content.Embeds));
+        Assert.Equal($"a{InlineContent.Placeholder}b", code.Content.Text);
+    }
+
+    /// <summary>Outside code, pasted lines are still paragraphs.</summary>
+    [AvaloniaFact]
+    public void Pasting_lines_into_a_body_paragraph_still_makes_paragraphs()
+    {
+        var view = Laid(Doc(Para("ab")), In(0, 1));
+
+        Assert.True(view.PasteText("x\ny"));
+
+        Shaped(
+            """
+            p "ax"
+            p "yb"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void One_undo_takes_back_lines_pasted_into_code()
+    {
+        var view = Laid(Doc(Code("ab")), In(0, 1));
+
+        Assert.True(view.PasteText("x\ny"));
+        Press(view, Key.Z, KeyModifiers.Control);
+
+        Shaped(
+            """
+            code "ab"
+            """,
+            view);
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ParagraphNode Code(string text) =>
@@ -611,6 +768,16 @@ public class RichTextViewCodeBlockTests
     private static ParagraphNode Para(string text) => ParagraphNode.FromText(text);
 
     private static DocumentNode Doc(params BlockNode[] blocks) => new(blocks);
+
+    private static byte[] Png(int width, int height)
+    {
+        using var bitmap = new global::Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(width, height));
+        using var buffer = new MemoryStream();
+
+        bitmap.Save(buffer, new global::Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+
+        return buffer.ToArray();
+    }
 
     private static void Press(RichTextView view, Key key, KeyModifiers modifiers = KeyModifiers.None) =>
         view.RaiseEvent(new KeyEventArgs
@@ -688,7 +855,7 @@ public class RichTextViewCodeBlockTests
         return (at.Paragraph!.Content.Text, at.ParentOffset);
     }
 
-    /// <summary>The document's shape, indented, one node per line, newlines in text written as \n.</summary>
+    /// <summary>The document's shape, indented, one node per line, newlines and tabs in text written as \n and \t.</summary>
     private static void Shaped(string expected, RichTextView view) =>
         Assert.Equal(expected.ReplaceLineEndings("\n"), Shape(view.State.Doc));
 
@@ -715,11 +882,14 @@ public class RichTextViewCodeBlockTests
 
         static string Describe(Node node) => node switch
         {
-            ParagraphNode p => $"{Kind(p.Kind)} \"{p.Content.Text.Replace("\n", "\\n", StringComparison.Ordinal)}\"",
+            ParagraphNode p => $"{Kind(p.Kind)} \"{Escaped(p.Content.Text)}\"",
             ListNode { Kind: ListKind.Ordered } l => $"ordered-list from {l.Start}",
             ListNode => "unordered-list",
             _ => node.TypeName,
         };
+
+        static string Escaped(string text) =>
+            text.Replace("\n", "\\n", StringComparison.Ordinal).Replace("\t", "\\t", StringComparison.Ordinal);
 
         static string Kind(ParagraphKind kind) => kind switch
         {

@@ -56,9 +56,11 @@ NuGet; packages are published to a local feed, and
   Shift+Enter already made them. Three Enters at the end of the block — Enter on
   an empty last line under another empty line — leave it for a body paragraph
   below and drop the empty lines at its end; Ctrl+Enter (Cmd+Enter on macOS)
-  leaves it from anywhere and keeps every line. ↓ on the last line of a code block
-  that nothing follows opens a paragraph below it instead of stopping at its end. Backspace
-  in an empty code block turns it into an ordinary paragraph.
+  leaves it from anywhere and keeps every line. ↓ on the last line of a code
+  block that nothing follows opens a paragraph below it instead of stopping at
+  its end. Backspace in an empty code block turns it into an ordinary
+  paragraph, and text pasted or dropped into a code block stays in it, where
+  each line used to become a paragraph of its own.
 - **Enter in a bullet starts the next bullet.** It split the paragraph inside
   the same item, so the new line had no bullet, Tab could not nest it, and
   Shift+Tab took both lines out of the list. Backspace at the start of a bullet

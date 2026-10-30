@@ -238,12 +238,14 @@ Backspace joins them onto the line above.
 
 Code blocks keep their lines in one block, as editors such as Tiptap and Notion do. Enter in a code
 block breaks the line rather than starting a new block. To leave it, press Enter three times at the
-end: Enter on an empty last line under another empty line leaves the block for an ordinary paragraph
-below and takes the empty lines with it, and one Ctrl+Z puts them back. Ctrl+Enter (Cmd+Enter on
-macOS) leaves it from anywhere and keeps every line, and ↓ on the last line of a code block that nothing
-follows opens a paragraph below it. Each way out puts the new paragraph directly after the block, inside
-the bullet or table cell that holds it. Backspace in an empty code block turns it into an ordinary
-paragraph.
+end: Enter on an empty last line under another empty line leaves the block for an ordinary
+paragraph below and takes the empty lines with it, and one Ctrl+Z puts them back. Ctrl+Enter
+(Cmd+Enter on macOS) leaves it from anywhere and keeps every line, and ↓ on the last line of a code
+block that nothing follows opens a paragraph below it. Each way out puts the new paragraph directly
+after the block, inside the bullet or table cell that holds it. Backspace in an empty code block
+turns it into an ordinary paragraph. Text pasted or dropped into a code block stays in it, one line
+of code per line of text; rich content of more than one paragraph arrives as its plain text, as it
+does in Tiptap.
 
 Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and
 the selection is picked up; a caret follows the pointer to show where it will land, and releasing
