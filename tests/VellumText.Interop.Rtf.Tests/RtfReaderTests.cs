@@ -156,6 +156,36 @@ public class RtfReaderTests
     }
 
     /// <summary>
+    /// A picture that is kept costs a bounded multiple of the RTF it came in. Setting the data URL
+    /// on the image element, which the sanitizer does once as it approves it, made the DOM resolve
+    /// it for an image request that nothing here can make: six copies of the URL, 64 MiB for a
+    /// 4 MiB picture (rubber-duck review finding 9.1, kept pictures).
+    /// </summary>
+    /// <remarks>
+    /// Run in a child process, which measures allocation over the import alone. What remains is
+    /// the RTF reader, its HTML writer and the HTML parser, each of which holds the picture in a
+    /// form of its own: about 13 times the RTF as a string, against 17 before.
+    /// </remarks>
+    [Fact]
+    public void A_kept_picture_costs_a_bounded_multiple_of_the_rtf()
+    {
+        var payload = new byte[4 * 1024 * 1024];
+
+        Convert.FromHexString(Png).CopyTo(payload, 0);
+
+        var rtf = @"{\rtf1\ansi x{\pict\pngblip\picw1\pich1 " + Convert.ToHexString(payload) + @"}y\par}";
+        var rtfMb = rtf.Length * sizeof(char) / (1024 * 1024);
+
+        var result = ProbeRunner.Run("rtf", rtf, TimeSpan.FromSeconds(60));
+
+        Assert.True(result.ExitCode == 0, result.ToString());
+        Assert.True(int.Parse(result.Value("allocatedMb")!, CultureInfo.InvariantCulture) < 14 * rtfMb, $"RTF {rtfMb} MiB; {result}");
+        Assert.Equal("xy", result.Value("text"));
+        Assert.Equal("1", result.Value("images"));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Contains("|data:|", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The size limit means what it means in the HTML stage: a picture of exactly
     /// <see cref="RtfImportOptions.MaxDataImageBytes"/> is kept, one byte more is dropped.
     /// </summary>
