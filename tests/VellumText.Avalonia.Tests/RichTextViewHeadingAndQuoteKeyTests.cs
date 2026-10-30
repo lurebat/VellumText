@@ -421,6 +421,59 @@ public class RichTextViewHeadingAndQuoteKeyTests
         Assert.Equal(("said", 0), Caret(view));
     }
 
+    // ---- Backspace at the start of the document ------------------------------------------------
+
+    /// <summary>
+    /// Backspace at the start of a heading that is the first block makes it body text, as Notion and
+    /// Tiptap do. With nothing above to join to, it used to do nothing, so the toolbar was the only
+    /// way to turn the first line of a document back into text.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(ParagraphKind.Heading1)]
+    [InlineData(ParagraphKind.Heading6)]
+    public void Backspace_at_the_start_of_a_heading_that_is_the_first_block_makes_it_body_text(ParagraphKind kind)
+    {
+        var view = Laid(
+            Doc(new ParagraphNode(InlineContent.FromText("Title"), kind, TextAlign.Center), Para("below")),
+            In(0, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "Title" align=Center
+            p "below"
+            """,
+            view);
+        Assert.Equal(("Title", 0), Caret(view));
+    }
+
+    [AvaloniaFact]
+    public void Backspace_in_an_empty_heading_alone_in_the_document_makes_it_body_text()
+    {
+        var view = Laid(Doc(Heading(string.Empty)), In(0, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p ""
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_the_document_in_body_text_still_does_nothing()
+    {
+        var view = Laid(Doc(Para("first"), Para("below")), In(0, 0));
+        var before = view.State.Doc;
+
+        Press(view, Key.Back);
+
+        Assert.Equal(before, view.State.Doc);
+        Assert.Equal(("first", 0), Caret(view));
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ParagraphNode Heading(string text, TextAlign align = TextAlign.Default) =>

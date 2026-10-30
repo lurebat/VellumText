@@ -248,9 +248,10 @@ of code per line of text; rich content of more than one paragraph arrives as its
 does in Tiptap.
 
 Enter at the end of a heading starts body text at the default alignment, as in a word processor;
-in the middle of a heading it gives two headings. Enter in a quote continues the quote, and Enter on
-an empty quote line leaves it: the line becomes body text, splitting the quote around it if it is in
-the middle. Backspace at the start of a quote takes the quote off and keeps the words; a second
+in the middle of a heading it gives two headings, and Backspace at the start of a heading that
+opens the document makes it body text. Enter in a quote continues the quote, and Enter on an empty
+quote line leaves it: the line becomes body text, splitting the quote around it if it is in the
+middle. Backspace at the start of a quote takes the quote off and keeps the words; a second
 Backspace joins them onto the line above.
 
 Selected text can be moved by dragging it. Press inside the selection, drag past four pixels and

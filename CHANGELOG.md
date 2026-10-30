@@ -62,6 +62,9 @@ NuGet; packages are published to a local feed, and
   quoted words straight onto the paragraph above as body text, and a quote that
   was the first block ignored Backspace. The paragraph now becomes body text in
   place, keeping its alignment; the next Backspace joins as before.
+- **Backspace at the start of a heading that is the first block makes it body
+  text.** With nothing above to join to it did nothing. A heading further down
+  still joins onto the paragraph above.
 - **Enter in a code block adds a line to the same block.** It split the block,
   so every line of code became a code block of its own and the toolbar was the
   only way out of the last one. The lines stay newlines in the one block now, as

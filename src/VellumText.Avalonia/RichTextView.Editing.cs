@@ -510,6 +510,17 @@ public partial class RichTextView
 
         var neighbour = index + (forward ? 1 : -1);
 
+        // Backspace at the very start of the document has nothing to join. In a heading it takes
+        // the heading off instead, as Notion and Tiptap do, rather than leaving the toolbar as the
+        // only way to turn the first line back into text.
+        if (!forward
+            && index == 0
+            && _state.Doc.Resolve(head) is
+                { Parent: ParagraphNode { Kind: >= ParagraphKind.Heading1 and <= ParagraphKind.Heading6 } } first)
+        {
+            return MakeBody(first, TransactionKind.Format, defaultAlign: false);
+        }
+
         if (index < 0 || neighbour < 0 || neighbour >= leaves.Length)
         {
             return false;
