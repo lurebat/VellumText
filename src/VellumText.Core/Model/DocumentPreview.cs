@@ -125,7 +125,7 @@ public static class DocumentPreview
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCharacters);
 
-        var seen = 0;
+        var seen = 0L;
 
         foreach (var block in doc.Blocks)
         {
@@ -160,7 +160,7 @@ public static class DocumentPreview
     /// each paragraph's text with every embed as its fallback text, a block image as its alt text,
     /// and a newline between them.
     /// </remarks>
-    private static void Count(ImmutableArray<Node> nodes, int maxCharacters, ref int seen, ref bool any)
+    private static void Count(ImmutableArray<Node> nodes, int maxCharacters, ref long seen, ref bool any)
     {
         foreach (var node in nodes)
         {
@@ -171,13 +171,22 @@ public static class DocumentPreview
                 var content = paragraph.Content;
 
                 seen += (any ? 1 : 0) + content.Length - content.Embeds.Length;
+                any = true;
 
+                // Images can share one alt text, so a paragraph's count is bounded by nothing in
+                // memory: it can pass int.MaxValue, and it is checked per image rather than per
+                // paragraph so that the walk stops where the budget does.
                 foreach (var embed in content.Embeds)
                 {
-                    seen += embed.PlainTextFallback.Length;
-                }
+                    WorkCounters.PreviewEmbedsMeasured++;
 
-                any = true;
+                    seen += embed.PlainTextFallback.Length;
+
+                    if (seen > maxCharacters)
+                    {
+                        return;
+                    }
+                }
             }
             else if (node is BlockImageNode { Image.PlainTextFallback: { Length: > 0 } alt })
             {
