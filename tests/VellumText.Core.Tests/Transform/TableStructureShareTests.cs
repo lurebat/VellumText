@@ -11,22 +11,26 @@ namespace VellumText.Core.Tests.Transform;
 /// </remarks>
 public sealed class TableStructureShareTests
 {
-    /// <summary>The set-of-every-node answer the step used before, verbatim.</summary>
+    /// <summary>
+    /// The set answer the step falls back on: every row and cell of one version, looked up from
+    /// the other. Paragraphs are left out, as the step leaves them out — every blank cell holds
+    /// the one <see cref="ParagraphNode.Empty"/>, so a shared paragraph says nothing.
+    /// </summary>
     private static bool Oracle(Node before, Node after)
     {
-        var seen = new HashSet<Node>(Descendants(before), ReferenceEqualityComparer.Instance);
+        var seen = new HashSet<Node>(RowsAndCells(before), ReferenceEqualityComparer.Instance);
 
-        return Descendants(after).Any(seen.Contains);
+        return RowsAndCells(after).Any(seen.Contains);
 
-        static IEnumerable<Node> Descendants(Node node)
+        static IEnumerable<Node> RowsAndCells(Node table)
         {
-            foreach (var child in node.Children)
+            foreach (var row in table.Children)
             {
-                yield return child;
+                yield return row;
 
-                foreach (var below in Descendants(child))
+                foreach (var cell in row.Children)
                 {
-                    yield return below;
+                    yield return cell;
                 }
             }
         }
@@ -84,7 +88,7 @@ public sealed class TableStructureShareTests
     }
 
     [Fact]
-    public void Sharing_agrees_with_the_set_of_every_node()
+    public void Sharing_agrees_with_the_set_of_every_row_and_cell()
     {
         var random = new Random(20261028);
         var shared = 0;
@@ -152,7 +156,8 @@ public sealed class TableStructureShareTests
 
             case 3:
             {
-                // One paragraph kept inside an otherwise new cell.
+                // One paragraph kept inside an otherwise new cell: not sharing, since what a
+                // cell holds can be shared by tables that have nothing else in common.
                 var r = random.Next(rows.Length);
                 var c = random.Next(rows[r].Cells.Length);
                 var cells = copied[r].Cells;
