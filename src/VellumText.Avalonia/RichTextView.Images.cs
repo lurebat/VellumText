@@ -234,7 +234,7 @@ public partial class RichTextView
     /// <summary>The four corner handles of the selected image, or nothing.</summary>
     private Rect[] Handles()
     {
-        if (SelectedImage is not { } position || ImageRect(position) is not { } rect)
+        if (SelectedImage is not { } position || !PaintReady(position) || ImageRect(position) is not { } rect)
         {
             return [];
         }

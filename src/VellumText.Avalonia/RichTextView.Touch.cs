@@ -80,7 +80,7 @@ public partial class RichTextView
         {
             if (SetAndRaise(AreTouchHandlesVisibleProperty, ref _touchHandles, value))
             {
-                InvalidateVisual();
+                InvalidatePaint();
             }
         }
     }
@@ -268,7 +268,8 @@ public partial class RichTextView
 
     private void RenderTouchHandles(DrawingContext context)
     {
-        if (TouchHandleBrush is not { } brush)
+        if (TouchHandleBrush is not { } brush
+            || (_touchHandles && !PaintReady(_state.Selection.Head, _state.Selection.From, _state.Selection.To)))
         {
             return;
         }

@@ -751,7 +751,9 @@ public class TableVirtualizationTests
         Assert.Equal(height, view.BlockOrigin(1).Y + view.Offset.Y, 6);
         Assert.False(tableView.IsRowMeasured(1_900));
 
-        // Asked without a layout pass in between, as a hover or an image lookup is.
+        // Asked without a layout pass in between, as a hover or an image lookup is. A point is
+        // answered against real heights from the top of the viewport to it — the row really there,
+        // which is not the row the estimate put there — and a position by the row holding it.
         var y = view.BlockOrigin(0).Y + tableView.RowOffset(1_900, 0.5);
 
         switch (question)
@@ -770,7 +772,9 @@ public class TableVirtualizationTests
                 break;
         }
 
-        Assert.True(tableView.IsRowMeasured(1_900));
+        Assert.True(tableView.IsRowMeasured(question is "click" or "boundary"
+            ? tableView.RowAnchor(y - view.BlockOrigin(0).Y).Row
+            : 1_900));
         Assert.NotEqual(height, tableView.Size.Height);
 
         // The block after the table starts where the table now ends, and the scroll extent is
