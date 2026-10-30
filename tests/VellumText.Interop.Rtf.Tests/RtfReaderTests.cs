@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using VellumText.ImportProbe;
 using VellumText.Interop.Rtf;
@@ -121,6 +122,60 @@ public class RtfReaderTests
 
         Assert.Single(All(result.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>());
         Assert.DoesNotContain(result.Diagnostics, d => d.Context == "shppict");
+    }
+
+    /// <summary>
+    /// A picture the host's options refuse costs no more than reading it: it is never written out
+    /// as a data URL for the HTML stage to refuse. Building that string and sanitizing it cost about
+    /// 12.6 times the RTF (rubber-duck review finding 9.1). The refusal is still reported, as the
+    /// HTML stage reports it.
+    /// </summary>
+    /// <remarks>
+    /// Run in a child process, which measures allocation over the import alone. The bound is a
+    /// multiple of the RTF as a string (UTF-16), which the reader has to tokenize whatever is done
+    /// with the picture; the paste itself is not capped by its size.
+    /// </remarks>
+    [Theory]
+    [InlineData("rtf-no-data-images", "Dropped|data:|Removed an inline image.")]
+    [InlineData("rtf-small-data-images", "Dropped|data:|Removed an inline image larger than 1024 bytes.")]
+    public void A_refused_picture_is_not_written_out_for_the_html_stage(string format, string diagnostic)
+    {
+        var payload = new byte[4 * 1024 * 1024];
+
+        Convert.FromHexString(Png).CopyTo(payload, 0);
+
+        var rtf = @"{\rtf1\ansi x{\pict\pngblip\picw1\pich1 " + Convert.ToHexString(payload) + @"}y\par}";
+        var rtfMb = rtf.Length * sizeof(char) / (1024 * 1024);
+
+        var result = ProbeRunner.Run(format, rtf, TimeSpan.FromSeconds(60));
+
+        Assert.True(result.ExitCode == 0, result.ToString());
+        Assert.True(int.Parse(result.Value("allocatedMb")!, CultureInfo.InvariantCulture) < 4 * rtfMb, $"RTF {rtfMb} MiB; {result}");
+        Assert.Equal("xy", result.Value("text"));
+        Assert.Equal(diagnostic, Assert.Single(result.Diagnostics, d => d.StartsWith("Dropped|data:", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// The size limit means what it means in the HTML stage: a picture of exactly
+    /// <see cref="RtfImportOptions.MaxDataImageBytes"/> is kept, one byte more is dropped.
+    /// </summary>
+    [Fact]
+    public async Task A_picture_at_the_size_limit_is_kept_and_one_past_it_is_dropped()
+    {
+        var rtf = @"{\rtf1\ansi before{\pict\pngblip\picw1\pich1 " + Png + @"}after\par}";
+        var size = Png.Length / 2;
+
+        var at = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size });
+        var past = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size - 1 });
+
+        Assert.Single(All(at.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>());
+        Assert.DoesNotContain(at.Diagnostics, d => d.Context == "data:");
+        Assert.Empty(All(past.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds));
+
+        var dropped = Assert.Single(past.Diagnostics, d => d.Context == "data:");
+
+        Assert.Equal(DiagnosticSeverity.Dropped, dropped.Severity);
+        Assert.Equal($"Removed an inline image larger than {size - 1} bytes.", dropped.Message);
     }
 
     /// <summary>F-58's merged cells: Word's vertical merge and Excel's horizontal one.</summary>
