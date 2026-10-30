@@ -1376,6 +1376,202 @@ public class NestedTableVirtualizationTests
         Assert.True(view.Covers(2_800, 3_600));
     }
 
+    /// <summary>
+    /// A block above a table in a cell reports a height that is not a number a window can be
+    /// measured from: the table's window cannot be translated, so it is laid out whole — counted,
+    /// traced, every row of it laid out, nothing thrown — rather than given a window from a
+    /// coordinate that means nothing.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NaN)]
+    public void ANestedTableWhoseWindowCannotBeTranslatedIsLaidOutInFull(double height)
+    {
+        var table = new TableNode([
+            new TableRowNode([new TableCellNode([RuleNode.Instance, Uniform(400)]), TableCellNode.FromText("beside")]),
+            new TableRowNode([.. Enumerable.Range(0, 2).Select(c => new TableCellNode(Enumerable.Range(0, 40).Select(i => (BlockNode)ParagraphNode.FromText($"below {c} {i}"))))]),
+        ]);
+        var view = new TableBlockView(table, block => CreateWith(block, height), Brushes.Gray);
+        var listener = new Captured();
+
+        Trace.Listeners.Add(listener);
+
+        try
+        {
+            WorkCounters.NestedWindowFallbacks = 0;
+
+            // Held in the row below, so the table above is given a window translated from where
+            // it starts, under the block whose height is the problem.
+            view.SetWindow(new LocalAnchor(table.Rows[0].NodeSize + 3, 0, AnchorKind.Line), 300, 400);
+            view.Measure(Width);
+            view.Measure(Width);
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        var nested = view.NestedTables.Single();
+
+        Assert.Equal(400, nested.RealizedRows);
+        Assert.True(nested.Covers(0, nested.Size.Height), "the table laid out whole has rows not laid out");
+        Assert.True(WorkCounters.NestedWindowFallbacks >= 1, "no fallback was counted");
+        Assert.Contains("a window coordinate was not a number", listener.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Windows at and past their limits — negative, not a number, infinite, beyond the table's
+    /// end — are clamped to the table: no fallback, nothing thrown, and every row of the clamped
+    /// window laid out, in the table and in the tables in its cells.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(-500.0, -10.0, -10.0)]
+    [InlineData(double.NaN, double.NaN, 400.0)]
+    [InlineData(double.NegativeInfinity, 200.0, 400.0)]
+    [InlineData(double.PositiveInfinity, 200.0, 400.0)]
+    [InlineData(1e300, 600.0, 1e300)]
+    [InlineData(4_000.0, 1e300, 0.0)]
+    [InlineData(4_000.0, 0.0, 0.0)]
+    [InlineData(4_000.0, 200.0, double.NaN)]
+    public void AWindowAtOrPastItsLimitsIsClampedAndLaidOutAtEveryDepth(double anchor, double above, double below)
+    {
+        var table = new TableNode(Enumerable.Range(0, 30).Select(r => new TableRowNode(r is 5 or 20
+            ? [new TableCellNode([Uniform(600, tag: $"t{r}")]), TableCellNode.FromText($"side {r}")]
+            : [TableCellNode.FromText($"outer {r}"), TableCellNode.FromText($"side {r}")])));
+        var view = new TableBlockView(table, block => CreateWith(block, RuleView.BlockHeight), Brushes.Gray);
+
+        WorkCounters.NestedWindowFallbacks = 0;
+
+        view.SetWindow(anchor, above, below);
+        view.Measure(Width);
+
+        var height = view.Size.Height;
+        var at = view.AnchorPoint(view.WindowAnchor) ?? double.NaN;
+        var up = double.IsNaN(above) ? 0 : Math.Max(0, above);
+        var down = double.IsNaN(below) ? double.PositiveInfinity : Math.Max(0, below);
+
+        Assert.InRange(at, 0, height);
+        Assert.Equal(0, WorkCounters.NestedWindowFallbacks);
+        Assert.True(
+            view.Covers(Math.Max(0, at - up), Math.Min(height, at + down)),
+            $"the window around {at:F0}, {up:F0} above and {down:F0} below, of a table {height:F0} tall, has rows not laid out");
+    }
+
+    /// <summary>
+    /// The window's anchor named at and around the edges of a table in a cell — on the text before
+    /// it, the boundaries between, its first and last text, after it, and outside the outer table
+    /// altogether — as a line, a box, a box's bottom or a share of a row. An anchor on text is
+    /// passed down to the table in the cell only when the text is in it, and nothing is laid out
+    /// whole for it; an anchor naming nothing inside that table — a boundary between its rows —
+    /// cannot be translated into it, so that table is laid out whole rather than given a window
+    /// it cannot hold. Either way the window around where the anchor resolves is laid out at every
+    /// depth.
+    /// </summary>
+    [AvaloniaFact]
+    public void AnAnchorAtTheEdgesOfATableInACellIsPassedDownOnlyWhereItNamesContent()
+    {
+        var table = new TableNode(Enumerable.Range(0, 12).Select(r => new TableRowNode(r == 5
+            ? [new TableCellNode([ParagraphNode.FromText("before"), Uniform(300, tag: "n"), ParagraphNode.FromText("after")]), TableCellNode.FromText("side")]
+            : [TableCellNode.FromText($"outer {r}"), TableCellNode.FromText($"side {r}")])));
+
+        // Table-local positions, from the text: the table is the document's first block.
+        var doc = new DocumentNode([table]);
+        int Local(string text) => TextAt(doc, text) - 1;
+
+        var beforeEnd = Local("before") + "before".Length;
+        var first = Local("n r0c0");
+        var last = Local("n r299c2") + "n r299c2".Length;
+        var after = Local("after");
+        var rowFive = table.Rows.Take(5).Sum(r => r.NodeSize);
+        var positions = Enumerable.Range(beforeEnd - 1, first - beforeEnd + 3)
+            .Concat(Enumerable.Range(last - 1, after - last + 3))
+            .Concat([-5, 0, table.ContentSize, table.ContentSize + 40]);
+        var failures = new List<string>();
+
+        foreach (var position in positions)
+        {
+            var text = (position >= beforeEnd - 6 && position <= beforeEnd) || (position >= first && position <= last) || (position >= after && position <= after + 5);
+            var row = position < rowFive ? 0 : position < rowFive + table.Rows[5].NodeSize ? 5 : 11;
+
+            foreach (var kind in new[] { AnchorKind.Line, AnchorKind.Box, AnchorKind.BoxBottom, AnchorKind.RowShare })
+            {
+                foreach (var dy in new[] { -30.0, 0, 0.5, 30 })
+                {
+                    var view = new TableBlockView(table, block => CreateWith(block, RuleView.BlockHeight), Brushes.Gray);
+                    var what = $"{kind} at {position} (the table in the cell holds text {first}-{last}) by {dy}";
+
+                    WorkCounters.NestedWindowFallbacks = 0;
+                    view.SetWindow(new LocalAnchor(position, dy, kind), 200, 400);
+
+                    try
+                    {
+                        view.Measure(Width);
+                    }
+                    catch (InvalidOperationException e)
+                    {
+                        failures.Add($"{what}: {e.Message}");
+
+                        continue;
+                    }
+
+                    var nested = view.NestedTables.SingleOrDefault();
+                    var y = view.AnchorPoint(view.WindowAnchor) is { } point && double.IsFinite(point) ? point : view.RowTopOf(row);
+
+                    if (!view.Covers(Math.Max(0, y - 200), Math.Min(view.Size.Height, y + 400)))
+                    {
+                        failures.Add($"{what}: the window around {y:F0} has rows not laid out");
+                    }
+
+                    if (WorkCounters.NestedWindowFallbacks > 0 && nested?.RealizedRows < 300)
+                    {
+                        failures.Add($"{what}: the table in the cell fell back without being laid out whole");
+                    }
+
+                    if (text && kind is AnchorKind.Line && WorkCounters.NestedWindowFallbacks > 0)
+                    {
+                        failures.Add($"{what}: an anchor on text laid a table out whole");
+                    }
+
+                    if (text && kind is AnchorKind.Line && nested is not null && (position >= first && position <= last) != (nested.WindowAnchor.Kind == AnchorKind.Line))
+                    {
+                        failures.Add($"{what}: the table in the cell was given {nested.WindowAnchor}");
+                    }
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, $"{failures.Count} anchors: " + string.Join("\n", failures.Take(12)));
+    }
+    private static BlockView CreateWith(BlockNode block, double ruleHeight) => block switch
+    {
+        ParagraphNode paragraph => new ParagraphView(paragraph, Styles),
+        TableNode table => new TableBlockView(table, inner => CreateWith(inner, ruleHeight), Brushes.Gray),
+        RuleNode => new Sized(ruleHeight),
+        _ => throw new NotSupportedException(),
+    };
+
+    /// <summary>A block that measures to whatever height it is told to.</summary>
+    private sealed class Sized(double height) : BlockView
+    {
+        private Size _size;
+
+        public override int ContentSize => 0;
+
+        public override Size Size => _size;
+
+        public override Size Measure(double availableWidth) => _size = new Size(availableWidth, height);
+
+        public override void Render(DrawingContext context, Point origin)
+        {
+        }
+
+        public override int HitTest(Point local) => 0;
+
+        public override Rect GetCaretRect(int localPosition) => new(0, 0, 1, 1);
+
+        public override IReadOnlyList<Rect> GetSelectionRects(int from, int to) => [];
+    }
+
     private sealed class Captured : TraceListener
     {
         private readonly System.Text.StringBuilder _text = new();

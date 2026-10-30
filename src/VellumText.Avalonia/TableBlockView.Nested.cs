@@ -176,8 +176,22 @@ internal sealed partial class TableBlockView
 
         if (Owns(start, nested))
         {
+            var inner = _windowAnchor.Shift(-start);
+
+            // Inside it by position but naming nothing there — a boundary between its rows, cells
+            // or blocks — the anchor gives it no point to measure from, and this table resolves
+            // the anchor to somewhere else: it is laid out whole rather than windowed around a
+            // point the two would not agree on.
+            if (!nested.Names(inner))
+            {
+                Fallback(nested, "the window's anchor names nothing in it");
+                nested.SetWindow(0, 0, double.PositiveInfinity);
+
+                return;
+            }
+
             nested.SetWindow(
-                _windowAnchor.Shift(-start),
+                inner,
                 exact.Kind == Coverage.Prefix ? double.PositiveInfinity : _windowAbove,
                 _windowBelow);
 
@@ -262,6 +276,30 @@ internal sealed partial class TableBlockView
         // anything else from there to its last position is inside it.
         return position >= start && position <= start + nested.ContentSize
             && !(position == start && _windowAnchor.Kind is AnchorKind.Box or AnchorKind.BoxBottom);
+    }
+
+    /// <summary>
+    /// Whether an anchor names something in this table to hold: a share of one of its rows, at the
+    /// row's start, or a position inside a block in one of its cells.
+    /// </summary>
+    /// <remarks>Realizes the row it names, which the window measures first anyway.</remarks>
+    internal bool Names(LocalAnchor anchor)
+    {
+        var row = _rows.Length == 0 ? -1 : RowAt(anchor.Position);
+
+        if (row < 0)
+        {
+            return false;
+        }
+
+        if (anchor.Kind == AnchorKind.RowShare && anchor.Position == _rowStarts[row])
+        {
+            return true;
+        }
+
+        Realize(row);
+
+        return Locate(row, anchor.Position) is not null;
     }
 
     /// <summary>Where the window's anchor point is now, in this table's coordinates.</summary>
