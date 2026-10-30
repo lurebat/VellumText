@@ -444,6 +444,27 @@ public class RtfExportTests
     }
 
     /// <summary>
+    /// The lines of a code block are line breaks inside one paragraph, not paragraphs, so the block
+    /// comes back as one paragraph with the same lines, the empty one included. Its kind goes, as
+    /// above, and so does the exact whitespace at the start of a line and inside a run, which
+    /// <see cref="RtfImporter"/> documents; the words of each line are compared without it.
+    /// </summary>
+    [Fact]
+    public async Task A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines()
+    {
+        var back = await RoundTrip(new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
+            ParagraphNode.FromText("after")]));
+
+        Assert.Equal(3, back.Blocks.Length);
+        Assert.Equal(
+            ["if (x) {", string.Empty, "y();", "}"],
+            Para(back, 1).Content.Text.Split('\n').Select(line => line.Replace('\u00A0', ' ').Trim()));
+        Assert.Equal("after", Para(back, 2).Content.Text);
+    }
+
+    /// <summary>
     /// A header cell is a table cell drawn in bold. Nothing in RTF says which cells are headers,
     /// so the emphasis survives and the role does not.
     /// </summary>
