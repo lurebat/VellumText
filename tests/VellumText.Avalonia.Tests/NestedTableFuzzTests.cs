@@ -85,6 +85,7 @@ public class NestedTableFuzzTests
         var random = new Random(seed);
         var doc = new Generator(random).Document();
         var (window, view) = Shown(doc);
+        var twin = new Twin();
 
         Reset();
         Check(view, $"seed {seed}, shown");
@@ -118,7 +119,7 @@ public class NestedTableFuzzTests
                     what += Compose(window, view, random);
                     break;
                 default:
-                    what += AskFar(window, view, random, what);
+                    what += AskFar(window, view, random, what, twin);
                     break;
             }
 
@@ -131,9 +132,7 @@ public class NestedTableFuzzTests
         Layout(window);
         Check(view, $"seed {seed}, end");
 
-        var twin = GeometryTransactionTests.FullyLaidOut(view.State.Doc);
-
-        NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, twin);
+        NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, twin.Of(view.State.Doc, Width));
     }
 
     private static string Jump(Window window, RichTextView view, Random random)
@@ -294,10 +293,11 @@ public class NestedTableFuzzTests
         return $": compose at {position}";
     }
 
-    private static string AskFar(Window window, RichTextView view, Random random, string what)
+    private static string AskFar(Window window, RichTextView view, Random random, string what, Twin twin)
     {
         var probes = Probes(view);
         string asked;
+        Action<RichTextView, double>? answered = null;
 
         switch (random.Next(3))
         {
@@ -307,15 +307,31 @@ public class NestedTableFuzzTests
                 break;
             case 1:
                 var y = random.Next(2) == 0 ? -random.Next(2_000, 20_000) : Height + random.Next(2_000, 20_000);
+                var x = random.Next(10, (int)Width);
+                var position = view.PositionAt(new Point(x, y));
 
-                _ = view.PositionAt(new Point(random.Next(10, (int)Width), y));
                 asked = $": position at y {y}";
+                answered = (copy, shift) =>
+                {
+                    var expected = copy.PositionAt(new Point(x, y + shift));
+
+                    Assert.True(position == expected, $"{what}{asked}: answered {position}, a fully laid-out copy {expected}");
+                };
                 break;
             default:
                 var below = Height + random.Next(1_000, 10_000);
+                var bx = random.Next(10, (int)Width);
+                var boundary = view.ColumnBoundaryAt(new Point(bx, below), 4);
 
-                _ = view.ColumnBoundaryAt(new Point(random.Next(10, (int)Width), below), 4);
                 asked = $": column boundary at y {below}";
+                answered = (copy, shift) =>
+                {
+                    var expected = copy.ColumnBoundaryAt(new Point(bx, below + shift), 4);
+
+                    Assert.True(
+                        boundary?.TablePos == expected?.TablePos && boundary?.Boundary == expected?.Boundary,
+                        $"{what}{asked}: answered {boundary?.TablePos}/{boundary?.Boundary}, a fully laid-out copy {expected?.TablePos}/{expected?.Boundary}");
+                };
                 break;
         }
 
@@ -323,6 +339,14 @@ public class NestedTableFuzzTests
         AssertStill(view, probes, null, what + asked);
         Layout(window);
         AssertStill(view, probes, null, what + asked + ", laid out");
+
+        // The answer is the one a fully laid-out copy gives, aligned on a line on screen.
+        if (answered is not null && probes is [var (held, _), ..])
+        {
+            var fully = twin.Of(view.State.Doc, window.Width);
+
+            answered(fully, ScreenTop(fully, held) - ScreenTop(view, held));
+        }
 
         return asked;
     }
@@ -505,6 +529,34 @@ public class NestedTableFuzzTests
     private static void Layout(Window window) => GeometryTransactionTests.Layout(window);
 
     private static double ScreenTop(RichTextView view, int position) => GeometryTransactionTests.ScreenTop(view, position);
+
+    /// <summary>
+    /// A fully laid-out copy of the document, kept across the steps of a run and brought up to the
+    /// document and width asked for, so a question is compared with it without laying the whole
+    /// document out from nothing each time.
+    /// </summary>
+    private sealed class Twin
+    {
+        private RichTextView? _view;
+
+        public RichTextView Of(DocumentNode doc, double width)
+        {
+            if (_view is null)
+            {
+                return _view = GeometryTransactionTests.FullyLaidOut(doc, width);
+            }
+
+            if (!ReferenceEquals(_view.State.Doc, doc))
+            {
+                _view.State = EditorState.Create(doc);
+            }
+
+            _view.Measure(new Size(width, double.PositiveInfinity));
+            _view.Arrange(new Rect(0, 0, width, _view.DesiredSize.Height));
+
+            return _view;
+        }
+    }
 
     /// <summary>Random documents with tables in cells.</summary>
     private sealed class Generator(Random random)

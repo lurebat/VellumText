@@ -277,12 +277,12 @@ public class GeometryTransactionTests
         ])));
 
     /// <summary>The same document laid out whole, with nothing estimated, as the oracle.</summary>
-    internal static RichTextView FullyLaidOut(DocumentNode doc)
+    internal static RichTextView FullyLaidOut(DocumentNode doc, double width = Width)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
 
-        view.Measure(new Size(Width, double.PositiveInfinity));
-        view.Arrange(new Rect(0, 0, Width, view.DesiredSize.Height));
+        view.Measure(new Size(width, double.PositiveInfinity));
+        view.Arrange(new Rect(0, 0, width, view.DesiredSize.Height));
 
         return view;
     }

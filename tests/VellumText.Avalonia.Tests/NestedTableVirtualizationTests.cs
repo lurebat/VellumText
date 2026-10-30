@@ -620,6 +620,77 @@ public class NestedTableVirtualizationTests
     }
 
     /// <summary>
+    /// The viewport held deep in a table in a cell, between rows holding two tables side by side
+    /// — above it and below it, the tallest of the two deciding where the row ends — and two and
+    /// three tables deep: a point far above and far below, swept across the edges between rows of
+    /// those tables and between the rows holding them, lands where a fully laid-out copy has it,
+    /// and moves nothing on screen.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void APointAboveOrBelowTheHeldContentLandsWhereAFullyLaidOutCopyHasIt(int depth)
+    {
+        BlockNode content = new TableNode([
+            new TableRowNode([new TableCellNode([Irregular(60, "x")]), new TableCellNode([Irregular(75, "y")])]),
+            new TableRowNode([new TableCellNode([Irregular(300, "z")]), TableCellNode.FromText("side")]),
+            new TableRowNode([new TableCellNode([Irregular(60, "p")]), new TableCellNode([Irregular(45, "q")])]),
+        ]);
+
+        for (var d = 2; d < depth; d++)
+        {
+            content = new TableNode([new TableRowNode([new TableCellNode([content])])]);
+        }
+
+        var doc = new DocumentNode([new TableNode([new TableRowNode([new TableCellNode([content])])]), ParagraphNode.FromText("After.")]);
+        var (window, view) = Shown(doc);
+        var twin = GeometryTransactionTests.FullyLaidOut(doc);
+        var middle = TextAt(doc, "zr150c0");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, middle) - 2);
+            Layout(window);
+        }
+
+        var held = view.PositionAt(new Point(20, 4));
+        var y = ScreenTop(view, held);
+        var shift = ScreenTop(twin, held) - y;
+
+        ResetCounters();
+
+        // Row tops in the copy: in the tables side by side above and below, at the rows holding
+        // them, and the last rows, where the taller of the two ends the row.
+        var edges = new[] { "xr10c0", "xr59c1", "yr40c0", "yr74c1", "zr0c0", "zr299c1", "pr0c0", "pr30c0", "qr44c1", "After." }
+            .Select(text => ScreenTop(twin, TextAt(doc, text)));
+
+        foreach (var edge in edges)
+        {
+            for (var dy = -9.0; dy <= 1.0; dy += 0.5)
+            {
+                foreach (var x in new[] { 30.0, Width * 0.4, Width * 0.6, Width - 30 })
+                {
+                    var at = new Point(x, edge + dy);
+                    var answered = view.PositionAt(new Point(x, at.Y - shift));
+
+                    // On an edge exactly, the copy's coordinates and the view's differ by rounding,
+                    // so either side's answer is the copy's.
+                    var expected = new[] { 0, -0.01, 0.01 }.Select(e => twin.PositionAt(new Point(x, at.Y + e))).ToArray();
+
+                    Assert.True(expected.Contains(answered), $"the point ({at.X:F0}, {at.Y:F1}) in a fully laid-out copy is position {expected[0]}, the view answered {answered}");
+                }
+            }
+
+            Assert.True(Math.Abs(ScreenTop(view, held) - y) <= 1, $"after points near {edge:F1}, the line at the top is drawn at {ScreenTop(view, held):F1}, not {y:F1}");
+        }
+
+        Layout(window);
+
+        Assert.True(Math.Abs(ScreenTop(view, held) - y) <= 1, $"laid out again, the line at the top is drawn at {ScreenTop(view, held):F1}, not {y:F1}");
+        AssertNoRepairs();
+    }
+
+    /// <summary>
     /// The viewport is held inside a table in a cell, near its end, and the cell beside is a
     /// little taller in truth: the row's bottom, and the row after it on screen, hang from that
     /// taller cell, so the depth of the anchor in the row is made exact and the row after is laid
