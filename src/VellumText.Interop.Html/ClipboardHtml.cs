@@ -1,5 +1,11 @@
 using System.Text;
 
+using AngleSharp.Html;
+using AngleSharp.Html.Parser;
+using AngleSharp.Html.Parser.Tokens;
+using AngleSharp.Html.Parser.Tokens.Struct;
+using AngleSharp.Text;
+
 namespace VellumText.Interop.Html;
 
 /// <summary>
@@ -23,7 +29,13 @@ namespace VellumText.Interop.Html;
 public static class ClipboardHtml
 {
     private const string StartFragmentComment = "<!--StartFragment-->";
-    private const string EndFragmentComment = "<!--EndFragment-->";
+    internal const string EndFragmentComment = "<!--EndFragment-->";
+
+    /// <summary>Start tags that only mean something between a table and its cells.</summary>
+    private static readonly HashSet<string> TableRowContext = new(StringComparer.Ordinal)
+    {
+        "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr",
+    };
 
     /// <summary>Whether a string looks like a <c>CF_HTML</c> payload rather than plain HTML.</summary>
     /// <param name="text">The candidate.</param>
@@ -188,6 +200,61 @@ public static class ClipboardHtml
         // we want here.
         fragment = Encoding.UTF8.GetString(bytes, startByte, endByte - startByte);
         return true;
+    }
+
+    /// <summary>
+    /// Whether the fragment opens inside a table, and if so the whole document it was cut from.
+    /// </summary>
+    /// <param name="text">The clipboard payload.</param>
+    /// <param name="fragment">What <see cref="ExtractFragment"/> returned for it.</param>
+    /// <param name="document">The HTML after the header, fragment markers included.</param>
+    /// <returns>Whether the fragment has to be read in the context of its table.</returns>
+    /// <remarks>
+    /// Excel opens a copied range's fragment after <c>&lt;table&gt;</c> and before
+    /// <c>&lt;col&gt;</c>. Parsed on its own, that fragment is rows and cells with no table, which
+    /// the HTML parser drops as stray tags, and the range arrives as one paragraph. Only rows and
+    /// table sections count: a fragment of bare cells is how Excel marks a single cell, which its
+    /// own RTF flavour pastes as plain text, and the fragment alone already reads that way.
+    /// </remarks>
+    internal static bool TryGetTableContext(string text, string fragment, out string document)
+    {
+        document = string.Empty;
+
+        if (!IsClipboardHtml(text)
+            || !text.Contains(StartFragmentComment, StringComparison.OrdinalIgnoreCase)
+            || !OpensWithTableRows(fragment))
+        {
+            return false;
+        }
+
+        ReadHeader(text, out var headerEnd);
+        document = text[headerEnd..];
+        return true;
+    }
+
+    private static bool OpensWithTableRows(string fragment)
+    {
+        var tokenizer = new HtmlTokenizer(new TextSource(fragment), HtmlEntityProvider.Resolver)
+        {
+            // Only the first tag's name matters. Not emitting attributes keeps the scan linear
+            // however many a hostile tag carries.
+            ShouldEmitAttribute = (ref StructHtmlToken token, ReadOnlyMemory<char> name) => false,
+        };
+
+        while (true)
+        {
+            var token = tokenizer.Get();
+
+            if (token.Type == HtmlTokenType.EndOfFile)
+            {
+                return false;
+            }
+
+            if (token.Type == HtmlTokenType.StartTag)
+            {
+                return TableRowContext.Contains(token.AsTag().Name);
+            }
+        }
     }
 
     /// <summary>

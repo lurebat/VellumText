@@ -523,4 +523,39 @@ public class RtfExportTests
             text,
             [new ValueSpan<MarkSet>(start, length, mark)],
             []))]);
+
+    private static string ExportImage(string source) =>
+        RtfExporter.Instance.Export(new DocumentNode([
+            new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source, altText: "ALT"))),
+        ]));
+
+    [Theory]
+    [InlineData("data:image/png;base64,AAEC", @"{\pict\pngblip 000102}")]
+    [InlineData("data:image/png;name=a.png;base64,AAEC", @"{\pict\pngblip 000102}")]
+    [InlineData("data:image/jpeg;base64,AAEC", @"{\pict\jpegblip 000102}")]
+    [InlineData("DATA:IMAGE/JPG;BASE64,AAEC", @"{\pict\jpegblip 000102}")]
+    public void A_png_or_jpeg_data_url_is_embedded_as_a_picture(string source, string picture)
+    {
+        var rtf = ExportImage(source);
+
+        Assert.Contains(picture, rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain("ALT", rtf, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("data:image/png;base64;x=y,AAEC")]
+    [InlineData("data:image/pngx;base64,AAEC")]
+    [InlineData("data:image/png,AAEC")]
+    [InlineData(" data:image/png;base64,AAEC")]
+    [InlineData("data:image/gif;base64,AAEC")]
+    [InlineData("data:image/png;base64,not base64!")]
+    public void Anything_else_is_written_as_its_alternative_text(string source)
+    {
+        // The same reading of a data: URL as the importer and the renderer: a URL either of them
+        // refuses is not a picture here either.
+        var rtf = ExportImage(source);
+
+        Assert.DoesNotContain(@"\pict", rtf, StringComparison.Ordinal);
+        Assert.Contains("ALT", rtf, StringComparison.Ordinal);
+    }
 }

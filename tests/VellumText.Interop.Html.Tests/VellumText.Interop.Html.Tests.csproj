@@ -20,6 +20,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Real clipboard captures, byte for byte; see Fixtures\*\manifest.json for their origin. -->
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
     <ProjectReference Include="..\VellumText.ImportProbe\VellumText.ImportProbe.csproj" />
   </ItemGroup>

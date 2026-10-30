@@ -90,6 +90,38 @@ public class MarkdownImportTests
             p.Content.MarkAt(0).Link);
     }
 
+    /// <summary>
+    /// A backslash in a link address is a literal character to CommonMark, which writes it as
+    /// <c>%5C</c>; in an HTML link a browser reads the same backslash as <c>/</c>. The address
+    /// therefore changes meaning on the way in, and the import says so.
+    /// </summary>
+    [Theory]
+    [InlineData(@"[a](https://example.test/a\\b)")]
+    [InlineData(@"[a](https://example.test/a\b)")]
+    [InlineData(@"[a][r]
+
+[r]: https://example.test/a\b")]
+    [InlineData(@"<https://example.test/a\b>")]
+    public void A_backslash_in_a_link_address_is_reported(string markdown)
+    {
+        var result = Import(markdown);
+
+        var diagnostic = Assert.Single(result.Diagnostics, d => d.Context == "link-backslash");
+        Assert.Equal(DiagnosticSeverity.Downgraded, diagnostic.Severity);
+
+        // The link itself is kept; only its address is in question.
+        Assert.NotNull(Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.MarkAt(0).Link);
+    }
+
+    [Theory]
+    [InlineData(@"[a](https://example.test/a\(b)")]
+    [InlineData(@"[a\b](https://example.test/ab)")]
+    [InlineData(@"`\` [a](https://example.test/ab)")]
+    public void A_backslash_anywhere_else_is_not_reported(string markdown)
+    {
+        Assert.DoesNotContain(Import(markdown).Diagnostics, d => d.Context == "link-backslash");
+    }
+
     [Fact]
     public void An_embedded_image_becomes_an_embed()
     {

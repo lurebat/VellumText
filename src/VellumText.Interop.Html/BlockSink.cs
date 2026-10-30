@@ -12,12 +12,26 @@ namespace VellumText.Interop.Html;
 /// </remarks>
 internal sealed class BlockSink
 {
+    private readonly Action<string, string> _downgrade;
     private readonly List<BlockNode> _blocks = [];
     private readonly StringBuilder _text = new();
     private readonly List<ValueSpan<MarkSet>> _marks = [];
     private readonly List<InlineEmbed> _embeds = [];
     private bool _pendingSpace;
     private MarkSet _pendingSpaceMark;
+
+    /// <summary>Whether the last character written is a newline that came from a <c>&lt;br&gt;</c>.</summary>
+    private bool _endsWithBreak;
+
+    /// <summary>Creates a sink.</summary>
+    /// <param name="downgrade">
+    /// Reports a repair made to content the model would otherwise refuse, as a message and a
+    /// context.
+    /// </param>
+    internal BlockSink(Action<string, string> downgrade)
+    {
+        _downgrade = downgrade;
+    }
 
     /// <summary>The blocks produced so far.</summary>
     internal IReadOnlyList<BlockNode> Blocks => _blocks;
@@ -120,6 +134,7 @@ internal sealed class BlockSink
         _pendingSpace = false;
         Append("\n", mark);
         _pendingSpace = false;
+        _endsWithBreak = true;
     }
 
     /// <summary>Whether a character is whitespace that HTML collapses.</summary>
@@ -176,6 +191,7 @@ internal sealed class BlockSink
     {
         var start = _text.Length;
         _text.Append(text);
+        _endsWithBreak = false;
 
         if (mark.IsEmpty)
         {
@@ -207,16 +223,114 @@ internal sealed class BlockSink
     /// </param>
     internal void Flush(BlockStyle style, bool force = false)
     {
+        // A break that ends a block only gives its line a height, which the paragraph has anyway:
+        // <p>a<br></p> is one line and <p><br></p> is one blank line. Kept as a character, every
+        // blank line arrived two lines tall. The paragraph it was in is still a paragraph.
+        if (_endsWithBreak)
+        {
+            DropTrailingBreak();
+            force = true;
+        }
+
         if (_text.Length == 0 && !force)
         {
             Reset();
             return;
         }
 
-        var content = InlineContent.Create(_text.ToString(), _marks, _embeds);
+        var text = WellFormed(_text.ToString());
+
+        SnapMarksToCharacters(text);
+
+        var content = InlineContent.Create(text, _marks, _embeds);
 
         _blocks.Add(new ParagraphNode(content, style.Kind, style.Align, style.Indent));
         Reset();
+    }
+
+    /// <summary>The text with every unpaired surrogate replaced by U+FFFD.</summary>
+    /// <remarks>
+    /// The model refuses text that is not well-formed UTF-16, and a refusal here used to cost the
+    /// whole import, not the half character. A raw lone surrogate reaches this far from a .NET
+    /// string or an RTF <c>\u</c>; the HTML tokenizer already replaces one written as a character
+    /// reference. The replacement is one code unit for one, so no span offset moves.
+    /// </remarks>
+    private string WellFormed(string text)
+    {
+        char[]? repaired = null;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(text[i]))
+            {
+                repaired ??= text.ToCharArray();
+                repaired[i] = '\uFFFD';
+            }
+        }
+
+        if (repaired is null)
+        {
+            return text;
+        }
+
+        _downgrade(
+            "Text contained half a character (an unpaired UTF-16 surrogate); it was replaced with U+FFFD.",
+            "unpaired-surrogate");
+
+        return new string(repaired);
+    }
+
+    /// <summary>Moves span edges that fall inside a surrogate pair to the start of the pair.</summary>
+    /// <remarks>
+    /// A pair written as two escapes with formatting between its halves puts an edge inside the
+    /// character, which the model refuses. Moving every edge the same way keeps spans that did not
+    /// overlap from overlapping; one left empty is dropped by <see cref="InlineContent.Create"/>.
+    /// </remarks>
+    private void SnapMarksToCharacters(string text)
+    {
+        var moved = false;
+
+        for (var i = 0; i < _marks.Count; i++)
+        {
+            var span = _marks[i];
+            var start = CharacterStart(text, span.Start);
+            var end = CharacterStart(text, span.End);
+
+            if (start != span.Start || end != span.End)
+            {
+                _marks[i] = new ValueSpan<MarkSet>(start, end - start, span.Value);
+                moved = true;
+            }
+        }
+
+        if (moved)
+        {
+            _downgrade(
+                "Formatting began or ended inside a character and was moved to the character's start.",
+                "split-character");
+        }
+    }
+
+    // Only called on well-formed text, where a low surrogate always completes a pair.
+    private static int CharacterStart(string text, int offset) =>
+        offset > 0 && offset < text.Length && char.IsLowSurrogate(text[offset]) ? offset - 1 : offset;
+
+    private void DropTrailingBreak()
+    {
+        _text.Length--;
+
+        // Spans arrive in order and merge as they go, so only the last can cover the break. One
+        // left empty is dropped by InlineContent.Create.
+        if (_marks.Count > 0 && _marks[^1].End > _text.Length)
+        {
+            var last = _marks[^1];
+
+            _marks[^1] = new ValueSpan<MarkSet>(last.Start, last.Length - 1, last.Value);
+        }
     }
 
     /// <summary>Closes any pending content, then adds a block of its own.</summary>
@@ -234,5 +348,6 @@ internal sealed class BlockSink
         _marks.Clear();
         _embeds.Clear();
         _pendingSpace = false;
+        _endsWithBreak = false;
     }
 }
