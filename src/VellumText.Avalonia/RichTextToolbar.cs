@@ -217,7 +217,7 @@ public class RichTextToolbar : TemplatedControl
         // Toggling rather than setting, because the button that makes a link is the button that
         // removes one -- a toolbar with a permanently lit "link" button and no way back is the
         // shape this avoids.
-        SetLinkCommand = Command<object?>(target => _view?.SetLink(Link(target)));
+        SetLinkCommand = Command<object?>(ToggleLink);
 
         // The event rather than an OnApplyTemplate override: the hook is an implementation
         // detail, and an override would be public API surface on an unsealed control.
@@ -352,6 +352,10 @@ public class RichTextToolbar : TemplatedControl
     public ICommand ClearFormattingCommand { get; }
 
     /// <summary>Makes the selection a link to the parameter, or removes the link it already has.</summary>
+    /// <remarks>
+    /// With no parameter and no link to remove, it raises <see cref="RichTextView.LinkRequested"/>
+    /// so the host can ask for the address, as Ctrl+K does.
+    /// </remarks>
     public ICommand SetLinkCommand { get; }
 
     /// <summary>Undoes the most recent edit.</summary>
@@ -468,19 +472,40 @@ public class RichTextToolbar : TemplatedControl
         _ => null,
     };
 
-    private LinkMark? Link(object? target)
+    /// <summary>Removes the selection's link, makes one to the target, or asks for the address.</summary>
+    /// <remarks>
+    /// With no address to link to — which is what the default template's button passes — the
+    /// host is asked through <see cref="RichTextView.LinkRequested"/>, exactly as Ctrl+K asks it:
+    /// the control has no link dialog of its own and should not grow one. Doing nothing there was
+    /// a Link button that could remove links and never make one.
+    /// </remarks>
+    private bool? ToggleLink(object? target)
     {
-        if (_view?.SelectionMarks.Link is not null)
+        if (_view is null)
         {
             return null;
         }
 
-        return target switch
+        if (_view.SelectionMarks.Link is not null)
         {
-            LinkMark link => link,
+            return _view.SetLink(null);
+        }
+
+        LinkMark? link = target switch
+        {
+            LinkMark mark => mark,
             string href when !string.IsNullOrWhiteSpace(href) => new LinkMark(href),
             _ => null,
         };
+
+        if (link is null)
+        {
+            _view.RaiseLinkRequested();
+
+            return false;
+        }
+
+        return _view.SetLink(link);
     }
 
     private ICommand Command(Func<bool?> run) => Track(new Action(run, this));

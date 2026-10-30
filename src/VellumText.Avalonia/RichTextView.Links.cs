@@ -69,7 +69,7 @@ public partial class RichTextView
     /// the same "advertising an edit that will not happen" failure as showing a Bold button, but
     /// worse, because it costs the user a dialog before the refusal.
     /// </remarks>
-    private void RaiseLinkRequested()
+    internal void RaiseLinkRequested()
     {
         if (IsReadOnly)
         {

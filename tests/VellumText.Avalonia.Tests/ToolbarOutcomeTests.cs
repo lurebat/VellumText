@@ -231,6 +231,72 @@ public class ToolbarOutcomeTests
         Assert.True(body.IsChecked, "Body went dark over body text");
     }
 
+    /// <summary>
+    /// The Link button asks the host for the address, as Ctrl+K does, and the link the host
+    /// applies lands on exactly the selection; clicked again, it removes it. The default template
+    /// gives the button no address, and with none the command did nothing at all — while the
+    /// button lit up as though it had made a link.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheLinkButtonAsksForTheAddressAndLinksExactlyTheSelection(bool across)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var link = new LinkMark("https://example.com/");
+        var asked = 0;
+
+        view.LinkRequested += (_, e) =>
+        {
+            asked++;
+            Assert.Null(e.Existing);
+            view.ApplyLink(link);
+        };
+
+        var selected = Select(view, across);
+        var button = Toggle(bar, "Link");
+
+        UserClick(button);
+
+        Assert.Equal(1, asked);
+        AssertMarkedExactly(editor.State.Doc, selected, marks => marks.Link == link, "the link");
+        Assert.True(bar.IsLink);
+        Assert.True(button.IsChecked);
+
+        // On screen: a link is drawn underlined, and the text beside it is not.
+        Assert.True(Drawn(RunAt(view, selected[0].Block, selected[0].From), TextStyle.Underline), "the link is not drawn as one");
+        Assert.All(Outside(across), at => Assert.False(Drawn(RunAt(view, at.Block, at.Offset), TextStyle.Underline)));
+
+        UserClick(button);
+
+        Assert.Equal(1, asked);
+        AssertMarkedExactly(editor.State.Doc, [], marks => marks.Link is not null, "a link");
+        Assert.False(bar.IsLink);
+        Assert.False(button.IsChecked);
+    }
+
+    /// <summary>A host that asks and is told no leaves the text as it was and the button dark.</summary>
+    [AvaloniaFact]
+    public void ALinkTheHostDoesNotMakeLeavesTheButtonDark()
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var asked = 0;
+
+        view.LinkRequested += (_, _) => asked++;
+        SelectPart(view);
+
+        var before = editor.State.Doc;
+        var button = Toggle(bar, "Link");
+
+        UserClick(button);
+
+        Assert.Equal(1, asked);
+        Assert.Same(before, editor.State.Doc);
+        Assert.False(button.IsChecked, "the Link button lit with no link made");
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
