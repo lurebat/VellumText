@@ -275,6 +275,100 @@ public class ViewportAnchorTests
     }
 
     /// <summary>
+    /// A composition of whole lines and then part of one before a paragraph's text, so the
+    /// composition's last line goes on into the paragraph's own text, and that mixed line at the
+    /// top of the viewport: the paragraph's text on it is held — while the composition grows a
+    /// line above it, across a resize, and when the composition is cleared — one table deep and
+    /// three tables deep.
+    /// </summary>
+    /// <remarks>
+    /// The mixed line starts inside the composition, so it has no document position of its own;
+    /// held from where the composition starts, the paragraph's text on it slid down a line as the
+    /// composition grew.
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void TheParagraphsTextOnACompositionsLastLineIsHeldAtTheTop(int depth)
+    {
+        var doc = Doc(depth, Long("A", 30), Long("P", 30));
+        var (window, view) = Shown(doc);
+        var p = Start(doc, "P");
+
+        // The second character of the paragraph's own text, which the composition's last line
+        // runs straight into: no break between them, so no width puts them on different lines.
+        var marker = p + 1;
+
+        view.MoveTo(p, extend: false);
+        Layout(window);
+
+        Assert.True(view.SetPreedit("composed line one\ncomposed line two"));
+        Layout(window);
+
+        var lineHeight = ScreenTop(view, marker) - ScreenTop(view, p);
+
+        Assert.True(lineHeight > 0, "the composition's last line does not run into the paragraph's text");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, marker) + 2);
+            Layout(window);
+        }
+
+        AssertAt(view, marker, -2);
+
+        Assert.True(view.SetPreedit("composed line one\ncomposed line new\ncomposed line two"));
+        Layout(window);
+        AssertAt(view, marker, -2);
+
+        window.Width = Width - 150;
+        Layout(window);
+        AssertAt(view, marker, -2);
+
+        Assert.True(view.SetPreedit(null));
+        Layout(window);
+        AssertAt(view, marker, -2);
+    }
+
+    /// <summary>
+    /// A composition at the end of a paragraph, so its last line holds nothing of the document,
+    /// and that line at the top of the viewport: the composition is held where it starts, so a line
+    /// composed in the middle of it pushes its later lines down rather than its earlier ones up.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void ComposedLinesAtTheTopGrowDownFromWhereTheCompositionStarts(int depth)
+    {
+        var doc = Doc(depth, Long("A", 30), Long("P", 30));
+        var (window, view) = Shown(doc);
+        var end = Start(doc, "P") + Length(doc, "P");
+
+        view.MoveTo(end, extend: false);
+        Layout(window);
+
+        Assert.True(view.SetPreedit("composed one\ncomposed two\ncomposed three"));
+        Layout(window);
+
+        // The last composed line, two lines below the first, just across the top of the viewport.
+        var lineHeight = LineHeight(view, end);
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, end) + (2 * lineHeight) + 2);
+            Layout(window);
+        }
+
+        var first = ScreenTop(view, end);
+
+        Assert.True(Math.Abs(first + (2 * lineHeight) + 2) <= 1, $"the composition's first line is drawn at {first:F1}, not two lines above the top");
+
+        Assert.True(view.SetPreedit("composed one\ncomposed new\ncomposed two\ncomposed three"));
+        Layout(window);
+        AssertAt(view, end, first);
+    }
+
+    /// <summary>
     /// Composing straight after a scroll, before any layout pass has run: the line at the new top
     /// is read from the layout before the composition drops the paragraph's, so the composition
     /// growing above it moves nothing.
@@ -821,6 +915,14 @@ public class ViewportAnchorTests
 
         return view.BlockOrigin(block).Y
             + view.Blocks[block].GetCaretRect(position - view.Slots[block].Start).Top;
+    }
+
+    /// <summary>The height of the line holding a position.</summary>
+    private static double LineHeight(RichTextView view, int position)
+    {
+        var block = view.BlockIndexOf(position);
+
+        return view.Blocks[block].GetCaretRect(position - view.Slots[block].Start).Height;
     }
 
     private static void AssertAt(RichTextView view, int position, double y)

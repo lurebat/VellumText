@@ -819,9 +819,22 @@ internal sealed class ParagraphView : BlockView
 
         var line = lines[low];
 
-        // A line that starts inside composed text has no position of its own: the composition
-        // is not in the document. It is held from the line the composition starts on, by however
-        // far below that line the offset is, so the composed text stays put as it grows.
+        // A line that starts inside composed text and goes on into the paragraph's own text after
+        // it is held by that text, which is what the reader sees resume there, so the composition
+        // grows upward from it.
+        if (_preedit is { Length: > 0 } mixed
+            && line.Start > mixed.Offset
+            && line.Start < mixed.Offset + mixed.Length
+            && mixed.Offset < ContentSize
+            && mixed.Offset + mixed.Length < line.End)
+        {
+            return new LocalAnchor(mixed.Offset, y - (Origin.Y + line.Top), AnchorKind.Line, AfterComposition: true);
+        }
+
+        // A line that starts inside composed text and holds nothing else has no position of its
+        // own: the composition is not in the document. It is held from the line the composition
+        // starts on, by however far below that line the offset is, so the composed text stays put
+        // as it grows.
         if (_preedit is { } preedit && line.Start > preedit.Offset && line.Start < preedit.Offset + preedit.Length)
         {
             var first = Lines[LineIndexAt(preedit.Offset, forward: true)];
