@@ -86,8 +86,12 @@ public static class DocumentPreview
 
             // Anything else is kept whole or not at all. Half a table is not a preview of one, and
             // the alternative - recursing into every container to trim it - buys detail that a row
-            // two lines high cannot show anyway.
-            var text = DocumentText.Of([block]).Length;
+            // two lines high cannot show anyway. Its text is counted rather than built, because
+            // images sharing one alt text can make it longer than any string can be.
+            var text = 0L;
+            var any = false;
+
+            Count(block.Children, budget, ref text, ref any);
 
             if (text > budget)
             {
@@ -95,7 +99,7 @@ public static class DocumentPreview
             }
 
             kept.Add(block);
-            budget -= text;
+            budget -= (int)text;
         }
 
         return new DocumentNode(kept.Count > 0 ? kept.ToImmutable() : [ParagraphNode.Empty]);

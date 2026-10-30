@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using VellumText;
 
 namespace VellumText.Tests.Core;
@@ -245,6 +247,134 @@ public class DocumentPreviewTests
 
         Assert.True(DocumentPreview.IsLongerThan(doc, 80));
         Assert.Equal(1, WorkCounters.PreviewEmbedsMeasured);
+    }
+
+    /// <remarks>
+    /// The same table, behind a short paragraph, cut rather than measured. Truncate decided
+    /// whether a container fits by building its whole plain text and taking the length, which for
+    /// this one is 2³¹ + 2²⁰ characters: four gigabytes of string builder before it gave up and
+    /// threw, to drop a table that the first image had already ruled out. It uses the bounded
+    /// count now, so the cut costs what the measurement does.
+    /// </remarks>
+    [Fact]
+    public void TruncatingPastTwoBillionDoesNotBuildTheText()
+    {
+        const int Images = 2_049;
+        var image = new ImageEmbed("data:image/png;base64,AA==", altText: new string('a', 1 << 20));
+        var content = InlineContent.Create(
+            new string(InlineContent.Placeholder, Images),
+            [],
+            Enumerable.Repeat<InlineEmbed>(image, Images));
+        var doc = new DocumentNode(
+        [
+            ParagraphNode.FromText("intro"),
+            new TableNode([new TableRowNode([new TableCellNode([new ParagraphNode(content)])])]),
+        ]);
+
+        WorkCounters.PreviewEmbedsMeasured = 0;
+
+        var watch = Stopwatch.StartNew();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var preview = DocumentPreview.Truncate(doc, 80);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        watch.Stop();
+
+        Assert.Equal("intro", ((ParagraphNode)Assert.Single(preview.Blocks)).Content.Text);
+        Assert.True(allocated < 4 * 1024 * 1024, $"allocated {allocated:N0} bytes");
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+
+        // One image each for the question and the cut, not 2,049.
+        Assert.True(
+            WorkCounters.PreviewEmbedsMeasured <= 2,
+            $"measured {WorkCounters.PreviewEmbedsMeasured} embeds to cut at 80");
+    }
+
+    /// <remarks>
+    /// Measuring a container without building its text must not change which containers are
+    /// kept. Every budget either side of each block's end is checked against the definition: a
+    /// paragraph is cut to what is left, and a container stays, the same object, exactly when its
+    /// plain text fits in what is left.
+    /// </remarks>
+    [Fact]
+    public void AContainerIsKeptExactlyWhenItsPlainTextFits()
+    {
+        var image = new ImageEmbed("data:image/png;base64,AA==", altText: "a picture");
+        var withImage = InlineContent.Create($"x{InlineContent.Placeholder}y", [], [image]);
+        DocumentNode[] documents =
+        [
+            new([new TableNode([new TableRowNode([TableCellNode.FromText("ab"), TableCellNode.FromText("cd")])])]),
+            new([
+                ParagraphNode.FromText("lead"),
+                new ListNode([
+                    ListItemNode.FromText("one"),
+                    new ListItemNode([new ParagraphNode(withImage), ParagraphNode.Empty]),
+                ]),
+                RuleNode.Instance,
+                ParagraphNode.FromText("middle"),
+                new TableNode([new TableRowNode([new TableCellNode([ParagraphNode.Empty, ParagraphNode.FromText("z")])])]),
+                ParagraphNode.FromText("tail"),
+            ]),
+        ];
+
+        foreach (var doc in documents)
+        {
+            var length = doc.Blocks.Sum(Measure);
+
+            for (var budget = 0; budget <= length + 1; budget++)
+            {
+                var preview = DocumentPreview.Truncate(doc, budget);
+                var expected = new List<BlockNode>();
+                var left = budget;
+
+                foreach (var block in doc.Blocks)
+                {
+                    var size = Measure(block);
+
+                    if (left == 0 || (block is not ParagraphNode && size > left))
+                    {
+                        break;
+                    }
+
+                    if (block is ParagraphNode paragraph && size > left)
+                    {
+                        expected.Add(paragraph.WithContent(paragraph.Content.Substring(0, left)));
+
+                        break;
+                    }
+
+                    expected.Add(block);
+                    left -= size;
+                }
+
+                var context = $"budget {budget}";
+
+                if (expected.Count == 0)
+                {
+                    expected.Add(ParagraphNode.Empty);
+                }
+
+                Assert.True(expected.Count == preview.Blocks.Length, context);
+
+                for (var i = 0; i < expected.Count; i++)
+                {
+                    if (expected[i] is ParagraphNode paragraph)
+                    {
+                        Assert.True(
+                            paragraph.Content.Text == ((ParagraphNode)preview.Blocks[i]).Content.Text,
+                            context);
+                    }
+                    else
+                    {
+                        Assert.True(ReferenceEquals(expected[i], preview.Blocks[i]), context);
+                    }
+                }
+            }
+        }
+
+        static int Measure(BlockNode block) => block is ParagraphNode paragraph
+            ? paragraph.Content.Length
+            : DocumentText.Of([block]).Length;
     }
 
     [Fact]
