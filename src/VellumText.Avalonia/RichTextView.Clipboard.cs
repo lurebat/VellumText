@@ -438,7 +438,7 @@ public partial class RichTextView
         {
             { Document: { } document } => PasteImport(document, origin, gesture: true),
             { ImagePng: { } png } => InsertImage(png, "image/png"),
-            { ImageFiles: { } files } => await InsertImageFiles(files, origin).ConfigureAwait(true),
+            { ImageFiles: { } files } => await InsertImageFiles(files, origin, cancellation).ConfigureAwait(true),
             { Text: { } text } => PasteImportedText(text, origin, gesture: true),
             _ => false,
         };
