@@ -267,7 +267,7 @@ public class RtfImportTests
         // Rubber-duck review finding 9.6: the converter's own reasons for dropping a picture were
         // thrown away, and a metafile vanished without a word.
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}");
+            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("beforemidafter", PlainText(result));
         Assert.True(result.AnythingDropped);

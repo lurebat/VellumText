@@ -279,7 +279,7 @@ public sealed class ParseCostGuardTests
 
         Assert.True(HtmlInputGuard.BracketDepth(css) > HtmlImportOptions.Default.MaxStyleNesting, $"measured {HtmlInputGuard.BracketDepth(css)}");
 
-        var result = await HtmlImporter.ImportAsync("<p style=\"" + css.Replace("\"", "&quot;", StringComparison.Ordinal) + "\">x</p>");
+        var result = await HtmlImporter.ImportAsync("<p style=\"" + css.Replace("\"", "&quot;", StringComparison.Ordinal) + "\">x</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(result.Diagnostics, d => d.Context == "style-nesting");
     }
