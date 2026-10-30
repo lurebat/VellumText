@@ -104,11 +104,26 @@ public partial class RichTextView
     /// <remarks>
     /// At the very start of a list item's first paragraph it takes the bullet off instead —
     /// lifting the item one level, out of the list at the top — and keeps the words, as word
-    /// processors do; joining the words onto the item above is the next Backspace.
+    /// processors do; joining the words onto the item above is the next Backspace. In an empty
+    /// code block it turns the block into an ordinary paragraph, which is the way out of a code
+    /// block that has nothing in it yet.
     /// </remarks>
     /// <returns>Whether anything changed.</returns>
     public bool Backspace()
     {
+        if (Rectangle is null
+            && _state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is
+                { Parent: ParagraphNode { Kind: ParagraphKind.Code, Content.Text.Length: 0 } } code)
+        {
+            var transaction = _state.Transaction()
+                .As(TransactionKind.Format)
+                .Step(new SetBlockAttrStep(
+                    code.Before(code.Depth), BlockAttr.ParagraphKind, (int)ParagraphKind.Body));
+
+            return Apply(transaction);
+        }
+
         if (Rectangle is null
             && _state.Selection.IsEmpty
             && _state.Doc.Resolve(_state.Selection.From) is { ParentOffset: 0 } at

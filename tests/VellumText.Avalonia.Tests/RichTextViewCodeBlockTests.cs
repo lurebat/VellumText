@@ -504,6 +504,105 @@ public class RichTextViewCodeBlockTests
         Assert.Equal(("ab", 2), Caret(view));
     }
 
+    // ---- Backspace ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// Backspace in an empty code block turns it into an ordinary paragraph, where it used to join
+    /// the line above — or, with nothing above, do nothing, leaving the toolbar as the only way.
+    /// </summary>
+    [AvaloniaFact]
+    public void Backspace_in_an_empty_code_block_makes_it_a_paragraph()
+    {
+        var view = Laid(Doc(Para("above"), Code(string.Empty)), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "above"
+            p ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+
+        Type(view, "prose");
+
+        Shaped(
+            """
+            p "above"
+            p "prose"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Backspace_in_an_empty_code_block_alone_in_the_document_makes_it_a_paragraph()
+    {
+        var view = Laid(Doc(Code(string.Empty)), In(0, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p ""
+            """,
+            view);
+    }
+
+    /// <summary>In a bullet the code becomes a paragraph and the bullet stays; the next Backspace lifts it.</summary>
+    [AvaloniaFact]
+    public void Backspace_in_an_empty_code_block_in_a_bullet_keeps_the_bullet()
+    {
+        var doc = new DocumentNode([
+            new ListNode([ListItemNode.FromText("one"), new ListItemNode([Code(string.Empty)])]),
+        ]);
+        var view = Laid(doc, In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+              list-item
+                p ""
+            """,
+            view);
+    }
+
+    /// <summary>A code block with something in it is joined to the line above, as it was.</summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_code_with_words_in_it_still_joins_it_to_the_line_above()
+    {
+        var view = Laid(Doc(Para("above"), Code("x")), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "abovex"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void One_undo_brings_back_the_code_block_backspace_turned_into_a_paragraph()
+    {
+        var view = Laid(Doc(Para("above"), Code(string.Empty)), In(1, 0));
+
+        Press(view, Key.Back);
+        Press(view, Key.Z, KeyModifiers.Control);
+
+        Shaped(
+            """
+            p "above"
+            code ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ParagraphNode Code(string text) =>
