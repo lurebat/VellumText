@@ -165,6 +165,27 @@ public class RtfReaderTests
         Assert.IsType<ListNode>(cells[1].Blocks[0]);
         Assert.Contains(result.Doc.Blocks, b => b is ListNode);
     }
+
+    /// <summary>
+    /// A paragraph numbered by its own <c>\pn</c> is a list, even in a document with a list table:
+    /// only a shadow carried over from a <c>\ls</c> paragraph is dropped (rubber-duck review
+    /// finding 9.5).
+    /// </summary>
+    [Theory]
+    [InlineData(@"\pard{\*\pn\pnlvlblt\pnf1\pnindent360{\pntxtb\'B7}}\fi-360\li720 legacy\par\pard\ls1\fi-360\li720 modern\par")]
+    [InlineData(@"\pard{\*\pn\pnlvlblt\ls1{\pntxtb\'B7}}\ls1\fi-360\li720 modern\par\pard{\*\pn\pnlvlbody\pndec\pnstart1{\pntxta.}}\fi-360\li720 legacy\par")]
+    public async Task A_legacy_list_a_paragraph_states_itself_survives_the_leak_correction(string body)
+    {
+        const string lists =
+            @"{\*\listtable{\list\listtemplateid1{\listlevel\levelnfc23{\leveltext\'01\'B7;}{\levelnumbers;}}\listid7}}" +
+            @"{\*\listoverridetable{\listoverride\listid7\listoverridecount0\ls1}}";
+
+        var result = await RtfImporter.ImportAsync(@"{\rtf1\ansi" + lists + body + "}");
+
+        Assert.All(result.Doc.Blocks, b => Assert.IsType<ListNode>(b));
+        Assert.Contains("legacy", PlainText(result), StringComparison.Ordinal);
+        Assert.Contains("modern", PlainText(result), StringComparison.Ordinal);
+    }
     /// <summary>
     /// The reader's own bookkeeping is not a loss. OfficeIMO writes private <c>--officeimo-rtf-*</c>
     /// properties for its round trip, and each surfaced as "Removed a style the editor cannot
