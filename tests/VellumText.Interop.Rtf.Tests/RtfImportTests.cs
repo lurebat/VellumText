@@ -262,6 +262,17 @@ public class RtfImportTests
     }
 
     [Fact]
+    public async Task Outlooks_encapsulated_html_keeps_its_bold()
+    {
+        // Rubber-duck review finding 9.4: hoisting the fallback's font invalidated the HTML, and
+        // the import was the fallback, unbolded.
+        var result = await Import(RtfFormattingHoistTests.OutlookBold);
+
+        Assert.Equal("hello", PlainText(result));
+        Assert.True(AnyRunHas(result, m => m.Style.HasFlag(TextStyle.Bold)));
+    }
+
+    [Fact]
     public async Task A_link_to_somewhere_dangerous_does_not_survive_the_trip_through_html()
     {
         // Going through the HTML importer is what makes this true; a second RTF-specific idea of

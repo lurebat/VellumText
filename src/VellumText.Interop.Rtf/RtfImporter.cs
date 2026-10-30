@@ -152,6 +152,11 @@ public static class RtfImporter
     /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
     private static string ToHtml(RtfDocument document, bool hoist)
     {
+        // Outlook's RTF carries the message's own HTML (\fromhtml1), which the converter prefers
+        // only while the model is as read: hoisting edits runs, and the import would be the
+        // plain-text fallback beside the HTML instead (rubber-duck review finding 9.4).
+        hoist &= !document.IsHtmlEncapsulationCurrent;
+
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
