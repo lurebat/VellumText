@@ -583,6 +583,113 @@ public class RichTextViewImeTests
     }
 
     /// <summary>
+    /// Moving the caret out of a cell that is being composed in drops the composition there, and
+    /// the cell it was drawn in is laid out again before anything draws it.
+    /// </summary>
+    /// <remarks>
+    /// The composition is cleared from the paragraph it was drawn in, which is no longer the one
+    /// at the selection. Telling the table about the paragraph at the selection left the row
+    /// holding the cleared one believing it was current, and the next frame drew a paragraph
+    /// with no layout.
+    /// </remarks>
+    [AvaloniaFact]
+    public void MovingOutOfACellBeingComposedInKeepsTheCellLaidOut()
+    {
+        var table = new TableNode(Enumerable.Range(0, 3_000).Select(r => new TableRowNode([
+            TableCellNode.FromText($"r{r}c0"),
+            TableCellNode.FromText($"r{r}c1"),
+        ])));
+        var doc = new DocumentNode([ParagraphNode.FromText("before"), table, ParagraphNode.FromText("after")]);
+        var view = Shown(EditorState.Create(doc));
+        var block = (TableBlockView)view.Blocks[1];
+
+        view.MoveTo(PositionOf(doc, "r1500c1") + 2, extend: false);
+        Draw(view);
+
+        Assert.True(view.SetPreedit(new string('W', 60)));
+        Draw(view);
+
+        view.MoveTo(PositionOf(doc, "r1501c0") + 1, extend: false);
+
+        Assert.False(view.IsComposing);
+        Draw(view);
+        Assert.InRange(block.RealizedRows, 1, 100);
+
+        // The same in a short table, where every row is laid out with the table.
+        doc = new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new TableNode([
+                new TableRowNode([TableCellNode.FromText("a1"), TableCellNode.FromText("b1")]),
+                new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]),
+            ]),
+        ]);
+        view = Shown(EditorState.Create(doc));
+
+        view.MoveTo(PositionOf(doc, "b2") + 1, extend: false);
+        Draw(view);
+
+        Assert.True(view.SetPreedit(new string('W', 60)));
+        Draw(view);
+
+        view.MoveTo(PositionOf(doc, "a1") + 1, extend: false);
+
+        Assert.False(view.IsComposing);
+        Draw(view);
+    }
+
+    /// <summary>
+    /// The same when the edit that moves the selection away also moves the composed cell, so the
+    /// position it was composed at no longer leads to it.
+    /// </summary>
+    [AvaloniaFact]
+    public void ClearingACompositionTheDocumentHasMovedKeepsTheCellLaidOut()
+    {
+        var shift = new string('s', 200);
+
+        // Moved further down the same table: the row at the old position is a different row.
+        var table = new TableNode(Enumerable.Range(0, 3_000).Select(r => new TableRowNode([
+            TableCellNode.FromText($"r{r}c0"),
+            TableCellNode.FromText($"r{r}c1"),
+        ])));
+        var doc = new DocumentNode([ParagraphNode.FromText("before"), table, ParagraphNode.FromText("after")]);
+        var view = Shown(EditorState.Create(doc));
+
+        view.MoveTo(PositionOf(doc, "r1500c1") + 2, extend: false);
+        Draw(view);
+
+        Assert.True(view.SetPreedit(new string('W', 60)));
+        Draw(view);
+        Assert.True(view.Apply(view.State.Transaction()
+            .InsertText(1, shift)
+            .SetSelection(TextSelection.Cursor(PositionOf(doc, "r1501c0") + 1 + shift.Length))));
+
+        Assert.False(view.IsComposing);
+        Draw(view);
+
+        // Moved out of the block the old position is in: it now falls in the paragraph above.
+        doc = new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new TableNode([
+                new TableRowNode([TableCellNode.FromText("a1"), TableCellNode.FromText("b1")]),
+                new TableRowNode([TableCellNode.FromText("a2"), TableCellNode.FromText("b2")]),
+            ]),
+        ]);
+        view = Shown(EditorState.Create(doc));
+
+        view.MoveTo(PositionOf(doc, "b2") + 1, extend: false);
+        Draw(view);
+
+        Assert.True(view.SetPreedit(new string('W', 60)));
+        Draw(view);
+        Assert.True(view.Apply(view.State.Transaction()
+            .InsertText(1, shift)
+            .SetSelection(TextSelection.Cursor(PositionOf(doc, "a1") + 1 + shift.Length))));
+
+        Assert.False(view.IsComposing);
+        Draw(view);
+    }
+
+    /// <summary>
     /// Starts, updates and clears a composition at the caret, asking for the caret and drawing a
     /// frame after each step, as the input method and the compositor do.
     /// </summary>

@@ -35,6 +35,9 @@ public partial class RichTextView
     /// </remarks>
     private ParagraphView? _composing;
 
+    /// <summary>Where <see cref="_composing"/> started when it was composed in.</summary>
+    private int _composingStart;
+
     /// <summary>Text currently being composed, or null if nothing is.</summary>
     public Preedit? Preedit => _composing?.Preedit;
 
@@ -114,6 +117,12 @@ public partial class RichTextView
         var changed = block.SetPreedit(preedit);
 
         _composing = block;
+        _composingStart = at.Start;
+
+        if (changed)
+        {
+            Unmeasured(block, at.Start);
+        }
 
         return Recomposed(moved | changed);
     }
@@ -122,11 +131,57 @@ public partial class RichTextView
     /// <returns>Whether there was one to remove.</returns>
     private bool ClearComposition()
     {
-        var cleared = _composing?.SetPreedit(null) ?? false;
+        if (_composing is not { } composing)
+        {
+            return false;
+        }
 
         _composing = null;
 
-        return cleared;
+        if (!composing.SetPreedit(null))
+        {
+            return false;
+        }
+
+        Unmeasured(composing, _composingStart);
+
+        return true;
+    }
+
+    /// <summary>Tells the block holding a paragraph that the paragraph dropped its layout.</summary>
+    /// <remarks>
+    /// The paragraph dropped its layout without the block holding it being updated, and a table
+    /// measures only the rows it knows have changed: told nothing, it would answer for and draw
+    /// this paragraph unmeasured. The block is found from the paragraph itself, not from the
+    /// selection — a composition is cleared after the selection has left it.
+    /// </remarks>
+    /// <param name="paragraph">The paragraph.</param>
+    /// <param name="start">Where the paragraph started when it was composed in.</param>
+    private void Unmeasured(ParagraphView paragraph, int start)
+    {
+        if (_views.Count == 0)
+        {
+            return;
+        }
+
+        var hinted = BlockIndexOf(start);
+
+        if (Holds(hinted))
+        {
+            return;
+        }
+
+        for (var i = 0; i < _views.Count; i++)
+        {
+            if (i != hinted && Holds(i))
+            {
+                return;
+            }
+        }
+
+        bool Holds(int i) =>
+            ReferenceEquals(_views[i], paragraph)
+            || _views[i].ParagraphChanged(paragraph, start - _slots[i].Start);
     }
 
     /// <summary>Brings the view up to date after the composition changed, if it did.</summary>
@@ -138,13 +193,6 @@ public partial class RichTextView
         {
             return false;
         }
-
-        // The paragraph dropped its layout without the block holding it being updated, and a
-        // table measures only the rows it knows have changed: told nothing, it would answer for
-        // and draw this paragraph unmeasured.
-        var index = BlockIndexOf(at.Start);
-
-        _views[index].ParagraphChanged(at.Start - _slots[index].Start);
 
         // Laid out eagerly, for the same reason a state change is: the composition dropped the
         // layout, and the input method asks for CursorRectangle immediately after handing over
