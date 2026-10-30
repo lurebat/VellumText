@@ -65,6 +65,14 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **Enter in a bullet starts the next bullet.** It split the paragraph inside
+  the same item, so the new line had no bullet, Tab could not nest it, and
+  Shift+Tab took both lines out of the list. Backspace at the start of a bullet
+  now takes the bullet off and keeps the words, as in a word processor.
+- **Lines grow for text larger than the paragraph's own size.** A paragraph's
+  forced line height came from its own font size, and Avalonia keeps a forced
+  height even when a run is taller, so a large size picked from the toolbar, or a
+  pasted heading with a size of its own, was drawn over the line below.
 - **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
   longer throws out of the key handler.** A pasted
   `<ol start="2147483646">` (48 bytes) made the next split compute a negative
