@@ -46,7 +46,7 @@ namespace VellumText.Avalonia;
 /// <c>\cellx</c> step regardless, so a table's proportions do not survive either format.
 /// </para>
 /// </remarks>
-internal sealed class TableBlockView : BlockView
+internal sealed partial class TableBlockView : BlockView
 {
     private const double CellPadding = 6;
     private const double BorderThickness = 1;
@@ -142,6 +142,7 @@ internal sealed class TableBlockView : BlockView
         }
 
         _version++;
+        _changes++;
 
         if (TryUpdateRows(table))
         {
@@ -425,6 +426,7 @@ internal sealed class TableBlockView : BlockView
 
                 row.Cells = cells;
                 row.Dirty = true;
+                _changes++;
             }
         }
 
@@ -524,6 +526,7 @@ internal sealed class TableBlockView : BlockView
 
         target.Cells = cells;
         target.Dirty = true;
+        _changes++;
 
         return cells;
     }
@@ -677,6 +680,11 @@ internal sealed class TableBlockView : BlockView
     /// <summary>How many rows have views, for tests and diagnostics.</summary>
     internal int RealizedRows => _rows.Count(row => row.Cells is not null);
 
+    /// <summary>The tables inside the cells of the rows realized so far, for tests.</summary>
+    internal IEnumerable<TableBlockView> NestedTables =>
+        _rows.SelectMany(row => row.Cells ?? []).SelectMany(cell => cell.Blocks)
+            .Select(child => child.View).OfType<TableBlockView>();
+
     /// <summary>Whether a row's height is a measurement of its cells as they are, for tests.</summary>
     internal bool IsRowMeasured(int row) => !double.IsNaN(_rowHeights[row]) && !_rows[row].Dirty;
 
@@ -704,16 +712,18 @@ internal sealed class TableBlockView : BlockView
     /// in pixels.
     /// </para>
     /// <para>
-    /// Only the presenter calls this, and only for its own blocks. A table inside a cell is never
-    /// given a window, so it keeps the infinite one it starts with and realizes and measures every
-    /// one of its rows whenever the outer table measures the row holding it: a 10,000 × 3 table in a
-    /// cell allocated 110 MB laying out the top of the document, against 5.5 MB for the same table
-    /// at the top level. Passing a window down is not a local change. The outer table measures a
-    /// band only when it is stale, so the nested table would have to be measured again on every
-    /// pass and its height, which moves with its own estimate, pushed into the outer row; drawing
-    /// skips rows outside the window, so a nested window that fell behind would draw blank rows;
-    /// and the presenter keeps the viewport still by anchoring on a top-level row, which a nested
-    /// estimate moving would slide out from under it.
+    /// The presenter calls this for its own blocks, and a table calls it for the tables in its
+    /// cells with the part of its own window that falls in each (see <c>WindowNested</c>), so a
+    /// table at any depth lays out only the rows the viewport and the overscan reach. Three things
+    /// made that more than passing a window down, and are why the nested part is where it is
+    /// (TableBlockView.Nested.cs): a band holding a table is measured only when stale, so every
+    /// table in the window is given its window and measured again each pass and the row holding
+    /// it settled again when its height moves (<c>RefreshNested</c>); drawing skips rows outside a
+    /// window, so a window that fell behind would draw blank rows, and the presenter checks the
+    /// whole depth is laid out before it paints (<see cref="Covers"/>); and the viewport is held by
+    /// the content at its top at any depth, and whatever beside that content is placed across an
+    /// estimate is made exact before it can move on screen (<c>Close</c>). A window that cannot be
+    /// worked out lays the inner table out whole, counted and traced, never blank.
     /// </para>
     /// </remarks>
     public override void SetWindow(double anchor, double above, double below)
@@ -762,67 +772,98 @@ internal sealed class TableBlockView : BlockView
             ForgetHeights();
         }
 
-        if (_rows.Length > 0)
+        // Asked again for the same window with nothing changed since — the table holding this one
+        // settles its rows more than once a pass — there is nothing to lay out, here or in any
+        // table inside: their windows come from this one's.
+        var measuring = (_windowAnchor, _windowAbove, _windowBelow, _changes);
+
+        if (_rows.Length > 0 && !measuring.Equals(_measured))
         {
-            var anchor = WindowRow;
-            var start = _bandStart[anchor];
-
-            // The anchor's own band first: where the anchor point is inside its row is only known
-            // once the row is laid out.
-            EnsureBand(start);
-
-            var into = IntoAnchorRow(anchor);
-
-            // Down from the anchor, until the rows measured reach the window's bottom from the
-            // anchor point. Added up from real heights rather than asked of row positions, which
-            // are priced at an estimate that every band measured moves.
-            var below = 0.0;
-
-            for (var row = start; row < _rows.Length; row = _bandEnd[row])
-            {
-                EnsureBand(row);
-
-                for (var r = Math.Max(row, anchor); r < _bandEnd[row]; r++)
-                {
-                    below += HeightOf(r);
-                }
-
-                if (below >= into + _windowBelow)
-                {
-                    break;
-                }
-            }
-
-            // And up from it, for the overscan above the viewport.
-            var above = into;
-
-            for (var r = start; r < anchor; r++)
-            {
-                above += HeightOf(r);
-            }
-
-            for (var row = start - 1; row >= 0 && above < _windowAbove; row = _bandStart[row] - 1)
-            {
-                EnsureBand(row);
-
-                for (var r = _bandStart[row]; r <= row; r++)
-                {
-                    above += HeightOf(r);
-                }
-            }
+            MeasureWindow();
+            _measured = (_windowAnchor, _windowAbove, _windowBelow, _changes);
         }
 
         return Size;
     }
 
+    /// <summary>The window and the count of changes the last <see cref="MeasureWindow"/> left.</summary>
+    private (LocalAnchor Anchor, double Above, double Below, int Changes)? _measured;
+
+    /// <summary>
+    /// Counts every change that can make a measure lay out something new: rows rebuilt, realized
+    /// or edited, heights recorded or forgotten.
+    /// </summary>
+    private int _changes;
+
+    /// <summary>
+    /// Realizes and measures the bands the window reaches, outward from the anchor's row, and
+    /// records where they were.
+    /// </summary>
+    /// <param name="visited">Receives the first row of every band the walk measured.</param>
+    private void Walk(List<int> visited)
+    {
+        visited.Clear();
+
+        var anchor = WindowRow;
+        var start = _bandStart[anchor];
+
+        // The anchor's own band first: where the anchor point is inside its row is only known
+        // once the row is laid out.
+        EnsureBand(start);
+
+        var into = IntoAnchorRow(anchor);
+
+        // Down from the anchor, until the rows measured reach the window's bottom from the
+        // anchor point. Added up from real heights rather than asked of row positions, which
+        // are priced at an estimate that every band measured moves.
+        var below = 0.0;
+
+        for (var row = start; row < _rows.Length; row = _bandEnd[row])
+        {
+            EnsureBand(row);
+            visited.Add(row);
+
+            for (var r = Math.Max(row, anchor); r < _bandEnd[row]; r++)
+            {
+                below += HeightOf(r);
+            }
+
+            if (below >= into + _windowBelow)
+            {
+                break;
+            }
+        }
+
+        // And up from it, for the overscan above the viewport.
+        var above = into;
+
+        for (var r = start; r < anchor; r++)
+        {
+            above += HeightOf(r);
+        }
+
+        for (var row = start - 1; row >= 0 && above < _windowAbove; row = _bandStart[row] - 1)
+        {
+            EnsureBand(row);
+            visited.Add(_bandStart[row]);
+
+            for (var r = _bandStart[row]; r <= row; r++)
+            {
+                above += HeightOf(r);
+            }
+        }
+    }
+
     /// <summary>A row's measured height, or the estimate when it has none.</summary>
     private double HeightOf(int row) => double.IsNaN(_rowHeights[row]) ? Estimate : _rowHeights[row];
+
     /// <summary>Marks every row unmeasured, keeping the arrays.</summary>
     private void ForgetHeights()
     {
         LayoutGuard.Changing("a table's row heights forgotten");
 
         Array.Fill(_rowHeights, double.NaN);
+        _changes++;
         _estimate.Restart();
         _edgesFrom = 0;
     }
@@ -836,6 +877,7 @@ internal sealed class TableBlockView : BlockView
     /// their rows first, then each spanning cell that still does not fit pushes the last row it
     /// covers. A band is closed under spanning, so the answer is the one the whole table gave.
     /// </remarks>
+    /// <param name="row">A row of the band.</param>
     private void EnsureBand(int row)
     {
         var start = _bandStart[row];
@@ -857,8 +899,6 @@ internal sealed class TableBlockView : BlockView
 
         LayoutGuard.Changing("a band of table rows laid out");
 
-        var heights = new double[end - start];
-
         for (var r = start; r < end; r++)
         {
             foreach (var cell in _rows[r].Cells!)
@@ -870,9 +910,6 @@ internal sealed class TableBlockView : BlockView
 
                 foreach (var child in cell.Blocks)
                 {
-                    // Top is an offset within the cell's content box; the padding is added once,
-                    // by ChildOrigin, so that measuring and drawing cannot disagree about it.
-                    //
                     // At least one pixel to wrap to. A column narrower than twice the padding
                     // leaves nothing inside it, and a paragraph refuses a width of zero outright —
                     // so clamping to zero threw for a table that merely stated a very narrow
@@ -880,8 +917,59 @@ internal sealed class TableBlockView : BlockView
                     // directly, and now from a resize; not from HTML or RTF, neither of which
                     // carries widths at all — see the remarks on this class. The text overflows
                     // the cell at this width, which is what a column this narrow means.
+                    //
+                    // Stacked as it goes, so a table in the cell, which lays out only what this
+                    // table's window reaches of it, is told where it is before it is measured
+                    // (see WindowNested).
                     child.Top = content;
+
+                    if (child.View is TableBlockView nested)
+                    {
+                        WindowNested(r, cell, child, nested);
+                    }
+
                     child.Height = child.View.Measure(Math.Max(1, inner)).Height;
+                    content += child.Height;
+                }
+            }
+        }
+
+        SettleBand(start);
+
+        for (var r = start; r < end; r++)
+        {
+            _rows[r].Dirty = false;
+        }
+    }
+
+    /// <summary>
+    /// Stacks each cell's blocks at the heights they last measured to and settles the band's rows
+    /// around the cells, measuring nothing.
+    /// </summary>
+    /// <remarks>
+    /// What a band needs when only a table in one of its cells changed height — it measured more
+    /// of itself for a new window, or a question laid out a far row of it — so the rest of the
+    /// band is not measured again for it.
+    /// </remarks>
+    /// <param name="start">The band's first row.</param>
+    private void SettleBand(int start)
+    {
+        LayoutGuard.Changing("a band of table rows settled");
+
+        var end = _bandEnd[start];
+        var heights = new double[end - start];
+
+        for (var r = start; r < end; r++)
+        {
+            foreach (var cell in _rows[r].Cells!)
+            {
+                var content = 0.0;
+
+                foreach (var child in cell.Blocks)
+                {
+                    // Top is an offset within the cell's content box; the padding is added once,
+                    // by ChildOrigin, so that measuring and drawing cannot disagree about it.
+                    child.Top = content;
                     content += child.Height;
                 }
 
@@ -929,7 +1017,6 @@ internal sealed class TableBlockView : BlockView
         for (var r = start; r < end; r++)
         {
             SetRowHeight(r, heights[r - start]);
-            _rows[r].Dirty = false;
         }
     }
 
@@ -944,6 +1031,7 @@ internal sealed class TableBlockView : BlockView
 
         _estimate.Add(height);
         _rowHeights[row] = height;
+        _changes++;
 
         if (!was.Equals(height))
         {
@@ -1222,7 +1310,9 @@ internal sealed class TableBlockView : BlockView
 
         var row = Math.Clamp(RowAt(anchor.Position), 0, _rows.Length - 1);
 
-        if (anchor.Kind == AnchorKind.RowShare)
+        // A share of this table's own row is named at the row's boundary; a share of a row in a
+        // table inside a cell is named inside the cell, and is that table's to resolve.
+        if (anchor.Kind == AnchorKind.RowShare && anchor.Position == _rowStarts[row])
         {
             var top = RowTop(row);
 
@@ -1952,6 +2042,7 @@ internal sealed class TableBlockView : BlockView
                         || child.View.ParagraphChanged(paragraph, localPosition - rowStart - child.Start))
                     {
                         _rows[r].Dirty = true;
+                        _changes++;
 
                         return true;
                     }
@@ -2069,6 +2160,14 @@ internal sealed class TableBlockView : BlockView
         if (Locate(r, localPosition) is { } found)
         {
             found.Child.View.PrepareAt(localPosition - found.RowStart - found.Child.Start);
+
+            // Laying out a far row of a table in the cell changed that table's height, so this row
+            // is settled again, and the change goes up the same way to every table above.
+            if (found.Child.View is TableBlockView nested && !nested.Size.Height.Equals(found.Child.Height))
+            {
+                found.Child.Height = nested.Size.Height;
+                SettleBand(_bandStart[r]);
+            }
         }
     }
 
