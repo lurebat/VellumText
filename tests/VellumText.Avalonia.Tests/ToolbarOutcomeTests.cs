@@ -1,6 +1,9 @@
+using System.Globalization;
+using global::Avalonia.Controls;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Media;
 using global::Avalonia.Media.TextFormatting;
+using global::Avalonia.VisualTree;
 using VellumText;
 using VellumText.Avalonia;
 using static VellumText.Tests.Avalonia.ToolbarHarness;
@@ -295,6 +298,61 @@ public class ToolbarOutcomeTests
         Assert.Equal(1, asked);
         Assert.Same(before, editor.State.Doc);
         Assert.False(button.IsChecked, "the Link button lit with no link made");
+    }
+
+    /// <summary>
+    /// A size picked from the list, or typed and committed with Enter, lands on exactly the
+    /// selection, in points; the box says so afterwards; and the laid-out lines make room for it.
+    /// Found live: a large size overlapped the lines below it while every test passed, because
+    /// they read the document and never the layout.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(48.0, false)]
+    [InlineData(72.0, false)]
+    [InlineData(48.0, true)]
+    [InlineData(9.5, true)]
+    public void TheSizeBoxSizesExactlyTheSelectionAndTheLinesMakeRoomForIt(double points, bool typed)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var box = Box(bar, "PART_SizeBox");
+        var text = points.ToString("0.#", CultureInfo.InvariantCulture);
+        var pixels = points * 96 / 72;
+
+        SelectAcross(view);
+        Commit(box, typed ? text : points);
+
+        AssertMarkedExactly(editor.State.Doc, Across, marks => marks.FontSize is { } size && Math.Abs(size - pixels) < 1e-6, $"{points}pt");
+        Assert.Equal(points, bar.SelectionFontSize);
+        Assert.Equal(text, box.Text);
+
+        // On screen: drawn at that size, the text beside it at its own, and no line over another.
+        Assert.Equal(pixels, RunAt(view, 0, 6).FontRenderingEmSize, 3);
+        Assert.Equal(pixels, RunAt(view, 1, 0).FontRenderingEmSize, 3);
+        Assert.NotEqual(pixels, RunAt(view, 0, 0).FontRenderingEmSize, 3);
+        Assert.NotEqual(pixels, RunAt(view, 1, 7).FontRenderingEmSize, 3);
+        Assert.True(((ParagraphView)view.Blocks[0]).Layout.TextLines.Count > 1, "the first paragraph was meant to wrap");
+        AssertNoOverlappingLines(view);
+    }
+
+    /// <summary>
+    /// Picks an item from a box's open list the way a click on it does, or types into the box and
+    /// presses Enter, which is the box's own key binding.
+    /// </summary>
+    private static void Commit(ComboBox box, object value)
+    {
+        if (value is string typed)
+        {
+            box.GetVisualDescendants().OfType<TextBox>().First().Focus();
+            TypeAndEnter(box, typed);
+
+            return;
+        }
+
+        box.IsDropDownOpen = true;
+        box.SelectedItem = value;
+        box.IsDropDownOpen = false;
+        Layout(WindowOf(box));
     }
 
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
