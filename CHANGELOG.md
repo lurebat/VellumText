@@ -387,11 +387,16 @@ awaits `PasteAsync`.
   out, as at the top level, so scrolling through a whole long table keeps what
   it kept before. What the viewport shows stays where it is while estimates are
   replaced — the text line at the top of the viewport is what is held, through
-  scrolling, resizing, edits far away, undo and redo, and composition — and
+  scrolling, resizing, edits far away, undo and redo, and composition (including
+  a line where composed text runs into the paragraph's own text, which is held
+  by that text as the composition grows above it) — and
   text beside a long nested table, or a row's bottom that a nested table
   beside it could move, is laid out exactly before it is shown, which can mean
-  laying that table out whole. A table whose windows do not settle is laid out
-  whole, counted and traced, never left blank.
+  laying that table out whole. Scrolling beside a nested table that is already
+  laid out whole costs a screenful a page, however long it is. A table whose
+  windows do not settle, or whose window cannot be worked out — a coordinate
+  that is not a number, or a viewport anchor that names nothing inside it — is
+  laid out whole, counted and traced, never left blank.
 - **The text at the top of the viewport is held through the spacing around its
   lines, a jump to rows nobody had laid out, and questions about far points.**
   Scrolling a long table moved its text by up to 5.6 DIP more or less than the

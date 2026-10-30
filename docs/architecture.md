@@ -865,7 +865,9 @@ internal sealed class ParagraphView : BlockView
 >   edit or a composition invalidates it and carried through the transaction's position mapping, so
 >   edits far away, undo and redo, a composition growing above it and a resize all leave that line
 >   where it was (owner decision Q3, the browser's scroll anchoring; not at all when the viewport is
->   not scrolled, as a browser selects no anchor there). Corrected 2026-10-30 (rubber-duck finding
+>   not scrolled, as a browser selects no anchor there). A line made only of composed text is held
+>   from where the composition starts; a line that starts inside it and runs on into the paragraph's
+>   own text is held by that text. Corrected 2026-10-30 (rubber-duck finding
 >   10.4); the first version kept the row at the top at the same share of its height.
 > - **A row insert or delete keeps what is on screen.** Corrected 2026-10-28: the row commands
 >   rebuild every row node around the cells they keep, and any change of the grid's shape rebuilt
@@ -893,7 +895,14 @@ internal sealed class ParagraphView : BlockView
 >   anchor whose top hangs on a nested table's height — by proving from lower bounds that it cannot
 >   be seen, or by laying the competing table out (owner decision Q1: exact and still, at the cost
 >   of laying it out). Windows that do not settle — only passes that just settle heights again
->   count — lay the tables in the window out whole, counted and traced, never blank. Point
+>   count — lay the tables in the window out whole, counted and traced, never blank; so does a
+>   window that cannot be translated into a table: a coordinate that is not a number, or an anchor
+>   inside a table by position that names nothing there (a boundary between its rows, cells or
+>   blocks), which the two tables would otherwise resolve to different places. Whether a table is
+>   wholly laid out, which the decisions beside the anchor ask on every pass, is kept as the bands
+>   found complete (`CompleteBefore`) until a row of any table stops being laid out — an edited or
+>   composed row, heights forgotten for a width — so a table laid out whole beside the one being
+>   scrolled costs a screenful a page, not its length. Point
 >   questions lay out every row whose closed band touches the point before answering, and the
 >   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
 >   (`LayoutGuard.Painting`, `PreparePaintDependencies`).
@@ -907,8 +916,14 @@ internal sealed class ParagraphView : BlockView
 >   `NestedTableFuzzTests` puts random documents with tables nested up to three deep, merged cells
 >   and lists through random scrolls, jumps, resizes, far edits, structural edits with undo and
 >   redo, compositions and far questions, checking after each that the extent is the sum of the
->   heights, every row on screen is laid out at every depth, a layout pass again moves nothing on
->   screen, and nothing on screen moved but by the scroll. These assertions are on laid-out
+>   heights, every table at every depth records each block at its height and each row alone in its
+>   band at its tallest cell, every row on screen is laid out at every depth, a frame draws without
+>   laying anything out, a layout pass again moves nothing on screen, nothing on screen moved but
+>   by the scroll, the line held at the top is still there through a structural edit, its undo and
+>   its redo, and a far point lands where a fully laid-out copy has it. The other nested tests hold
+>   what is on screen to where that copy draws it (caret top and left), with merged cells, rows a
+>   merged cell leaves empty, right-to-left text, and wrapping replacements undone and redone.
+>   These assertions are on laid-out
 >   geometry, which depends on font metrics: they have run headless on Windows; Linux and macOS CI
 >   should run them before the figures above are taken as cross-platform.
 >
