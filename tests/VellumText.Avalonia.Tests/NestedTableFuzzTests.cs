@@ -113,7 +113,7 @@ public class NestedTableFuzzTests
                     what += EditFar(window, view, random, what);
                     break;
                 case 5:
-                    what += Structural(window, view, random);
+                    what += Structural(window, view, random, what);
                     break;
                 case 6:
                     what += Compose(window, view, random);
@@ -124,7 +124,15 @@ public class NestedTableFuzzTests
             }
 
             Check(view, what);
+            CheckLedger(view, what);
             CheckSettled(window, view, what);
+
+            // A frame of every step, asking nothing first: drawing lays nothing out (in DEBUG it
+            // throws if it does) and asks only about what the step prepared.
+            using (var frame = global::Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window))
+            {
+                Assert.True(frame is not null, $"{what}: no frame was drawn");
+            }
         }
 
         // As wide as the copy, and then the truth of what is on screen.
@@ -216,7 +224,7 @@ public class NestedTableFuzzTests
         return $": insert {text.Length} at {at}";
     }
 
-    private static string Structural(Window window, RichTextView view, Random random)
+    private static string Structural(Window window, RichTextView view, Random random, string what)
     {
         // A row inserted or deleted in a table somewhere, then often taken back and redone.
         if (Tables(view.State.Doc).ToList() is not { Count: > 0 } tables)
@@ -226,8 +234,12 @@ public class NestedTableFuzzTests
 
         var (table, start) = tables[random.Next(tables.Count)];
 
-        Place(window, view);
-
+        // The line held at the top, followed through the edit by its mapping, and back through
+        // the undo: it stays where it is unless the edit deleted it. Only with the caret on
+        // screen: an edit scrolls a caret off screen into view, which moves everything.
+        var held = Place(window, view) ? view.HeldLine : null;
+        var y = held is { } line ? ScreenTop(view, line) : double.NaN;
+        Transaction tr;
         string done;
 
         if (random.Next(2) == 0 && table.Rows.Length > 2 && table.Rows.All(r => r.Cells.All(c => c.RowSpan == 1)))
@@ -235,7 +247,7 @@ public class NestedTableFuzzTests
             var row = random.Next(table.Rows.Length);
             var from = start + 1 + table.Rows.Take(row).Sum(r => r.NodeSize);
 
-            view.Apply(view.State.Transaction().Delete(from, from + table.Rows[row].NodeSize));
+            tr = view.State.Transaction().Delete(from, from + table.Rows[row].NodeSize);
             done = $": delete row {row} of the table at {start}";
         }
         else
@@ -252,22 +264,56 @@ public class NestedTableFuzzTests
 
             var inserted = new TableRowNode(Enumerable.Range(0, columns).Select(c => TableCellNode.FromText($"inserted {c}")));
 
-            view.Apply(view.State.Transaction().Replace(at, at, new Slice([inserted], 0, 0)));
+            tr = view.State.Transaction().Replace(at, at, new Slice([inserted], 0, 0));
             done = $": insert a row at {row} of the table at {start}";
         }
 
+        view.Apply(tr);
         Layout(window);
+
+        var mapped = held is { } h ? tr.Mapping.MapWithResult(h) : default;
+        var kept = held is not null && !mapped.Deleted;
+
+        if (kept)
+        {
+            AssertHeld(view, mapped.Pos, y, what + done);
+        }
 
         if (random.Next(2) == 0)
         {
             Assert.True(view.Undo());
             Layout(window);
+
+            if (kept)
+            {
+                AssertHeld(view, held!.Value, y, what + done + ", undone");
+            }
+
             Assert.True(view.Redo());
             Layout(window);
+
+            if (kept)
+            {
+                AssertHeld(view, mapped.Pos, y, what + done + ", undone, redone");
+            }
+
             done += ", undone, redone";
         }
 
         return done;
+    }
+
+    /// <summary>The line held at the top is where it was, unless the offset is at either end.</summary>
+    private static void AssertHeld(RichTextView view, int position, double y, string what)
+    {
+        if (view.Offset.Y <= 0 || view.Offset.Y >= view.Extent.Height - Height - 0.5)
+        {
+            return;
+        }
+
+        var now = ScreenTop(view, position);
+
+        Assert.True(Math.Abs(now - y) <= 1, $"{what}: the line held at the top moved from {y:F1} to {now:F1}");
     }
 
     private static string Compose(Window window, RichTextView view, Random random)
@@ -471,6 +517,59 @@ public class NestedTableFuzzTests
     }
 
     /// <summary>
+    /// Every table laid out, at every depth: each block in a laid-out row is the height the row
+    /// recorded for it — a table in a cell included, which is how a nested table's height reaches
+    /// the presenter — and a row alone in its band is as tall as its tallest cell's content and
+    /// padding, worked out here from the recorded heights.
+    /// </summary>
+    private static void CheckLedger(RichTextView view, string what)
+    {
+        for (var i = view.RealizedBlocks.Start.Value; i < view.RealizedBlocks.End.Value; i++)
+        {
+            if (view.Blocks[i] is TableBlockView table)
+            {
+                Ledger(table, $"block {i}");
+            }
+        }
+
+        void Ledger(TableBlockView table, string path)
+        {
+            foreach (var (row, alone, height, cells) in table.LaidOutRows())
+            {
+                var tallest = 0.0;
+
+                foreach (var (span, blocks) in cells)
+                {
+                    var content = 0.0;
+
+                    foreach (var (block, recorded) in blocks)
+                    {
+                        Assert.True(
+                            Math.Abs(block.Size.Height - recorded) <= 0.01,
+                            $"{what}: {path}, row {row}: a {block.GetType().Name} {block.Size.Height:F1} tall is recorded as {recorded:F1}");
+
+                        content += recorded;
+
+                        if (block is TableBlockView nested)
+                        {
+                            Ledger(nested, $"{path}, row {row}");
+                        }
+                    }
+
+                    if (span == 1)
+                    {
+                        tallest = Math.Max(tallest, content + (2 * TableBlockView.CellPadding));
+                    }
+                }
+
+                Assert.True(
+                    !alone || Math.Abs(height - tallest) <= 0.01,
+                    $"{what}: {path}, row {row} is {height:F1} tall, its tallest cell {tallest:F1}");
+            }
+        }
+    }
+
+    /// <summary>
     /// Laying out again with nothing changed moves nothing on screen: what the last pass drew was
     /// placed by real heights, not by estimates a further pass replaces.
     /// </summary>
@@ -496,13 +595,18 @@ public class NestedTableFuzzTests
     /// position nearest the middle of the screen can be a cell's text far above it, beside a
     /// taller cell, so the line is one whose top is seen to be on screen.
     /// </summary>
-    private static void Place(Window window, RichTextView view)
+    /// <returns>Whether there was such a line: otherwise the caret is where it was.</returns>
+    private static bool Place(Window window, RichTextView view)
     {
-        if (Probes(view) is [var (position, _), ..])
+        if (Probes(view) is not [var (position, _), ..])
         {
-            view.MoveTo(position, extend: false);
-            Layout(window);
+            return false;
         }
+
+        view.MoveTo(position, extend: false);
+        Layout(window);
+
+        return true;
     }
 
     private static (Window Window, RichTextView View) Shown(DocumentNode doc)

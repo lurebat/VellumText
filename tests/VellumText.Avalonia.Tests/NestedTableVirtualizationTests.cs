@@ -1253,6 +1253,56 @@ public class NestedTableVirtualizationTests
     }
 
     /// <summary>
+    /// Replacing every match in a long nested table with text that wraps, so every row with a
+    /// match grows, above the viewport and on it and below: the line at the top, in a cell with
+    /// no match, stays where it is, and stays through an undo and a redo; everything on screen is
+    /// drawn where a fully laid-out copy draws it. One and two tables deep.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ReplacingAllWithTextThatWrapsKeepsTheLineAtTheTopStillThroughUndoAndRedo(int depth)
+    {
+        var doc = Nested(depth, Uniform(1_500), outerRows: 20, hostRow: 10);
+        var (window, view) = Shown(doc);
+
+        ToShare(window, view, 0.5);
+
+        // The caret near the top, so the rows growing above it do not push it off the screen and
+        // scroll it back into view.
+        var offset = view.Offset;
+
+        view.MoveTo(view.PositionAt(new Point(20, 40)), extend: false);
+        Layout(window);
+        Assert.Equal(offset, view.Offset);
+
+        var top = view.PositionAt(new Point(20, 2));
+        var text = Paragraph(view.State.Doc, top);
+        var into = top - TextAt(view.State.Doc, text);
+        var y = ScreenTop(view, top);
+
+        Assert.EndsWith("c0", text, StringComparison.Ordinal);
+
+        ResetCounters();
+
+        Assert.True(view.Find("c1") >= 1_500);
+        Assert.True(view.ReplaceAll("C1 " + string.Join(" ", Enumerable.Repeat("replaced with words that wrap", 4))) >= 1_500);
+        Layout(window);
+        AssertLineAt(view, text, into, y);
+        AssertTruthOnScreenIsLaidOut(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc));
+
+        Assert.True(view.Undo());
+        Layout(window);
+        AssertLineAt(view, text, into, y);
+
+        Assert.True(view.Redo());
+        Layout(window);
+        AssertLineAt(view, text, into, y);
+        AssertTruthOnScreenIsLaidOut(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc));
+        AssertNoRepairs();
+    }
+
+    /// <summary>
     /// Rows inserted and deleted far above the viewport in a nested table, then undone and redone:
     /// the line at the top stays, and nothing on screen is left unlaid.
     /// </summary>

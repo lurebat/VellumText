@@ -48,7 +48,8 @@ namespace VellumText.Avalonia;
 /// </remarks>
 internal sealed partial class TableBlockView : BlockView
 {
-    private const double CellPadding = 6;
+    /// <summary>The room between a cell's edge and its content, on every side.</summary>
+    internal const double CellPadding = 6;
     private const double BorderThickness = 1;
 
     /// <summary>The height assumed for a row before any row has been measured.</summary>
@@ -680,6 +681,26 @@ internal sealed partial class TableBlockView : BlockView
 
     /// <summary>How many rows have views, for tests and diagnostics.</summary>
     internal int RealizedRows => _rows.Count(row => row.Cells is not null);
+
+    /// <summary>
+    /// For tests: every row laid out at the current width — whether its band is that row alone,
+    /// its height, and for each cell the rows it spans and its blocks' views with the heights
+    /// recorded for them.
+    /// </summary>
+    internal IEnumerable<(int Row, bool Alone, double Height, (int RowSpan, (BlockView View, double Recorded)[] Blocks)[] Cells)> LaidOutRows()
+    {
+        for (var r = 0; r < _rows.Length && !double.IsNaN(_width); r++)
+        {
+            if (IsLaidOut(r))
+            {
+                yield return (
+                    r,
+                    _bandEnd[r] - _bandStart[r] == 1,
+                    _rowHeights[r],
+                    [.. _rows[r].Cells!.Select(cell => (cell.Placement.Bottom - cell.Placement.Top, cell.Blocks.Select(child => (child.View, child.Height)).ToArray()))]);
+            }
+        }
+    }
 
     /// <summary>The tables inside the cells of the rows realized so far, for tests.</summary>
     internal IEnumerable<TableBlockView> NestedTables =>
