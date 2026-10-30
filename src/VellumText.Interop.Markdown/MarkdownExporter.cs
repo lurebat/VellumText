@@ -346,14 +346,9 @@ public sealed class MarkdownExporter : IDocumentExporter
         {
             var text = CodeText(paragraph.Content);
 
-            // One trailing newline is what a fenced block always produces on the way back in — the
-            // closing fence has to be on its own line — so writing content that already ends in one
-            // would add a second on every round trip.
-            if (text.EndsWith('\n'))
-            {
-                text = text[..^1];
-            }
-
+            // Every line of the code is written as a line, including an empty last one: the
+            // newline before the closing fence ends that line and is not part of the code, and the
+            // importer reads it that way.
             var fence = new string('`', Math.Max(3, LongestRun(text, '`') + 1));
 
             Line(fence);

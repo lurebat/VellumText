@@ -623,7 +623,12 @@ public partial class RichTextView
                 break;
 
             case Key.Enter:
-                if (!(extend ? InsertLineBreak() : Split()))
+                // Ctrl+Enter, or Cmd+Enter on macOS, is the way out of a code block from anywhere
+                // in it, since Enter there only breaks the line. Anywhere else it is still Enter.
+                if (!((word || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+                        && InCodeBlock(_state.Doc, _state.Selection.Head)
+                        ? LeaveCodeBlock(trim: false)
+                        : extend ? InsertLineBreak() : Split()))
                 {
                     return;
                 }
@@ -784,6 +789,13 @@ public partial class RichTextView
 
         if (AdjacentParagraph(_state.Selection.Head, edge, down, _goalX.Value) is not { } next)
         {
+            // Nothing below a code block: open a paragraph after it rather than strand the caret
+            // at its end, where the toolbar was the only way out. Selecting is still only moving.
+            if (down && !extend && LeaveCodeBlock(trim: false))
+            {
+                return;
+            }
+
             // The first or last paragraph in the document. Go to the document edge, the way
             // every editor does, rather than refusing to move.
             MoveTo(down ? _state.Doc.ContentSize : 0, extend);
