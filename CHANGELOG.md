@@ -368,11 +368,33 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen. A
-  table inside a cell is not row-virtualized: it is laid out whole, as every
-  table was before, though only its rows on screen are drawn. Typing into a cell of a very long table still allocates about 6 MB a
+  painting a selection of the whole table realizes only the rows on screen.
+  Typing into a cell of a very long table still allocates about 6 MB a
   keystroke in the document model, which validates the whole edited table after
   each step.
+- **A long table inside a table cell lays out only the rows near the viewport
+  too, at any depth.** A table in a cell was laid out whole whenever the row
+  holding it was: 135 MB and 1.5 s for the first layout of a 10,000 × 3 table in
+  a cell, 115 MB kept, and 26 MB for every resize. Each table now hands the
+  tables in its cells the part of its window that falls in them, so a table
+  nested one, two or three deep costs what it does at the top of the document
+  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows once laid out stay laid
+  out, as at the top level, so scrolling through a whole long table keeps what
+  it kept before. What the viewport shows stays where it is while estimates are
+  replaced — the text line at the top of the viewport is what is held, through
+  scrolling, resizing, edits far away, undo and redo, and composition — and
+  text beside a long nested table, or a row's bottom that a nested table
+  beside it could move, is laid out exactly before it is shown, which can mean
+  laying that table out whole. A table whose windows do not settle is laid out
+  whole, counted and traced, never left blank.
+- **The text at the top of the viewport is held through the spacing around its
+  lines, a jump to rows nobody had laid out, and questions about far points.**
+  Scrolling a long table moved its text by up to 5.6 DIP more or less than the
+  scroll; a resize after jumping into a long table, or after a question about a
+  far row moved the viewport, put a different line at the top; text inserted at
+  the very start of the paragraph below the top moved it down; and a point
+  question exactly on the edge between two rows or blocks laid out the one below
+  while answering, moving the text on screen.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"
