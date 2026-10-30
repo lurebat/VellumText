@@ -1,3 +1,4 @@
+using VellumText.Interop.Html;
 using VellumText.Interop.Rtf;
 
 namespace VellumText.Tests.Interop.Rtf;
@@ -73,5 +74,44 @@ public class RtfFieldEscapingTests
 
         Assert.Equal("x", back.Content.Text);
         Assert.Equal("WeirdFont", back.Content.MarkAt(0).FontFamily);
+    }
+
+    /// <summary>
+    /// A font name may hold a comma. RtfPipe hands it to the HTML importer as a quoted CSS family,
+    /// which is stored quoted so that the HTML exporter keeps it one family rather than the two
+    /// families <c>ACME</c> and <c>Inc.</c>. The font table has no such notation: it gets the name
+    /// itself, as it did before the name was stored quoted, not <c>"ACME, Inc."</c> with its quotes.
+    /// </summary>
+    [Fact]
+    public void A_comma_in_a_font_name_keeps_it_one_font_through_rtf_and_html()
+    {
+        const string Rtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0\fnil Segoe UI;}{\f1\fnil ACME, Inc.;}}\f1 x\par}";
+
+        var doc = RtfImporter.Import(Rtf).Doc;
+
+        Assert.Contains(@"\fnil ACME, Inc.;}", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
+        Assert.Equal(MarkOfFirst(doc).FontFamily, MarkOfFirst(Trip(doc)).FontFamily);
+        Assert.Contains(
+            "font-family:&quot;ACME, Inc.&quot;",
+            HtmlExporter.Instance.Export(doc),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Only the quoted form the importer gives a name holding a comma loses its quotes in the font
+    /// table. A family the host set in quotes for any other reason is written as it is stored.
+    /// </summary>
+    [Theory]
+    [InlineData("\"Segoe UI\"", "\"Segoe UI\"")]
+    [InlineData("\"A\"B, C\"", "\"A\"B, C\"")]
+    [InlineData("\"A, B\\\"", "\"A, B\\\\\"")]
+    public void A_quoted_family_the_importer_did_not_quote_keeps_its_quotes(string family, string entry)
+    {
+        var doc = new DocumentNode([new ParagraphNode(InlineContent.Create(
+            "x",
+            [new ValueSpan<MarkSet>(0, 1, new MarkSet { FontFamily = family })],
+            []))]);
+
+        Assert.Contains($@"\fnil {entry};}}", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
     }
 }

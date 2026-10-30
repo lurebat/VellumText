@@ -26,6 +26,10 @@
          from the parsed Markdown, so nothing downstream is left to make the distinction. Shared
          rather than copied - a copy of a security list is a copy to forget to extend. -->
     <InternalsVisibleTo Include="VellumText.Interop.Markdown" />
+
+    <!-- FamilyNameQuoting.Unquote undoes the quoting the importer gives a family name holding a
+         comma, and the RTF font table needs the bare name. Shared so the two cannot disagree. -->
+    <InternalsVisibleTo Include="VellumText.Interop.Rtf" />
   </ItemGroup>
 
 </Project>
