@@ -419,9 +419,9 @@ public class RtfExportTests
     /// <see cref="RtfImporter"/> documents; the words of each line are compared without it.
     /// </summary>
     [Fact]
-    public void A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines()
+    public async Task A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines()
     {
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             ParagraphNode.FromText("before"),
             new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
             ParagraphNode.FromText("after")]));

@@ -140,8 +140,8 @@ public class HtmlExportTests
     /// &lt;pre&gt; block with the same text, not a block per line.
     /// </summary>
     [Fact]
-    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines() =>
-        Survives(new DocumentNode([
+    public async Task A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines() =>
+        await Survives(new DocumentNode([
             ParagraphNode.FromText("before"),
             new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
             ParagraphNode.FromText("after")]));

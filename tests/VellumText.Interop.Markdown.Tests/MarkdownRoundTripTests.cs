@@ -277,9 +277,9 @@ public class MarkdownRoundTripTests
     /// come back as one block with the same text.
     /// </summary>
     [Fact]
-    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines()
+    public async Task A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines()
     {
-        var back = Trip(
+        var back = await Trip(
             new DocumentNode([
                 ParagraphNode.FromText("before"),
                 new ParagraphNode(
@@ -307,12 +307,12 @@ public class MarkdownRoundTripTests
     [InlineData("\n", "```\n\n\n```\n")]
     [InlineData("if (x) {\n\n    y();  \n}", "```\nif (x) {\n\n    y();  \n}\n```\n")]
     [InlineData("a < b && <i>c</i>", "```\na < b && <i>c</i>\n```\n")]
-    public void A_code_block_comes_back_with_exactly_its_text(string code, string expectedMarkdown)
+    public async Task A_code_block_comes_back_with_exactly_its_text(string code, string expectedMarkdown)
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.FromText(code), ParagraphKind.Code)]);
 
-        var back = Assert.IsType<ParagraphNode>(Assert.Single(Trip(doc, expectedMarkdown).Blocks));
+        var back = Assert.IsType<ParagraphNode>(Assert.Single((await Trip(doc, expectedMarkdown)).Blocks));
 
         Assert.Equal(ParagraphKind.Code, back.Kind);
         Assert.Equal(code, back.Content.Text);
