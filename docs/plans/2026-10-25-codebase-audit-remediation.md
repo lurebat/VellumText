@@ -191,3 +191,22 @@ Each unit follows the same rules as the rest of the plan: write the test, watch 
 - Rich accessibility (`ITextProvider`, upstream); touch tests (headless limitation).
 - Upstream reports (AngleSharp parse growth, RtfPipe) — drafting allowed, filing needs a human (§10.5).
 - Suspicion S-01 (`ApplyMarks` gap scan) until measured.
+
+## Deferred follow-ups (documented limitations for 1.0)
+Accepted by the owner as limitations for 1.0 (2026-10-30), recorded here so that they are revisited
+rather than rediscovered.
+- **RTF loses most of what makes a code block code.** A multi-line code block does round-trip
+  through RTF as one paragraph with the same lines (pinned by
+  `RtfExportTests.A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines`), but
+  three things are lost on the way back in:
+  - the kind: it comes back as body text, because RTF has no block-level "code" the model could read
+    (pinned by `RtfExportTests.A_code_block_keeps_its_words_but_not_its_kind`);
+  - leading spaces: HTML whitespace collapsing after RtfPipe takes one space off a line's leading
+    run, so four spaces of indentation come back as three;
+  - interior runs of spaces: RtfPipe writes them as one space followed by U+00A0, so they keep their
+    length but are no longer ordinary spaces to search, wrapping or a re-export.
+
+  The last two are general RTF import behaviour (`RtfImporter`'s remarks document them), not
+  specific to code. Re-measure all three against the Phase 8 reader before doing any work here; if
+  they persist, the likely fix is marking code on export (a monospace style or a named paragraph
+  style) and reading it back in the importer, with whitespace carried as written.
