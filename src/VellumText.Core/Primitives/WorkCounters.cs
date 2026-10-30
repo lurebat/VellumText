@@ -33,4 +33,11 @@ internal static class WorkCounters
     /// <summary>Paragraphs inside containers <see cref="DocumentPreview.IsLongerThan"/> has counted.</summary>
     [ThreadStatic]
     internal static long PreviewParagraphsMeasured;
+
+    /// <summary>
+    /// Embeds inside containers whose fallback text <see cref="DocumentPreview.IsLongerThan"/> has
+    /// counted.
+    /// </summary>
+    [ThreadStatic]
+    internal static long PreviewEmbedsMeasured;
 }

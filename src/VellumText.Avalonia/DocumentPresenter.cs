@@ -138,6 +138,9 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         }
     }
 
+    /// <summary>Whether <see cref="TextStyles"/> was assigned rather than derived from the font properties.</summary>
+    internal bool HasExplicitTextStyles => !_derivedStyles;
+
     /// <summary>Measures and draws inline embeds.</summary>
     /// <remarks>
     /// Defaults to <see cref="BitmapEmbedRenderer.Shared"/>, so images in a pasted or loaded

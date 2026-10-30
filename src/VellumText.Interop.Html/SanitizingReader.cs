@@ -128,6 +128,15 @@ internal sealed class SanitizingReader
             "image/x-icon", "image/vnd.microsoft.icon",
         };
 
+    /// <summary>The diagnostic context of every refused image source, whatever the reason.</summary>
+    /// <remarks>
+    /// One context, not one per reason, because a paste reads it: a rich flavour that lost a picture
+    /// gives way to the bitmap copied beside it (OD-4b), and a refusal reported under its media type
+    /// or its address read as nothing lost. Inline data refused anywhere other than an image source
+    /// is not a picture, and keeps a context of its own.
+    /// </remarks>
+    private const string RemovedImage = "img";
+
     private readonly HtmlImportOptions _options;
     private readonly List<ImportDiagnostic> _diagnostics;
     private readonly HashSet<string> _alreadyReported = new(StringComparer.OrdinalIgnoreCase);
@@ -323,6 +332,8 @@ internal sealed class SanitizingReader
             e.Tag is IHtmlImageElement
             && string.Equals(e.Tag.GetAttribute("src"), original, StringComparison.Ordinal);
 
+        string ContextOf(string url) => isImageSource ? RemovedImage : url;
+
         if (e.SanitizedUrl is not null)
         {
             // The sanitizer resolves relative addresses against the base the caller gave it. If
@@ -343,7 +354,7 @@ internal sealed class SanitizingReader
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     "Removed an address that is relative to a document this one did not come with.",
-                    original);
+                    ContextOf(original));
                 return;
             }
 
@@ -357,7 +368,7 @@ internal sealed class SanitizingReader
                     DiagnosticSeverity.Dropped,
                     "Removed an image loaded from the network, which would have told its host that "
                     + "this document was opened.",
-                    "img");
+                    RemovedImage);
             }
 
             return;
@@ -371,8 +382,10 @@ internal sealed class SanitizingReader
         {
             ReportOnce(
                 DiagnosticSeverity.Dropped,
-                "Removed a link whose address is not http, https, mailto or tel.",
-                SchemeOf(original));
+                isImageSource
+                    ? "Removed an image whose address is not http or https."
+                    : "Removed a link whose address is not http, https, mailto or tel.",
+                ContextOf(SchemeOf(original)));
             return;
         }
 
@@ -387,7 +400,7 @@ internal sealed class SanitizingReader
 
         if (!_options.AllowDataImages)
         {
-            ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", "data:");
+            ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", RemovedImage);
             return;
         }
 
@@ -399,7 +412,7 @@ internal sealed class SanitizingReader
             ReportOnce(
                 DiagnosticSeverity.Dropped,
                 "Removed an inline image that is not a base64 data URL.",
-                "data:");
+                RemovedImage);
             return;
         }
 
@@ -408,7 +421,7 @@ internal sealed class SanitizingReader
             ReportOnce(
                 DiagnosticSeverity.Dropped,
                 "Removed inline data that does not declare a supported image type.",
-                mediaType);
+                RemovedImage);
             return;
         }
 
@@ -418,14 +431,14 @@ internal sealed class SanitizingReader
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
-                    "data:");
+                    RemovedImage);
                 return;
 
             case DataImageVerdict.Undecodable:
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     "Removed an inline image whose data is not valid base64.",
-                    "data:");
+                    RemovedImage);
                 return;
         }
 
