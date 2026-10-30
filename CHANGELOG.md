@@ -50,6 +50,18 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **The font box shows a family name with a comma as the user knows it.** A
+  name such as `ACME, Inc.` is stored quoted (`"ACME, Inc."`) so that it stays
+  one family through export, and the box showed those quotes. It now shows
+  `ACME, Inc.`, and picking or typing such a name stores the quoted form, the
+  same one a paste of that font produces. A name without a comma, or one already
+  typed in quotes, is stored as typed. `SelectionFontFamily` and
+  `SetFontFamilyCommand` still carry the stored form.
+- **After a pick or Enter in the font or size box, typing goes on in the
+  document.** Focus stayed in the box, so the next keystroke went into it
+  (`36x`). Picking from either list or pressing Enter now hands the keyboard back
+  to the editor, as Word and Docs do; Escape does too, without applying what was
+  typed, and the box shows the selection's value again.
 - **Enter at the end of a heading starts body text.** It started another
   heading, aligned like the first. The new paragraph is body text at the default
   alignment and keeps the heading's indent; Enter in the middle or at the start of
@@ -98,6 +110,79 @@ NuGet; packages are published to a local feed, and
   999,999,999 (CommonMark's nine digits) with a `Downgraded` diagnostic, and the
   list commands continue numbering with saturating arithmetic, so a model built
   with a start at the top of the range is safe too.
+- **Keys and typing work while a cell rectangle or a block image is
+  selected.** Both input handlers returned early when no paragraph was under the
+  caret, so a mouse-made rectangle could not be cleared, formatted or copied
+  from the keyboard, and a clicked picture could not be deleted, typed over or
+  undone. Only Home, End and the arrow keys still need a paragraph; Delete and
+  Backspace remove a selected block image, and typing replaces it with a
+  paragraph holding the text.
+- **Retemplating `RichTextEditor` keeps what the host set up.** Configuring
+  the editor in code applies the default template to get a view, so an
+  application style that then gave the editor its own chrome made a new view and
+  every forwarded setting reverted: registered formats, the image store, the
+  renderer and style resolvers, the syntax properties, the `ContentImporting`
+  veto (vetoed content landed), the reporting events, and the undo history. The
+  shell now carries all of them to the new view, keeps the handlers it was given
+  so the discarded view stops raising them, and unbinds the discarded template's
+  floating toolbar.
+- **`RichTextEditor` raises `DocumentChanged` and `SelectionChanged` after its
+  view holds the new state.** They were raised first, so a handler reading the
+  view saw the old document, and one that selected all on load wrote the old
+  document back over the one the host had just set.
+- **Syntax highlighting survives edits.** It was applied only when a block's
+  view was first created, so typing one character in a highlighted code block —
+  in the document or in a table cell — or replacing a `RichTextViewer`'s
+  document with one of the same shape drew the code plain.
+- **A cut no longer deletes from a document swapped in while the clipboard was
+  busy.** Its guard compared selection offsets only, so a host that loaded a
+  different clip with a selection at the same numbers lost text it never copied.
+  It now uses the same document-and-selection check a paste does.
+- **An IME composition over a selection that crosses paragraphs is drawn where
+  the commit lands** — at the start of the selection, in the first paragraph —
+  rather than at the start of the paragraph holding the head.
+- The vertical-move goal column no longer survives a host loading a different
+  document, and `RichTextViewer` repaints when `SelectionBrush` changes.
+- **Typing, an IME commit or a find-and-replace carrying U+FFFC no longer
+  throws out of the input handler.** The embed placeholder is dropped from such
+  text, as paste already did.
+- **Heading, alignment and indent commands work in a table cell.** They walked
+  the drawn blocks, and a table is one drawn block, so Ctrl+1–6, Ctrl+L/E/R/J,
+  the toolbar's buttons and its lit state all did nothing inside a table. They
+  now walk the paragraphs, as character formatting already did.
+- **Find-and-replace keeps the formatting and link of the text it replaces**,
+  taking the marks of the match's first character, as typing over it does. It
+  used to write plain text, so a linked word silently lost its address.
+- With the caret where two links meet, Ctrl+K's dialog and `ApplyLink` /
+  `RemoveLink` now act on the same link; they picked opposite sides, so the
+  link shown stayed and its neighbour was rewritten.
+- **Automation:** `SetValue` replaces the whole document in one transaction. It
+  selected all and pasted, which did nothing on a document that is one table
+  (select-all is then a cell rectangle) and left a block image at either edge
+  behind. A block image's alt text is now part of `DocumentText` — and so of the
+  automation value and the plain-text clipboard flavour — on a line of its own,
+  as an inline image's already was. The peer raises the value pattern's
+  `IsReadOnly` change when `IsReadOnly` toggles.
+- A position or cell rectangle mapped through `TableEdits.InsertRows` or
+  `InsertColumns` in a host's own transaction stays in its row and column. The
+  step's map matched rows and cells by value, and an inserted empty cell equals
+  its empty neighbours, so the caret landed one column left or one row up.
+
+### Changed
+
+- **`RichTextToolbar` disables its commands while the editor it is bound to is
+  read-only** (`CanExecute` is false and `CanExecuteChanged` is raised when
+  `IsReadOnly` toggles). The rule that commands are always enabled still holds
+  for an editable editor, wherever the caret is: disabling half the bar on an
+  awkward caret reads as broken, but on a locked document every command is
+  refused, so the bar offering them offered nothing.
+- **The toolbar's font sizes are in points, as its box, list and command were
+  always documented.** The number went to the model, which stores
+  device-independent pixels, unconverted: picking 12 gave 9-point text, and a
+  20-point heading pasted from Word showed as "26.7". `SetFontSizeCommand` now
+  converts points to pixels (12 sets 16) and `SelectionFontSize` reports points
+  (that heading reads 20). A host that read `SelectionFontSize` as pixels needs
+  to multiply by 4/3.
 - **A read-only view, or one with a cell rectangle selected, no longer reads and
   parses the clipboard on Ctrl+V or Ctrl+Shift+V before refusing.** Read-only
   was checked only when the decoded document was about to be applied, so a

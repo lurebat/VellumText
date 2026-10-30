@@ -27,8 +27,31 @@ public partial class RichTextView
 {
     private readonly RichTextInputMethodClient _inputMethod;
 
+    /// <summary>The paragraph a composition is drawn in, or null if nothing is composing.</summary>
+    /// <remarks>
+    /// Kept rather than looked up again, because the lookup answers where a composition would go
+    /// now, not where the one on screen is. Once the selection has moved the two differ, and
+    /// clearing the paragraph the lookup found left the composed text drawn in the other.
+    /// </remarks>
+    private ParagraphView? _composing;
+
     /// <summary>Text currently being composed, or null if nothing is.</summary>
-    public Preedit? Preedit => Block?.Preedit;
+    public Preedit? Preedit => _composing?.Preedit;
+
+    /// <summary>
+    /// The paragraph a composition is drawn in: the one holding the start of the selection,
+    /// which is where the commit will replace it.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Block"/>, which is the paragraph holding the head. Over a selection that
+    /// crosses paragraphs the two differ, and anchoring in the head's paragraph drew the composed
+    /// text at the start of the last paragraph while the commit landed in the first.
+    /// </remarks>
+    /// <para>
+    /// Resolved through <see cref="DocumentPresenter.ParagraphAt"/>, whose start and origin are
+    /// in document and control coordinates; <see cref="CaretText"/>'s are relative to its block.
+    /// </para>
+    private TextAt? CompositionText => ParagraphAt(_state.Selection.From);
 
     /// <summary>Whether an input method is composing into this view.</summary>
     public bool IsComposing => Preedit is not null;
@@ -53,12 +76,19 @@ public partial class RichTextView
     /// <returns>Whether anything changed.</returns>
     public bool SetPreedit(string? text, int? cursorPosition = null)
     {
-        if (Block is not { } block)
+        if (string.IsNullOrEmpty(text))
+        {
+            return Recomposed(ClearComposition());
+        }
+
+        if (CompositionText is not { } at)
         {
             return false;
         }
 
-        if (IsReadOnly && !string.IsNullOrEmpty(text))
+        var block = at.View;
+
+        if (IsReadOnly)
         {
             return false;
         }
@@ -70,19 +100,41 @@ public partial class RichTextView
             return false;
         }
 
-        var anchor = Math.Clamp(_state.Selection.From - BlockStart, 0, block.ContentSize);
+        var anchor = Math.Clamp(_state.Selection.From - at.Start, 0, block.ContentSize);
 
         // The cursor is clamped rather than validated: it comes from a platform input method,
         // and a client that throws at one is a client that crashes the application on a stray
         // report from somebody else's IME.
-        var preedit = string.IsNullOrEmpty(text)
-            ? null
-            : new Preedit(
-                text,
-                anchor,
-                cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
+        var preedit = new Preedit(
+            text,
+            anchor,
+            cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
 
-        if (!block.SetPreedit(preedit))
+        var moved = !ReferenceEquals(_composing, block) && ClearComposition();
+        var changed = block.SetPreedit(preedit);
+
+        _composing = block;
+
+        return Recomposed(moved | changed);
+    }
+
+    /// <summary>Removes the composition from the paragraph it is drawn in.</summary>
+    /// <returns>Whether there was one to remove.</returns>
+    private bool ClearComposition()
+    {
+        var cleared = _composing?.SetPreedit(null) ?? false;
+
+        _composing = null;
+
+        return cleared;
+    }
+
+    /// <summary>Brings the view up to date after the composition changed, if it did.</summary>
+    /// <param name="changed">Whether it did.</param>
+    /// <returns><paramref name="changed"/>.</returns>
+    private bool Recomposed(bool changed)
+    {
+        if (!changed)
         {
             return false;
         }
@@ -143,14 +195,18 @@ public partial class RichTextView
     /// </remarks>
     public Rect CaretRect()
     {
+        // While composing, the caret is inside the composed text, wherever that is drawn.
+        if (CompositionText is { View.Preedit: not null } composing)
+        {
+            return composing.View.GetPreeditCaretRect().Translate(new Vector(composing.Origin.X, composing.Origin.Y));
+        }
+
         if (Block is not { } block)
         {
             return default;
         }
 
-        var local = block.Preedit is not null
-            ? block.GetPreeditCaretRect()
-            : block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, block.ContentSize));
+        var local = block.GetCaretRect(Math.Clamp(_state.Selection.Head - BlockStart, 0, block.ContentSize));
 
         // Translated by the block's own origin: a caret in the fourth paragraph is drawn where
         // that paragraph is, and the block has no idea where that is.

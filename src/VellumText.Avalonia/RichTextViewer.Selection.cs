@@ -40,6 +40,12 @@ public partial class RichTextViewer
     private int _head;
     private bool _dragging;
 
+    static RichTextViewer()
+    {
+        // The selection is filled in Render, so a new brush is only seen if it asks for a render.
+        AffectsRender<RichTextViewer>(SelectionBrushProperty);
+    }
+
     /// <summary>The fill drawn behind selected text.</summary>
     public IBrush? SelectionBrush
     {

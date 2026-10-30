@@ -1,8 +1,12 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Data;
+using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace VellumText.Avalonia;
 
@@ -31,11 +35,13 @@ namespace VellumText.Avalonia;
 /// selection reports not bold rather than lying about it.
 /// </para>
 /// <para>
-/// <b>Commands never throw and are always enabled.</b> A formatting command that cannot apply —
-/// no editor attached, no template yet, a selection holding nothing it can change — does nothing.
-/// Disabling half the bar every time the caret lands somewhere awkward reads as broken, and the
-/// two commands where "nothing to do" is worth showing, undo and redo, say so through
-/// <see cref="CanUndo"/> and <see cref="CanRedo"/> instead.
+/// <b>Commands never throw, and are enabled whenever the editor accepts edits.</b> A formatting
+/// command that cannot apply — no editor attached, no template yet, a selection holding nothing
+/// it can change — does nothing. Disabling half the bar every time the caret lands somewhere
+/// awkward reads as broken, and the two commands where "nothing to do" is worth showing, undo and
+/// redo, say so through <see cref="CanUndo"/> and <see cref="CanRedo"/> instead. A read-only
+/// editor is different: every command is refused, so every command reports itself disabled until
+/// <see cref="RichTextEditor.IsReadOnly"/> is turned off again.
 /// </para>
 /// </remarks>
 public class RichTextToolbar : TemplatedControl
@@ -170,6 +176,9 @@ public class RichTextToolbar : TemplatedControl
 
     private RichTextEditor? _attached;
     private RichTextView? _view;
+    private ComboBox? _fontBox;
+    private ComboBox? _sizeBox;
+    private readonly List<ToolbarCommand> _commands = [];
 
     private bool _isBold;
     private bool _isItalic;
@@ -187,6 +196,7 @@ public class RichTextToolbar : TemplatedControl
     private Rgba? _highlight;
     private bool _canUndo;
     private bool _canRedo;
+    private bool _reasserting;
 
     /// <summary>Creates a toolbar with no editor attached.</summary>
     public RichTextToolbar()
@@ -199,9 +209,9 @@ public class RichTextToolbar : TemplatedControl
         SetForegroundCommand = Command<object?>(colour => _view?.SetForeground(Colour(colour)));
         SetHighlightCommand = Command<object?>(colour => _view?.SetHighlight(Colour(colour)));
         SetFontFamilyCommand = Command<string?>(family => _view?.SetFontFamily(family));
-        SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size)));
-        IndentCommand = Command(() => _view?.Indent());
-        OutdentCommand = Command(() => _view?.Outdent());
+        SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size) * PixelsPerPoint));
+        IndentCommand = Command(() => _view?.ChangeLevel(outward: false));
+        OutdentCommand = Command(() => _view?.ChangeLevel(outward: true));
         ClearFormattingCommand = Command(() => _view?.ClearFormatting());
         UndoCommand = Command(() => _view?.Undo());
         RedoCommand = Command(() => _view?.Redo());
@@ -209,7 +219,16 @@ public class RichTextToolbar : TemplatedControl
         // Toggling rather than setting, because the button that makes a link is the button that
         // removes one -- a toolbar with a permanently lit "link" button and no way back is the
         // shape this avoids.
-        SetLinkCommand = Command<object?>(target => _view?.SetLink(Link(target)));
+        SetLinkCommand = Command<object?>(ToggleLink);
+
+        // The event rather than an OnApplyTemplate override: the hook is an implementation
+        // detail, and an override would be public API surface on an unsealed control.
+        TemplateApplied += (_, e) =>
+        {
+            HookBoxes(e.NameScope);
+            CloseOnPick(e.NameScope.Find<Button>("PART_ForegroundButton"));
+            CloseOnPick(e.NameScope.Find<Button>("PART_HighlightButton"));
+        };
     }
 
     /// <summary>The editor this toolbar formats.</summary>
@@ -256,8 +275,18 @@ public class RichTextToolbar : TemplatedControl
     /// <summary>The font family the whole selection shares, or null for the document default.</summary>
     public string? SelectionFontFamily => _family;
 
-    /// <summary>The font size the whole selection shares, or null for the document default.</summary>
+    /// <summary>
+    /// The font size the whole selection shares, in points, or null for the document default.
+    /// </summary>
+    /// <remarks>
+    /// Points, like the size box and <see cref="SetFontSizeCommand"/>, and like every word
+    /// processor: a 20-point heading pasted from Word reads 20 here. The model stores
+    /// device-independent pixels, 96 to the inch against 72 points, so the heading is 26⅔ there.
+    /// </remarks>
     public double? SelectionFontSize => _size;
+
+    /// <summary>Device-independent pixels per typographic point: 96 per inch against 72.</summary>
+    private const double PixelsPerPoint = 96.0 / 72.0;
 
     /// <summary>The colour the whole selection shares, or null for the document default.</summary>
     public Rgba? SelectionForeground => _foreground;
@@ -304,18 +333,31 @@ public class RichTextToolbar : TemplatedControl
     public ICommand SetFontFamilyCommand { get; }
 
     /// <summary>Sets the selection's font size in points; a null or unparseable parameter clears it.</summary>
+    /// <remarks>
+    /// Converted to the model's device-independent pixels, so picking 12 gives 12-point text — 16
+    /// pixels — as it does in a word processor.
+    /// </remarks>
     public ICommand SetFontSizeCommand { get; }
 
-    /// <summary>Indents every selected paragraph one level.</summary>
+    /// <summary>Indents every selected paragraph one level, or in a list, nests the selected items.</summary>
+    /// <remarks>
+    /// What Tab does. In a list it is the nesting that changes, not the indent: a bullet that
+    /// moved right without becoming a sub-item would look nested and not be.
+    /// </remarks>
     public ICommand IndentCommand { get; }
 
-    /// <summary>Outdents every selected paragraph one level.</summary>
+    /// <summary>Outdents every selected paragraph one level, or in a list, lifts the selected items.</summary>
+    /// <remarks>What Shift+Tab does; see <see cref="IndentCommand"/>.</remarks>
     public ICommand OutdentCommand { get; }
 
     /// <summary>Strips character formatting from the selection.</summary>
     public ICommand ClearFormattingCommand { get; }
 
     /// <summary>Makes the selection a link to the parameter, or removes the link it already has.</summary>
+    /// <remarks>
+    /// With no parameter and no link to remove, it raises <see cref="RichTextView.LinkRequested"/>
+    /// so the host can ask for the address, as Ctrl+K does.
+    /// </remarks>
     public ICommand SetLinkCommand { get; }
 
     /// <summary>Undoes the most recent edit.</summary>
@@ -323,6 +365,152 @@ public class RichTextToolbar : TemplatedControl
 
     /// <summary>Redoes the most recently undone edit.</summary>
     public ICommand RedoCommand { get; }
+
+    /// <summary>Closes a colour button's flyout once anything in it has been clicked.</summary>
+    /// <remarks>
+    /// <para>
+    /// Picking a colour is the whole point of opening it, so a flyout that stayed open over the
+    /// document after the pick was a second step for nothing (owner decision). Handled on the
+    /// flyout's content rather than on each swatch: the swatches come from a palette template, and
+    /// a click on any of them, or on the clear button, bubbles up to it.
+    /// </para>
+    /// <para>
+    /// The hide is posted, not done in the handler. A button raises Click before it runs its
+    /// command, and hiding the flyout there took the swatch out of the tree — and its command
+    /// binding with it — so the click closed the flyout and applied nothing (found live).
+    /// </para>
+    /// </remarks>
+    private static void CloseOnPick(Button? button)
+    {
+        if (button?.Flyout is Flyout { Content: Control content } flyout)
+        {
+            content.AddHandler(Button.ClickEvent, (_, _) => Dispatcher.UIThread.Post(flyout.Hide));
+        }
+    }
+    /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
+    private void HookBoxes(INameScope scope)
+    {
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged -= OnFontPicked;
+            _fontBox.RemoveHandler(KeyDownEvent, OnBoxKeyDown);
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged -= OnSizePicked;
+            _sizeBox.RemoveHandler(KeyDownEvent, OnBoxKeyDown);
+        }
+
+        _fontBox = scope.Find<ComboBox>("PART_FontBox");
+        _sizeBox = scope.Find<ComboBox>("PART_SizeBox");
+
+        if (_fontBox is not null)
+        {
+            _fontBox.SelectionChanged += OnFontPicked;
+            _fontBox.AddHandler(KeyDownEvent, OnBoxKeyDown, handledEventsToo: true);
+            ShowFamiliesBare(_fontBox);
+        }
+
+        if (_sizeBox is not null)
+        {
+            _sizeBox.SelectionChanged += OnSizePicked;
+            _sizeBox.AddHandler(KeyDownEvent, OnBoxKeyDown, handledEventsToo: true);
+        }
+    }
+
+    /// <summary>Enter and Escape in a font or size box hand the keyboard back to the document.</summary>
+    /// <remarks>
+    /// As in Word and Docs: once a size is committed the user goes on typing, and leaving focus in
+    /// the box sent the next keystroke into it ("36x"). Enter has already committed through the
+    /// template's key binding; Escape commits nothing and puts the selection's own value back in
+    /// the box over whatever was typed. Handled-too, because the box handles Escape itself when
+    /// its list is open, and closing the list is not a reason to keep the keyboard.
+    /// </remarks>
+    private void OnBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyModifiers != KeyModifiers.None || e.Key is not (Key.Enter or Key.Escape))
+        {
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            Reassert();
+        }
+
+        ReturnToDocument();
+    }
+
+    /// <summary>Gives the keyboard back to the editor once the bar is done with it.</summary>
+    /// <remarks>
+    /// Posted, so that whatever is still handling the key or the pick — the box's own key binding,
+    /// its list closing — finishes against the box before focus moves.
+    /// </remarks>
+    private void ReturnToDocument() =>
+        Dispatcher.UIThread.Post(() => _view?.Focus());
+
+    /// <summary>
+    /// Shows the selection's family in the font box without the quotes it is stored in, and
+    /// commits what is typed there in its stored form.
+    /// </summary>
+    /// <remarks>
+    /// A family name holding a comma is stored quoted so that it stays one name (owner decision on
+    /// review finding 5.3), but <c>ACME, Inc.</c> is the name the user knows. Applied here rather
+    /// than in the template because a template cannot reach an internal converter, and a public
+    /// one would add API for what is a detail of this box. It replaces the template's own
+    /// <see cref="ComboBox.Text"/> binding and the Enter key's parameter; a template without them
+    /// gets them anyway, since a font box that shows the selection is what the part is for.
+    /// </remarks>
+    private void ShowFamiliesBare(ComboBox box)
+    {
+        box.Bind(ComboBox.TextProperty, new Binding(nameof(SelectionFontFamily))
+        {
+            Source = this,
+            Mode = BindingMode.OneWay,
+            Converter = ToolbarConverters.FamilyName,
+        });
+
+        foreach (var key in box.KeyBindings)
+        {
+            if (key.Gesture?.Key == Key.Enter && key.Gesture.KeyModifiers == KeyModifiers.None)
+            {
+                key.Bind(KeyBinding.CommandParameterProperty, new Binding(nameof(ComboBox.Text))
+                {
+                    Source = box,
+                    Mode = BindingMode.OneWay,
+                    Converter = ToolbarConverters.FamilyToStore,
+                });
+            }
+        }
+    }
+
+    private void OnFontPicked(object? sender, SelectionChangedEventArgs e) =>
+        Picked(_fontBox, SetFontFamilyCommand, item => ToolbarConverters.StoredFamily(item as string) ?? item);
+
+    private void OnSizePicked(object? sender, SelectionChangedEventArgs e) => Picked(_sizeBox, SetFontSizeCommand);
+
+    /// <summary>Commits an item the user picked from a box's open list.</summary>
+    /// <remarks>
+    /// Only while the list is open. The box's text follows the selection, and an editable box may
+    /// select the matching item to go with it; reading that as a pick would re-apply the caret's
+    /// own size to whatever is selected every time the caret moved. Typing still commits on Enter.
+    /// A family is committed in its stored form, quoted if it holds a comma, as typing it does.
+    /// The keyboard then goes back to the document, as it does after Enter.
+    /// </remarks>
+    private void Picked(ComboBox? box, ICommand command, Func<object, object>? stored = null)
+    {
+        if (box is { IsDropDownOpen: true, SelectedItem: { } item })
+        {
+            var value = stored is null ? item : stored(item);
+
+            if (command.CanExecute(value))
+            {
+                command.Execute(value);
+                ReturnToDocument();
+            }
+        }
+    }
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -366,24 +554,64 @@ public class RichTextToolbar : TemplatedControl
         _ => null,
     };
 
-    private LinkMark? Link(object? target)
+    /// <summary>Removes the selection's link, makes one to the target, or asks for the address.</summary>
+    /// <remarks>
+    /// With no address to link to — which is what the default template's button passes — the
+    /// host is asked through <see cref="RichTextView.LinkRequested"/>, exactly as Ctrl+K asks it:
+    /// the control has no link dialog of its own and should not grow one. Doing nothing there was
+    /// a Link button that could remove links and never make one.
+    /// </remarks>
+    private bool? ToggleLink(object? target)
     {
-        if (_view?.SelectionMarks.Link is not null)
+        if (_view is null)
         {
             return null;
         }
 
-        return target switch
+        if (_view.SelectionMarks.Link is not null)
         {
-            LinkMark link => link,
+            return _view.SetLink(null);
+        }
+
+        LinkMark? link = target switch
+        {
+            LinkMark mark => mark,
             string href when !string.IsNullOrWhiteSpace(href) => new LinkMark(href),
             _ => null,
         };
+
+        if (link is null)
+        {
+            _view.RaiseLinkRequested();
+
+            return false;
+        }
+
+        return _view.SetLink(link);
     }
 
-    private static ICommand Command(Func<bool?> run) => new Action(run);
+    private ICommand Command(Func<bool?> run) => Track(new Action(run, this));
 
-    private static ICommand Command<T>(Func<T, bool?> run) => new Action<T>(run);
+    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, this));
+
+    private ToolbarCommand Track(ToolbarCommand command)
+    {
+        _commands.Add(command);
+
+        return command;
+    }
+
+    /// <summary>Whether the bound editor accepts edits. True with no editor, as before.</summary>
+    private bool IsEditable() => _attached?.IsReadOnly != true;
+
+    /// <summary>Tells every command's subscribers that whether it can run may have changed.</summary>
+    private void RaiseCanExecuteChanged()
+    {
+        foreach (var command in _commands)
+        {
+            command.RaiseCanExecuteChanged();
+        }
+    }
 
     private void Attach(RichTextEditor? editor)
     {
@@ -401,10 +629,17 @@ public class RichTextToolbar : TemplatedControl
 
         _view = _attached?.View;
         Sync();
+        RaiseCanExecuteChanged();
     }
 
     private void OnEditorPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
+        if (e.Property == RichTextEditor.IsReadOnlyProperty)
+        {
+            RaiseCanExecuteChanged();
+            return;
+        }
+
         if (e.Property == RichTextEditor.ViewProperty)
         {
             // The view arrives when the editor is templated, which is after the toolbar was
@@ -439,7 +674,7 @@ public class RichTextToolbar : TemplatedControl
         Set(IsLinkProperty, ref _isLink, marks.Link is not null);
 
         Set(SelectionFontFamilyProperty, ref _family, marks.FontFamily);
-        Set(SelectionFontSizeProperty, ref _size, marks.FontSize);
+        Set(SelectionFontSizeProperty, ref _size, marks.FontSize is { } pixels ? Math.Round(pixels / PixelsPerPoint, 2) : null);
         Set(SelectionForegroundProperty, ref _foreground, marks.Foreground);
         Set(SelectionHighlightProperty, ref _highlight, marks.Highlight);
 
@@ -451,40 +686,72 @@ public class RichTextToolbar : TemplatedControl
         Set(CanRedoProperty, ref _canRedo, _view?.CanRedo ?? false);
     }
 
-    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value) =>
-        SetAndRaise(property, ref field, value);
+    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value)
+    {
+        if (!SetAndRaise(property, ref field, value) && _reasserting)
+        {
+            RaisePropertyChanged(property, value, value);
+        }
+    }
 
-    /// <summary>A command that is always enabled and reports nothing back.</summary>
+    /// <summary>Re-reads the bar's state after a command, announcing every value, changed or not.</summary>
+    /// <remarks>
+    /// A ToggleButton flips itself before it runs its command. When the command changes nothing —
+    /// Centre on text already centred, Body on body text — no state property changes, so its
+    /// binding never puts the button back, and it shows unlit over centred text until something
+    /// else changes. Announcing the unchanged value makes the binding re-apply what the document
+    /// says over what the click flipped.
+    /// </remarks>
+    private void Reassert()
+    {
+        _reasserting = true;
+
+        try
+        {
+            Sync();
+        }
+        finally
+        {
+            _reasserting = false;
+        }
+    }
+
+    /// <summary>A command that is enabled exactly while the bound editor accepts edits.</summary>
     /// <remarks>
     /// The formatting commands return whether they changed anything, and the toolbar deliberately
     /// discards it: a button that reported failure by doing nothing visible is the same button
     /// either way, and the state properties already say what the document looks like afterwards.
     /// </remarks>
-    private sealed class Action(Func<bool?> run) : ICommand
+    private abstract class ToolbarCommand(RichTextToolbar owner) : ICommand
     {
-        public event EventHandler? CanExecuteChanged
+        public event EventHandler? CanExecuteChanged;
+
+        public bool CanExecute(object? parameter) => owner.IsEditable();
+
+        public void Execute(object? parameter)
         {
-            add { }
-            remove { }
+            if (owner.IsEditable())
+            {
+                Run(parameter);
+                owner.Reassert();
+            }
         }
 
-        public bool CanExecute(object? parameter) => true;
+        public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 
-        public void Execute(object? parameter) => run();
+        protected abstract void Run(object? parameter);
+    }
+
+    /// <summary>A command with no parameter.</summary>
+    private sealed class Action(Func<bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
+    {
+        protected override void Run(object? parameter) => run();
     }
 
     /// <summary>A command taking one typed parameter, tolerant of markup handing it the wrong thing.</summary>
-    private sealed class Action<T>(Func<T, bool?> run) : ICommand
+    private sealed class Action<T>(Func<T, bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
     {
-        public event EventHandler? CanExecuteChanged
-        {
-            add { }
-            remove { }
-        }
-
-        public bool CanExecute(object? parameter) => true;
-
-        public void Execute(object? parameter)
+        protected override void Run(object? parameter)
         {
             // A parameter of the wrong type is a markup mistake, and throwing from a click
             // handler tears down the application. Nothing happening is the recoverable failure.

@@ -719,7 +719,9 @@ public abstract partial class DocumentPresenter
 
             if (_views[index] is ParagraphView view && slots[index].Node is ParagraphNode paragraph)
             {
-                view.Update(paragraph);
+                // Highlighted here as Create does: an edit, or a viewer handed a document of the
+                // same shape, updates the view in place, and the bare paragraph drew code plain.
+                view.Update(Highlight(paragraph));
             }
             else if (_views[index] is TableBlockView table && slots[index].Node is TableNode edited)
             {
@@ -765,13 +767,13 @@ public abstract partial class DocumentPresenter
     private BlockView Create(BlockNode node) => node switch
     {
         ParagraphNode paragraph => new ParagraphView(
-            SyntaxHighlighting.Apply(paragraph, _highlighter, _syntaxTheme),
+            Highlight(paragraph),
             TextStyles,
             _embeds,
             _paragraphStyles),
         RuleNode => new RuleView(TextStyles.Resolve(MarkSet.Empty).ForegroundBrush ?? global::Avalonia.Media.Brushes.Black),
         BlockImageNode image => new BlockImageView(image, _embeds, TextStyles.Resolve(MarkSet.Empty)),
-        TableNode table => new TableBlockView(table, Create, TableBorderBrush, TableHeaderBrush),
+        TableNode table => new TableBlockView(table, Create, TableBorderBrush, TableHeaderBrush) { Prepare = Highlight },
 
         // Every block the document schema allows now has a view. This stays as an assertion
         // rather than a silent blank, because reaching it means the schema grew a block the view
@@ -780,6 +782,10 @@ public abstract partial class DocumentPresenter
         _ => throw new NotSupportedException(
             $"No view for a '{node.TypeName}' block."),
     };
+
+    /// <summary>A paragraph as it is drawn: with syntax colours, if it is code and there is a highlighter.</summary>
+    private ParagraphNode Highlight(ParagraphNode paragraph) =>
+        SyntaxHighlighting.Apply(paragraph, _highlighter, _syntaxTheme);
 
     /// <summary>Throws away every layout, keeping the document.</summary>
     /// <remarks>

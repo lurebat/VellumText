@@ -2,10 +2,11 @@ using global::Avalonia;
 using global::Avalonia.Controls;
 using global::Avalonia.Controls.Primitives;
 using global::Avalonia.Headless.XUnit;
-using global::Avalonia.Markup.Xaml.Styling;
+using global::Avalonia.Media;
 using global::Avalonia.VisualTree;
 using VellumText;
 using VellumText.Avalonia;
+using static VellumText.Tests.Avalonia.ToolbarHarness;
 
 namespace VellumText.Tests.Avalonia;
 
@@ -20,9 +21,9 @@ namespace VellumText.Tests.Avalonia;
 /// first. These tests load the real resource by URI and drive the real buttons.
 /// </para>
 /// <para>
-/// No base theme is loaded, so the buttons have no template of their own and draw nothing. That
-/// is fine: what is under test is whether the markup parses, resolves, and is bound to the right
-/// command and the right state, not what a Fluent button looks like.
+/// The buttons are clicked through their own click handling (<see cref="ToolbarHarness.UserClick(Button)"/>),
+/// never by running their command: a flyout that closed before its command ran passed every test
+/// that ran the command directly.
 /// </para>
 /// </remarks>
 public class ToolbarThemeTests
@@ -54,11 +55,12 @@ public class ToolbarThemeTests
 
     [AvaloniaFact]
     public void TheBoldButtonBoldsTheSelection()
-    {        var bar = Templated(out var editor);
+    {
+        var bar = Templated(out var editor);
 
         SelectAll(editor.View!);
 
-        Click(bar, "Bold (Ctrl+B)");
+        UserClick(bar, "Bold (Ctrl+B)");
 
         Assert.True(bar.IsBold);
         Assert.True(Assert.IsType<ParagraphNode>(Assert.Single(editor.State.Doc.Blocks)).Content.Marks.Single().Value.Style
@@ -104,7 +106,7 @@ public class ToolbarThemeTests
         Assert.True(body.IsChecked);
         Assert.False(h1.IsChecked);
 
-        Click(bar, "Heading 1");
+        UserClick(bar, "Heading 1");
 
         Assert.True(h1.IsChecked);
         Assert.False(body.IsChecked);
@@ -139,7 +141,7 @@ public class ToolbarThemeTests
     {
         var bar = Templated(out var editor);
 
-        Click(bar, "Centre");
+        UserClick(bar, "Centre");
 
         Assert.Equal(TextAlign.Center, Assert.IsType<ParagraphNode>(Assert.Single(editor.State.Doc.Blocks)).Align);
         Assert.True(((ToggleButton)Find(bar, "Centre")!).IsChecked);
@@ -150,7 +152,7 @@ public class ToolbarThemeTests
     {
         var bar = Templated(out var editor);
 
-        Click(bar, "Bulleted list (Ctrl+Shift+8)");
+        UserClick(bar, "Bulleted list (Ctrl+Shift+8)");
 
         Assert.Equal(ListKind.Unordered, bar.ListKind);
         Assert.IsType<ListNode>(Assert.Single(editor.State.Doc.Blocks));
@@ -174,7 +176,7 @@ public class ToolbarThemeTests
 
         Assert.Equal("#C82020", swatch.CommandParameter);
 
-        swatch.Command!.Execute(swatch.CommandParameter);
+        UserClick(swatch);
 
         Assert.Equal(new Rgba(0xC8, 0x20, 0x20, 255), bar.SelectionForeground);
     }
@@ -188,7 +190,7 @@ public class ToolbarThemeTests
 
         var swatch = Swatches(bar, "Highlight")[11];
 
-        swatch.Command!.Execute(swatch.CommandParameter);
+        UserClick(swatch);
 
         Assert.Equal(new Rgba(0x18, 0x90, 0x40, 255), bar.SelectionHighlight);
         Assert.Null(bar.SelectionForeground);
@@ -207,73 +209,183 @@ public class ToolbarThemeTests
 
         var swatch = Swatches(bar, "Text colour")[0];
 
-        swatch.Command!.Execute(swatch.CommandParameter);
+        UserClick(swatch);
 
         Assert.Equal(new Rgba(0, 0, 0, 255), bar.SelectionForeground);
 
-        var clear = Popup(bar, "Text colour").GetVisualDescendants().OfType<Button>()
-            .Single(b => b.Classes.Contains("VellumText-clear-colour"));
-
-        clear.Command!.Execute(clear.CommandParameter);
+        UserClick(ClearColour(bar, "Text colour"));
 
         Assert.Null(bar.SelectionForeground);
     }
 
-    /// <summary>Opens a colour button's flyout and returns the swatch buttons inside it.</summary>
-    private static List<Button> Swatches(RichTextToolbar bar, string tip) =>
-        Popup(bar, tip).GetVisualDescendants().OfType<Button>()
-            .Where(b => b.CommandParameter is string)
-            .ToList();
-
-    private static Visual Popup(RichTextToolbar bar, string tip)
+    /// <summary>
+    /// Picking a size from the list applies it, in points. Only Enter used to commit, so a click
+    /// on "18" in the open list changed the box and left the document alone — found live, with
+    /// no test to say otherwise.
+    /// </summary>
+    [AvaloniaFact]
+    public void PickingASizeFromTheListAppliesIt()
     {
-        var button = Find(bar, tip) ?? throw new InvalidOperationException($"no button tipped {tip}");
-        var flyout = button.Flyout as Flyout
-            ?? throw new InvalidOperationException($"{tip} has no flyout");
+        var bar = Templated(out var editor);
 
-        flyout.ShowAt(button);
+        SelectAll(editor.View!);
 
-        var content = (Control)flyout.Content!;
+        var box = Box(bar, "PART_SizeBox");
 
-        // The item containers do not exist until the popup has been through a layout pass, and
-        // headless does not run one for us.
-        content.Measure(new Size(400, 400));
-        content.Arrange(new Rect(0, 0, 400, 400));
+        box.IsDropDownOpen = true;
+        box.SelectedItem = 18.0;
 
-        return content;
+        Assert.Equal(24.0, FirstMark(editor).FontSize!.Value, 6);
+        Assert.Equal(18.0, bar.SelectionFontSize!.Value, 6);
     }
 
-    /// <summary>Builds an editor and a toolbar with the shipped theme loaded, and shows them.</summary>
-    private static RichTextToolbar Templated(out RichTextEditor editor)
+    [AvaloniaFact]
+    public void PickingAFontFromTheListAppliesIt()
     {
-        // Loaded into the window rather than the application, because the headless application is
-        // shared across every test in the assembly and one that accumulated styles would make the
-        // tests depend on the order they ran in.
-        var include = new StyleInclude(new Uri("avares://VellumText.Avalonia/"))
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var box = Box(bar, "PART_FontBox");
+
+        // A headless platform may report no installed fonts; the pick is what is under test.
+        if (box.ItemCount == 0)
         {
-            Source = new Uri("avares://VellumText.Avalonia/Themes/VellumText.axaml"),
-        };
+            box.ItemsSource = new[] { "Arial", "Courier New" };
+        }
 
-        editor = new RichTextEditor
+        var family = (string)box.Items[^1]!;
+
+        box.IsDropDownOpen = true;
+        box.SelectedItem = family;
+
+        Assert.Equal(family, FirstMark(editor).FontFamily);
+    }
+
+    /// <summary>
+    /// The box's text follows the selection, and an editable box may select the matching item to
+    /// go with it. That must not be read as a pick: moving the caret into 20-point text would
+    /// otherwise re-apply 20 points to whatever is selected — an edit nobody asked for.
+    /// </summary>
+    [AvaloniaFact]
+    public void ASelectionChangeTheUserDidNotPickDoesNotEditTheDocument()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var before = editor.State.Doc;
+        var size = Box(bar, "PART_SizeBox");
+        var font = Box(bar, "PART_FontBox");
+
+        size.SelectedItem = 18.0;
+        font.SelectedItem = font.ItemCount > 0 ? font.Items[0] : null;
+
+        Assert.Same(before, editor.State.Doc);
+    }
+
+    private static MarkSet FirstMark(RichTextEditor editor) =>
+        Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(0);
+
+    /// <summary>
+    /// A colour picked with a real click lands on the selected text, in the document and on screen,
+    /// and the flyout closes. The flyout used to close on the swatch's Click, which a button raises
+    /// before it runs its command: hiding the flyout took the swatch out of the tree and its command
+    /// binding with it, so the click closed the flyout and changed nothing (found live).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Text colour")]
+    [InlineData("Highlight")]
+    public void PickingAColourAppliesItToTheSelection(string tip)
+    {
+        var bar = Templated(out var editor);
+        var view = editor.View!;
+
+        // "hello", and not " world".
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.MoveTo(view.Slots[0].Start + 5, extend: true);
+
+        var swatch = Swatches(bar, tip)[8];
+        var colour = Color.Parse((string)swatch.CommandParameter!);
+        var flyout = (Flyout)Find(bar, tip)!.Flyout!;
+
+        UserClick(swatch);
+
+        var hello = FirstMark(editor);
+        var world = Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(7);
+
+        Assert.Equal(colour.ToVellumText(), tip == "Text colour" ? hello.Foreground : hello.Highlight);
+        Assert.Null(tip == "Text colour" ? world.Foreground : world.Highlight);
+        Assert.False(flyout.IsOpen);
+
+        // On screen too: the run drawn for "hello" carries the colour.
+        if (tip == "Text colour")
         {
-            State = EditorState.Create(DocumentNode.FromParagraphs("hello world")),
-        };
+            Layout(WindowOf(bar));
 
-        var bar = new RichTextToolbar { Editor = editor };
+            var run = ((ParagraphView)view.Blocks[0]).Layout.TextLines[0].TextRuns[0];
 
-        var window = new Window { Width = 900, Height = 400 };
+            Assert.Equal(colour, Assert.IsAssignableFrom<ISolidColorBrush>(run.Properties!.ForegroundBrush).Color);
+        }
+    }
 
-        // Fluent first, and not for looks: a window with no template has no overlay layer, and
-        // headless offers no popup implementation, so without it a flyout cannot open at all.
-        window.Styles.Add(new global::Avalonia.Themes.Fluent.FluentTheme());
-        window.Styles.Add(include);
-        window.Content = new StackPanel { Children = { bar, editor } };
+    [AvaloniaFact]
+    public void ClearingTheColourWithAClickRemovesIt()
+    {
+        var bar = Templated(out var editor);
 
-        window.Show();
-        window.Measure(new Size(900, 400));
-        window.Arrange(new Rect(0, 0, 900, 400));
+        SelectAll(editor.View!);
+        bar.SetForegroundCommand.Execute("#C82020");
+        Assert.NotNull(FirstMark(editor).Foreground);
 
-        return bar;
+        var clear = Popup(bar, "Text colour").GetVisualDescendants().OfType<Button>()
+            .Single(b => b.Classes.Contains("VellumText-clear-colour"));
+        var flyout = (Flyout)Find(bar, "Text colour")!.Flyout!;
+
+        UserClick(clear);
+
+        Assert.Null(FirstMark(editor).Foreground);
+        Assert.False(flyout.IsOpen);
+    }
+
+    /// <summary>
+    /// Picking a colour closes the flyout it was picked from (owner decision). Found live: the
+    /// colour applied and the flyout stayed open over the document until Escape or a click
+    /// elsewhere — a second step for the commonest thing the flyout is for.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Text colour")]
+    [InlineData("Highlight")]
+    public void PickingAColourClosesTheFlyout(string tip)
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var swatch = Swatches(bar, tip)[8];
+        var flyout = (Flyout)Find(bar, tip)!.Flyout!;
+
+        Assert.True(flyout.IsOpen);
+
+        UserClick(swatch);
+
+        Assert.False(flyout.IsOpen);
+    }
+
+    [AvaloniaFact]
+    public void ClearingTheColourClosesTheFlyoutToo()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+
+        var clear = Popup(bar, "Text colour").GetVisualDescendants().OfType<Button>()
+            .Single(b => b.Classes.Contains("VellumText-clear-colour"));
+        var flyout = (Flyout)Find(bar, "Text colour")!.Flyout!;
+
+        UserClick(clear);
+
+        Assert.False(flyout.IsOpen);
     }
 
     private static void SelectAll(RichTextView view)
@@ -282,23 +394,4 @@ public class ToolbarThemeTests
         view.MoveTo(view.Slots[^1].End, extend: true);
     }
 
-    private static List<Button> Buttons(RichTextToolbar bar) =>
-        bar.GetVisualDescendants().OfType<Button>().ToList();
-
-    /// <summary>
-    /// Finds a button by its tooltip, which is the only label some of them have — an icon button
-    /// has no text, and matching on the geometry would be matching on the drawing.
-    /// </summary>
-    private static Button? Find(RichTextToolbar bar, string tip) =>
-        Buttons(bar).SingleOrDefault(b => (string?)ToolTip.GetTip(b) == tip);
-
-    private static void Click(RichTextToolbar bar, string tip)
-    {
-        var button = Find(bar, tip) ?? throw new InvalidOperationException($"no button tipped {tip}");
-
-        // Not a synthesized pointer event: with no base theme the button has no template and so
-        // no hit-testable interior. What is under test is the binding from the button to the
-        // command, and that is exactly what this exercises.
-        button.Command!.Execute(button.CommandParameter);
-    }
 }

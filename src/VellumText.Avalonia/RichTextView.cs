@@ -162,6 +162,12 @@ public partial class RichTextView : DocumentPresenter
         if (!derived && !ReferenceEquals(previous.Doc, value.Doc))
         {
             History = History.With(_history.Policy);
+
+            // The goal column is an x position measured in the previous document's layout; kept,
+            // it sent the next Up or Down to a column from the clip the host just replaced. Only a
+            // different document clears it: caret moves arrive through the same setter and a
+            // vertical run depends on the column surviving them.
+            _goalX = null;
         }
 
         OnStateChanged();
@@ -275,9 +281,17 @@ public partial class RichTextView : DocumentPresenter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Selecting is not an edit, so the whole replacement is one transaction and one undo takes
-    /// it back. Empty text is a deletion rather than a paste of nothing, which
-    /// <see cref="PasteText"/> would treat as no change at all.
+    /// <para>
+    /// One transaction replacing the whole document with the text's paragraphs, so one undo takes
+    /// it back. Empty text leaves one empty paragraph, since a document needs somewhere for the
+    /// caret.
+    /// </para>
+    /// <para>
+    /// Not select-all and paste, which it used to be: select-all spans the first to the last
+    /// text position, so on a document that is one table it is a rectangle of cells — which paste
+    /// refuses, and the call did nothing and said nothing — and a block image at either edge was
+    /// outside it and survived a "replace everything".
+    /// </para>
     /// </remarks>
     protected internal override void SetTextFromAutomation(string text)
     {
@@ -298,15 +312,18 @@ public partial class RichTextView : DocumentPresenter
             return;
         }
 
-        SelectAll();
+        var paragraphs = text.Length == 0 ? [ParagraphNode.Empty] : TextParagraphs(text);
+        var size = paragraphs.Sum(p => p.NodeSize);
+        var transaction = _state.Transaction().As(TransactionKind.Structure);
 
-        if (text.Length == 0)
+        transaction
+            .Replace(0, _state.Doc.ContentSize, Slice.OfBlocks([.. paragraphs]))
+            .SetSelection(TextSelection.Cursor(size - 1))
+            .SetStoredMarks(null);
+
+        if (transaction.Failures.IsEmpty)
         {
-            DeleteSelection();
-        }
-        else
-        {
-            PasteText(text);
+            Apply(transaction);
         }
     }
 
@@ -467,30 +484,35 @@ public partial class RichTextView : DocumentPresenter
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The caret's block, so that <see cref="OnReconciled"/> can tell whether the caret has
-    /// moved to a different paragraph while a composition was in progress.
+    /// The paragraph being composed in, so that <see cref="OnReconciled"/> can tell whether the
+    /// selection has left it while a composition was in progress.
     /// </remarks>
-    private protected override BlockView? Anchor =>
-        _caretBlock < _views.Count ? _views[_caretBlock] : null;
+    private protected override BlockView? Anchor => _composing;
 
     /// <inheritdoc/>
     private protected override void OnReconciled(BlockView? before)
     {
         _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
-        // A composition belongs to the block the caret was in. If the caret has left, the
-        // composition has to go with it: leaving it behind would draw composed text in a
-        // paragraph the input method is no longer talking about, and it would never be
-        // committed there.
-        if (before is ParagraphView left
-            && !ReferenceEquals(left, _views.Count == 0 ? null : _views[_caretBlock]))
+        // A composition belongs to the paragraph the commit will replace the selection in. If
+        // the selection has left it, the composition has to go: leaving it behind would draw
+        // composed text in a paragraph the input method is no longer talking about, and it would
+        // never be committed there. The head's paragraph is not that one when the selection
+        // crosses paragraphs, so it is the composing paragraph itself that is checked.
+        if (before is ParagraphView composing
+            && (composing.Preedit is null || !ReferenceEquals(composing, CompositionText?.View)))
         {
-            left.SetPreedit(null);
+            ClearComposition();
         }
     }
 
     /// <inheritdoc/>
-    private protected override void OnLayoutDropped() => _caretBlock = 0;
+    /// <remarks>The composition goes with the views: none of the new ones is drawing it.</remarks>
+    private protected override void OnLayoutDropped()
+    {
+        _caretBlock = 0;
+        _composing = null;
+    }
 
     /// <inheritdoc/>
     /// <summary>
@@ -676,7 +698,7 @@ public partial class RichTextView : DocumentPresenter
 
         // A non-empty selection hides the caret, except while composing: then the caret belongs
         // to the input method and sits inside text the selection knows nothing about.
-        if (Block?.Preedit is null && !_state.Selection.IsEmpty)
+        if (Preedit is null && !_state.Selection.IsEmpty)
         {
             return;
         }

@@ -324,11 +324,15 @@ clicking.
 
 The control holds no buttons of its own — it exposes the state a toolbar shows and the commands it
 runs, and leaves the arrangement to the template, so a different toolbar is different markup rather
-than a different toolbar. Its commands never throw and are always enabled: one that cannot apply
-does nothing, because a bar that greys out half its buttons whenever the caret moves reads as
-broken.
+than a different toolbar. Its commands never throw and are enabled whenever the editor accepts
+edits: one that cannot apply does nothing, because a bar that greys out half its buttons whenever the
+caret moves reads as broken. On a read-only editor every command is refused, so every command
+reports `CanExecute = false`, and raises `CanExecuteChanged` when `IsReadOnly` is turned back off.
 
 `RichTextToolbar.FontFamilies`, `FontSizes` and `Palette` are exposed for binding your own pickers.
+Sizes on the toolbar — `FontSizes`, `SelectionFontSize` and `SetFontSizeCommand` — are in points,
+as in a word processor; the document model stores device-independent pixels (96 to the inch), so
+picking 12 sets 16 and a 20-point heading pasted from Word shows as 20.
 
 The editor also shows a floating toolbar over a selection; turn it off with
 `IsSelectionToolbarEnabled="False"`.

@@ -78,7 +78,7 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     {
         var ranges = new List<ReplacedRange>();
 
-        Diff(Before, After, Pos + 1, ranges);
+        Diff(Before, After, Pos + 1, ranges, SharesAny(Before, After));
 
         return StepMap.Of(ranges);
     }
@@ -101,6 +101,9 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     /// <param name="after">The node as it will be.</param>
     /// <param name="contentStart">Where <paramref name="before"/>'s content begins.</param>
     /// <param name="ranges">Where to record the differences, in ascending order.</param>
+    /// <param name="byIdentity">
+    /// Whether children are matched by identity rather than value; see <see cref="SameIdentity"/>.
+    /// </param>
     /// <remarks>
     /// <para>
     /// Children that match at the front and the back are shared — an edit rebuilds only the rows
@@ -128,14 +131,17 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
     /// description of the difference between two tables, only of where the positions went.
     /// </para>
     /// </remarks>
-    private static void Diff(Node before, Node after, int contentStart, List<ReplacedRange> ranges)
+    private static void Diff(
+        Node before, Node after, int contentStart, List<ReplacedRange> ranges, bool byIdentity)
     {
         var a = before.Children;
         var b = after.Children;
 
+        bool Same(Node x, Node y) => byIdentity ? SameIdentity(x, y) : x.Equals(y);
+
         var prefix = 0;
 
-        while (prefix < a.Length && prefix < b.Length && a[prefix].Equals(b[prefix]))
+        while (prefix < a.Length && prefix < b.Length && Same(a[prefix], b[prefix]))
         {
             prefix++;
         }
@@ -144,7 +150,7 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
 
         while (suffix < a.Length - prefix
             && suffix < b.Length - prefix
-            && a[a.Length - 1 - suffix].Equals(b[b.Length - 1 - suffix]))
+            && Same(a[a.Length - 1 - suffix], b[b.Length - 1 - suffix]))
         {
             suffix++;
         }
@@ -177,7 +183,7 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
                 {
                     if (CanDescend(oldChild, newChild))
                     {
-                        Diff(oldChild, newChild, pos + 1, ranges);
+                        Diff(oldChild, newChild, pos + 1, ranges, byIdentity);
                     }
                     else
                     {
@@ -207,6 +213,73 @@ public sealed record TableStructureStep(int Pos, TableNode Before, TableNode Aft
         }
 
         ranges.Add(new ReplacedRange(start, oldSize, newSize));
+    }
+
+    /// <summary>Whether the two tables have any row or cell in common, by identity.</summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="TableEdits"/> builds the new table from the old one's untouched cells, so its
+    /// steps always do; a table a host built separately does not, and is diffed by value.
+    /// </para>
+    /// <para>
+    /// Only rows and cells count. What a cell holds is shared between tables that have no cell in
+    /// common — every blank cell holds the one <see cref="ParagraphNode.Empty"/> — so finding it in
+    /// both says nothing about whether the new table was built from the old one.
+    /// </para>
+    /// </remarks>
+    private static bool SharesAny(Node before, Node after)
+    {
+        var seen = new HashSet<Node>(RowsAndCells(before), ReferenceEqualityComparer.Instance);
+
+        return RowsAndCells(after).Any(seen.Contains);
+
+        static IEnumerable<Node> RowsAndCells(Node table) =>
+            table.Children.SelectMany(row => row.Children.Prepend(row));
+    }
+
+    /// <summary>
+    /// Whether a node is the same one in both versions: the very same object, or a row rebuilt
+    /// around exactly the same cells.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Diffing by value matched an inserted empty row or cell with the empty ones beside it —
+    /// every fresh table is all empty cells — and reported the insertion at the far end of that
+    /// run, so a caret mapped through it moved one column left or one row up. Identity says which
+    /// child is new.
+    /// </para>
+    /// <para>
+    /// A row may be rebuilt rather than reused, because <see cref="TableEdits"/> rebuilds every
+    /// row around reused cells when it inserts a row. A cell has to be the same object. Its
+    /// content is no evidence: every blank cell holds the one <see cref="ParagraphNode.Empty"/>,
+    /// so two different blank cells hold the very same paragraph, and matching them by it put an
+    /// inserted column at the far end of a run of blank cells.
+    /// </para>
+    /// </remarks>
+    private static bool SameIdentity(Node x, Node y)
+    {
+        if (ReferenceEquals(x, y))
+        {
+            return true;
+        }
+
+        if (x is not TableRowNode
+            || x.Children.Length == 0
+            || x.Children.Length != y.Children.Length
+            || !x.Equals(y))
+        {
+            return false;
+        }
+
+        for (var i = 0; i < x.Children.Length; i++)
+        {
+            if (!ReferenceEquals(x.Children[i], y.Children[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Whether two nodes are the kind whose children are worth comparing separately.</summary>

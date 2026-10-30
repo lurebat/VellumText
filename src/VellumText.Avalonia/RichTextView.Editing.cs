@@ -68,6 +68,12 @@ public partial class RichTextView
     {
         ArgumentNullException.ThrowIfNull(text);
 
+        // Typed text, and an IME commit, can carry U+FFFC as easily as pasted text — Word writes
+        // it for objects, and anything that went through a rich text model has it. It marks where
+        // an embed sits, so the model refuses it without one, and that refusal used to escape the
+        // input handler. Paste already drops it; so does this.
+        text = RichTextClipboard.WithoutPlaceholder(text);
+
         if (text.Length == 0)
         {
             return false;
@@ -82,6 +88,25 @@ public partial class RichTextView
 
         var selection = _state.Selection;
         var transaction = _state.Transaction().As(TransactionKind.Typing);
+
+        // A selected block image sits between paragraphs, where there is nowhere for text to go:
+        // deleting it and inserting at its position deleted the picture and silently dropped
+        // what was typed. Typing over it replaces it with a paragraph holding the text, as typing
+        // over a selected picture does in a word processor.
+        if (selection is NodeSelection && _state.Doc.Resolve(selection.From).Paragraph is null)
+        {
+            var mark = MarkForInsertion(selection.From);
+
+            transaction
+                .Replace(selection.From, selection.To, Slice.OfBlocks(ParagraphNode.Empty))
+                .InsertText(selection.From + 1, text, mark)
+                .SetSelection(TextSelection.Cursor(selection.From + 1 + text.Length))
+                .SetStoredMarks(null);
+
+            _goalX = null;
+
+            return transaction.Failures.IsEmpty && Apply(transaction);
+        }
 
         if (!RemoveSelection(transaction, selection))
         {
@@ -395,7 +420,7 @@ public partial class RichTextView
 
         base.OnTextInput(e);
 
-        if (e.Handled || Block is null || string.IsNullOrEmpty(e.Text))
+        if (e.Handled || string.IsNullOrEmpty(e.Text))
         {
             return;
         }
@@ -421,9 +446,11 @@ public partial class RichTextView
             return ClearCells(rectangle);
         }
 
+        // No paragraph under the caret means a selected block image: there is nothing to step
+        // over, only the selection itself to remove.
         if (Block is null)
         {
-            return false;
+            return DeleteSelection();
         }
 
         _goalX = null;

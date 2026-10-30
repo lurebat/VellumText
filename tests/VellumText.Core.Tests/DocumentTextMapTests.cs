@@ -165,10 +165,12 @@ public class DocumentTextMapTests
     {
         var map = DocumentTextMap.Of(doc);
 
+        // A block image's alt text is read as a line of its own, as an inline image's is read in
+        // place, so both expand the plain text beyond the map's one position per character.
         var embedded = doc.Blocks
             .SelectMany(Flatten)
-            .OfType<ParagraphNode>()
-            .Any(p => !p.Content.Embeds.IsEmpty);
+            .Any(n => n is ParagraphNode p && !p.Content.Embeds.IsEmpty
+                || n is BlockImageNode { Image.PlainTextFallback.Length: > 0 });
 
         if (!embedded)
         {

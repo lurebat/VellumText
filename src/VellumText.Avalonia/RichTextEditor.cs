@@ -473,8 +473,19 @@ public class RichTextEditor : TemplatedControl
     /// </remarks>
     public event EventHandler<RichTextView.ContentImportingEventArgs>? ContentImporting
     {
-        add => EnsureView().ContentImporting += value;
-        remove => EnsureView().ContentImporting -= value;
+        add
+        {
+            var view = EnsureView();
+
+            _contentImporting += value;
+            view.ContentImporting += value;
+        }
+
+        remove
+        {
+            _contentImporting -= value;
+            EnsureView().ContentImporting -= value;
+        }
     }
 
     /// <inheritdoc cref="RichTextView.ContentImported"/>
@@ -484,8 +495,19 @@ public class RichTextEditor : TemplatedControl
     /// </remarks>
     public event EventHandler<RichTextView.ContentImportedEventArgs>? ContentImported
     {
-        add => EnsureView().ContentImported += value;
-        remove => EnsureView().ContentImported -= value;
+        add
+        {
+            var view = EnsureView();
+
+            _contentImported += value;
+            view.ContentImported += value;
+        }
+
+        remove
+        {
+            _contentImported -= value;
+            EnsureView().ContentImported -= value;
+        }
     }
 
     /// <inheritdoc cref="RichTextView.ImageRefused"/>
@@ -495,9 +517,27 @@ public class RichTextEditor : TemplatedControl
     /// </remarks>
     public event EventHandler<RichTextView.ImageRefusedEventArgs>? ImageRefused
     {
-        add => EnsureView().ImageRefused += value;
-        remove => EnsureView().ImageRefused -= value;
+        add
+        {
+            var view = EnsureView();
+
+            _imageRefused += value;
+            view.ImageRefused += value;
+        }
+
+        remove
+        {
+            _imageRefused -= value;
+            EnsureView().ImageRefused -= value;
+        }
     }
+
+    // The handlers subscribed through this shell, kept here as well as on the view so that a
+    // retemplate can move them to the new view. A subscription that lived only on the old view
+    // went with it: a content policy stopped vetoing, with no sign that it had.
+    private EventHandler<RichTextView.ContentImportingEventArgs>? _contentImporting;
+    private EventHandler<RichTextView.ContentImportedEventArgs>? _contentImported;
+    private EventHandler<RichTextView.ImageRefusedEventArgs>? _imageRefused;
 
 
     /// <summary>
@@ -579,18 +619,20 @@ public class RichTextEditor : TemplatedControl
 
         PushOptions();
 
-        if (_pendingHistory is not null)
-        {
-            _view.History = _pendingHistory;
-            _pendingHistory = null;
-        }
-
         if (old is not null)
         {
             // Retemplating leaves the old view detached but alive; without this its events would
             // keep arriving and the editor would report the state of a view nobody can see.
             old.PropertyChanged -= OnViewPropertyChanged;
             old.LayoutUpdated -= OnViewLayoutUpdated;
+
+            MoveSetup(old, _view);
+        }
+
+        if (_pendingHistory is not null)
+        {
+            _view.History = _pendingHistory;
+            _pendingHistory = null;
         }
 
         _view.PropertyChanged += OnViewPropertyChanged;
@@ -604,7 +646,17 @@ public class RichTextEditor : TemplatedControl
         // Optional, unlike the view: a replacement template that wants no floating bar simply
         // leaves it out, and the feature turns itself off rather than refusing to template.
         _overlay = e.NameScope.Find<Panel>(OverlayPart);
+
+        var oldBar = _floating;
+
         _floating = e.NameScope.Find<RichTextToolbar>(SelectionToolbarPart);
+
+        // The discarded template's bar is still bound to this editor, and so still subscribed to
+        // it: it would go on syncing to every state change from outside the visual tree.
+        if (oldBar is not null && !ReferenceEquals(oldBar, _floating) && ReferenceEquals(oldBar.Editor, this))
+        {
+            oldBar.Editor = null;
+        }
 
         RaisePropertyChanged(ViewProperty, old, _view);
     }
@@ -618,15 +670,18 @@ public class RichTextEditor : TemplatedControl
 
         if (change.Property == StateProperty)
         {
-            // Announced here rather than beside the view's own pair, because this shell holds the
-            // state itself: the editor answers Document before it has ever been templated, and a
-            // relay from the view would say "empty" until the first layout pass.
-            RaiseStateParts((EditorState)change.OldValue!, (EditorState)change.NewValue!);
-
+            // The view first, then the announcement. A handler is entitled to read the view, and
+            // one that touched it - select-all on load - used to find the old state there and
+            // write it back over the state the host had just set.
             if (_view is not null)
             {
                 _view.State = State;
             }
+
+            // Announced here rather than beside the view's own pair, because this shell holds the
+            // state itself: the editor answers Document before it has ever been templated, and a
+            // relay from the view would say "empty" until the first layout pass.
+            RaiseStateParts((EditorState)change.OldValue!, (EditorState)change.NewValue!);
         }
         else if (change.Property == IsSelectionToolbarEnabledProperty)
         {
@@ -680,6 +735,67 @@ public class RichTextEditor : TemplatedControl
     /// <inheritdoc cref="RichTextView.SelectionChanged"/>
     /// <remarks>Raised from the shell's own state, for the reason <see cref="DocumentChanged"/> is.</remarks>
     public event EventHandler? SelectionChanged;
+
+    /// <summary>Carries a host's setup from a discarded view to the one replacing it.</summary>
+    /// <remarks>
+    /// <para>
+    /// Everything the shell forwards: registered formats, the image store, the renderer and style
+    /// resolvers, the syntax properties, the handlers subscribed through the shell — and the undo
+    /// history, because a retemplate is chrome changing, not the document's past being forgotten.
+    /// </para>
+    /// <para>
+    /// The values are read from the old view rather than kept in the shell, so that a host which
+    /// configured the view directly, through <see cref="EnsureView"/>, keeps that configuration too.
+    /// The handlers cannot be read back from a view, which is why the shell keeps those itself.
+    /// </para>
+    /// </remarks>
+    private void MoveSetup(RichTextView old, RichTextView view)
+    {
+        view.Formats.Clear();
+
+        foreach (var format in old.Formats)
+        {
+            view.Formats.Add(format);
+        }
+
+        view.ImageStore = old.ImageStore;
+        view.Embeds = old.Embeds;
+        // A derived resolver is left behind: reading it would materialise one and assigning that
+        // would pin the new view to the old font, so it stopped following FontSize and the theme.
+        if (old.HasExplicitTextStyles)
+        {
+            view.TextStyles = old.TextStyles;
+        }
+
+        view.ParagraphStyles = old.ParagraphStyles;
+        view.SyntaxHighlighter = old.SyntaxHighlighter;
+        view.SyntaxTheme = old.SyntaxTheme;
+        view.History = old.History;
+
+        // One at a time: removing the combined delegate only works while the view's list holds
+        // these handlers contiguously, which a host subscribing on the view directly would break.
+        foreach (var handler in Handlers(_contentImporting))
+        {
+            old.ContentImporting -= handler;
+            view.ContentImporting += handler;
+        }
+
+        foreach (var handler in Handlers(_contentImported))
+        {
+            old.ContentImported -= handler;
+            view.ContentImported += handler;
+        }
+
+        foreach (var handler in Handlers(_imageRefused))
+        {
+            old.ImageRefused -= handler;
+            view.ImageRefused += handler;
+        }
+
+        static IEnumerable<T> Handlers<T>(T? handlers)
+            where T : Delegate =>
+            handlers?.GetInvocationList().Cast<T>() ?? [];
+    }
 
     /// <summary>Copies the four behaviour properties into the templated view.</summary>
     /// <remarks>
