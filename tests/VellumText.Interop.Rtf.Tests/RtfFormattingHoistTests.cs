@@ -104,7 +104,18 @@ public class RtfFormattingHoistTests
 
         // A colour table, bold and a hyperlink field: the field is not a run, so nothing is hoisted.
         { "link", @"{\rtf1\ansi{\fonttbl{\f1 Georgia;}}{\f1\fs22 see }{\field{\*\fldinst{HYPERLINK ""https://e.test/""}}{\fldrslt{\f1\fs22 here}}}\par}", false },
+
+        // Outlook's encapsulated HTML: touching a run would invalidate it, and the reader would
+        // write the plain-text fallback instead of the HTML (rubber-duck review finding 9.4).
+        { "outlook", OutlookBold, false },
     };
+
+    /// <summary>
+    /// RTF as Outlook writes it: the message's HTML encapsulated (<c>\fromhtml1</c>), with a bold
+    /// the plain-text fallback beside it does not have.
+    /// </summary>
+    internal const string OutlookBold =
+        @"{\rtf1\ansi\fromhtml1{\fonttbl{\f1 Georgia;}}{\*\htmltag1 <html><body><p><b>hello</b></p></body></html>}\htmlrtf1{\f1\fs22 hello}\htmlrtf0\par}";
 
     /// <summary>The import is exactly what it was without hoisting: document and diagnostics.</summary>
     [Theory]

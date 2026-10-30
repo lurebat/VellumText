@@ -179,8 +179,12 @@ internal static class WordLists
 
     private static void Build(IDocument document, List<Item> run)
     {
-        // The lists open at each depth, outermost first, with the item each would nest under.
-        var open = new List<(IElement List, bool Ordered, IElement? Last)>();
+        // The lists open, outermost first, each with the Word level it was opened for and the
+        // item it last took, which a deeper list nests under. Levels are Word's, not depths: a copy
+        // can start part-way down a list, and Word allows a level to skip ahead, so the two only
+        // agree for a list written from level 1 without gaps. Comparing them is what nested two
+        // level-2 items one inside the other (rubber-duck review 4.2).
+        var open = new List<(IElement List, bool Ordered, IElement? Last, int Level)>();
         string? current = null;
 
         foreach (var item in run)
@@ -191,22 +195,20 @@ internal static class WordLists
                 current = item.List;
             }
 
-            var depth = item.Level;
-
-            if (open.Count > depth)
+            while (open.Count > 0 && open[^1].Level > item.Level)
             {
-                open.RemoveRange(depth, open.Count - depth);
+                open.RemoveAt(open.Count - 1);
             }
 
-            if (open.Count == depth && open[^1].Ordered != item.Ordered)
+            if (open.Count > 0 && open[^1].Level == item.Level && open[^1].Ordered != item.Ordered)
             {
                 // A bullet after a number at the same level is a new list beside the old one.
-                open.RemoveAt(depth - 1);
+                open.RemoveAt(open.Count - 1);
             }
 
             // One list at most is opened per item, so a level that skips ahead nests only one
             // deeper: Word allows a jump the model has no item to hang the lists between on.
-            if (open.Count < depth)
+            if (open.Count == 0 || open[^1].Level < item.Level)
             {
                 var list = document.CreateElement(item.Ordered ? "ol" : "ul");
 
@@ -219,7 +221,7 @@ internal static class WordLists
                     parentItem.AppendChild(list);
                 }
 
-                open.Add((list, item.Ordered, null));
+                open.Add((list, item.Ordered, null, item.Level));
             }
 
             var element = document.CreateElement("li");

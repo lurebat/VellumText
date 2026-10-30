@@ -89,8 +89,9 @@ public class RichTextViewDropTests
         private string _name = string.Empty;
         private byte[]? _bytes;
         private Action? _opening;
+        private Task? _gate;
 
-        public static IStorageFile Named(string name, byte[]? bytes, Action? opening = null)
+        public static IStorageFile Named(string name, byte[]? bytes, Action? opening = null, Task? gate = null)
         {
             var file = DispatchProxy.Create<IStorageFile, DroppedFile>();
             var proxy = (DroppedFile)file;
@@ -98,6 +99,7 @@ public class RichTextViewDropTests
             proxy._name = name;
             proxy._bytes = bytes;
             proxy._opening = opening;
+            proxy._gate = gate;
 
             return file;
         }
@@ -119,6 +121,12 @@ public class RichTextViewDropTests
             await Task.Yield();
 
             _opening?.Invoke();
+
+            // A read the test holds open, as a slow volume would.
+            if (_gate is { } gate)
+            {
+                await gate;
+            }
 
             return _bytes is null
                 ? throw new IOException("the volume went away")
