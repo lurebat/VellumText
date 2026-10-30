@@ -112,32 +112,10 @@ public class NestedTableVirtualizationTests
         Assert.True(bytes <= 2_000_000, $"a resize allocated {bytes:N0} bytes");
     }
 
-    /// <summary>What the first layout keeps alive is about what the same table at the top keeps.</summary>
-    [AvaloniaTheory]
-    [InlineData(1)]
-    [InlineData(3)]
-    public void ANestedLongTableRetainsAboutWhatATopLevelOneDoes(int depth)
-    {
-        var top = Retained(Nested(0, Uniform(10_000)));
-        var nested = Retained(Nested(depth, Uniform(10_000)));
-
-        Assert.True(
-            nested <= (top * 1.25) + 512_000,
-            $"a table {depth} deep kept {nested:N0} bytes alive against {top:N0} at the top");
-
-        static long Retained(DocumentNode doc)
-        {
-            Shown(Nested(0, Uniform(50)));
-
-            var before = GC.GetTotalMemory(forceFullCollection: true);
-            var (window, _) = Shown(doc);
-            var after = GC.GetTotalMemory(forceFullCollection: true);
-
-            GC.KeepAlive(window);
-
-            return after - before;
-        }
-    }
+    // What the first layout keeps alive is asserted in a child process, by
+    // NestedTableLayoutProbeTests (retainedBytes, depths 1-3, same bound against the top level):
+    // GC.GetTotalMemory is process-wide, and measured here it counted whatever tests in other
+    // classes allocated meanwhile, which failed a correct layout under the full suite.
 
     /// <summary>
     /// Text beside a long table in a cell, a few lines of it, does not make the table be laid out
