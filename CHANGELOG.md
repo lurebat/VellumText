@@ -50,6 +50,38 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **Enter at the end of a heading starts body text.** It started another
+  heading, aligned like the first. The new paragraph is body text at the default
+  alignment and keeps the heading's indent; Enter in the middle or at the start of
+  a heading is unchanged.
+- **Enter on an empty quote line leaves the quote.** Every Enter added another
+  quote line, so the toolbar was the only way out. The empty line becomes body
+  text at the default alignment where it is, splitting the quote around it when
+  it is in the middle; Enter on a line with words still continues the quote.
+- **Backspace at the start of a quote takes the quote off first.** It joined the
+  quoted words straight onto the paragraph above as body text, and a quote that
+  was the first block ignored Backspace. The paragraph now becomes body text in
+  place, keeping its alignment; the next Backspace joins as before.
+- **Backspace at the start of a heading that is the first block makes it body
+  text.** With nothing above to join to it did nothing. A heading further down
+  still joins onto the paragraph above.
+- **A Markdown code block comes back with exactly its text.** Every fenced or
+  indented code block was imported with the newline before its closing fence
+  as part of the code, which showed as an empty last line; content that really
+  ended in an empty line lost it on export to make up for that. The importer now
+  reads the lines without that final line ending and the exporter writes every
+  line, so export then import is exact.
+- **Enter in a code block adds a line to the same block.** It split the block,
+  so every line of code became a code block of its own and the toolbar was the
+  only way out of the last one. The lines stay newlines in the one block now, as
+  Shift+Enter already made them. Three Enters at the end of the block — Enter on
+  an empty last line under another empty line — leave it for a body paragraph
+  below and drop the empty lines at its end; Ctrl+Enter (Cmd+Enter on macOS)
+  leaves it from anywhere and keeps every line. ↓ on the last line of a code
+  block that nothing follows opens a paragraph below it instead of stopping at
+  its end. Backspace in an empty code block turns it into an ordinary
+  paragraph, and text pasted or dropped into a code block stays in it, where
+  each line used to become a paragraph of its own.
 - **Enter in a bullet starts the next bullet.** It split the paragraph inside
   the same item, so the new line had no bullet, Tab could not nest it, and
   Shift+Tab took both lines out of the list. Backspace at the start of a bullet

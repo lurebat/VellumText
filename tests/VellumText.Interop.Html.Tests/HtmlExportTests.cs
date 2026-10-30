@@ -135,6 +135,17 @@ public class HtmlExportTests
         Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(text), ParagraphKind.Code)]));
 
+    /// <summary>
+    /// The lines of a code block — an empty one, indentation, trailing spaces — come back as one
+    /// &lt;pre&gt; block with the same text, not a block per line.
+    /// </summary>
+    [Fact]
+    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines() =>
+        Survives(new DocumentNode([
+            ParagraphNode.FromText("before"),
+            new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
+            ParagraphNode.FromText("after")]));
+
     [Theory]
     [InlineData(TextAlign.Left)]
     [InlineData(TextAlign.Center)]

@@ -254,7 +254,7 @@ public class MarkdownRoundTripTests
             "```\nif (x) {\n    y();\n}\n```\n");
 
         Assert.Equal(ParagraphKind.Code, Para(back, 0).Kind);
-        Assert.Equal("if (x) {\n    y();\n}\n", Para(back, 0).Content.Text);
+        Assert.Equal("if (x) {\n    y();\n}", Para(back, 0).Content.Text);
     }
 
     /// <summary>
@@ -269,7 +269,53 @@ public class MarkdownRoundTripTests
                 new ParagraphNode(InlineContent.FromText("```\nnested\n```"), ParagraphKind.Code)]),
             "````\n```\nnested\n```\n````\n");
 
-        Assert.Equal("```\nnested\n```\n", Para(back, 0).Content.Text);
+        Assert.Equal("```\nnested\n```", Para(back, 0).Content.Text);
+    }
+
+    /// <summary>
+    /// The lines of a code block — an empty one, indentation, trailing spaces — are one fence and
+    /// come back as one block with the same text.
+    /// </summary>
+    [Fact]
+    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines()
+    {
+        var back = Trip(
+            new DocumentNode([
+                ParagraphNode.FromText("before"),
+                new ParagraphNode(
+                    InlineContent.FromText("if (x) {\n\n    y();  \n}"),
+                    ParagraphKind.Code),
+                ParagraphNode.FromText("after")]),
+            "before\n\n```\nif (x) {\n\n    y();  \n}\n```\n\nafter\n");
+
+        Assert.Equal(3, back.Blocks.Length);
+        Assert.Equal(ParagraphKind.Code, Para(back, 1).Kind);
+        Assert.Equal("if (x) {\n\n    y();  \n}", Para(back, 1).Content.Text);
+        Assert.Equal("after", Para(back, 2).Content.Text);
+    }
+
+    /// <summary>
+    /// A code block comes back with exactly its text. The newline the closing fence needs used to
+    /// come back as part of the code — an empty last line in the editor — and content that ended
+    /// in a newline lost it on the way out to make up for that.
+    /// </summary>
+    [Theory]
+    [InlineData("x", "```\nx\n```\n")]
+    [InlineData("x\n", "```\nx\n\n```\n")]
+    [InlineData("x\n\n", "```\nx\n\n\n```\n")]
+    [InlineData("\nx", "```\n\nx\n```\n")]
+    [InlineData("\n", "```\n\n\n```\n")]
+    [InlineData("if (x) {\n\n    y();  \n}", "```\nif (x) {\n\n    y();  \n}\n```\n")]
+    [InlineData("a < b && <i>c</i>", "```\na < b && <i>c</i>\n```\n")]
+    public void A_code_block_comes_back_with_exactly_its_text(string code, string expectedMarkdown)
+    {
+        var doc = new DocumentNode([
+            new ParagraphNode(InlineContent.FromText(code), ParagraphKind.Code)]);
+
+        var back = Assert.IsType<ParagraphNode>(Assert.Single(Trip(doc, expectedMarkdown).Blocks));
+
+        Assert.Equal(ParagraphKind.Code, back.Kind);
+        Assert.Equal(code, back.Content.Text);
     }
 
     [Fact]
