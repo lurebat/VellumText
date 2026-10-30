@@ -153,15 +153,27 @@ internal static class WordLists
     private static bool IsComment(IComment comment, string data) =>
         comment.Data.Trim().Equals(data, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Whether a written-out marker numbers its item: "1.", "a)", "iv.", "(3)".</summary>
+    /// <summary>Whether a written-out marker numbers its item: "1.", "a)", "iv.", "(3)", "1.2.".</summary>
     /// <remarks>Anything else - "·", "o", "§", a dash - is a bullet drawn from some symbol font.</remarks>
     private static bool IsNumbering(string marker)
     {
         var core = marker.TrimStart('(').TrimEnd('.', ')');
 
-        return core.Length > 0
-            && core.Length < marker.Length
-            && (core.All(char.IsAsciiDigit) || core.All(char.IsAsciiLetter));
+        if (core.Length == 0)
+        {
+            return false;
+        }
+
+        if (core.Length < marker.Length && (core.All(char.IsAsciiDigit) || core.All(char.IsAsciiLetter)))
+        {
+            return true;
+        }
+
+        // Outline and legal numbering write every level's number: "1.2." or "2.3.1". The dots
+        // between them are punctuation enough, so no trailing one is needed.
+        var parts = core.Split('.');
+
+        return parts.Length > 1 && parts.All(part => part.Length > 0 && part.All(char.IsAsciiDigit));
     }
 
     /// <summary>The next sibling that is neither a comment nor whitespace.</summary>

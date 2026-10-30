@@ -70,10 +70,33 @@ public class WordListTests
         Assert.Equal(ListKind.Ordered, list.Kind);
     }
 
+    /// <summary>
+    /// Word's outline and legal numbering writes every level's number into the marker. Only a
+    /// single number or letter counted as numbering, so "1.1." made a bulleted list (rubber-duck
+    /// review 4.3).
+    /// </summary>
     [Theory]
+    [InlineData("1.1.", "1.2.")]
+    [InlineData("2.3.1", "2.3.2")]
+    [InlineData("10.1)", "10.2)")]
+    public void Compound_numbering_is_numbering_too(string first, string second)
+    {
+        var list = Assert.IsType<ListNode>(Assert.Single(
+            Import(Item("l1", 1, first, "One") + Item("l1", 1, second, "Two")).Doc.Blocks));
+
+        Assert.Equal(ListKind.Ordered, list.Kind);
+        Assert.Equal(["One", "Two"], ItemTexts(list));
+    }
+
+    [Theory]
+    [InlineData("·")]
     [InlineData("o")]
     [InlineData("§")]
+    [InlineData("Ø")]
     [InlineData("-")]
+    [InlineData(".")]
+    [InlineData("o.o")]
+    [InlineData("1..2")]
     public void Any_other_marker_is_a_bullet(string marker)
     {
         var list = Assert.IsType<ListNode>(Assert.Single(Import(Item("l1", 1, marker, "x")).Doc.Blocks));
