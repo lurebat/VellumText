@@ -105,6 +105,10 @@ public class RtfFormattingHoistTests
         // A colour table, bold and a hyperlink field: the field is not a run, so nothing is hoisted.
         { "link", @"{\rtf1\ansi{\fonttbl{\f1 Georgia;}}{\f1\fs22 see }{\field{\*\fldinst{HYPERLINK ""https://e.test/""}}{\fldrslt{\f1\fs22 here}}}\par}", false },
 
+        // A footnote's text is written inside the wrapper with no font of its own, so it would
+        // take the hoisted one: nothing is hoisted (rubber-duck review finding 9.7).
+        { "footnote", @"{\rtf1\ansi{\fonttbl{\f1 Georgia;}}{\f1\fs22 a}{\footnote\pard\plain note}\par}", false },
+
         // Outlook's encapsulated HTML: touching a run would invalidate it, and the reader would
         // write the plain-text fallback instead of the HTML (rubber-duck review finding 9.4).
         { "outlook", OutlookBold, false },
@@ -133,4 +137,22 @@ public class RtfFormattingHoistTests
 
         Assert.Equal(VellumText.Interop.Json.JsonFormat.Instance.Export(expected.Doc), VellumText.Interop.Json.JsonFormat.Instance.Export(actual.Doc));
         Assert.Equal(expected.Diagnostics.Select(d => (d.Severity, d.Context)), actual.Diagnostics.Select(d => (d.Severity, d.Context)));
-    }}
+    }
+
+    /// <summary>
+    /// A footnote keeps the font it was written in: only the run that states Georgia 11pt is in
+    /// Georgia 11pt (rubber-duck review finding 9.7).
+    /// </summary>
+    [Fact]
+    public void A_footnote_does_not_take_the_paragraphs_font()
+    {
+        const string Rtf = @"{\rtf1\ansi{\fonttbl{\f1 Georgia;}}{\f1\fs22 a}{\footnote\pard\plain note}\par}";
+
+        var options = RtfImportOptions.Default.ToHtmlOptions();
+        var hoisted = VellumText.Interop.Html.HtmlImporter.ImportOnCurrentStack(RtfImporter.ReadToHtml(Rtf, hoist: true), options).Doc;
+        var plain = VellumText.Interop.Html.HtmlImporter.ImportOnCurrentStack(RtfImporter.ReadToHtml(Rtf, hoist: false), options).Doc;
+
+        Assert.Contains("note", DocumentText.Of(plain), StringComparison.Ordinal);
+        Assert.Equal(VellumText.Interop.Json.JsonFormat.Instance.Export(plain), VellumText.Interop.Json.JsonFormat.Instance.Export(hoisted));
+    }
+}
