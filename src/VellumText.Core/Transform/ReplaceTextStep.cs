@@ -262,7 +262,7 @@ public sealed record ReplaceTextStep(ImmutableArray<TextReplacement> Replacement
         var lastTo = new List<int>();
         var growth = new List<int>();
 
-        foreach (var replacement in replacements)
+        foreach (var replacement in Coalesced(replacements))
         {
             var batch = 0;
 
@@ -297,6 +297,45 @@ public sealed record ReplaceTextStep(ImmutableArray<TextReplacement> Replacement
         }
 
         return [.. batches.Select(batch => new ReplaceTextStep([.. batch]))];
+    }
+
+    /// <summary>The replacements, with each run of abutting deletions made one deletion.</summary>
+    /// <remarks>
+    /// Shared out one at a time, a run of M abutting deletions — every "a" in "aaaa…" — halves into
+    /// ⌈log₂ M⌉ + 1 steps, each copying the paragraph and the block array, and undo replays as
+    /// many. One deletion of the whole run is the same edit with the same map: the seam between
+    /// two of them is deleted either way, and lands where both collapse. A deletion beside a
+    /// replacement that puts text back is not merged, since where the seam lands then depends on
+    /// that text.
+    /// </remarks>
+    private static IEnumerable<TextReplacement> Coalesced(IReadOnlyList<TextReplacement> replacements)
+    {
+        TextReplacement? run = null;
+
+        foreach (var replacement in replacements)
+        {
+            if (run is { } deletion
+                && deletion.Content.Length == 0
+                && replacement.Content.Length == 0
+                && deletion.To == replacement.From)
+            {
+                run = deletion with { To = replacement.To };
+
+                continue;
+            }
+
+            if (run is { } previous)
+            {
+                yield return previous;
+            }
+
+            run = replacement;
+        }
+
+        if (run is { } last)
+        {
+            yield return last;
+        }
     }
     /// <summary>
     /// Puts the rewritten paragraphs inside a node into a copy of its children.

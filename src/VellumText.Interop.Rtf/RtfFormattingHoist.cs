@@ -22,7 +22,8 @@ namespace VellumText.Interop.Rtf;
 /// its own value, so the wrapper can only change what a run with <em>no</em> value inherits — and
 /// so a property is hoisted only when every run with text states one. Anything else the reader
 /// writes with no span of its own (a line break, an image, a field, a shape) would inherit the
-/// wrapper's font where it had none, so a document holding one is left alone. Where a stylesheet
+/// wrapper's font where it had none, so a document holding one is left alone; so is one with a
+/// footnote, whose text the reader writes inside the paragraph that refers to it. Where a stylesheet
 /// is in play, a run is cleared only if clearing it leaves the style with nothing to say, since
 /// the reader writes what the style resolves to.
 /// </para>
@@ -83,6 +84,13 @@ internal static class RtfFormattingHoist
                             switch (inline)
                             {
                                 case RtfRun run:
+                                    // The reader writes a footnote's text inside the paragraph,
+                                    // where it would inherit the wrapper's font.
+                                    if (run.Note is not null)
+                                    {
+                                        return false;
+                                    }
+
                                     if (!string.IsNullOrEmpty(run.Text))
                                     {
                                         runs.Add((paragraph, run));

@@ -90,4 +90,11 @@ internal static class WorkCounters
     /// <summary>Table cells a table view has measured the contents of.</summary>
     [ThreadStatic]
     internal static long TableCellsMeasured;
+
+    /// <summary>
+    /// Embeds inside containers whose fallback text <see cref="DocumentPreview.IsLongerThan"/> has
+    /// counted.
+    /// </summary>
+    [ThreadStatic]
+    internal static long PreviewEmbedsMeasured;
 }

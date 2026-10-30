@@ -148,8 +148,9 @@ awaits `PasteAsync`.
   block list — or, in one long paragraph, the whole paragraph — so the cost was
   the document times the matches: one match in each of 8,000 paragraphs took
   seconds and allocated 1.6 GB, a 100,000-character paragraph 865 MB, and undo
-  the same again. It is now one `ReplaceTextStep` (more only where matches abut)
-  that rewrites each paragraph once, and one undo still takes it all back. The
+  the same again. It is now one `ReplaceTextStep` (more only where matches abut
+  with a replacement between them; abutting deletions are merged into one) that
+  rewrites each paragraph once, and one undo still takes it all back. The
   result, where the caret and every other held position lands, and what undo
   and redo restore are unchanged.
 - **A registered exporter that throws during a copy is reported, not silent.**
@@ -347,7 +348,9 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen.
+  painting a selection of the whole table realizes only the rows on screen. A
+  table inside a cell is not row-virtualized: it is laid out whole, as every
+  table was before, though only its rows on screen are drawn.
 - **Typing into a cell of a long table no longer re-validates the whole table.**
   Each step re-placed every cell of the edited table to prove it still tiled its
   grid: about 6 MB a keystroke at 10,000 rows. A table already known to tile,
