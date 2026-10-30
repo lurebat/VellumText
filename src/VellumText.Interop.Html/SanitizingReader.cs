@@ -133,7 +133,8 @@ internal sealed class SanitizingReader
     /// One context, not one per reason, because a paste reads it: a rich flavour that lost a picture
     /// gives way to the bitmap copied beside it (OD-4b), and a refusal reported under its media type
     /// or its address read as nothing lost. Inline data refused anywhere other than an image source
-    /// is not a picture, and keeps a context of its own.
+    /// is not a picture, and keeps a context of its own. Sharing the context does not merge the
+    /// reasons: <see cref="ReportOnce"/> keeps one diagnostic per distinct reason.
     /// </remarks>
     private const string RemovedImage = "img";
 
@@ -544,10 +545,16 @@ internal sealed class SanitizingReader
     /// A page's worth of HTML can contain thousands of removals of the same kind. Reporting each
     /// one turns a useful list into a wall the caller cannot read, and gives the source control
     /// over how much memory the diagnostics take.
+    /// <para>
+    /// The message is part of what makes a removal distinct. Every refused image shares one
+    /// context, and keying on the context alone kept only the first reason an image was refused
+    /// for. Messages come from a fixed set, so adding them does not hand the source any more
+    /// control over the count than the context already does.
+    /// </para>
     /// </remarks>
     private void ReportOnce(DiagnosticSeverity severity, string message, string context)
     {
-        if (_alreadyReported.Add($"{severity}|{context}"))
+        if (_alreadyReported.Add($"{severity}|{context}|{message}"))
         {
             _diagnostics.Add(new ImportDiagnostic(severity, message, context));
         }

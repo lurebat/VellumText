@@ -105,7 +105,9 @@ public class CssFontFamilyTests
         var html = HtmlExporter.Instance.Export(WithFamily(family));
 
         Assert.Equal(["ACME, Inc.", "Arial"], RecipientFamilies(html));
-        Assert.Equal("ACME, Inc.", FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+
+        // Stored quoted, because the name holds a comma: the one family ACME, Inc.
+        Assert.Equal("\"ACME, Inc.\"", FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
     }
 
     /// <summary>An escaped quote does not close the name it is in, so the comma after it does not split.</summary>
@@ -131,6 +133,55 @@ public class CssFontFamilyTests
 
         Assert.Equal(["\"ACME", "Arial"], RecipientFamilies(html));
     }
+
+    /// <summary>
+    /// A name the CSS quoted because it holds a comma is stored quoted, so the exporter reads it back
+    /// as one family. Stored bare, <c>ACME, Inc.</c> went back out as the two families <c>ACME</c>
+    /// and <c>Inc.</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("<span style='font-family:\"ACME, Inc.\", Arial'>x</span>", "ACME, Inc.")]
+    [InlineData("<span style='font-family:\"  ACME, Inc. \"'>x</span>", "ACME, Inc.")]
+    [InlineData("<span style=\"font-family:'A&quot;B, C'\">x</span>", "A\"B, C")]
+    [InlineData("<span style='font-family:\"A\\\\B, C\"'>x</span>", "A\\B, C")]
+    public async Task An_imported_family_name_with_a_comma_stays_one_family_through_re_export(
+        string html,
+        string name)
+    {
+        var imported = (await HtmlImporter.ImportAsync(html)).Doc;
+        var exported = HtmlExporter.Instance.Export(imported);
+
+        Assert.Equal([name], RecipientFamilies(exported));
+
+        var reimported = (await HtmlImporter.ImportAsync(exported)).Doc;
+
+        Assert.Equal(FamilyOf(imported), FamilyOf(reimported));
+        Assert.Equal([name], RecipientFamilies(HtmlExporter.Instance.Export(reimported)));
+    }
+
+    /// <summary>A name without a comma is stored exactly as before: the quoting is for commas only.</summary>
+    [Theory]
+    [InlineData("font-family:\"Segoe UI\", Arial", "Segoe UI")]
+    [InlineData("font-family:Arial", "Arial")]
+    [InlineData("font-family:'a\"b'", "a\"b")]
+    [InlineData("font-family:monospace", "Consolas")]
+    public async Task An_imported_family_name_without_a_comma_is_stored_bare(string css, string family)
+    {
+        var html = $"<span style='{css.Replace("'", "&#39;", StringComparison.Ordinal)}'>x</span>";
+
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+    }
+
+    /// <summary>
+    /// A name holding a comma and both kinds of quote, or ending in the backslash that would escape
+    /// the closing quote, has no quoted form the exporter would read back as written, so it is
+    /// stored bare, as it always was.
+    /// </summary>
+    [Theory]
+    [InlineData("<span style='font-family:\"A\\\"B&#39;, C\"'>x</span>", "A\"B', C")]
+    [InlineData("<span style='font-family:\"ACME, Inc.\\\\\"'>x</span>", "ACME, Inc.\\")]
+    public async Task A_comma_name_no_quote_can_hold_is_stored_bare(string html, string family) =>
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
 
     /// <summary>The family names a recipient reads out of the exported span's style, in order.</summary>
     private static string[] RecipientFamilies(string html)
