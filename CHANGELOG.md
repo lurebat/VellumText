@@ -50,6 +50,13 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **The font box shows a family name with a comma as the user knows it.** A
+  name such as `ACME, Inc.` is stored quoted (`"ACME, Inc."`) so that it stays
+  one family through export, and the box showed those quotes. It now shows
+  `ACME, Inc.`, and picking or typing such a name stores the quoted form, the
+  same one a paste of that font produces. A name without a comma, or one already
+  typed in quotes, is stored as typed. `SelectionFontFamily` and
+  `SetFontFamilyCommand` still carry the stored form.
 - **Enter at the end of a heading starts body text.** It started another
   heading, aligned like the first. The new paragraph is body text at the default
   alignment and keeps the heading's indent; Enter in the middle or at the start of
