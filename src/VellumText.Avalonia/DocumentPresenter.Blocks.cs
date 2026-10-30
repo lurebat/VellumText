@@ -623,6 +623,18 @@ public abstract partial class DocumentPresenter
             {
                 _pendingAnchor = false;
 
+                // The caret sent to the document's end — Ctrl+End — means the end: laid out from
+                // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
+                // position instead, it is wherever the estimates above it put it, and when the rows
+                // nobody has seen hold most of the document that can be screens short of the end,
+                // with the offset clamped at an extent that is too small to reach it. The caret is
+                // then brought into view as ever: the last place it can sit is not always at the
+                // bottom — beside a long table in the last row it is at the row's top.
+                if (IsAnchorAtDocumentEnd)
+                {
+                    size = SettleAtEnd();
+                }
+
                 // Laying out a screenful replaces estimates with real heights, which moves the
                 // caret, which can put it back off the screen it was just scrolled onto. The bound
                 // is there because a loop waiting on an estimate to converge must be allowed not to.
@@ -1155,6 +1167,44 @@ public abstract partial class DocumentPresenter
 
         return size;
     }
+
+    /// <summary>
+    /// Lays the window out from the end of the document up and puts the end at the bottom of the
+    /// viewport.
+    /// </summary>
+    /// <remarks>
+    /// Held by the last block's bottom — a table's by its last row's — so each attempt measures up
+    /// from the end itself, whatever the estimates above it say; nothing is held at the top after,
+    /// so the next pass reads the content the end left there.
+    /// </remarks>
+    private Size SettleAtEnd()
+    {
+        var size = default(Size);
+
+        for (var attempt = 0; attempt < 3 && _views.Count > 0; attempt++)
+        {
+            var first = _first;
+            var last = _last;
+            var index = _views.Count - 1;
+            var local = _views[index] is TableBlockView table ? table.BottomAnchor : new LocalAnchor(0, 0, AnchorKind.BoxBottom);
+
+            size = RealizeWindow(index, local, Overscan + ViewportHeight, Overscan);
+            ApplyOffset(new Vector(_offset.X, _heights.OffsetOf(index) + PointOf(index, local) - ViewportHeight), relayout: false);
+
+            if (_first == first && _last == last && IsWindowCovered())
+            {
+                break;
+            }
+        }
+
+        _clamped = null;
+        _settled = null;
+
+        return size;
+    }
+
+    /// <summary>Whether what the view keeps in view — the caret — is at the very end of the document.</summary>
+    private protected virtual bool IsAnchorAtDocumentEnd => false;
 
     /// <summary>Called at the end of every layout pass, for tests that break what a pass left.</summary>
     internal Action? AfterSettle { get; set; }

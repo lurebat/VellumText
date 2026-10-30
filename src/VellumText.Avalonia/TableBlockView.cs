@@ -790,6 +790,9 @@ internal sealed partial class TableBlockView : BlockView
         _windowBelow = double.IsNaN(below) ? double.PositiveInfinity : Math.Max(0, below);
     }
 
+    /// <summary>The table's bottom edge, as a window's anchor: the whole of its last row.</summary>
+    internal LocalAnchor BottomAnchor => new(_rows.Length == 0 ? 0 : _rowStarts[_rows.Length - 1], 1, AnchorKind.RowShare);
+
     /// <summary>
     /// What the window is measured around: the anchor it was given, or — given a share of a row
     /// nobody had laid out — the content found at that point once the row was.

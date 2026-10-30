@@ -634,6 +634,11 @@ public partial class RichTextView : DocumentPresenter
     /// </para>
     /// </remarks>
     /// <returns>Whether the view moved.</returns>
+    /// <inheritdoc/>
+    /// <remarks>The caret at the last place in the document one can sit: where Ctrl+End puts it.</remarks>
+    private protected override bool IsAnchorAtDocumentEnd =>
+        _state.Selection.Head == Selection.AtEnd(_state.Doc).Head;
+
     private protected override bool ScrollAnchorIntoView()
     {
         if (!IsVirtualizing || _views.Count == 0)

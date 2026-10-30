@@ -912,7 +912,10 @@ internal sealed class ParagraphView : BlockView
 >   nobody has seen are
 >   priced from those that have been, at every depth, so a document whose unseen rows hold most of
 >   its content can show an extent hundreds of times too small until they are reached (the fuzz
->   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). Point
+>   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). The
+>   caret sent to the document's end (Ctrl+End) lays the window out from the end up and puts the
+>   end at the bottom of the viewport (`SettleAtEnd`) before the caret is brought into view, so an
+>   extent far too small does not stop it short. Point
 >   questions lay out every row whose closed band touches the point before answering, and the
 >   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
 >   (`LayoutGuard.Painting`, `PreparePaintDependencies`).
