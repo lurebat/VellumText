@@ -93,7 +93,7 @@ public class MarkdownImportTests
     [Fact]
     public void An_embedded_image_becomes_an_embed()
     {
-        var p = OnlyPara(Import($"![a picture]({Png})"));
+        var p = OnlyPara(Import($"see ![a picture]({Png})"));
         var embed = Assert.IsType<ImageEmbed>(Assert.Single(p.Content.Embeds));
 
         Assert.Equal(Png, embed.Source);
@@ -268,7 +268,7 @@ public class MarkdownImportTests
     public void A_remote_image_survives_when_the_host_allows_it()
     {
         var result = MarkdownImporter.Import(
-            "![alt](https://example.test/i.png)",
+            "see ![alt](https://example.test/i.png)",
             new MarkdownImportOptions { AllowRemoteImages = true });
 
         var embed = Assert.IsType<ImageEmbed>(Assert.Single(OnlyPara(result).Content.Embeds));
