@@ -1592,6 +1592,107 @@ public class NestedTableVirtualizationTests
 
         Assert.True(failures.Count == 0, $"{failures.Count} anchors: " + string.Join("\n", failures.Take(12)));
     }
+
+    /// <summary>
+    /// The window's anchor at the boundaries just past the text of a table two or three tables
+    /// down from the outer one — inside each table holding it by position, naming nothing in the
+    /// innermost — which lies well below the first screenful of the table holding it. The anchor
+    /// cannot be translated all the way down, so the table it first enters is laid out whole,
+    /// counted and traced, and the window around wherever the outer table resolves the anchor is
+    /// laid out at every depth.
+    /// </summary>
+    /// <remarks>
+    /// Checking only the table the anchor enters let it through when that table could name the
+    /// position, inside a table in one of its cells, though that table could not: the table it
+    /// entered measured around its row holding that one, the outer table around its own row's top,
+    /// and the rows between were never laid out (rubber-duck review of the 10.4 fixes, finding 1).
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void AnAnchorNamingNothingDeepInsideATableInACellLaysTheTableItEntersOutWhole(int depth)
+    {
+        BlockNode content = Uniform(50, tag: "n");
+
+        for (var d = depth - 1; d >= 1; d--)
+        {
+            var inner = content;
+
+            content = new TableNode(Enumerable.Range(0, 60).Select(r => new TableRowNode(r == 40
+                ? [new TableCellNode([ParagraphNode.FromText($"before {d}"), inner, ParagraphNode.FromText($"after {d}")]), TableCellNode.FromText($"side {d} {r}")]
+                : [TableCellNode.FromText($"level {d} row {r}"), TableCellNode.FromText($"side {d} {r}")])));
+        }
+
+        var table = new TableNode(Enumerable.Range(0, 12).Select(r => new TableRowNode(r == 5
+            ? [new TableCellNode([content]), TableCellNode.FromText("side")]
+            : [TableCellNode.FromText($"outer {r}"), TableCellNode.FromText($"side {r}")])));
+        var doc = new DocumentNode([table]);
+        var last = TextAt(doc, "n r49c2") - 1 + "n r49c2".Length;
+        var after = TextAt(doc, $"after {depth - 1}") - 1;
+        var failures = new List<string>();
+
+        foreach (var position in Enumerable.Range(last + 1, after - last - 2))
+        {
+            foreach (var kind in new[] { AnchorKind.Line, AnchorKind.Box, AnchorKind.BoxBottom, AnchorKind.RowShare })
+            {
+                foreach (var dy in new[] { 0.0, 30 })
+                {
+                    var view = new TableBlockView(table, block => CreateWith(block, RuleView.BlockHeight), Brushes.Gray);
+                    var listener = new Captured();
+                    var what = $"{kind} at {position} (the innermost table's text ends at {last}) by {dy}";
+
+                    WorkCounters.NestedWindowFallbacks = 0;
+                    Trace.Listeners.Add(listener);
+
+                    try
+                    {
+                        view.SetWindow(new LocalAnchor(position, dy, kind), 200, 400);
+                        view.Measure(Width);
+                    }
+                    catch (InvalidOperationException e)
+                    {
+                        failures.Add($"{what}: {e.Message}");
+
+                        continue;
+                    }
+                    finally
+                    {
+                        Trace.Listeners.Remove(listener);
+                    }
+
+                    var y = view.AnchorPoint(view.WindowAnchor) is { } point && double.IsFinite(point) ? point : view.RowTopOf(5);
+
+                    if (!view.Covers(Math.Max(0, y - 200), Math.Min(view.Size.Height, y + 400)))
+                    {
+                        failures.Add($"{what}: the window around {y:F0} has rows not laid out");
+                    }
+
+                    if (WorkCounters.NestedWindowFallbacks > 0 && !listener.Text.Contains("names nothing", StringComparison.Ordinal))
+                    {
+                        failures.Add($"{what}: a fallback was counted but not traced");
+                    }
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0, $"{failures.Count} anchors: " + string.Join("\n", failures.Take(12)));
+
+        // A box at the innermost table's own first position is held from that table's edge by the
+        // table holding it, which names it: nothing is laid out whole for it.
+        var start = TextAt(doc, "n r0c0") - 1 - 3;
+
+        foreach (var kind in new[] { AnchorKind.Box, AnchorKind.BoxBottom })
+        {
+            var view = new TableBlockView(table, block => CreateWith(block, RuleView.BlockHeight), Brushes.Gray);
+
+            WorkCounters.NestedWindowFallbacks = 0;
+            view.SetWindow(new LocalAnchor(start, 0, kind), 200, 400);
+            view.Measure(Width);
+
+            Assert.True(WorkCounters.NestedWindowFallbacks == 0, $"a {kind} at the innermost table's start laid a table out whole");
+        }
+    }
+
     private static BlockView CreateWith(BlockNode block, double ruleHeight) => block switch
     {
         ParagraphNode paragraph => new ParagraphView(paragraph, Styles),

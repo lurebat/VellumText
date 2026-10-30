@@ -280,9 +280,13 @@ internal sealed partial class TableBlockView
 
     /// <summary>
     /// Whether an anchor names something in this table to hold: a share of one of its rows, at the
-    /// row's start, or a position inside a block in one of its cells.
+    /// row's start, or a position inside a block in one of its cells — and, inside a table in a
+    /// cell, something that table names in turn, at every depth.
     /// </summary>
-    /// <remarks>Realizes the row it names, which the window measures first anyway.</remarks>
+    /// <remarks>
+    /// Realizes the rows it names, which the windows measure first anyway. A box at a table's own
+    /// first position is held from that table's edge, by this table, as <see cref="Owns"/> has it.
+    /// </remarks>
     internal bool Names(LocalAnchor anchor)
     {
         var row = _rows.Length == 0 ? -1 : RowAt(anchor.Position);
@@ -299,7 +303,16 @@ internal sealed partial class TableBlockView
 
         Realize(row);
 
-        return Locate(row, anchor.Position) is not null;
+        if (Locate(row, anchor.Position) is not var (_, child, rowStart))
+        {
+            return false;
+        }
+
+        var start = rowStart + child.Start;
+
+        return child.View is not TableBlockView inner
+            || (anchor.Position == start && anchor.Kind is AnchorKind.Box or AnchorKind.BoxBottom)
+            || inner.Names(anchor.Shift(-start));
     }
 
     /// <summary>Where the window's anchor point is now, in this table's coordinates.</summary>
