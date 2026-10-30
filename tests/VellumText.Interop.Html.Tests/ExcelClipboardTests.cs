@@ -108,6 +108,42 @@ public class ExcelClipboardTests
         Assert.Equal("tail", Assert.IsType<ParagraphNode>(blocks[1]).Content.Text);
     }
 
+    /// <summary>
+    /// The fragment comments are found in the text, but in a script or a style the parser reads
+    /// them as that element's text, not as comments. With no marker to clip at, the whole page
+    /// the fragment was cut from was imported instead of the fragment (rubber-duck review 4.1).
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "<p a=1 b=2 c=3>OUTSIDE-before</p>\r\n<script><!--StartFragment--><tr><td>copied</td></tr><!--EndFragment--></script>\r\n"
+        + "<p>OUTSIDE-after</p>")]
+    [InlineData(
+        "<p a=1 b=2 c=3>OUTSIDE-before</p><table><!--StartFragment--><tr><td>copied</td></tr><style><!--EndFragment--></style>"
+        + "</table><p>OUTSIDE-after</p>")]
+    public void Markers_the_parser_does_not_see_fall_back_to_the_fragment(string body)
+    {
+        // An attribute limit the page before the fragment breaks, which is not the paste's to report.
+        var result = HtmlImporter.ImportClipboard(
+            Header() + "<html><body>" + body + "</body></html>",
+            HtmlImportOptions.Default with { MaxAttributesPerElement = 2 });
+
+        Assert.DoesNotContain("OUTSIDE", DocumentText.Of(result.Doc), StringComparison.Ordinal);
+        Assert.Equal("copied", Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks)).Content.Text);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Context == "attributes");
+    }
+
+    [Fact]
+    public void Markers_inside_the_table_still_clip_in_its_context()
+    {
+        var payload = Header()
+            + "<html><body><p>OUTSIDE-before</p><table><!--StartFragment--><tr><td>copied</td></tr>"
+            + "<!--EndFragment--></table><p>OUTSIDE-after</p></body></html>";
+
+        var table = Assert.IsType<TableNode>(Assert.Single(HtmlImporter.ImportClipboard(payload).Doc.Blocks));
+
+        Assert.Equal([["copied"]], Grid(table));
+    }
+
     [Fact]
     public void A_fragment_outside_a_table_is_read_on_its_own_as_before()
     {

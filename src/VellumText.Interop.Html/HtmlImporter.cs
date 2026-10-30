@@ -37,22 +37,22 @@ public static class HtmlImporter
 
         options ??= HtmlImportOptions.Default;
 
-        return Run(html, options, clipToFragment: false);
+        return Run(html, options, fragment: null);
     }
 
     // The parser and the CSS parser recurse per level of nesting in the input, so they get a
     // stack the input cannot exhaust; see LargeStack. A nested call from the Markdown or RTF
     // importer is already on one and runs inline.
-    private static ImportResult Run(string html, HtmlImportOptions options, bool clipToFragment) =>
-        LargeStack.Run(() => ImportOnLargeStack(html, options, clipToFragment));
+    private static ImportResult Run(string html, HtmlImportOptions options, string? fragment) =>
+        LargeStack.Run(() => ImportOnLargeStack(html, options, fragment));
 
-    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options, bool clipToFragment)
+    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options, string? fragment)
     {
         var diagnostics = new List<ImportDiagnostic>();
 
         try
         {
-            var doc = Build(html, options, clipToFragment, diagnostics);
+            var doc = Build(html, options, fragment, diagnostics);
 
             // Every construction site below guards its own shape, but a document that breaks a
             // schema rule would be refused when the paste is applied, and a silent no-op is a
@@ -100,7 +100,9 @@ public static class HtmlImporter
     /// <para>
     /// A fragment that opens inside a table, as Excel's does, is read in its document instead,
     /// keeping only what lies between the fragment markers and the elements that enclose them.
-    /// On its own it is rows with no table, and a pasted range would become one paragraph.
+    /// On its own it is rows with no table, and a pasted range would become one paragraph. Markers
+    /// the parsed document does not have as comments, because a script or a style took them for
+    /// its text, cannot be clipped at, and the fragment is then read on its own after all.
     /// </para>
     /// </remarks>
     public static ImportResult ImportClipboard(string payload, HtmlImportOptions? options = null)
@@ -117,42 +119,42 @@ public static class HtmlImporter
         }
 
         return ClipboardHtml.TryGetTableContext(payload, fragment, out var document)
-            ? Run(document, options, clipToFragment: true)
-            : Run(fragment, options, clipToFragment: false);
+            ? Run(document, options, fragment)
+            : Run(fragment, options, fragment: null);
     }
 
+    /// <summary>Reads <paramref name="html"/> into a document.</summary>
+    /// <param name="html">The markup.</param>
+    /// <param name="options">How much to trust it.</param>
+    /// <param name="fragment">
+    /// Null to read <paramref name="html"/> as it is. Otherwise <paramref name="html"/> is the
+    /// clipboard document, to be clipped to its fragment markers, and this is the fragment the
+    /// markers were found around in its text.
+    /// </param>
+    /// <param name="diagnostics">Where to report what could not be brought across.</param>
     private static DocumentNode Build(
         string html,
         HtmlImportOptions options,
-        bool clipToFragment,
+        string? fragment,
         List<ImportDiagnostic> diagnostics)
     {
         // CSS support has to be configured on the context, not added later: without it an element
         // has no style declaration, and the sanitizer would then find nothing to sanitize in a
         // style attribute rather than finding it clean.
         var context = BrowsingContext.New(Configuration.Default.WithCss());
+        var document = Parse(context, html, options, diagnostics);
 
-        var guarded = HtmlInputGuard.Bound(html, options);
-
-        ReportGuard(guarded, options, diagnostics);
-
-        var maxAttributes = options.MaxAttributesPerElement;
-        var parser = new HtmlParser(
-            new HtmlParserOptions
-            {
-                // The guard has already reported these; capping here as well is what keeps the
-                // parser's own duplicate check linear.
-                ShouldEmitAttribute = (ref StructHtmlToken token, ReadOnlyMemory<char> name) =>
-                    token.Attributes.Count < maxAttributes,
-            },
-            context);
-
-        var document = parser.ParseDocument(guarded.Html);
-
-        if (clipToFragment)
+        // Before sanitizing, so that nothing outside the fragment is reported as removed.
+        if (fragment is not null
+            && !ClipToFragment(document, html.Contains(ClipboardHtml.EndFragmentComment, StringComparison.OrdinalIgnoreCase)))
         {
-            // Before sanitizing, so that nothing outside the fragment is reported as removed.
-            ClipToFragment(document);
+            // The text has the markers but the parsed page does not: a script or a style read them
+            // as its own text. The page cannot be clipped, and unclipped it is everything the
+            // fragment was cut from (rubber-duck review 4.1). Read the fragment alone instead, as
+            // one that does not open inside a table is. What parsing the page reported was about
+            // the page, so it goes too.
+            diagnostics.Clear();
+            document = Parse(context, fragment, options, diagnostics);
         }
 
         // Also before sanitizing, which removes the styles that say a paragraph is a list item.
@@ -169,17 +171,45 @@ public static class HtmlImporter
             : new DocumentNode(blocks);
     }
 
+    private static IDocument Parse(
+        IBrowsingContext context,
+        string html,
+        HtmlImportOptions options,
+        List<ImportDiagnostic> diagnostics)
+    {
+        var guarded = HtmlInputGuard.Bound(html, options);
+
+        ReportGuard(guarded, options, diagnostics);
+
+        var maxAttributes = options.MaxAttributesPerElement;
+        var parser = new HtmlParser(
+            new HtmlParserOptions
+            {
+                // The guard has already reported these; capping here as well is what keeps the
+                // parser's own duplicate check linear.
+                ShouldEmitAttribute = (ref StructHtmlToken token, ReadOnlyMemory<char> name) =>
+                    token.Attributes.Count < maxAttributes,
+            },
+            context);
+
+        return parser.ParseDocument(guarded.Html);
+    }
+
     /// <summary>
     /// Removes everything before the <c>StartFragment</c> marker and after the <c>EndFragment</c>
     /// one, keeping the elements that enclose them.
     /// </summary>
     /// <param name="document">The parsed clipboard document.</param>
+    /// <param name="endExpected">Whether the text has an <c>EndFragment</c> marker.</param>
+    /// <returns>
+    /// Whether the markers were found in the document. If not, it is left as it was.
+    /// </returns>
     /// <remarks>
     /// The markers are found where the parser put them rather than where they sat in the text, so
     /// a marker between <c>&lt;table&gt;</c> and its first row clips inside the table and the
     /// table itself survives.
     /// </remarks>
-    private static void ClipToFragment(IDocument document)
+    private static bool ClipToFragment(IDocument document, bool endExpected)
     {
         IComment? start = null;
         IComment? end = null;
@@ -200,9 +230,9 @@ public static class HtmlImporter
             }
         }
 
-        if (start is null)
+        if (start is null || (end is null && endExpected))
         {
-            return;
+            return false;
         }
 
         RemoveOutside(start, before: true);
@@ -221,6 +251,8 @@ public static class HtmlImporter
                 page!.RemoveAttribute(name);
             }
         }
+
+        return true;
     }
 
     private static bool IsMarker(IComment comment, string name) =>
