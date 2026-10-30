@@ -175,8 +175,9 @@ public static class HtmlImporter
         // Deliberately without CSS support: with it every element's style attribute is parsed while
         // the tree is built, which for a Word document is the same few strings parsed once per
         // element. Styles are sanitized and parsed once per distinct value instead — see
-        // SanitizingReader.Sanitize and CssStyles.StyleOf.
-        var context = BrowsingContext.New(Configuration.Default);
+        // SanitizingReader.Sanitize and CssStyles.StyleOf. Nor does an image's source start a
+        // request — see WithoutImageRequests.
+        var context = BrowsingContext.New(WithoutImageRequests.Configuration);
         var document = Parse(context, html, options, diagnostics);
 
         // Before sanitizing, so that nothing outside the fragment is reported as removed.
@@ -356,7 +357,7 @@ public static class HtmlImporter
 
         internal List<BlockNode> Run(INode root)
         {
-            var sink = new BlockSink(Downgrade);
+            var sink = new BlockSink(Downgrade, options.KeepSpaceRuns);
 
             WalkChildren(root, MarkSet.Empty, BlockStyle.Default, sink, 0);
             sink.Flush(BlockStyle.Default);
@@ -656,6 +657,12 @@ public static class HtmlImporter
 
             var alt = element.GetAttribute("alt");
 
+            // A picture handed over as bytes becomes its data URL only here, once.
+            if (options.Pictures is { } pictures && pictures.TryGet(source, out var mediaType, out var bytes))
+            {
+                source = InlinePictures.DataUrl(mediaType, bytes);
+            }
+
             return new ImageEmbed(
                 source,
                 Dimension(element, "width"),
@@ -738,7 +745,7 @@ public static class HtmlImporter
                     continue;
                 }
 
-                var inner = new BlockSink(Downgrade);
+                var inner = new BlockSink(Downgrade, options.KeepSpaceRuns);
                 var itemStyle = block with { Kind = ParagraphKind.Body };
 
                 WalkChildren(child, mark, itemStyle, inner, depth);
@@ -950,7 +957,7 @@ public static class HtmlImporter
             int depth,
             bool isHeader)
         {
-            var inner = new BlockSink(Downgrade);
+            var inner = new BlockSink(Downgrade, options.KeepSpaceRuns);
 
             // A cell starts a fresh formatting context: an indent from outside the table would
             // otherwise be applied again inside every cell of it.

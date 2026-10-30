@@ -14,7 +14,8 @@ namespace VellumText.ImportProbe;
 /// <para>
 /// Usage: <c>VellumText.ImportProbe &lt;format&gt; &lt;input-file&gt;</c>, where format is one of
 /// <c>html</c>, <c>html-unbounded</c>, <c>html-clipboard</c>, <c>markdown</c>,
-/// <c>markdown-current-stack</c>, <c>rtf</c> or <c>json</c>.
+/// <c>markdown-current-stack</c>, <c>rtf</c>, <c>rtf-no-data-images</c>, <c>rtf-small-data-images</c>
+/// or <c>json</c>.
 /// </para>
 /// <para>
 /// The import is called from a thread with a 1 MiB stack — what a Windows main thread or a
@@ -84,6 +85,7 @@ public static class Program
         Console.Out.WriteLine($"allocatedMb={allocated / (1024 * 1024)}");
         Console.Out.WriteLine($"blocks={doc.Children.Length}");
         Console.Out.WriteLine($"text={DocumentText.Of(doc).Replace("\n", "\\n", StringComparison.Ordinal)}");
+        Console.Out.WriteLine($"images={Images(doc)}");
 
         foreach (var diagnostic in result.Diagnostics)
         {
@@ -92,6 +94,14 @@ public static class Program
 
         return 0;
     }
+
+    /// <summary>How many images the document holds, inline or as blocks, at any depth.</summary>
+    private static int Images(Node node) => node switch
+    {
+        ParagraphNode paragraph => paragraph.Content.Embeds.Count(embed => embed is ImageEmbed),
+        BlockImageNode => 1,
+        _ => node.Children.Sum(Images),
+    };
 
     private static readonly HtmlImportOptions Unbounded = HtmlImportOptions.Default with
     {
@@ -116,6 +126,8 @@ public static class Program
         // The Markdown stage without the large stack in front of it; see ImportOnCurrentStack.
         "markdown-current-stack" => MarkdownImporter.ImportOnCurrentStack(input, MarkdownImportOptions.Default),
         "rtf" => RtfImporter.ImportAsync(input).GetAwaiter().GetResult(),
+        "rtf-no-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { AllowDataImages = false }).GetAwaiter().GetResult(),
+        "rtf-small-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { MaxDataImageBytes = 1024 }).GetAwaiter().GetResult(),
         "json" => JsonFormat.Instance.ImportAsync(input).GetAwaiter().GetResult(),
         _ => throw new ArgumentException($"unknown format '{format}'"),
     };

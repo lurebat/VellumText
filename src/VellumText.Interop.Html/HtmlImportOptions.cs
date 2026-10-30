@@ -109,6 +109,51 @@ public sealed record HtmlImportOptions
     public int MaxTableSlots { get; init; } = 100_000;
 
     /// <summary>
+    /// Whether a run of spaces keeps its length (as one space followed by non-breaking spaces) and
+    /// a tab is dropped, instead of both collapsing to one space as HTML says.
+    /// </summary>
+    /// <remarks>
+    /// Internal, for the RTF importer: in RTF every space is content, and the reader writes them
+    /// into HTML as plain spaces. A tab is dropped by decision (see <c>RtfImporter</c>'s remarks).
+    /// </remarks>
+    internal bool KeepSpaceRuns { get; init; }
+
+    /// <summary>
+    /// A CSS selector for elements removed before sanitizing, with their content, or null.
+    /// </summary>
+    /// <remarks>
+    /// Internal, for the RTF importer, whose reader writes a list item's marker as text inside the
+    /// item; the list itself carries the marker here.
+    /// </remarks>
+    internal string? RemoveBeforeSanitizing { get; init; }
+
+    /// <summary>
+    /// A prefix for style properties removed without a diagnostic, or null to report every one.
+    /// </summary>
+    /// <remarks>
+    /// Internal, for the RTF importer, whose reader writes private <c>--officeimo-rtf-*</c>
+    /// properties for its own round trip. They are bookkeeping, not formatting the user had, so
+    /// reporting them as lost is noise; they are still removed.
+    /// </remarks>
+    internal string? QuietStylePrefix { get; init; }
+
+    /// <summary>
+    /// Whether an empty paragraph whose only drawing is a bottom border is read as a rule.
+    /// </summary>
+    /// <remarks>
+    /// Internal, for the RTF importer: RTF has no rule, and a paragraph with a bottom border is the
+    /// form Word and this library's exporter write one in, which the reader passes on as exactly
+    /// that paragraph.
+    /// </remarks>
+    internal bool BorderedEmptyParagraphIsRule { get; init; }
+
+    /// <summary>
+    /// Internal, for the RTF importer: pictures given as their bytes, named in the markup by
+    /// tokens. See <see cref="InlinePictures"/>.
+    /// </summary>
+    internal InlinePictures? Pictures { get; init; }
+
+    /// <summary>
     /// The address relative URLs are resolved against, or null to drop relative URLs.
     /// </summary>
     /// <remarks>

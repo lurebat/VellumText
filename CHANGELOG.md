@@ -59,6 +59,11 @@ awaits `PasteAsync`.
 - `DocumentPayload.ReadAllText` — use `ReadAllTextAsync`.
 ### Security
 
+- **RTF that stalled or hung the old reader is bounded.** 32 bytes of
+  `\uc2147483647` took RtfPipe over two seconds and silently dropped the rest
+  of the text; one row with 100,000 `\cellx` kept it busy past 30 seconds. The
+  new reader (see Changed) handles both in milliseconds, honours the skip count
+  as the specification says, and reports it (`uc`).
 - **Importing can no longer crash the host with a stack overflow inside a
   parser.** AngleSharp.Css parses a nested `calc(` by recursion, and 3.3 KB of
   it overflowed an ordinary 1 MiB stack; about 50 KB of nested `<template>` did
@@ -182,6 +187,14 @@ awaits `PasteAsync`.
   forced line height came from its own font size, and Avalonia keeps a forced
   height even when a run is taller, so a large size picked from the toolbar, or a
   pasted heading with a size of its own, was drawn over the line below.
+- **RTF import keeps what RtfPipe lost.** Text coloured explicitly black stays
+  black (it followed the theme); merged cells come back merged, both vertical
+  and horizontal; a link is no longer painted black and keeps its own
+  underline; an empty table cell is empty rather than a non-breaking space; a
+  white highlight survives; a list numbered from 0 starts at 0; a cell's
+  alignment survives; and a horizontal rule comes back as a rule.
+- **RTF export writes a column span as Word does**, as `\clmgf` and `\clmrg`
+  cells, instead of one wide `\cellx` that only RtfPipe lined up.
 - **Shift+Tab or a list toggle in a list numbered from near `int.MaxValue` no
   longer throws out of the key handler.** A pasted
   `<ol start="2147483646">` (48 bytes) made the next split compute a negative
@@ -467,6 +480,27 @@ awaits `PasteAsync`.
 
 ### Changed
 
+- **RTF is read by OfficeIMO instead of RtfPipe** (`OfficeIMO.Rtf` and
+  `OfficeIMO.Html.Rtf`, pinned to one exact version). RtfPipe had no release
+  since 2021 and stalled on small hostile inputs; the replacement was chosen
+  through a scored selection gate. What a host may notice:
+  - a picture Word stored only as a shape (`\shppict`) is lost and reported
+    (`Dropped`, `shppict`) — a paste from Word still brings it through the HTML
+    flavour;
+  - a heading inside a list item comes back as text with the heading's size
+    and weight, and an image's alt text is not read back;
+  - a backslash in an http(s) link comes back as `/`, as a browser reads it;
+  - an unpaired surrogate is still replaced with U+FFFD and reported, and a
+    surrogate pair split by formatting keeps the character but gains a stray
+    U+FFFD (a reader quirk);
+  - groups nested deeper than 128 levels are dropped with a diagnostic;
+  - the sanitizer reports more removed style properties, because the reader
+    writes more CSS.
+  The HTML stage still decides what a paste may contain. AngleSharp moves to
+  1.8.3 and AngleSharp.Css to 1.1.2, which the new reader requires.
+  A font family or size every run of a document states is written once rather
+  than on every run (the reader's HTML was about 3.5 times RtfPipe's), with an
+  import identical to before.
 - **Importing is asynchronous, and only asynchronous.** A paste of a large web
   page or Word document froze whatever waited for it — the UI thread, in the
   editor — for seconds, and a synchronous import member invites exactly that

@@ -152,6 +152,25 @@ internal sealed class SanitizingReader
     /// <param name="document">The document to clean.</param>
     internal void Sanitize(IDocument document)
     {
+        if (_options.RemoveBeforeSanitizing is { } selector)
+        {
+            foreach (var element in document.QuerySelectorAll(selector))
+            {
+                element.Remove();
+            }
+        }
+
+        if (_options.BorderedEmptyParagraphIsRule)
+        {
+            foreach (var paragraph in document.QuerySelectorAll("p[style*='border-bottom']"))
+            {
+                if (!paragraph.HasChildNodes)
+                {
+                    paragraph.Replace(document.CreateElement("hr"));
+                }
+            }
+        }
+
         var sanitizer = new HtmlSanitizer(new HtmlSanitizerOptions
         {
             AllowedTags = new HashSet<string>(Tags, StringComparer.OrdinalIgnoreCase),
@@ -181,10 +200,19 @@ internal sealed class SanitizingReader
             "Removed an attribute that is not safe to keep.",
             e.Attribute.Name.ToLowerInvariant());
 
-        sanitizer.RemovingStyle += (_, e) => ReportOnce(
-            DiagnosticSeverity.Downgraded,
-            "Removed a style the editor cannot represent.",
-            e.Style.Name.ToLowerInvariant());
+        sanitizer.RemovingStyle += (_, e) =>
+        {
+            if (_options.QuietStylePrefix is { } quiet
+                && e.Style.Name.StartsWith(quiet, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ReportOnce(
+                DiagnosticSeverity.Downgraded,
+                "Removed a style the editor cannot represent.",
+                e.Style.Name.ToLowerInvariant());
+        };
 
         sanitizer.FilterUrl += OnFilterUrl;
 
@@ -307,6 +335,40 @@ internal sealed class SanitizingReader
 
         string ContextOf(string url) => isImageSource ? RemovedImage : url;
 
+        // A picture the RTF importer handed over as bytes. It gets the checks a data image gets,
+        // made on the bytes, and keeps its token: the walker writes the data URL.
+        if (isImageSource && _options.Pictures is { } pictures && pictures.TryGet(original, out var pictureType, out var picture))
+        {
+            e.SanitizedUrl = null;
+
+            if (!_options.AllowDataImages)
+            {
+                ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", RemovedImage);
+            }
+            else if (!DataImageTypes.Contains(pictureType))
+            {
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    "Removed inline data that does not declare a supported image type.",
+                    RemovedImage);
+            }
+            else if (picture.Length == 0 || picture.Length > _options.MaxDataImageBytes)
+            {
+                ReportOnce(
+                    DiagnosticSeverity.Dropped,
+                    picture.Length == 0
+                        ? "Removed an inline image whose data is not valid base64."
+                        : $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
+                    RemovedImage);
+            }
+            else
+            {
+                e.SanitizedUrl = original;
+            }
+
+            return;
+        }
+
         if (e.SanitizedUrl is not null)
         {
             // The sanitizer resolves relative addresses against the base the caller gave it. If
@@ -419,7 +481,7 @@ internal sealed class SanitizingReader
     }
 
     /// <summary>What inspecting the payload of a <c>data:</c> image concluded.</summary>
-    private enum DataImageVerdict
+    internal enum DataImageVerdict
     {
         /// <summary>The payload decodes and is within the size limit.</summary>
         Usable,
@@ -445,18 +507,18 @@ internal sealed class SanitizingReader
     /// an embed and fail later, at draw time, far away from anything that could explain it.
     /// </para>
     /// </remarks>
-    private static DataImageVerdict MeasureDataImage(ReadOnlySpan<char> payload, int maxBytes)
+    internal static DataImageVerdict MeasureDataImage(ReadOnlySpan<char> payload, int maxBytes)
     {
         // Four characters become three bytes, so the decoded size is at least this, less padding.
-        // Checking it first means an enormous payload is rejected without allocating room for it.
+        // Checking it first means an enormous payload is rejected without reading it.
         if ((long)(payload.Length / 4) * 3 - 2 > maxBytes)
         {
             return DataImageVerdict.TooLarge;
         }
 
-        var buffer = new byte[(payload.Length / 4 * 3) + 3];
-
-        if (!Convert.TryFromBase64Chars(payload, buffer, out var written))
+        // Validated in place: the decoded length is all this needs, and decoding into a buffer to
+        // learn it allocated the whole picture again.
+        if (!System.Buffers.Text.Base64.IsValid(payload, out var written))
         {
             return DataImageVerdict.Undecodable;
         }

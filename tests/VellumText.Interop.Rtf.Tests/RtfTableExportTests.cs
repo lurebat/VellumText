@@ -7,11 +7,11 @@ namespace VellumText.Tests.Interop.Rtf;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Each test reads the export back through the real import path — RtfPipe, then the HTML importer —
-/// because what matters about interchange is what a recipient makes of it. Where RtfPipe cannot
-/// read a construct at all (a vertical merge comes back as two cells, the second empty), the test
-/// pins the control words instead and says so; the replacement reader of Phase 8 is re-verified
-/// against the same documents.
+/// Each test reads the export back through the real import path — the RTF reader, then the HTML
+/// importer — because what matters about interchange is what a recipient makes of it. Where the
+/// reader cannot read a construct at all, the test pins the control words instead and says so.
+/// (Written against RtfPipe; re-verified when OfficeIMO replaced it on 2026-10-27, which reads both
+/// merges.)
 /// </para>
 /// </remarks>
 public class RtfTableExportTests
@@ -51,17 +51,22 @@ public class RtfTableExportTests
         Assert.Equal("A", TextOf(table.Rows[0].Cells[0]));
         Assert.Equal("B", TextOf(table.Rows[0].Cells[1]));
 
-        // RtfPipe does not read the merge, so the covered slot comes back as a cell of its own;
-        // what this pins is that "C" is the second cell of its row, not the first.
-        Assert.Equal(2, table.Rows[1].Cells.Length);
-        Assert.DoesNotContain("A", TextOf(table.Rows[1].Cells[0]), StringComparison.Ordinal);
-        Assert.Equal("C", TextOf(table.Rows[1].Cells[1]));
+        // The merge comes back as a merge (F-58: RtfPipe read it as two cells), so the row below
+        // holds only "C", and the grid places it under "B".
+        Assert.Equal(2, table.Rows[0].Cells[0].RowSpan);
+        var below = Assert.Single(table.Rows[1].Cells);
+        Assert.Equal("C", TextOf(below));
+        Assert.Equal(1, TableGeometry.Place(table, out _)[^1].Left);
     }
 
     /// <summary>
-    /// A cell spanning two columns is two columns wide. RTF says so only through the right edge
-    /// its <c>\cellx</c> gives, which readers line up against the edges of the rows around it.
+    /// A cell spanning two columns is written as Word writes a merge: two cell definitions, the
+    /// first <c>\clmgf</c> and the second <c>\clmrg</c>, together exactly as wide as two.
     /// </summary>
+    /// <remarks>
+    /// Until 2026-10-27 the span was only the width of one wide <c>\cellx</c>, because RtfPipe
+    /// misread <c>\clmgf</c>; the reader that replaced it reads the merge and ignores the width.
+    /// </remarks>
     [Fact]
     public async Task A_cell_spanning_two_columns_is_as_wide_as_two()
     {
@@ -75,8 +80,10 @@ public class RtfTableExportTests
         var rtf = RtfExporter.Instance.Export(doc);
         var firstRow = rtf[rtf.IndexOf(@"\trowd", StringComparison.Ordinal)..rtf.IndexOf(@"\row", StringComparison.Ordinal)];
 
+        Assert.Contains(@"\clmgf", firstRow, StringComparison.Ordinal);
+        Assert.Contains(@"\clmrg", firstRow, StringComparison.Ordinal);
+        Assert.Contains(@"\cellx1440", firstRow, StringComparison.Ordinal);
         Assert.Contains(@"\cellx2880", firstRow, StringComparison.Ordinal);
-        Assert.DoesNotContain(@"\cellx1440", firstRow, StringComparison.Ordinal);
 
         var table = Assert.IsType<TableNode>(Assert.Single((await Trip(doc)).Blocks));
 
@@ -121,10 +128,10 @@ public class RtfTableExportTests
 
     /// <summary>
     /// A cell's paragraphs used to be written as bare content with no paragraph properties, so
-    /// their alignment was never in the RTF at all. It is now. RtfPipe puts it on the row and the
-    /// HTML stage, by a documented decision, does not carry a container's alignment into the
-    /// paragraphs inside it — so this pins the control words, and the Phase 8 reader is
-    /// re-verified for the round trip.
+    /// their alignment was never in the RTF at all. It is now. RtfPipe put it on the row, where the
+    /// HTML stage by a documented decision does not carry it into the paragraphs, so this pins the
+    /// control words; the reader that replaced it brings it back
+    /// (<c>RtfReaderRoundTripTests.A_cells_alignment_comes_back</c>).
     /// </summary>
     [Fact]
     public void A_cell_paragraph_keeps_its_alignment()

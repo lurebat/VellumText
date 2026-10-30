@@ -28,10 +28,14 @@ internal sealed class BlockSink
     /// Reports a repair made to content the model would otherwise refuse, as a message and a
     /// context.
     /// </param>
-    internal BlockSink(Action<string, string> downgrade)
+    /// <param name="keepSpaceRuns">See <see cref="HtmlImportOptions.KeepSpaceRuns"/>.</param>
+    internal BlockSink(Action<string, string> downgrade, bool keepSpaceRuns = false)
     {
         _downgrade = downgrade;
+        _keepSpaceRuns = keepSpaceRuns;
     }
+
+    private readonly bool _keepSpaceRuns;
 
     /// <summary>The blocks produced so far.</summary>
     internal IReadOnlyList<BlockNode> Blocks => _blocks;
@@ -54,6 +58,11 @@ internal sealed class BlockSink
         {
             Append(text, mark);
             return;
+        }
+
+        if (_keepSpaceRuns)
+        {
+            text = KeepSpaceRuns(text);
         }
 
         // Outside <pre>, any run of whitespace is one space, and a run at the start of a paragraph
@@ -135,6 +144,42 @@ internal sealed class BlockSink
         Append("\n", mark);
         _pendingSpace = false;
         _endsWithBreak = true;
+    }
+
+    /// <summary>
+    /// Drops tabs, and writes each run of spaces as one space followed by non-breaking spaces,
+    /// so that the collapse after it leaves the run's length intact.
+    /// </summary>
+    private static string KeepSpaceRuns(string text)
+    {
+        if (!text.Contains('\t', StringComparison.Ordinal) && !text.Contains("  ", StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        var kept = new StringBuilder(text.Length);
+        var previousWasSpace = false;
+
+        foreach (var c in text)
+        {
+            if (c == '\t')
+            {
+                continue;
+            }
+
+            if (c == ' ')
+            {
+                kept.Append(previousWasSpace ? '\u00A0' : ' ');
+                previousWasSpace = true;
+            }
+            else
+            {
+                kept.Append(c);
+                previousWasSpace = false;
+            }
+        }
+
+        return kept.ToString();
     }
 
     /// <summary>Whether a character is whitespace that HTML collapses.</summary>

@@ -423,6 +423,18 @@ public class HtmlImportTests
         Assert.Equal("a\n", OnlyPara((await Import("<pre>a\n</pre>"))).Content.Text);
     }
 
+    /// <summary>
+    /// An empty paragraph with a bottom border is not a rule in an HTML paste. Reading it as one is
+    /// the RTF importer's business only (its reader writes a rule that way); a web page that draws
+    /// a line under an empty paragraph meant a paragraph.
+    /// </summary>
+    [Fact]
+    public async Task A_bordered_empty_paragraph_is_not_a_rule()
+    {
+        var blocks = (await Import("<p>a</p><p style='border-bottom:0.5pt solid'></p><p>b</p>")).Doc.Blocks;
+
+        Assert.DoesNotContain(blocks, b => b is RuleNode);
+    }
     [Fact]
     public async Task A_rule_becomes_a_rule_and_ends_the_paragraph_before_it()
     {

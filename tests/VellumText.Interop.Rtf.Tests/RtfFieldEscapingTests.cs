@@ -25,7 +25,8 @@ public class RtfFieldEscapingTests
     /// A quote ended the HYPERLINK argument, so the link was dropped on the way back in — and an
     /// attacker's <c>" "javascript:…</c> became a second argument, which RtfPipe-based readers
     /// take as the target and Word accepts as further switches. A quote is percent-encoded, which
-    /// is the same address to every URL parser.
+    /// is the same address to every URL parser — and the reader decodes it, so the link comes back
+    /// as exactly one argument, the address that was written.
     /// </summary>
     [Theory]
     [InlineData("https://ex.com/?q=\"x\"")]
@@ -39,7 +40,6 @@ public class RtfFieldEscapingTests
         var link = MarkOfFirst((await Trip(Linked(href)))).Link;
 
         Assert.NotNull(link);
-        Assert.DoesNotContain("\"", link.Href, StringComparison.Ordinal);
         Assert.Equal(href, Uri.UnescapeDataString(link.Href));
     }
 
@@ -47,11 +47,16 @@ public class RtfFieldEscapingTests
     /// A backslash is the field instruction's own escape character, so <c>a\b</c> came back as
     /// <c>ab</c> and a trailing one ate the closing quote. It is written escaped.
     /// </summary>
+    /// <remarks>
+    /// It comes back as <c>/</c>: the reader resolves the address as a browser does, and in an
+    /// http(s) URL a backslash is a path separator. That is still the backslash arriving — escaped
+    /// wrongly, it is gone (<c>ab</c>) or takes the closing quote with it.
+    /// </remarks>
     [Theory]
-    [InlineData("https://ex.com/a\\b")]
-    [InlineData("https://ex.com/a\\")]
-    public async Task A_backslash_in_a_link_target_survives(string href) =>
-        Assert.Equal(href, MarkOfFirst((await Trip(Linked(href)))).Link?.Href);
+    [InlineData("https://ex.com/a\\b", "https://ex.com/a/b")]
+    [InlineData("https://ex.com/a\\", "https://ex.com/a/")]
+    public async Task A_backslash_in_a_link_target_survives(string href, string resolved) =>
+        Assert.Equal(resolved, MarkOfFirst((await Trip(Linked(href)))).Link?.Href);
 
     /// <summary>
     /// A semicolon ends a font table entry, so <c>Weird;Font</c> was read as the font "Weird"

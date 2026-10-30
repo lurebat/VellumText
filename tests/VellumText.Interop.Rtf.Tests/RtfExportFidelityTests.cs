@@ -87,9 +87,9 @@ public class RtfExportFidelityTests
     /// \listtable (Word does) read it as bullets from 1 (rubber-duck review 5.2).
     /// </summary>
     /// <remarks>
-    /// Read from the RTF itself rather than through this branch's importer: RtfPipe treats a
-    /// paragraph naming another \ls as a new top-level list, so it cannot read a sublist that
-    /// needs a definition of its own. Phase 8's reader (OfficeIMO) does, and is tested there.
+    /// Read from the RTF itself as well as through the importer: before phase 8, RtfPipe treated a
+    /// paragraph naming another \ls as a new top-level list, so it could not read a sublist that
+    /// needs a definition of its own. OfficeIMO does; see the round trip below.
     /// </remarks>
     [Fact]
     public void Sibling_nested_lists_keep_their_own_kind_and_start()
@@ -118,6 +118,37 @@ public class RtfExportFidelityTests
 
         // The outer list is still one list: its items share one \ls.
         Assert.Equal(ListOf(rtf, "a").Ls, ListOf(rtf, "c").Ls);
+    }
+
+    /// <summary>
+    /// The same sibling sublists read back through the import path: OfficeIMO honours the
+    /// \listtable, so each sublist comes back with its own kind and start under one outer list.
+    /// </summary>
+    [Fact]
+    public async Task Sibling_nested_lists_come_back_with_their_own_kind_and_start()
+    {
+        var doc = new DocumentNode([
+            new ListNode(
+                [
+                    Item(ParagraphNode.FromText("a"), new ListNode([ListItemNode.FromText("a1")], ListKind.Unordered)),
+                    Item(ParagraphNode.FromText("b"), new ListNode([ListItemNode.FromText("b1"), ListItemNode.FromText("b2")], ListKind.Ordered, 3)),
+                    Item(ParagraphNode.FromText("c"), new ListNode([ListItemNode.FromText("c1")], ListKind.Unordered)),
+                ],
+                ListKind.Unordered),
+        ]);
+
+        var outer = Assert.IsType<ListNode>(Assert.Single((await Trip(doc)).Blocks));
+
+        Assert.Equal(ListKind.Unordered, outer.Kind);
+        Assert.Equal(["a", "b", "c"], outer.Items.Select(TextOf));
+
+        var sublists = outer.Items.Select(item => Assert.IsType<ListNode>(item.Blocks[1])).ToArray();
+
+        Assert.Equal([ListKind.Unordered, ListKind.Ordered, ListKind.Unordered], sublists.Select(l => l.Kind));
+        Assert.Equal(3, sublists[1].Start);
+        Assert.Equal(["b1", "b2"], sublists[1].Items.Select(TextOf));
+        Assert.Equal("a1", TextOf(Assert.Single(sublists[0].Items)));
+        Assert.Equal("c1", TextOf(Assert.Single(sublists[2].Items)));
     }
 
     /// <summary>The <c>\ls</c> and <c>\ilvl</c> of the paragraph whose text is exactly <paramref name="text"/>.</summary>
@@ -173,9 +204,9 @@ public class RtfExportFidelityTests
     }
 
     /// <summary>
-    /// A list starting at 0 is written with <c>\levelstartat0</c>, which Word honours. RtfPipe reads
-    /// a zero start as the default and numbers from 1 — a reader limitation, re-verified with the
-    /// Phase 8 reader — so this pins the control word.
+    /// A list starting at 0 is written with <c>\levelstartat0</c>, which Word honours. Pinned on the
+    /// control word because RtfPipe numbered from 1; the reader that replaced it reads the zero back
+    /// (<c>RtfReaderRoundTripTests</c>).
     /// </summary>
     [Fact]
     public void A_list_starting_at_zero_says_so()
@@ -189,7 +220,8 @@ public class RtfExportFidelityTests
 
     /// <summary>
     /// F-57: a heading inside a list item lost its outline level, which every other paragraph
-    /// writes. RtfPipe does not read an outline level inside a list, so this pins the control word.
+    /// writes. Neither RtfPipe nor the reader that replaced it reads an outline level inside a list,
+    /// so this pins the control word (<c>RtfReaderRoundTripTests</c> pins what comes back).
     /// </summary>
     [Fact]
     public void A_heading_in_a_list_item_keeps_its_outline_level()
@@ -225,8 +257,8 @@ public class RtfExportFidelityTests
 
     /// <summary>
     /// F-59: an embedded picture's alternative text was never written. It is now the picture's
-    /// <c>wzDescription</c> property, which Word reads as alt text. RtfPipe drops picture
-    /// properties, so this pins the control words; the Phase 8 reader is re-verified.
+    /// <c>wzDescription</c> property, which Word reads as alt text. Neither RtfPipe nor the reader that
+    /// replaced it reads picture properties, so this pins the control words.
     /// </summary>
     [Fact]
     public async Task An_images_alt_text_is_written_with_the_picture()

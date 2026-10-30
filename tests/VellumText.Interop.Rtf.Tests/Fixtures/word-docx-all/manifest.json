@@ -1,0 +1,128 @@
+[
+  {
+    "Index": 0,
+    "Id": 49161,
+    "Name": "DataObject",
+    "Size": 8,
+    "File": "00-DataObject.bin"
+  },
+  {
+    "Index": 1,
+    "Id": 49166,
+    "Name": "Object Descriptor",
+    "Size": 218,
+    "File": "01-Object_Descriptor.bin"
+  },
+  {
+    "Index": 2,
+    "Id": 49409,
+    "Name": "Rich Text Format",
+    "Size": 60636,
+    "File": "02-Rich_Text_Format.bin"
+  },
+  {
+    "Index": 3,
+    "Id": 49302,
+    "Name": "HTML Format",
+    "Size": 50967,
+    "File": "03-HTML_Format.bin"
+  },
+  {
+    "Index": 4,
+    "Id": 1,
+    "Name": "CF_TEXT",
+    "Size": 210,
+    "File": "04-CF_TEXT.bin"
+  },
+  {
+    "Index": 5,
+    "Id": 13,
+    "Name": "CF_UNICODETEXT",
+    "Size": 420,
+    "File": "05-CF_UNICODETEXT.bin"
+  },
+  {
+    "Index": 6,
+    "Id": 14,
+    "Name": "CF_ENHMETAFILE",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 7,
+    "Id": 3,
+    "Name": "CF_METAFILEPICT",
+    "Size": -1,
+    "File": ""
+  },
+  {
+    "Index": 8,
+    "Id": 49163,
+    "Name": "Embed Source",
+    "Size": 17506,
+    "File": "08-Embed_Source.bin"
+  },
+  {
+    "Index": 9,
+    "Id": 49156,
+    "Name": "Native",
+    "Size": 17506,
+    "File": "09-Native.bin"
+  },
+  {
+    "Index": 10,
+    "Id": 49155,
+    "Name": "OwnerLink",
+    "Size": 78,
+    "File": "10-OwnerLink.bin"
+  },
+  {
+    "Index": 11,
+    "Id": 49165,
+    "Name": "Link Source",
+    "Size": 306,
+    "File": "11-Link_Source.bin"
+  },
+  {
+    "Index": 12,
+    "Id": 49167,
+    "Name": "Link Source Descriptor",
+    "Size": 238,
+    "File": "12-Link_Source_Descriptor.bin"
+  },
+  {
+    "Index": 13,
+    "Id": 49154,
+    "Name": "ObjectLink",
+    "Size": 86,
+    "File": "13-ObjectLink.bin"
+  },
+  {
+    "Index": 14,
+    "Id": 49744,
+    "Name": "Hyperlink",
+    "Size": 48,
+    "File": "14-Hyperlink.bin"
+  },
+  {
+    "Index": 15,
+    "Id": 49171,
+    "Name": "Ole Private Data",
+    "Size": 648,
+    "File": "15-Ole_Private_Data.bin"
+  },
+  {
+    "Index": 16,
+    "Id": 16,
+    "Name": "CF_LOCALE",
+    "Size": 4,
+    "File": "16-CF_LOCALE.bin"
+  },
+  {
+    "Index": 17,
+    "Id": 7,
+    "Name": "CF_OEMTEXT",
+    "Size": 210,
+    "File": "17-CF_OEMTEXT.bin"
+  }
+]
