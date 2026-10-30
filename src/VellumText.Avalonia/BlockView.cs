@@ -79,6 +79,52 @@ internal abstract class BlockView
     }
 
     /// <summary>
+    /// The content at a vertical offset in the block, as the last layout drew it.
+    /// </summary>
+    /// <remarks>
+    /// Reads the last layout and lays nothing out, so it can be asked after an edit or a
+    /// composition has invalidated the layout and before the change is reconciled. The default
+    /// names the point by its distance from the block's top, which is right for a block with
+    /// nothing inside it to move.
+    /// </remarks>
+    /// <param name="y">The offset, from the block's top.</param>
+    internal virtual LocalAnchor CaptureAnchor(double y) => new(0, y, AnchorKind.Box);
+
+    /// <summary>The bottom of the block's last line of text, from its top; its height if it has none.</summary>
+    /// <remarks>Below it is only spacing, which the host names from the block that follows.</remarks>
+    internal virtual double TextBottom => Size.Height;
+
+    /// <summary>
+    /// Where the point an anchor names is now, from the block's top, or null if the content it
+    /// names has not been laid out.
+    /// </summary>
+    /// <remarks>Lays nothing out.</remarks>
+    /// <param name="anchor">The anchor, local to this block.</param>
+    internal virtual double? AnchorPoint(LocalAnchor anchor) => anchor.Kind switch
+    {
+        AnchorKind.BoxBottom => Size.Height + anchor.Dy,
+        _ => Math.Clamp(anchor.Dy, 0, Size.Height),
+    };
+
+    /// <summary>
+    /// Lays out whatever a question about a local position needs, so that the question itself
+    /// lays nothing out.
+    /// </summary>
+    /// <remarks>
+    /// Split from the questions so the host can lay out first, put the viewport back, and only
+    /// then ask — and so painting can ask without laying anything out at all. The default has
+    /// nothing beyond <see cref="Measure"/> to lay out.
+    /// </remarks>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual void PrepareAt(int localPosition)
+    {
+    }
+
+    /// <summary>Whether a question about a local position can be answered without laying anything out.</summary>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual bool IsPreparedAt(int localPosition) => true;
+
+    /// <summary>
     /// Finds the position nearest a point in the block's own coordinates.
     /// </summary>
     /// <param name="local">The point, relative to the block's top-left corner.</param>

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A console host for laying out large and deeply nested tables in a child process. A layout that
+    runs away — a hang, a stack overflow, a few gigabytes of views — ends or wedges the process that
+    runs it, and a test host that dies can still report "Passed!" for the tests it finished. Run
+    here, a test asserts on this process's exit code, its time and its memory, and fails honestly.
+    It is also what the before-and-after figures for nested-table virtualization are taken with.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same headless stack as the Avalonia tests, drawing with Skia so text is really shaped. -->
+    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VellumText.Avalonia\VellumText.Avalonia.csproj" />
+  </ItemGroup>
+
+</Project>

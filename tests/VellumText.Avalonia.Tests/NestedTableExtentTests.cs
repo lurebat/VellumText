@@ -1,0 +1,384 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using VellumText;
+using VellumText.Avalonia;
+
+namespace VellumText.Tests.Avalonia;
+
+/// <summary>
+/// The scroll extent of a document with tables nested in cells stays within a small multiple of
+/// what a fully laid-out copy measures, through jumps and resizes, at every depth.
+/// </summary>
+/// <remarks>
+/// A row holding a table in a cell is only partly laid out; recorded at a height that includes
+/// that table's estimate of its rows nobody measured, it taught its own table's estimate to price
+/// every other row like it, and the table holding that one did the same, so the estimate grew as
+/// the product of the row counts along the path: 3.46e10 DIP against 5.8e6 for a random document
+/// after a resize (rubber-duck follow-up to finding 10.4). The ledger the view keeps — the extent
+/// is the sum of the heights it records — is self-consistent either way, which is why this is
+/// compared with the copy.
+/// </remarks>
+public class NestedTableExtentTests
+{
+    private const double Width = 500;
+    private const double Height = 400;
+
+    /// <summary>
+    /// Long tables nested one, two and three deep, each in a row of a short table of plain rows:
+    /// after a jump to the innermost one and resizes, the extent is within a small multiple of the
+    /// truth at every depth.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void TheExtentOfNestedLongTablesStaysNearTheTruthThroughAJumpAndResizes(int depth)
+    {
+        BlockNode content = NestedTableVirtualizationTests.Irregular(120, "in");
+
+        for (var d = 0; d < depth; d++)
+        {
+            content = new TableNode(Enumerable.Range(0, 8).Select(r => new TableRowNode(r == 4
+                ? [new TableCellNode([content]), TableCellNode.FromText($"side {d} {r}")]
+                : [TableCellNode.FromText($"outer {d} {r}"), TableCellNode.FromText($"side {d} {r}")])));
+        }
+
+        var doc = new DocumentNode([content, ParagraphNode.FromText("After the tables.")]);
+        var (window, view) = Shown(doc);
+        var target = NestedTableVirtualizationTests.TextAt(doc, "inr60c0");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + GeometryTransactionTests.ScreenTop(view, target) - 2);
+            Layout(window);
+        }
+
+        AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, "after the jump");
+
+        foreach (var width in new[] { 360.0, 620, Width })
+        {
+            window.Width = width;
+            Layout(window);
+
+            AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, $"at width {width}");
+        }
+    }
+
+    /// <summary>
+    /// Twenty rows, each holding a 300-row table: the rows nobody has measured are priced from what
+    /// is known of the rows that have been — at first one table's top screenful and, for each of
+    /// its rows not yet measured, at least the padding a row has; once that table has been scrolled
+    /// through, all of it — so the table's height is a fair share of the truth, and grows to more
+    /// of it as more is known.
+    /// </summary>
+    /// <remarks>
+    /// Compared table to table: the paragraph after the table is priced by the presenter from the
+    /// one block it has measured, the table, which doubles the extent here at any estimate.
+    /// </remarks>
+    [AvaloniaFact]
+    public void RowsEachHoldingALongTableArePricedFromWhatIsKnownOfThem()
+    {
+        var doc = new DocumentNode([
+            new TableNode(Enumerable.Range(0, 20).Select(r => new TableRowNode([
+                new TableCellNode([NestedTableVirtualizationTests.Uniform(300, tag: $"t{r}")]),
+                TableCellNode.FromText($"side {r}"),
+            ]))),
+            ParagraphNode.FromText("After the tables."),
+        ]);
+        var (window, view) = Shown(doc);
+        var truth = GeometryTransactionTests.FullyLaidOut(doc, Width).Blocks[0].Size.Height;
+        var table = view.Blocks[0];
+
+        // A row of the inner table is about forty pixels; the padding alone is twelve.
+        var first = table.Size.Height / truth;
+
+        Assert.True(first >= 0.25, $"laid out first, the table is {first:F2} of its true height");
+
+        var last = NestedTableVirtualizationTests.TextAt(doc, "t0 r299c0");
+
+        while (GeometryTransactionTests.ScreenTop(view, last) > Height - 40)
+        {
+            view.Offset += new Vector(0, Height);
+            Layout(window);
+        }
+
+        var after = table.Size.Height / truth;
+
+        Assert.True(after >= 0.5 && after <= 1.5, $"with the first row's table scrolled through, the table is {after:F2} of its true height");
+    }
+    /// <summary>
+    /// The random document of fuzz seed 10056, and the jumps and the resize that made its extent
+    /// 6,000 times the truth.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheExtentOfARandomDocumentOfNestedTablesStaysNearTheTruthThroughJumpsAndAResize()
+    {
+        var doc = new NestedTableFuzzTests.Generator(new Random(10_056)).Document();
+        var (window, view) = Shown(doc);
+
+        foreach (var y in new[] { 80_795.0, 125_628 })
+        {
+            view.Offset = new Vector(0, y);
+            Layout(window);
+
+            AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, $"after a jump to {y}");
+        }
+
+        window.Width = 360;
+        Layout(window);
+
+        AssertNearTheTruth(view, GeometryTransactionTests.FullyLaidOut(view.State.Doc, window.Width), Bound, "after a resize to 360");
+    }
+
+    // ---- what is known of a table, after questions lay all of it out ------------------------------
+
+    /// <summary>
+    /// A table of rows all alike, two and three tables deep, every row of it laid out by questions
+    /// rather than by scrolling — about a position in each row, or a point below each — so its
+    /// height never changes, only how much of it is known: once all of it is, every table on the
+    /// path is known to be exactly as tall as it is, after the questions and after a layout pass.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void QuestionsThatLayOutAWholeTableMakeItKnownAllTheWayUp(int depth, bool points)
+    {
+        var doc = NestedTableVirtualizationTests.Nested(depth, NestedTableVirtualizationTests.Uniform(200));
+        var (window, view) = Shown(doc);
+
+        if (points)
+        {
+            var row = GeometryTransactionTests.ScreenTop(view, PositionOf(doc, "r1c0")) - GeometryTransactionTests.ScreenTop(view, PositionOf(doc, "r0c0"));
+
+            for (var y = Height + 5; y < 200 * row; y += row)
+            {
+                _ = view.PositionAt(new Point(20, y));
+            }
+        }
+        else
+        {
+            for (var r = 0; r < 200; r++)
+            {
+                _ = view.ImageRect(PositionOf(doc, $"r{r}c0"));
+            }
+        }
+
+        AssertKnownExactly(view, "after the questions");
+
+        Layout(window);
+
+        AssertKnownExactly(view, "laid out again");
+    }
+
+    /// <summary>Every table on the path down is known to be exactly as tall as it is.</summary>
+    private static void AssertKnownExactly(RichTextView view, string what) =>
+        AssertKnownExactly((TableBlockView)view.Blocks[0], what);
+
+    /// <summary>
+    /// The same, with the points asked of the table directly — the presenter widens its window to
+    /// a far point before asking, so through it the table's own preparation of a point finds those
+    /// rows laid out already; asked directly, it lays them out itself.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void PointsPreparedInATableMakeItKnownAllTheWayUp(int depth)
+    {
+        BlockNode content = NestedTableVirtualizationTests.Uniform(200);
+
+        for (var d = 1; d < depth; d++)
+        {
+            content = new TableNode([new TableRowNode([new TableCellNode([content])])]);
+        }
+
+        var outer = new TableBlockView(
+            new TableNode([new TableRowNode([new TableCellNode([content])])]),
+            NestedTableVirtualizationTests.Create,
+            global::Avalonia.Media.Brushes.Gray);
+
+        outer.SetWindow(0, 0, Height);
+        outer.Measure(Width);
+
+        for (var y = 2.0; y < outer.Size.Height; y += 10)
+        {
+            outer.PreparePoint(new Point(20, y));
+        }
+
+        AssertKnownExactly(outer, "after the points");
+    }
+
+    private static void AssertKnownExactly(TableBlockView table, string what)
+    {
+        for (var depth = 0; ; depth++)
+        {
+            Assert.True(table.IsComplete(), $"{what}: the table {depth} deep is not wholly laid out");
+            Assert.True(
+                Math.Abs(table.ExactHeight - table.Size.Height) <= 0.01,
+                $"{what}: the table {depth} deep, wholly laid out, is known to be {table.ExactHeight:F1} tall, not the {table.Size.Height:F1} it is");
+
+            if (table.NestedTables.FirstOrDefault() is not { } next)
+            {
+                return;
+            }
+
+            table = next;
+        }
+    }
+
+    // ---- what is known of a table, after what it knew is edited away -----------------------------
+
+    /// <summary>
+    /// A table in a cell two tables deep, every row of it measured by scrolling through it, whose
+    /// tall first row — one cell of sixty lines, or a cell spanning two rows — is cut to one line
+    /// while the viewport is far below it, so nothing lays it out again: no table on the path
+    /// counts the lines cut as known height (each is at most what a fully laid-out copy measures),
+    /// after the cut, its undo and its redo.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LinesEditedAwayFromARowOffScreenAreNoLongerCountedAsKnown(bool spanning)
+    {
+        var (window, view) = ScrolledFarBelowATallFirstRow(spanning);
+        var first = PositionOf(view.State.Doc, "tall 1") - 1;
+        var last = PositionOf(view.State.Doc, "tall 59") - 1;
+
+        view.Apply(view.State.Transaction().Delete(first, last + ParagraphNode.FromText("tall 59").NodeSize));
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the cut");
+
+        Assert.True(view.Undo());
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the undo");
+
+        Assert.True(view.Redo());
+        Layout(window);
+        AssertKnownAtMostTheTruth(view, "after the redo");
+    }
+
+    /// <summary>
+    /// The same tall row made taller by a composition, laid out while it was composed, and the
+    /// composition then dropped by moving the caret back on screen far below: the composed lines are
+    /// no longer counted as known height anywhere on the path.
+    /// </summary>
+    [AvaloniaFact]
+    public void ACompositionDroppedFromARowOffScreenIsNoLongerCountedAsKnown()
+    {
+        var (window, view) = ScrolledFarBelowATallFirstRow(spanning: false);
+        var offset = view.Offset;
+
+        view.MoveTo(PositionOf(view.State.Doc, "tall 0") + 2, extend: false);
+        Layout(window);
+        Assert.True(view.SetPreedit(string.Join(" ", Enumerable.Repeat("composed", 600))));
+        Layout(window);
+
+        view.Offset = offset;
+        Layout(window);
+        view.MoveTo(view.PositionAt(new Point(20, Height / 2)), extend: false);
+        Layout(window);
+
+        Assert.False(view.IsComposing);
+        AssertKnownAtMostTheTruth(view, "after the composition was dropped");
+    }
+
+    /// <summary>
+    /// A 300-row table whose first row is sixty lines tall (in a cell spanning two rows, if asked),
+    /// in the only cell of a one-row table in the only cell of another; scrolled through to its
+    /// end, so every row of it is measured, and left with the caret on screen there.
+    /// </summary>
+    private static (Window Window, RichTextView View) ScrolledFarBelowATallFirstRow(bool spanning)
+    {
+        var tall = new TableCellNode(Enumerable.Range(0, 60).Select(i => (BlockNode)ParagraphNode.FromText($"tall {i}")), rowSpan: spanning ? 2 : 1);
+        var rows = Enumerable.Range(0, 300).Select(r => new TableRowNode(
+            r == 0 ? [tall, TableCellNode.FromText("a r0c1")]
+            : r == 1 && spanning ? [TableCellNode.FromText("a r1c1")]
+            : [TableCellNode.FromText($"a r{r}c0"), TableCellNode.FromText($"a r{r}c1")]));
+        var doc = NestedTableVirtualizationTests.Nested(2, new TableNode(rows));
+        var (window, view) = Shown(doc);
+        var end = PositionOf(doc, "a r299c0");
+
+        while (GeometryTransactionTests.ScreenTop(view, end) > Height - 60)
+        {
+            view.Offset += new Vector(0, Height);
+            Layout(window);
+        }
+
+        view.MoveTo(view.PositionAt(new Point(20, Height / 2)), extend: false);
+        Layout(window);
+
+        return (window, view);
+    }
+
+    /// <summary>Every table on the path down is known to be no taller than a fully laid-out copy has it.</summary>
+    private static void AssertKnownAtMostTheTruth(RichTextView view, string what)
+    {
+        var mine = (TableBlockView)view.Blocks[0];
+        var theirs = (TableBlockView)GeometryTransactionTests.FullyLaidOut(view.State.Doc, Width).Blocks[0];
+
+        for (var depth = 0; ; depth++)
+        {
+            Assert.True(
+                mine.ExactHeight <= theirs.Size.Height + 0.5,
+                $"{what}: the table {depth} deep is known to be {mine.ExactHeight:F1} tall, more than the {theirs.Size.Height:F1} it is");
+
+            if (mine.NestedTables.FirstOrDefault() is not { } next)
+            {
+                return;
+            }
+
+            (mine, theirs) = (next, theirs.NestedTables.First());
+        }
+    }
+
+    private static int PositionOf(DocumentNode doc, string text) => NestedTableVirtualizationTests.TextAt(doc, text);
+
+    /// <summary>
+    /// The extent is at most <paramref name="over"/> times the height of a fully laid-out copy at
+    /// the same width, and at least a <see cref="Under"/>th of it.
+    /// </summary>
+    internal static void AssertNearTheTruth(RichTextView view, RichTextView twin, double over, string what)
+    {
+        var truth = twin.DesiredSize.Height;
+        var ratio = view.Extent.Height / truth;
+
+        Assert.True(
+            ratio <= over && ratio >= 1 / Under,
+            $"{what}: the extent is {view.Extent.Height:F1}, {ratio:F4} times the {truth:F1} a fully laid-out copy measures");
+    }
+
+    /// <summary>
+    /// How many times the truth the extent may be in these tests: a row on screen holding a long
+    /// table in a cell is the one row its table has measured after a resize, and every row not
+    /// measured is priced like it — once, at one level, as at the top of the document.
+    /// </summary>
+    internal const double Bound = 4;
+
+    /// <summary>
+    /// How many times the truth the extent may be in the fuzz, whose documents have a few rows
+    /// holding most of the content: the most seen over its recorded seeds is 14.
+    /// </summary>
+    internal const double Over = 32;
+
+    /// <summary>
+    /// The least share of the truth the extent may be: content nobody has laid out is priced from
+    /// what has been, and in the fuzz's documents the rows not yet seen hold most of the content,
+    /// at every depth — a sixth of a percent is the least seen over its recorded seeds.
+    /// </summary>
+    internal const double Under = 1_000;
+
+    private static (Window Window, RichTextView View) Shown(DocumentNode doc)
+    {
+        var view = new RichTextView { State = EditorState.Create(doc) };
+        var window = new Window { Content = view, Width = Width, Height = Height };
+
+        window.Show();
+        Layout(window);
+
+        return (window, view);
+    }
+
+    private static void Layout(Window window) => GeometryTransactionTests.Layout(window);
+}

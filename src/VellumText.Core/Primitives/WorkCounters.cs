@@ -92,6 +92,39 @@ internal static class WorkCounters
     internal static long TableCellsMeasured;
 
     /// <summary>
+    /// Layout passes whose realized window turned out not to cover the viewport and had to be laid
+    /// out again. A defect in the windowing when it is not zero.
+    /// </summary>
+    [ThreadStatic]
+    internal static long CoverageRepairs;
+
+    /// <summary>
+    /// Times a presenter laid every block out whole because laying out the window again did not
+    /// cover the viewport either.
+    /// </summary>
+    [ThreadStatic]
+    internal static long FullLayoutBackstops;
+
+    /// <summary>
+    /// Tables in cells laid out whole because their part of the window could not be worked out or
+    /// did not settle. Slow, never blank, and a defect in the windowing when it is not zero.
+    /// </summary>
+    [ThreadStatic]
+    internal static long NestedWindowFallbacks;
+
+    /// <summary>Times a table gave a table in one of its cells its part of the window and measured it.</summary>
+    [ThreadStatic]
+    internal static long NestedTablesRefreshed;
+
+    /// <summary>
+    /// Bands of a table examined to bound where a window's anchor is in it — how deep, how far
+    /// above its bottom, whether all of it is laid out — when deciding what in a row beside it
+    /// must be exact. A screenful per decision, not the table's length.
+    /// </summary>
+    [ThreadStatic]
+    internal static long NestedBoundBands;
+
+    /// <summary>
     /// Embeds inside containers whose fallback text <see cref="DocumentPreview"/> has counted.
     /// </summary>
     [ThreadStatic]

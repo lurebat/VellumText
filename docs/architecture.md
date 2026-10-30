@@ -906,10 +906,18 @@ internal sealed class ParagraphView : BlockView
 >   at the current width, which the window sees to for every row on screen. (The first version laid
 >   rows out while drawing; each one moved the estimate and the table's height mid-frame, behind the
 >   presenter's back, and could draw a paragraph never measured.)
-> - **The presenter anchors on a row.** `Settle` keeps the block at the top of the viewport where
->   it was while estimates are replaced; inside a table that now means the row at the top, kept at
->   the same share of its height (a distance into a row guessed taller than it is would land in the
->   next one).
+> - **The presenter anchors on the text line at the top.** `Settle` keeps the content at the top of
+>   the viewport where it was while estimates are replaced. Inside a table that is the text line at
+>   the top, at any depth (`LocalAnchor`: a document position and the offset from its line; a
+>   box or a share of a row only where there is no line — a row nobody has laid out is held by its
+>   share until it is, then by the text found there). It is read from the last layout before an
+>   edit or a composition invalidates it and carried through the transaction's position mapping, so
+>   edits far away, undo and redo, a composition growing above it and a resize all leave that line
+>   where it was (owner decision Q3, the browser's scroll anchoring; not at all when the viewport is
+>   not scrolled, as a browser selects no anchor there). A line made only of composed text is held
+>   from where the composition starts; a line that starts inside it and runs on into the paragraph's
+>   own text is held by that text. Corrected 2026-10-30 (rubber-duck finding
+>   10.4); the first version kept the row at the top at the same share of its height.
 > - **A row insert or delete keeps what is on screen.** Corrected 2026-10-28: the row commands
 >   rebuild every row node around the cells they keep, and any change of the grid's shape rebuilt
 >   the view and forgot every measured height, so the offset priced at uniform mean heights named a
@@ -923,15 +931,63 @@ internal sealed class ParagraphView : BlockView
 >   `TableBlockView.GetCellRects(cells, start, visible)` take the realized window, so selecting all
 >   of a long table paints its screenful without realizing every row; `SelectionBounds` reports the
 >   realized part, as it already did for paragraphs outside the window.
-> - **A table inside a cell is not row-virtualized.** Only the presenter calls `SetWindow`, and only
->   for top-level blocks, so a nested table keeps the infinite window it starts with and realizes
->   and measures all of its rows whenever the outer table measures the row holding it (a
->   10,000 × 3 table in a cell: 110 MB for the first layout, against 5.5 MB at the top level).
->   Drawing it is still clipped to the rows on screen. Passing a window down is not a local change:
->   the outer table measures a band only when it is stale, so the nested table would need measuring
->   on every pass with its estimate-driven height pushed into the outer row; drawing skips rows
->   outside the window, so a nested window that fell behind would draw blank rows; and `Settle`
->   anchors on a top-level row, which a nested estimate moving would slide from under the viewport.
+> - **Tables inside cells are row-virtualized too** (2026-10-30, rubber-duck finding 10.4, owner
+>   decision: full nested virtualization; `TableBlockView.Nested.cs`). A table gives each table in
+>   a band it measures the part of its window that falls in it before measuring it (`WindowNested`):
+>   the anchor itself when the anchor is inside it; from its bottom up to the window's top for a
+>   table in a row above the anchor's; from its top down for one below; by its geometry beside the
+>   anchor. Every pass re-windows and measures the tables in the bands walked and settles a band
+>   whose table changed height without measuring the rest of it (`RefreshNested`, `SettleBand`);
+>   a question that lays out a far nested row settles every row above it the same way. Whatever is
+>   placed across an estimate where the window shows it is made exact first (`Close`): text beside
+>   a long nested table, the bottom of a row a nested table beside it could move, a row above the
+>   anchor whose top hangs on a nested table's height — by proving from lower bounds that it cannot
+>   be seen, or by laying the competing table out (owner decision Q1: exact and still, at the cost
+>   of laying it out). Windows that do not settle — only passes that just settle heights again
+>   count — lay the tables in the window out whole, counted and traced, never blank; so does a
+>   window that cannot be translated into a table: a coordinate that is not a number, or an anchor
+>   inside a table by position that names nothing there (a boundary between its rows, cells or
+>   blocks), which the two tables would otherwise resolve to different places. Whether a table is
+>   wholly laid out, which the decisions beside the anchor ask on every pass, is kept as the bands
+>   found complete (`CompleteBefore`) until a row of any table stops being laid out — an edited or
+>   composed row, heights forgotten for a width — so a table laid out whole beside the one being
+>   scrolled costs a screenful a page, not its length. A row holding a table not wholly laid out is
+>   placed at its height, but teaches its table's estimate for unmeasured rows only what is known of
+>   that table (`ExactHeight`: measured rows at what is known of them, each band nobody measured at
+>   its padding), kept as rows are recorded and forgotten. Learning from the height, which includes
+>   that table's own estimate, made every level price its rows like the one on screen, so the extent
+>   grew as the product of the row counts along the path: after a resize, 37 times the truth two
+>   levels deep, 6,000 times three deep. What remains is the ordinary limit of an estimate: rows
+>   nobody has seen are
+>   priced from those that have been, at every depth, so a document whose unseen rows hold most of
+>   its content can show an extent hundreds of times too small until they are reached (the fuzz
+>   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). The
+>   caret sent to the document's end (Ctrl+End) lays the window out from the end up and puts the
+>   end at the bottom of the viewport (`SettleAtEnd`) before the caret is brought into view, so an
+>   extent far too small does not stop it short. Point
+>   questions lay out every row whose closed band touches the point before answering, and the
+>   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
+>   (`LayoutGuard.Painting`, `PreparePaintDependencies`).
+>
+>   Measured with `tests/VellumText.LayoutProbe` (Release, 10,000 × 3, nested in one-row tables),
+>   before → after: first layout 134.9 MB / 1.5 s → 5.2 MB / 33 ms, kept 115 MB → 1.6 MB, a resize
+>   26.3 MB / 142 ms → 54 KB / 2 ms, at depths 1–3 within 1% of the same table at the top level;
+>   a page-by-page traversal at depth 3 takes 1.7 s against 1.6 s and keeps the same 115 MB, since
+>   rows once laid out stay laid out at every level, as at the top. `NestedTableLayoutProbeTests`
+>   runs the probe in a child process and asserts exit code, time and peak working set;
+>   `NestedTableFuzzTests` puts random documents with tables nested up to three deep, merged cells
+>   and lists through random scrolls, jumps, resizes, far edits, structural edits with undo and
+>   redo, compositions and far questions, checking after each that the extent is the sum of the
+>   heights, every table at every depth records each block at its height and each row alone in its
+>   band at its tallest cell, every row on screen is laid out at every depth, a frame draws without
+>   laying anything out, a layout pass again moves nothing on screen, nothing on screen moved but
+>   by the scroll, the line held at the top is still there through a structural edit, its undo and
+>   its redo, and a far point lands where a fully laid-out copy has it. The other nested tests hold
+>   what is on screen to where that copy draws it (caret top and left), with merged cells, rows a
+>   merged cell leaves empty, right-to-left text, and wrapping replacements undone and redone.
+>   These assertions are on laid-out
+>   geometry, which depends on font metrics: they have run headless on Windows; Linux and macOS CI
+>   should run them before the figures above are taken as cross-platform.
 >
 > Measured by `ScalingGuardTests`: laying out the top of a 2,500-, 5,000- or 10,000-row table builds
 > and measures 95 cells; scrolling to its middle measures one window; laying out a 10,000-row table
