@@ -35,8 +35,8 @@ public class ReadOnlyPasteTests
             return new ImportResult(DocumentNode.FromParagraphs(text));
         }
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
     }
 
     private static RichTextView Shown(DocumentNode doc)

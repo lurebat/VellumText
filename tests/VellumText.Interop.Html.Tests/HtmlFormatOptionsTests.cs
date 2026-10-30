@@ -6,8 +6,8 @@ namespace VellumText.Tests.Interop.Html;
 /// Whether a host can configure the HTML importer through the object it actually registers.
 /// </summary>
 /// <remarks>
-/// <c>HtmlImporter.Import(html, options)</c> is not the path a control takes: the control holds an
-/// <see cref="IDocumentImporter"/> and calls <c>Import(text)</c>. So an option that only a static
+/// <c>HtmlImporter.ImportAsync(html, options)</c> is not the path a control takes: the control holds an
+/// <see cref="IDocumentImporter"/> and calls <c>ImportAsync(text)</c>. So an option that only a static
 /// method accepts is unreachable from an application that uses the control, which is every
 /// application. These tests are about <see cref="HtmlFormat.With"/> being the way through, and in
 /// particular about <see cref="HtmlImportOptions.AllowRemoteImages"/> — a privacy control is not a
@@ -42,12 +42,12 @@ public class HtmlFormatOptionsTests
     /// interface-typed call that is all the control ever makes.
     /// </summary>
     [Fact]
-    public void A_remote_image_survives_when_the_registered_format_was_configured_to_allow_it()
+    public async Task A_remote_image_survives_when_the_registered_format_was_configured_to_allow_it()
     {
         IDocumentImporter configured =
             HtmlFormat.Instance.With(new HtmlImportOptions { AllowRemoteImages = true });
 
-        var image = Assert.Single(Images(configured.Import("<img src='https://cdn.test/a.png'>")));
+        var image = Assert.Single(Images(await configured.ImportAsync("<img src='https://cdn.test/a.png'>")));
 
         Assert.Equal("https://cdn.test/a.png", image.Source);
     }
@@ -56,31 +56,31 @@ public class HtmlFormatOptionsTests
     /// The companion that stops the test above passing for the wrong reason: the default refuses.
     /// </summary>
     [Fact]
-    public void A_remote_image_is_still_refused_by_the_shared_instance()
+    public async Task A_remote_image_is_still_refused_by_the_shared_instance()
     {
         IDocumentImporter shared = HtmlFormat.Instance;
 
-        Assert.Empty(Images(shared.Import("<img src='https://cdn.test/a.png'>")));
+        Assert.Empty(Images(await shared.ImportAsync("<img src='https://cdn.test/a.png'>")));
     }
 
     [Fact]
-    public void A_relative_url_resolves_against_the_base_the_registered_format_carries()
+    public async Task A_relative_url_resolves_against_the_base_the_registered_format_carries()
     {
         IDocumentImporter configured = HtmlFormat.Instance.With(
             new HtmlImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
-        var result = configured.Import("<a href='/somewhere'>click</a>");
+        var result = await configured.ImportAsync("<a href='/somewhere'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Equal("https://example.com/somewhere", paragraph.Content.MarkAt(0).Link?.Href);
     }
 
     [Fact]
-    public void A_relative_url_is_still_dropped_by_the_shared_instance()
+    public async Task A_relative_url_is_still_dropped_by_the_shared_instance()
     {
         IDocumentImporter shared = HtmlFormat.Instance;
 
-        var result = shared.Import("<a href='/somewhere'>click</a>");
+        var result = await shared.ImportAsync("<a href='/somewhere'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Null(paragraph.Content.MarkAt(0).Link);
@@ -92,7 +92,7 @@ public class HtmlFormatOptionsTests
     /// defaults.
     /// </summary>
     [Fact]
-    public void The_stream_overload_carries_the_options_as_well()
+    public async Task The_stream_overload_carries_the_options_as_well()
     {
         IDocumentImporter configured =
             HtmlFormat.Instance.With(new HtmlImportOptions { AllowRemoteImages = true });
@@ -100,7 +100,7 @@ public class HtmlFormatOptionsTests
         using var source = new MemoryStream(
             System.Text.Encoding.UTF8.GetBytes("<img src='https://cdn.test/a.png'>"));
 
-        Assert.Single(Images(configured.Import(source)));
+        Assert.Single(Images(await configured.ImportAsync(source)));
     }
 
     private static IEnumerable<ImageEmbed> Images(ImportResult result) =>

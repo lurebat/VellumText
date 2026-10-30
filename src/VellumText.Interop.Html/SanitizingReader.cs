@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
 
+using AngleSharp;
+using AngleSharp.Css;
 using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
+using AngleSharp.Html.Parser;
 using Ganss.Xss;
 
 namespace VellumText.Interop.Html;
@@ -121,6 +124,16 @@ internal sealed class SanitizingReader
             "image/x-icon", "image/vnd.microsoft.icon",
         };
 
+    /// <summary>The diagnostic context of every refused image source, whatever the reason.</summary>
+    /// <remarks>
+    /// One context, not one per reason, because a paste reads it: a rich flavour that lost a picture
+    /// gives way to the bitmap copied beside it (OD-4b), and a refusal reported under its media type
+    /// or its address read as nothing lost. Inline data refused anywhere other than an image source
+    /// is not a picture, and keeps a context of its own. Sharing the context does not merge the
+    /// reasons: <see cref="ReportOnce"/> keeps one diagnostic per distinct reason.
+    /// </remarks>
+    private const string RemovedImage = "img";
+
     private readonly HtmlImportOptions _options;
     private readonly List<ImportDiagnostic> _diagnostics;
     private readonly HashSet<string> _alreadyReported = new(StringComparer.OrdinalIgnoreCase);
@@ -188,10 +201,68 @@ internal sealed class SanitizingReader
         // The base address has to reach the sanitizer, not just the walker: it resolves relative
         // URLs before it checks their scheme, so without it a relative address is judged on its
         // own and there is nothing left for the walker to resolve afterwards.
-        sanitizer.SanitizeDom(
-            (IHtmlDocument)document,
-            context: null,
-            baseUrl: _options.BaseUri?.AbsoluteUri ?? string.Empty);
+        var baseUrl = _options.BaseUri?.AbsoluteUri ?? string.Empty;
+
+        // Style attributes go through the sanitizer one distinct value at a time rather than once
+        // per element (F-16). The document is parsed without CSS support, because with it every
+        // element's style is parsed while the tree is built and parsed again here: RtfPipe writes
+        // the same three style strings on every element of a Word document, and 10,000 paragraphs
+        // allocated 850 MB doing it, against 35 MB for the same markup without styles. Without CSS
+        // support the sanitizer would simply strip every style, so they are set aside first, each
+        // distinct value is sanitized once by this same sanitizer in a one-element document that
+        // does have CSS support, and the result is put back on the elements that survived.
+        var styles = new List<(IElement Element, string Style)>();
+
+        foreach (var element in document.QuerySelectorAll("[style]"))
+        {
+            styles.Add((element, element.GetAttribute("style") ?? string.Empty));
+            element.RemoveAttribute("style");
+        }
+
+        sanitizer.SanitizeDom((IHtmlDocument)document, context: null, baseUrl: baseUrl);
+
+        if (styles.Count == 0)
+        {
+            return;
+        }
+
+        var survivors = document.QuerySelectorAll("*").ToHashSet();
+        var sanitized = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var probe = new HtmlParser(new HtmlParserOptions(), BrowsingContext.New(Configuration.Default.WithCss()));
+
+        foreach (var (element, style) in styles)
+        {
+            if (!survivors.Contains(element))
+            {
+                continue;
+            }
+
+            if (!sanitized.TryGetValue(style, out var clean))
+            {
+                clean = SanitizeStyle(sanitizer, probe, style, baseUrl);
+                sanitized[style] = clean;
+            }
+
+            if (!string.IsNullOrWhiteSpace(clean))
+            {
+                element.SetAttribute("style", clean);
+            }
+        }
+    }
+
+    /// <summary>
+    /// What <paramref name="sanitizer"/> leaves of one style attribute, decided on an element of
+    /// its own in a document that can read CSS.
+    /// </summary>
+    private static string? SanitizeStyle(HtmlSanitizer sanitizer, HtmlParser probe, string style, string baseUrl)
+    {
+        var document = probe.ParseDocument("<span></span>");
+        var span = document.QuerySelector("span")!;
+
+        span.SetAttribute("style", style);
+        sanitizer.SanitizeDom(document, context: null, baseUrl: baseUrl);
+
+        return document.QuerySelector("span")?.GetAttribute("style");
     }
 
     /// <summary>
@@ -230,6 +301,8 @@ internal sealed class SanitizingReader
             e.Tag is IHtmlImageElement
             && string.Equals(e.Tag.GetAttribute("src"), original, StringComparison.Ordinal);
 
+        string ContextOf(string url) => isImageSource ? RemovedImage : url;
+
         if (e.SanitizedUrl is not null)
         {
             // The sanitizer resolves relative addresses against the base the caller gave it. If
@@ -250,7 +323,7 @@ internal sealed class SanitizingReader
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     "Removed an address that is relative to a document this one did not come with.",
-                    original);
+                    ContextOf(original));
                 return;
             }
 
@@ -264,7 +337,7 @@ internal sealed class SanitizingReader
                     DiagnosticSeverity.Dropped,
                     "Removed an image loaded from the network, which would have told its host that "
                     + "this document was opened.",
-                    "img");
+                    RemovedImage);
             }
 
             return;
@@ -274,8 +347,10 @@ internal sealed class SanitizingReader
         {
             ReportOnce(
                 DiagnosticSeverity.Dropped,
-                "Removed a link whose address is not http, https, mailto or tel.",
-                SchemeOf(original));
+                isImageSource
+                    ? "Removed an image whose address is not http or https."
+                    : "Removed a link whose address is not http, https, mailto or tel.",
+                ContextOf(SchemeOf(original)));
             return;
         }
 
@@ -290,7 +365,7 @@ internal sealed class SanitizingReader
 
         if (!_options.AllowDataImages)
         {
-            ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", "data:");
+            ReportOnce(DiagnosticSeverity.Dropped, "Removed an inline image.", RemovedImage);
             return;
         }
 
@@ -299,7 +374,7 @@ internal sealed class SanitizingReader
             ReportOnce(
                 DiagnosticSeverity.Dropped,
                 "Removed inline data that does not declare a supported image type.",
-                MediaTypeOf(original));
+                RemovedImage);
             return;
         }
 
@@ -309,14 +384,14 @@ internal sealed class SanitizingReader
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     $"Removed an inline image larger than {_options.MaxDataImageBytes} bytes.",
-                    "data:");
+                    RemovedImage);
                 return;
 
             case DataImageVerdict.Undecodable:
                 ReportOnce(
                     DiagnosticSeverity.Dropped,
                     "Removed an inline image whose data is not valid base64.",
-                    "data:");
+                    RemovedImage);
                 return;
         }
 
@@ -434,10 +509,16 @@ internal sealed class SanitizingReader
     /// A page's worth of HTML can contain thousands of removals of the same kind. Reporting each
     /// one turns a useful list into a wall the caller cannot read, and gives the source control
     /// over how much memory the diagnostics take.
+    /// <para>
+    /// The message is part of what makes a removal distinct. Every refused image shares one
+    /// context, and keying on the context alone kept only the first reason an image was refused
+    /// for. Messages come from a fixed set, so adding them does not hand the source any more
+    /// control over the count than the context already does.
+    /// </para>
     /// </remarks>
     private void ReportOnce(DiagnosticSeverity severity, string message, string context)
     {
-        if (_alreadyReported.Add($"{severity}|{context}"))
+        if (_alreadyReported.Add($"{severity}|{context}|{message}"))
         {
             _diagnostics.Add(new ImportDiagnostic(severity, message, context));
         }

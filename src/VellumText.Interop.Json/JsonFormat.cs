@@ -103,24 +103,30 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     }
 
     /// <inheritdoc/>
-    public ImportResult Import(Stream source) =>
-        Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+    public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+    {
+        var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await ImportAsync(text, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Never throws, like every importer: a document that cannot be read yields an empty result
-    /// carrying a diagnostic saying why. A store full of files written by a future version should
-    /// degrade into "cannot open these", not into an unhandled exception on a background thread.
+    /// Never faults, like every importer, short of cancellation: a document that cannot be read
+    /// yields an empty result carrying a diagnostic saying why. A store full of files written by a
+    /// future version should degrade into "cannot open these", not into an unhandled exception on a
+    /// background thread.
     /// </remarks>
-    public ImportResult Import(string text)
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            return Failed("The payload was empty.");
+            return Task.FromResult(Failed("The payload was empty."));
         }
 
         // The block reader recurses once per level of list and table nesting; see LargeStack.
-        return LargeStack.Run(() => ImportOnLargeStack(text));
+        return LargeStack.RunAsync(() => ImportOnLargeStack(text), cancellationToken);
     }
 
     private static ImportResult ImportOnLargeStack(string text)

@@ -100,19 +100,23 @@ public static class Program
         MaxAttributesPerElement = int.MaxValue,
     };
 
+    /// <remarks>
+    /// Blocks on the task, which a console process with no synchronization context can do safely,
+    /// so that the import is started from the small caller stack the probe exists to give it.
+    /// </remarks>
     private static ImportResult Import(string format, string input) => format switch
     {
-        "html" => HtmlImporter.Import(input),
+        "html" => HtmlImporter.ImportAsync(input).GetAwaiter().GetResult(),
 
         // The pre-parse limits lifted, so that the large stack is the only protection left.
-        "html-unbounded" => HtmlImporter.Import(input, Unbounded),
-        "html-clipboard" => HtmlImporter.ImportClipboard(input),
-        "markdown" => MarkdownImporter.Import(input),
+        "html-unbounded" => HtmlImporter.ImportAsync(input, Unbounded).GetAwaiter().GetResult(),
+        "html-clipboard" => HtmlImporter.ImportClipboardAsync(input).GetAwaiter().GetResult(),
+        "markdown" => MarkdownImporter.ImportAsync(input).GetAwaiter().GetResult(),
 
         // The Markdown stage without the large stack in front of it; see ImportOnCurrentStack.
         "markdown-current-stack" => MarkdownImporter.ImportOnCurrentStack(input, MarkdownImportOptions.Default),
-        "rtf" => RtfImporter.Import(input),
-        "json" => JsonFormat.Instance.Import(input),
+        "rtf" => RtfImporter.ImportAsync(input).GetAwaiter().GetResult(),
+        "json" => JsonFormat.Instance.ImportAsync(input).GetAwaiter().GetResult(),
         _ => throw new ArgumentException($"unknown format '{format}'"),
     };
 }

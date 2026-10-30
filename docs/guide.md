@@ -531,7 +531,7 @@ cost. Import reports in the ordinary way, through `ImportResult.Diagnostics`.
 Or use them directly:
 
 ```csharp
-ImportResult result = HtmlFormat.Instance.Import(html);
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
 
 if (result.AnythingDropped)
 {
@@ -551,7 +551,7 @@ every format implements:
 ```csharp
 using var file = File.OpenRead("document.html");
 
-ImportResult fromFile = HtmlFormat.Instance.Import(file);
+ImportResult fromFile = await HtmlFormat.Instance.ImportAsync(file);
 
 using var output = File.Create("document.json");
 
@@ -561,19 +561,27 @@ JsonFormat.Instance.Export(output, fromFile.Doc);
 The stream overloads exist because a format need not be text at all: DOCX and ODT are ZIP
 containers, and a contract that only spoke in strings could not express one. A format declares
 which it is through `IDocumentFormat.TextEncoding` — an encoding for a text format, `null` for a
-binary one. For a binary format `Import(string)` returns an empty result carrying a `Malformed`
+binary one. For a binary format `ImportAsync(string)` returns an empty result carrying a `Malformed`
 diagnostic and `Export(DocumentNode)` throws `NotSupportedException`, because there is no honest
 string to return and `""` would be a document silently lost.
 
-Writing a format of your own means implementing `Import(Stream)` and `Export(Stream, doc)`. If it
-is text, implement the string overloads too and have each call your parser directly —
-`DocumentPayload.ReadAllText` and `DocumentPayload.WriteAllText` bridge the two. Never write one
-overload in terms of the other's default implementation; that recurses forever.
+Writing a format of your own means implementing `ImportAsync(Stream, CancellationToken)` and
+`Export(Stream, doc)`. If it is text, implement the string overloads too and have each call your
+parser directly — `DocumentPayload.ReadAllTextAsync` and `DocumentPayload.WriteAllText` bridge the
+two. Never write one overload in terms of the other's default implementation; that recurses forever.
+
+**Import is asynchronous and nothing else** (since 0.8.0). Every importer — `IDocumentImporter`, the
+format types and the static `HtmlImporter`, `MarkdownImporter` and `RtfImporter` — returns a
+`Task<ImportResult>`, because a large paste takes long enough to freeze whatever waits for it. The
+built-in importers parse on a thread of their own and hand back a task at once; the editor goes
+further and always runs an importer, built-in or yours, on a background thread, applying the result
+on the UI thread only if the document and selection are still where the import started. See
+[migrating to 0.8](migration-0.8.md).
 
 **Importers never throw.** They see input nobody wrote for them — a fragment from Word, a file from
-1998 — so they produce the best document they can and report, item by item, where they gave ground.
-HTML import also sanitizes: script, event handlers and dangerous URLs are removed rather than
-downgraded.
+1998 — so they produce the best document they can and report, item by item, where they gave ground;
+cancellation is the only way the task faults. HTML import also sanitizes: script, event handlers and
+dangerous URLs are removed rather than downgraded.
 
 Use **JSON to store** documents and HTML or RTF to **exchange** them. JSON is lossless — a document
 written and read back is equal to the one written — and it is the only format that carries a schema
@@ -605,7 +613,7 @@ foreach (var flavour in RichTextClipboard.Flavors)
 }
 
 byte[] payload = RichTextClipboard.Encode(HtmlFormat.Instance, doc);
-ImportResult read = RichTextClipboard.Decode(HtmlFormat.Instance, payload);
+ImportResult read = await RichTextClipboard.DecodeAsync(HtmlFormat.Instance, payload);
 ```
 
 The payload is bytes the whole way, produced by the exporter itself, so a registered binary format
@@ -617,7 +625,10 @@ travels on the clipboard unchanged.
 > looks like an unsupported payload rather than a decoding bug. `RichTextClipboard` has no method
 > anywhere that takes a payload as a `string`, so this mistake cannot be written through it.
 
-`RichTextClipboard.Read` is the synchronous overload, for a drop's `DragEventArgs.DataTransfer`.
+`DecodeAsync` runs the importer on a background thread, as the editor's own paste does. A paste and
+a drop decide what to insert by the same rule: the richest flavour that imports to anything, unless
+the transfer also carries an image and the rich import lost one to the sanitizer (a browser's "Copy
+image" is an `<img>` pointing at the network plus the bitmap), and plain text last.
 
 ## Inspecting and refusing incoming content
 
@@ -981,7 +992,7 @@ if (result is not null)
 // Restore.
 await RichTextClipboard.WriteAsync(
     clipboard,
-    JsonFormat.Instance.Import(entry.Stored).Doc,
+    (await JsonFormat.Instance.ImportAsync(entry.Stored)).Doc,
     [HtmlFormat.Instance, RtfFormat.Instance]);
 ```
 

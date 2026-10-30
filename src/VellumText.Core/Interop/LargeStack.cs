@@ -85,4 +85,74 @@ internal static class LargeStack
 
         return result;
     }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> on a large stack without blocking the caller, and completes
+    /// with its result.
+    /// </summary>
+    /// <typeparam name="T">The result type.</typeparam>
+    /// <param name="work">The work. An exception it throws faults the task.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the wait, not the work: a parser has no safe point to stop at, so a cancelled
+    /// import finishes on its own thread and its result is discarded.
+    /// </param>
+    /// <returns>A task that completes with what <paramref name="work"/> returned.</returns>
+    /// <remarks>
+    /// The asynchronous half of <see cref="Run{T}"/>, which every public importer is built on: the
+    /// thread is started and the caller gets a task back at once, rather than parking a thread of
+    /// its own on <see cref="Thread.Join()"/> for the length of the parse. A call made on a thread
+    /// this class started runs inline, as it does in <see cref="Run{T}"/>.
+    /// </remarks>
+    internal static Task<T> RunAsync<T>(Func<T> work, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<T>(cancellationToken);
+        }
+
+        if (_onLargeStack)
+        {
+            try
+            {
+                return Task.FromResult(work());
+            }
+            catch (Exception ex)
+            {
+                return Task.FromException<T>(ex);
+            }
+        }
+
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+
+        var thread = new Thread(
+            () =>
+            {
+                _onLargeStack = true;
+
+                try
+                {
+                    completion.TrySetResult(work());
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetException(ex);
+                }
+                finally
+                {
+                    registration.Dispose();
+                }
+            },
+            StackBytes)
+        {
+            IsBackground = true,
+            Name = "VellumText import",
+        };
+
+        thread.Start();
+
+        return completion.Task;
+    }
 }

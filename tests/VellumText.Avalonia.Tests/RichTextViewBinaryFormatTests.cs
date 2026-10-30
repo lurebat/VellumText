@@ -60,13 +60,13 @@ public class RichTextViewBinaryFormatTests
     }
 
     [AvaloniaFact]
-    public void Encode_and_decode_carry_a_binary_payload_between_them()
+    public async Task Encode_and_decode_carry_a_binary_payload_between_them()
     {
         var format = new ContainerFormat();
         var payload = RichTextClipboard.Encode(format, DocumentNode.FromParagraphs("hello"));
 
         Assert.Equal(Container, payload);
-        Assert.Equal("intact", DocumentText.Of(RichTextClipboard.Decode(format, payload).Doc).Trim());
+        Assert.Equal("intact", DocumentText.Of((await RichTextClipboard.DecodeAsync(format, payload)).Doc).Trim());
     }
 
     /// <summary>
@@ -74,7 +74,7 @@ public class RichTextViewBinaryFormatTests
     /// the library opens files, so this is what says a host can.
     /// </summary>
     [AvaloniaFact]
-    public void A_binary_format_survives_a_file()
+    public async Task A_binary_format_survives_a_file()
     {
         IDocumentExporter exporter = new ContainerFormat();
         IDocumentImporter importer = new ContainerFormat();
@@ -91,7 +91,7 @@ public class RichTextViewBinaryFormatTests
 
             using var reading = File.OpenRead(path);
 
-            Assert.Equal("intact", DocumentText.Of(importer.Import(reading).Doc).Trim());
+            Assert.Equal("intact", DocumentText.Of((await importer.ImportAsync(reading)).Doc).Trim());
         }
         finally
         {
@@ -131,7 +131,10 @@ public class RichTextViewBinaryFormatTests
 
         public void Export(Stream destination, DocumentNode doc) => destination.Write(Container);
 
-        public ImportResult Import(Stream source)
+        public Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ImportCore(source));
+
+        private ImportResult ImportCore(Stream source)
         {
             using var buffer = new MemoryStream();
 

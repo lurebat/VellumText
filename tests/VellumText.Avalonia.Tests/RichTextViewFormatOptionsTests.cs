@@ -23,13 +23,13 @@ namespace VellumText.Tests.Avalonia;
 public class RichTextViewFormatOptionsTests
 {
     [AvaloniaFact]
-    public void A_paste_keeps_a_remote_image_when_the_registered_format_allows_it()
+    public async Task A_paste_keeps_a_remote_image_when_the_registered_format_allows_it()
     {
         var view = Shown();
 
         view.Formats.Add(HtmlFormat.Instance.With(new HtmlImportOptions { AllowRemoteImages = true }));
 
-        Drop(view, "<p><img src='https://cdn.test/a.png'></p>");
+        await Drop(view, "<p><img src='https://cdn.test/a.png'></p>");
 
         var image = Assert.Single(Images(view));
 
@@ -41,13 +41,13 @@ public class RichTextViewFormatOptionsTests
     /// were ignored entirely and something upstream had started allowing remote images.
     /// </summary>
     [AvaloniaFact]
-    public void A_paste_still_drops_a_remote_image_when_the_registered_format_is_the_default()
+    public async Task A_paste_still_drops_a_remote_image_when_the_registered_format_is_the_default()
     {
         var view = Shown();
 
         view.Formats.Add(HtmlFormat.Instance);
 
-        Drop(view, "<p><img src='https://cdn.test/a.png'></p>");
+        await Drop(view, "<p><img src='https://cdn.test/a.png'></p>");
 
         Assert.Empty(Images(view));
     }
@@ -57,26 +57,26 @@ public class RichTextViewFormatOptionsTests
     /// registration because a host knows where its content comes from and the control does not.
     /// </summary>
     [AvaloniaFact]
-    public void A_relative_link_resolves_against_the_base_the_registered_format_carries()
+    public async Task A_relative_link_resolves_against_the_base_the_registered_format_carries()
     {
         var view = Shown();
 
         view.Formats.Add(HtmlFormat.Instance.With(
             new HtmlImportOptions { BaseUri = new Uri("https://example.com/dir/page") }));
 
-        Drop(view, "<p><a href='/somewhere'>click</a></p>");
+        await Drop(view, "<p><a href='/somewhere'>click</a></p>");
 
         Assert.Contains(Links(view), href => href == "https://example.com/somewhere");
     }
 
     [AvaloniaFact]
-    public void A_relative_link_is_still_dropped_when_the_registered_format_is_the_default()
+    public async Task A_relative_link_is_still_dropped_when_the_registered_format_is_the_default()
     {
         var view = Shown();
 
         view.Formats.Add(HtmlFormat.Instance);
 
-        Drop(view, "<p><a href='/somewhere'>click</a></p>");
+        await Drop(view, "<p><a href='/somewhere'>click</a></p>");
 
         Assert.Empty(Links(view));
     }
@@ -86,7 +86,7 @@ public class RichTextViewFormatOptionsTests
     /// the same one the view ends up importing with.
     /// </summary>
     [AvaloniaFact]
-    public void A_format_configured_on_the_shell_before_templating_is_the_one_the_view_uses()
+    public async Task A_format_configured_on_the_shell_before_templating_is_the_one_the_view_uses()
     {
         var editor = new RichTextEditor();
         var configured = HtmlFormat.Instance.With(new HtmlImportOptions { AllowRemoteImages = true });
@@ -108,7 +108,7 @@ public class RichTextViewFormatOptionsTests
         return view;
     }
 
-    private static void Drop(RichTextView view, string html)
+    private static async Task Drop(RichTextView view, string html)
     {
         var item = new DataTransferItem();
 
@@ -124,6 +124,8 @@ public class RichTextViewFormatOptionsTests
             view,
             new Point(4, 4),
             KeyModifiers.None));
+
+        await view.PendingDrop;
     }
 
     private static IEnumerable<ImageEmbed> Images(RichTextView view) =>

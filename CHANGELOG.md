@@ -10,6 +10,53 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
+These changes ship as 0.8.0 (`VersionPrefix` is set; nothing is published until
+the release is made). Importing became asynchronous, which breaks every caller
+and implementer of an importer — see [Migrating](#migrating) below and
+[migrating to 0.8](docs/migration-0.8.md).
+
+### Migrating
+
+Await an import instead of calling it:
+
+```csharp
+// 0.7
+ImportResult result = HtmlFormat.Instance.Import(html);
+
+// 0.8
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
+```
+
+Implement the asynchronous members in a custom importer — a synchronous parser
+wrapped in `Task.FromResult` is fine, because the editor runs every importer on a
+background thread regardless:
+
+```csharp
+// 0.7
+public ImportResult Import(Stream source) => Parse(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+
+// 0.8
+public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+    Parse(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
+```
+
+Replace `RichTextClipboard.Read(transfer, importers)` with
+`await RichTextClipboard.ReadAsync(transfer, importers)`. `ContentImporting` and
+`ContentImported` still run on the UI thread, but after the background import,
+and other UI work can run in between: a handler must not assume the editor is as
+it was when the paste began, and a host that needs the paste to have landed
+awaits `PasteAsync`.
+
+### Removed from the public API
+
+- `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
+  on `HtmlFormat`, `MarkdownFormat`, `RtfFormat` and `JsonFormat` — replaced by
+  `ImportAsync(…, CancellationToken)`.
+- `HtmlImporter.Import` and `ImportClipboard`, `MarkdownImporter.Import` and
+  `RtfImporter.Import` — replaced by their `…Async` forms.
+- `RichTextClipboard.Read(IDataTransfer, …)` and `Decode` — use `ReadAsync` and
+  `DecodeAsync`.
+- `DocumentPayload.ReadAllText` — use `ReadAllTextAsync`.
 ### Security
 
 - **Importing can no longer crash the host with a stack overflow inside a
@@ -168,8 +215,37 @@ NuGet; packages are published to a local feed, and
   step's map matched rows and cells by value, and an inserted empty cell equals
   its empty neighbours, so the caret landed one column left or one row up.
 
+- **A browser's "Copy image" pastes the image.** Chrome puts an `<img>` pointing
+  at the network beside the bitmap; the sanitizer removed the remote image and
+  the paste inserted nothing while returning `true`. Paste and drop now resolve a
+  transfer by one rule: rich formats first, but an image on the transfer wins
+  when the rich import lost one to the sanitizer or produced nothing, and plain
+  text last. Drop used to prefer the image and build plain text into body
+  paragraphs, so the same clip landed differently by gesture.
+- **A `ContentImported` handler that throws reaches the host** instead of being
+  swallowed while `PasteAsync` returned `false` for a paste that had landed. A
+  `ContentImporting` policy that throws on a paste the user started still only
+  refuses that paste.
+- **Importing styled HTML or RTF costs a parse per distinct style, not per
+  element.** RtfPipe writes the same few `style` strings on every element of a
+  Word document, and each was parsed while the DOM was built and again by the
+  sanitizer: 10,000 paragraphs allocated 850 MB against 35 MB without the
+  styles. The DOM is now built without CSS support, each distinct style value is
+  sanitized once by the same sanitizer and parsed once, and the import allocates
+  about 110 MB.
+
 ### Changed
 
+- **Importing is asynchronous, and only asynchronous.** A paste of a large web
+  page or Word document froze whatever waited for it — the UI thread, in the
+  editor — for seconds, and a synchronous import member invites exactly that
+  wait. Importers still never throw for bad input; cancellation is the only way
+  their task faults. Exporters are unchanged.
+- **The editor runs every importer on a background thread**, built-in or not,
+  and applies the result on the UI thread only if nothing has moved: a newer
+  paste or drop, the host loading another document, or a retemplate abandons
+  an import still running, and a moved caret or swapped document refuses its
+  result. A document a `ContentImporting` handler changes is not pasted into.
 - **`RichTextToolbar` disables its commands while the editor it is bound to is
   read-only** (`CanExecute` is false and `CanExecuteChanged` is raised when
   `IsReadOnly` toggles). The rule that commands are always enabled still holds

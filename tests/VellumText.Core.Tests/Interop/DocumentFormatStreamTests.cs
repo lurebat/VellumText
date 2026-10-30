@@ -18,7 +18,7 @@ public class DocumentFormatStreamTests
     private static readonly byte[] Hostile = [0x00, 0xFF, 0xFE, 0x41, 0x00, 0x80, 0x50];
 
     [Fact]
-    public void ABinaryFormatRoundTripsThroughAStreamUnchanged()
+    public async Task ABinaryFormatRoundTripsThroughAStreamUnchanged()
     {
         var format = new Opaque();
 
@@ -30,7 +30,7 @@ public class DocumentFormatStreamTests
 
         using var read = new MemoryStream(written.ToArray(), writable: false);
 
-        Assert.Equal("intact", DocumentText.Of(format.Import(read).Doc).Trim());
+        Assert.Equal("intact", DocumentText.Of((await format.ImportAsync(read)).Doc).Trim());
     }
 
     [Fact]
@@ -48,11 +48,11 @@ public class DocumentFormatStreamTests
     }
 
     [Fact]
-    public void ABinaryFormatRefusesTheStringImportRatherThanGuessing()
+    public async Task ABinaryFormatRefusesTheStringImportRatherThanGuessing()
     {
         IDocumentImporter format = new Opaque();
 
-        var result = format.Import("not that it could mean anything");
+        var result = await format.ImportAsync("not that it could mean anything");
 
         Assert.True(result.IsEmpty);
         Assert.Equal(DiagnosticSeverity.Malformed, Assert.Single(result.Diagnostics).Severity);
@@ -72,7 +72,7 @@ public class DocumentFormatStreamTests
     }
 
     [Fact]
-    public void ATextFormatThatOnlyImplementsStreamsStillAnswersTheStringMembers()
+    public async Task ATextFormatThatOnlyImplementsStreamsStillAnswersTheStringMembers()
     {
         // The default implementations, which is what keeps the string path free for the formats
         // that are genuinely text without making every format write it twice. They are default
@@ -81,16 +81,16 @@ public class DocumentFormatStreamTests
         IDocumentExporter exporter = new StreamsOnly();
 
         Assert.Equal("hello", exporter.Export(DocumentNode.FromParagraphs("hello")).Trim());
-        Assert.Equal("hello", DocumentText.Of(importer.Import("hello").Doc).Trim());
+        Assert.Equal("hello", DocumentText.Of((await importer.ImportAsync("hello")).Doc).Trim());
     }
 
     [Fact]
-    public void TheStringMembersRejectNulls()
+    public async Task TheStringMembersRejectNulls()
     {
         IDocumentImporter importer = new StreamsOnly();
         IDocumentExporter exporter = new StreamsOnly();
 
-        Assert.Throws<ArgumentNullException>(() => importer.Import((string)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => importer.ImportAsync((string)null!));
         Assert.Throws<ArgumentNullException>(() => exporter.Export((DocumentNode)null!));
     }
 
@@ -108,33 +108,33 @@ public class DocumentFormatStreamTests
     }
 
     [Fact]
-    public void ReadAllTextLeavesTheStreamOpenForWhateverComesNext()
+    public async Task ReadAllTextLeavesTheStreamOpenForWhateverComesNext()
     {
         // The caller owns the stream. A reader that closed it would make a format the last thing
         // that could ever read from a transfer carrying more than one.
         using var buffer = new MemoryStream(Encoding.UTF8.GetBytes("first"));
 
-        Assert.Equal("first", DocumentPayload.ReadAllText(buffer, Encoding.UTF8));
+        Assert.Equal("first", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.UTF8));
         Assert.True(buffer.CanRead);
     }
 
     [Fact]
-    public void ReadAllTextHonoursAByteOrderMarkOverTheEncodingItWasGiven()
+    public async Task ReadAllTextHonoursAByteOrderMarkOverTheEncodingItWasGiven()
     {
         // A file written by another application announces its own encoding, and taking the given
         // one anyway puts three stray characters at the front of the document.
         using var buffer = new MemoryStream([.. Encoding.UTF8.GetPreamble(), .. "hi"u8.ToArray()]);
 
-        Assert.Equal("hi", DocumentPayload.ReadAllText(buffer, Encoding.Latin1));
+        Assert.Equal("hi", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.Latin1));
     }
 
     [Fact]
-    public void PayloadHelpersRejectNulls()
+    public async Task PayloadHelpersRejectNulls()
     {
         using var buffer = new MemoryStream();
 
-        Assert.Throws<ArgumentNullException>(() => DocumentPayload.ReadAllText(null!, Encoding.UTF8));
-        Assert.Throws<ArgumentNullException>(() => DocumentPayload.ReadAllText(buffer, null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(null!, Encoding.UTF8));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(buffer, null!));
         Assert.Throws<ArgumentNullException>(
             () => DocumentPayload.WriteAllText(null!, Encoding.UTF8, "x"));
         Assert.Throws<ArgumentNullException>(() => DocumentPayload.WriteAllText(buffer, null!, "x"));
@@ -159,7 +159,10 @@ public class DocumentFormatStreamTests
             destination.Write(Hostile);
         }
 
-        public ImportResult Import(Stream source)
+        public Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ImportCore(source));
+
+        private ImportResult ImportCore(Stream source)
         {
             ArgumentNullException.ThrowIfNull(source);
 
@@ -185,8 +188,8 @@ public class DocumentFormatStreamTests
         public void Export(Stream destination, DocumentNode doc) =>
             DocumentPayload.WriteAllText(destination, Encoding.UTF8, DocumentText.Of(doc));
 
-        public ImportResult Import(Stream source) =>
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
             new(DocumentNode.FromParagraphs(
-                DocumentPayload.ReadAllText(source, Encoding.UTF8).Split('\n')));
+                (await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken)).Split('\n')));
     }
 }

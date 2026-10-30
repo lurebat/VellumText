@@ -68,11 +68,18 @@ public sealed class MarkdownFormat : IDocumentImporter, IDocumentExporter
     public Encoding? TextEncoding => Encoding.UTF8;
 
     /// <inheritdoc/>
-    public ImportResult Import(string text) => MarkdownImporter.Import(text, ImportOptions);
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) =>
+        MarkdownImporter.ImportAsync(text, ImportOptions, cancellationToken);
 
     /// <inheritdoc/>
-    public ImportResult Import(Stream source) =>
-        MarkdownImporter.Import(DocumentPayload.ReadAllText(source, Encoding.UTF8), ImportOptions);
+    public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+    {
+        var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await MarkdownImporter.ImportAsync(text, ImportOptions, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     public string Export(DocumentNode doc) => MarkdownExporter.Instance.Export(doc);

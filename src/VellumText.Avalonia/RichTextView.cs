@@ -168,6 +168,10 @@ public partial class RichTextView : DocumentPresenter
             // different document clears it: caret moves arrive through the same setter and a
             // vertical run depends on the column surviving them.
             _goalX = null;
+
+            // An import still running belongs to the document that is no longer here. Its result
+            // would be refused by StillAt anyway; cancelling stops waiting for it.
+            CancelImport();
         }
 
         OnStateChanged();

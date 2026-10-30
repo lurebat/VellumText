@@ -54,14 +54,14 @@ public class RichTextViewFormatTests
     }
 
     [AvaloniaFact]
-    public void A_copied_html_flavour_reads_back_as_the_document_that_was_copied()
+    public async Task A_copied_html_flavour_reads_back_as_the_document_that_was_copied()
     {
         var view = Editor(Styled);
 
         view.Formats.Add(HtmlFormat.Instance);
 
         var item = Assert.Single(view.BuildCopyData("bold and plain").Items);
-        var doc = HtmlFormat.Instance.Import(Decode(item, "html")).Doc;
+        var doc = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"))).Doc;
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(doc.Blocks));
 
         Assert.Equal("bold and plain", paragraph.Content.Text);
@@ -71,14 +71,14 @@ public class RichTextViewFormatTests
     }
 
     [AvaloniaFact]
-    public void A_copied_rtf_flavour_reads_back_as_the_document_that_was_copied()
+    public async Task A_copied_rtf_flavour_reads_back_as_the_document_that_was_copied()
     {
         var view = Editor(Styled);
 
         view.Formats.Add(RtfFormat.Instance);
 
         var item = Assert.Single(view.BuildCopyData("bold and plain").Items);
-        var doc = RtfFormat.Instance.Import(Decode(item, "rtf")).Doc;
+        var doc = (await RtfFormat.Instance.ImportAsync(Decode(item, "rtf"))).Doc;
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(doc.Blocks));
 
         Assert.Equal("bold and plain", paragraph.Content.Text);
@@ -90,7 +90,7 @@ public class RichTextViewFormatTests
     /// and pasting all three back is the bug this exists to keep out.
     /// </summary>
     [AvaloniaFact]
-    public void A_copy_carries_only_the_selection()
+    public async Task A_copy_carries_only_the_selection()
     {
         var doc = DocumentNode.FromParagraphs("first", "second", "third");
         var view = Editor(doc);
@@ -101,7 +101,7 @@ public class RichTextViewFormatTests
         view.State = EditorState.Create(doc, TextSelection.Create(doc, 8, 14));
 
         var item = Assert.Single(view.BuildCopyData(view.SelectedText()).Items);
-        var copied = HtmlFormat.Instance.Import(Decode(item, "html")).Doc;
+        var copied = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"))).Doc;
 
         Assert.Equal("second", Assert.IsType<ParagraphNode>(Assert.Single(copied.Blocks)).Content.Text);
     }
@@ -351,8 +351,8 @@ public class RichTextViewFormatTests
 
         public ImportResult Import(string text) => new(DocumentNode.FromParagraphs(text));
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
     }
 
     private sealed class InertFormat : IDocumentFormat

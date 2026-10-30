@@ -15,7 +15,7 @@ namespace VellumText.Tests.Interop.Rtf;
 public class RtfEmptyRowTests
 {
     [Fact]
-    public void ARowCoveredEntirelyByAMergeStillComesBackAsATable()
+    public async Task ARowCoveredEntirelyByAMergeStillComesBackAsATable()
     {
         var doc = new DocumentNode([
             new TableNode([
@@ -27,7 +27,7 @@ public class RtfEmptyRowTests
             ]),
         ]);
 
-        var back = RtfFormat.Instance.Import(RtfFormat.Instance.Export(doc));
+        var back = await RtfFormat.Instance.ImportAsync(RtfFormat.Instance.Export(doc));
 
         Assert.Contains(back.Doc.Blocks, block => block is TableNode);
         Assert.Contains("merged", DocumentText.Of(back.Doc), StringComparison.Ordinal);

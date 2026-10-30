@@ -21,7 +21,7 @@ namespace VellumText.Tests.Interop.Html;
 public class HtmlEmptyRowTests
 {
     [Fact]
-    public void ARowCoveredEntirelyByAMergeSurvivesTheRoundTrip()
+    public async Task ARowCoveredEntirelyByAMergeSurvivesTheRoundTrip()
     {
         var doc = new DocumentNode([
             new TableNode([
@@ -37,7 +37,7 @@ public class HtmlEmptyRowTests
 
         Assert.Contains("rowspan=\"2\"", html, StringComparison.Ordinal);
 
-        var back = HtmlFormat.Instance.Import(html);
+        var back = await HtmlFormat.Instance.ImportAsync(html);
         var table = Assert.IsType<TableNode>(Assert.Single(back.Doc.Blocks));
 
         Assert.Equal(2, table.Rows.Length);
@@ -50,11 +50,11 @@ public class HtmlEmptyRowTests
     }
 
     [Fact]
-    public void AStrayEmptyRowNothingCoversIsStillDropped()
+    public async Task AStrayEmptyRowNothingCoversIsStillDropped()
     {
         // What arrives from a word processor. Keeping it would make the table ragged, and a
         // ragged table loses its grid entirely, so the row goes and the table survives.
-        var back = HtmlFormat.Instance.Import(
+        var back = await HtmlFormat.Instance.ImportAsync(
             "<table><tr><td>a</td><td>b</td></tr><tr></tr><tr><td>c</td><td>d</td></tr></table>");
 
         var table = Assert.IsType<TableNode>(Assert.Single(back.Doc.Blocks));
@@ -64,9 +64,9 @@ public class HtmlEmptyRowTests
     }
 
     [Fact]
-    public void ATableOfNothingButEmptyRowsIsNotATable()
+    public async Task ATableOfNothingButEmptyRowsIsNotATable()
     {
-        var back = HtmlFormat.Instance.Import("<table><tr></tr><tr></tr></table>");
+        var back = await HtmlFormat.Instance.ImportAsync("<table><tr></tr><tr></tr></table>");
 
         Assert.DoesNotContain(back.Doc.Blocks, block => block is TableNode);
         Assert.True(

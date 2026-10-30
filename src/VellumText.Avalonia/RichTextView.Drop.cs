@@ -10,9 +10,9 @@ namespace VellumText.Avalonia;
 /// <remarks>
 /// <para>
 /// A drop and a paste are the same problem wearing different clothes — a transfer from another
-/// application holding several flavours of one thing — so both end up in
-/// <see cref="RichTextClipboard.ReadAsync(IAsyncDataTransfer, IEnumerable{IDocumentImporter})"/>
-/// and differ only in where the caret goes first.
+/// application holding several flavours of one thing — so both are decided by one resolver,
+/// <c>RichTextClipboard.ResolveAsync</c>, and differ only in where the caret goes first and in
+/// when the flavours are read: a drop's inside the drop event, a paste's as they are asked for.
 /// </para>
 /// <para>
 /// Images are the exception, because the model holds a reference and a transfer holds pixels.
@@ -126,46 +126,14 @@ public partial class RichTextView
     private static DocumentNode ImageDocument(string source) =>
         new([new ParagraphNode(InlineContent.FromEmbed(new ImageEmbed(source)))]);
 
-    /// <summary>Reads an image out of a transfer whose contents are already in hand.</summary>
-    private async Task<bool> InsertImageFrom(IDataTransfer data, EditOrigin origin)
-    {
-        if (data.TryGetBitmap() is { } bitmap)
-        {
-            using (bitmap)
-            {
-                if (Encode(bitmap) is { } png)
-                {
-                    return StillAt(origin) && InsertImage(png, "image/png");
-                }
-            }
-        }
-
-        // Checked after the file read, not before it: reading from disk is the longest await on
-        // any of these paths and so the likeliest to outlive the document it started in.
-        return data.TryGetFiles() is { } files
-            && await InsertImageFiles(files, origin).ConfigureAwait(true);
-    }
-
-    /// <summary>Reads an image out of a transfer that has to be awaited, as a clipboard's is.</summary>
-    private async Task<bool> InsertImageFrom(IAsyncDataTransfer data, EditOrigin origin)
-    {
-        if (await data.TryGetBitmapAsync().ConfigureAwait(true) is { } bitmap)
-        {
-            using (bitmap)
-            {
-                if (Encode(bitmap) is { } png)
-                {
-                    return StillAt(origin) && InsertImage(png, "image/png");
-                }
-            }
-        }
-
-        return await data.TryGetFilesAsync().ConfigureAwait(true) is { } files
-            && await InsertImageFiles(files, origin).ConfigureAwait(true);
-    }
-
     /// <summary>Inserts every image among some dropped or pasted files.</summary>
-    private async Task<bool> InsertImageFiles(IEnumerable<IStorageItem> files, EditOrigin origin)
+    /// <remarks>
+    /// The origin and the token are checked after each file read, not before: reading from disk
+    /// is the longest await on any of these paths and so the likeliest to outlive the document it
+    /// started in, or to be overtaken by a newer paste or drop.
+    /// </remarks>
+    private async Task<bool> InsertImageFiles(
+        IEnumerable<IStorageItem> files, EditOrigin origin, CancellationToken cancellation)
     {
         var inserted = false;
 
@@ -185,8 +153,10 @@ public partial class RichTextView
 
                 // Re-checked per file. A multi-file drop can take long enough for the document
                 // to change between one file and the next, and the files after that point
-                // would otherwise land in it.
-                if (!StillAt(origin))
+                // would otherwise land in it. The token as well as the origin: a newer import
+                // still in flight has not changed the document yet, and landing these first
+                // would make it fail its own origin check, so the older gesture would win.
+                if (cancellation.IsCancellationRequested || !StillAt(origin))
                 {
                     break;
                 }
@@ -212,22 +182,6 @@ public partial class RichTextView
         return inserted;
     }
 
-    /// <summary>Re-encodes a bitmap as PNG, since a transfer hands over decoded pixels.</summary>
-    private static byte[]? Encode(Bitmap bitmap)
-    {
-        try
-        {
-            using var buffer = new MemoryStream();
-
-            bitmap.Save(buffer, new PngBitmapEncoderOptions());
-
-            return buffer.ToArray();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
 
     /// <summary>The media type a filename implies, or null when it is not an image.</summary>
     /// <remarks>
@@ -253,7 +207,10 @@ public partial class RichTextView
         e.Handled = true;
     }
 
-    private async void OnDrop(object? sender, DragEventArgs e)
+    /// <summary>The import a drop started, for a test to await; completed when there is none.</summary>
+    internal Task PendingDrop { get; private set; } = Task.CompletedTask;
+
+    private void OnDrop(object? sender, DragEventArgs e)
     {
         if (!CanAcceptDrop())
         {
@@ -268,30 +225,42 @@ public partial class RichTextView
         // aimed rather than wherever the caret happened to have been left.
         MoveTo(PositionAt(e.GetPosition(this)), extend: false);
 
-        // Settled after the caret has been aimed and before the first await. Reading a file can
-        // take arbitrarily long, and this is async void, so by the time it returns the host may
-        // have loaded a different document entirely - and the position aimed at belonged to the
-        // old one.
+        // Settled after the caret has been aimed and before anything is awaited. The import runs
+        // on a background thread and a file read can take arbitrarily long, so by the time either
+        // returns the host may have loaded a different document entirely - and the position aimed
+        // at belonged to the old one.
         var origin = CurrentOrigin();
+        TransferSource source;
 
         try
         {
-            if (await InsertImageFrom(e.DataTransfer, origin).ConfigureAwait(true))
-            {
-                return;
-            }
-
-            if (StillAt(origin)
-                && RichTextClipboard.Read(e.DataTransfer, ReadableFormats())
-                    is { Doc.Blocks.IsEmpty: false } result)
-            {
-                PasteImport(result);
-            }
+            // Every flavour is read now, inside the event: the drag data is not promised to
+            // outlive the handler on every platform, and what follows does.
+            source = TransferSource.Snapshot(e.DataTransfer, ReadableFormats());
         }
         catch (Exception)
         {
-            // async void: nothing above this can catch, and a drop from a misbehaving source must
-            // not take the application down.
+            // A drop from a misbehaving source must not take the application down.
+            return;
+        }
+
+        PendingDrop = DropAsync(source, origin, BeginImport());
+    }
+
+    private async Task DropAsync(TransferSource source, EditOrigin origin, CancellationToken cancellation)
+    {
+        try
+        {
+            var resolution = await RichTextClipboard
+                .ResolveAsync(source, ReadableFormats(), cancellation)
+                .ConfigureAwait(true);
+
+            await Insert(resolution, origin, cancellation).ConfigureAwait(true);
+        }
+        catch (Exception)
+        {
+            // Nothing awaits a drop: it starts from an event, so an exception here - a host
+            // handler's included - would reach no handler at all.
         }
     }
 

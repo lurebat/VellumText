@@ -72,11 +72,18 @@ public sealed class HtmlFormat : IDocumentImporter, IDocumentExporter
     public Encoding? TextEncoding => Encoding.UTF8;
 
     /// <inheritdoc/>
-    public ImportResult Import(string text) => HtmlImporter.ImportClipboard(text, ImportOptions);
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) =>
+        HtmlImporter.ImportClipboardAsync(text, ImportOptions, cancellationToken);
 
     /// <inheritdoc/>
-    public ImportResult Import(Stream source) =>
-        HtmlImporter.ImportClipboard(DocumentPayload.ReadAllText(source, Encoding.UTF8), ImportOptions);
+    public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+    {
+        var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await HtmlImporter.ImportClipboardAsync(text, ImportOptions, cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <inheritdoc/>
     /// <remarks>

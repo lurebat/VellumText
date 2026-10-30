@@ -31,10 +31,10 @@ public class RtfExportTests
     /// <summary>The size the exported header implies, in the pixels the model measures in.</summary>
     private const double DefaultSize = 16;
 
-    private static DocumentNode RoundTrip(DocumentNode doc)
+    private static async Task<DocumentNode> RoundTrip(DocumentNode doc)
     {
         var rtf = RtfExporter.Instance.Export(doc);
-        var result = RtfImporter.Import(rtf);
+        var result = await RtfImporter.ImportAsync(rtf);
 
         return result.Doc;
     }
@@ -116,8 +116,8 @@ public class RtfExportTests
         _ => DefaultSize,
     };
 
-    private static void Survives(DocumentNode doc) =>
-        Assert.Equal(Normalize(doc), Normalize(RoundTrip(doc)));
+    private static async Task Survives(DocumentNode doc) =>
+        Assert.Equal(Normalize(doc), Normalize(await RoundTrip(doc)));
 
     private static string TextOf(DocumentNode doc) =>
         string.Join("\n", doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
@@ -128,8 +128,8 @@ public class RtfExportTests
     // ---- the words themselves -----------------------------------------------------------------
 
     [Fact]
-    public void The_words_survive() =>
-        Survives(DocumentNode.FromParagraphs("first", "second", "third"));
+    public async Task The_words_survive() =>
+        await Survives(DocumentNode.FromParagraphs("first", "second", "third"));
 
     [Fact]
     public void An_empty_document_does_not_throw() =>
@@ -144,8 +144,8 @@ public class RtfExportTests
     [InlineData("{braced}")]
     [InlineData(@"}\{")]
     [InlineData(@"C:\Users\name")]
-    public void Rtf_punctuation_in_the_text_is_escaped(string text) =>
-        Survives(DocumentNode.FromParagraphs(text));
+    public async Task Rtf_punctuation_in_the_text_is_escaped(string text) =>
+        await Survives(DocumentNode.FromParagraphs(text));
 
     /// <summary>
     /// RTF's body is bytes in a code page, so anything outside it travels as a \u escape — and
@@ -157,12 +157,12 @@ public class RtfExportTests
     [InlineData("\ud83d\udc69\u200d\ud83d\udc67")]
     [InlineData("a\u0301 combining")]
     [InlineData("\u20ac\u00a3\u00a5")]
-    public void Text_outside_the_code_page_survives(string text) =>
-        Survives(DocumentNode.FromParagraphs(text));
+    public async Task Text_outside_the_code_page_survives(string text) =>
+        await Survives(DocumentNode.FromParagraphs(text));
 
     [Fact]
-    public void A_line_break_inside_a_paragraph_stays_a_line_break() =>
-        Survives(DocumentNode.FromParagraphs("one\ntwo\nthree"));
+    public async Task A_line_break_inside_a_paragraph_stays_a_line_break() =>
+        await Survives(DocumentNode.FromParagraphs("one\ntwo\nthree"));
 
     /// <summary>
     /// A tab is written as RTF's own tab control word, which is what a word processor reads.
@@ -181,20 +181,20 @@ public class RtfExportTests
     [InlineData(TextStyle.Strikethrough)]
     [InlineData(TextStyle.Super)]
     [InlineData(TextStyle.Sub)]
-    public void Character_formatting_survives(TextStyle style) =>
-        Survives(Styled("plain marked plain", 6, 6, new MarkSet { Style = style }));
+    public async Task Character_formatting_survives(TextStyle style) =>
+        await Survives(Styled("plain marked plain", 6, 6, new MarkSet { Style = style }));
 
     [Fact]
-    public void Several_styles_at_once_survive() =>
-        Survives(Styled(
+    public async Task Several_styles_at_once_survive() =>
+        await Survives(Styled(
             "plain marked plain",
             6,
             6,
             new MarkSet { Style = TextStyle.Bold | TextStyle.Italic | TextStyle.Underline }));
 
     [Fact]
-    public void Adjacent_runs_do_not_leak_into_each_other() =>
-        Survives(new DocumentNode([new ParagraphNode(InlineContent.Create(
+    public async Task Adjacent_runs_do_not_leak_into_each_other() =>
+        await Survives(new DocumentNode([new ParagraphNode(InlineContent.Create(
             "boldplainitalic",
             [
                 new ValueSpan<MarkSet>(0, 4, new MarkSet { Style = TextStyle.Bold }),
@@ -203,12 +203,12 @@ public class RtfExportTests
             []))]));
 
     [Fact]
-    public void Colour_survives() =>
-        Survives(Styled("plain marked plain", 6, 6, new MarkSet { Foreground = Rgba.FromRgb(200, 30, 40) }));
+    public async Task Colour_survives() =>
+        await Survives(Styled("plain marked plain", 6, 6, new MarkSet { Foreground = Rgba.FromRgb(200, 30, 40) }));
 
     [Fact]
-    public void A_highlight_survives() =>
-        Survives(Styled("plain marked plain", 6, 6, new MarkSet { Highlight = Rgba.FromRgb(255, 255, 0) }));
+    public async Task A_highlight_survives() =>
+        await Survives(Styled("plain marked plain", 6, 6, new MarkSet { Highlight = Rgba.FromRgb(255, 255, 0) }));
 
     [Fact]
     public void One_colour_used_twice_is_written_to_the_table_once()
@@ -227,22 +227,22 @@ public class RtfExportTests
     }
 
     [Fact]
-    public void A_font_family_survives() =>
-        Survives(Styled("plain marked plain", 6, 6, new MarkSet { FontFamily = "Georgia" }));
+    public async Task A_font_family_survives() =>
+        await Survives(Styled("plain marked plain", 6, 6, new MarkSet { FontFamily = "Georgia" }));
 
     [Fact]
-    public void A_font_size_survives() =>
-        Survives(Styled("plain marked plain", 6, 6, new MarkSet { FontSize = 32 }));
+    public async Task A_font_size_survives() =>
+        await Survives(Styled("plain marked plain", 6, 6, new MarkSet { FontSize = 32 }));
 
     [Fact]
-    public void A_link_survives()
+    public async Task A_link_survives()
     {
         var doc = new DocumentNode([new ParagraphNode(InlineContent.Create(
             "see here now",
             [new ValueSpan<MarkSet>(4, 4, new MarkSet { Link = new LinkMark("https://example.com/x?a=1&b=2") })],
             []))]);
 
-        var back = RoundTrip(doc);
+        var back = await RoundTrip(doc);
 
         Assert.Equal("see here now", TextOf(back));
         Assert.Equal("https://example.com/x?a=1&b=2", Para(back).Content.MarkAt(4).Link?.Href);
@@ -255,14 +255,14 @@ public class RtfExportTests
     /// after it would be read as further field instructions.
     /// </summary>
     [Fact]
-    public void A_link_target_cannot_break_out_of_its_field()
+    public async Task A_link_target_cannot_break_out_of_its_field()
     {
         var doc = new DocumentNode([new ParagraphNode(InlineContent.Create(
             "click",
             [new ValueSpan<MarkSet>(0, 5, new MarkSet { Link = new LinkMark("https://x/\"}{\\evil") })],
             []))]);
 
-        Assert.Equal("click", TextOf(RoundTrip(doc)));
+        Assert.Equal("click", TextOf(await RoundTrip(doc)));
     }
 
     // ---- paragraphs ---------------------------------------------------------------------------
@@ -272,16 +272,16 @@ public class RtfExportTests
     [InlineData(TextAlign.Right)]
     [InlineData(TextAlign.Justify)]
     [InlineData(TextAlign.Default)]
-    public void Alignment_survives(TextAlign align) =>
-        Survives(new DocumentNode([
+    public async Task Alignment_survives(TextAlign align) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text"), ParagraphKind.Body, align)]));
 
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(5)]
-    public void Indent_depth_survives(int level) =>
-        Survives(new DocumentNode([
+    public async Task Indent_depth_survives(int level) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text"), ParagraphKind.Body, TextAlign.Default, level)]));
 
     /// <summary>
@@ -303,9 +303,9 @@ public class RtfExportTests
     [InlineData(ParagraphKind.Heading4, 19.333333333333332)]
     [InlineData(ParagraphKind.Heading5, 17.333333333333332)]
     [InlineData(ParagraphKind.Heading6, 16.0)]
-    public void A_heading_is_exported_at_the_size_the_editor_draws_it(ParagraphKind kind, double expected)
+    public async Task A_heading_is_exported_at_the_size_the_editor_draws_it(ParagraphKind kind, double expected)
     {
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("title"), kind)]));
 
         // Level 6 is drawn at body size, so RTF states nothing and the run comes back with the
@@ -320,11 +320,11 @@ public class RtfExportTests
     [InlineData(ParagraphKind.Heading4)]
     [InlineData(ParagraphKind.Heading5)]
     [InlineData(ParagraphKind.Heading6)]
-    public void A_heading_survives_as_a_heading(ParagraphKind kind)
+    public async Task A_heading_survives_as_a_heading(ParagraphKind kind)
     {
         // \outlinelevel is the one part of a heading RTF can state outright, and it is enough for
         // the level to come back. The size and weight travel separately, as appearance.
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("title"), kind)]));
 
         Assert.Equal(kind, Para(back).Kind);
@@ -334,23 +334,23 @@ public class RtfExportTests
     // ---- lists --------------------------------------------------------------------------------
 
     [Fact]
-    public void A_bullet_list_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_bullet_list_survives() =>
+        await Survives(new DocumentNode([
             new ListNode([ListItemNode.FromText("one"), ListItemNode.FromText("two")], ListKind.Unordered)]));
 
     [Fact]
-    public void A_numbered_list_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_numbered_list_survives() =>
+        await Survives(new DocumentNode([
             new ListNode([ListItemNode.FromText("one"), ListItemNode.FromText("two")], ListKind.Ordered)]));
 
     [Fact]
-    public void A_numbered_list_keeps_its_starting_number() =>
-        Survives(new DocumentNode([
+    public async Task A_numbered_list_keeps_its_starting_number() =>
+        await Survives(new DocumentNode([
             new ListNode([ListItemNode.FromText("seven"), ListItemNode.FromText("eight")], ListKind.Ordered, 7)]));
 
     [Fact]
-    public void Formatting_inside_a_list_item_survives() =>
-        Survives(new DocumentNode([
+    public async Task Formatting_inside_a_list_item_survives() =>
+        await Survives(new DocumentNode([
             new ListNode(
                 [new ListItemNode([new ParagraphNode(InlineContent.Create(
                     "plain bold",
@@ -361,7 +361,7 @@ public class RtfExportTests
     // ---- tables -------------------------------------------------------------------------------
 
     [Fact]
-    public void A_table_survives_with_its_shape_and_its_words()
+    public async Task A_table_survives_with_its_shape_and_its_words()
     {
         var doc = new DocumentNode([
             new TableNode([
@@ -372,7 +372,7 @@ public class RtfExportTests
                     new TableCellNode([ParagraphNode.FromText("three")]),
                     new TableCellNode([ParagraphNode.FromText("four")])])])]);
 
-        var table = Assert.IsType<TableNode>(Assert.Single(RoundTrip(doc).Blocks));
+        var table = Assert.IsType<TableNode>(Assert.Single((await RoundTrip(doc)).Blocks));
 
         Assert.Equal(2, table.Rows.Length);
         Assert.All(table.Rows, row => Assert.Equal(2, row.Cells.Length));
@@ -388,9 +388,9 @@ public class RtfExportTests
     /// quote comes back as an indented paragraph — which is what it looked like.
     /// </summary>
     [Fact]
-    public void A_quote_arrives_as_an_indent()
+    public async Task A_quote_arrives_as_an_indent()
     {
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("quoted"), ParagraphKind.Quote)]));
 
         Assert.Equal(ParagraphKind.Body, Para(back).Kind);
@@ -403,9 +403,9 @@ public class RtfExportTests
     /// font a reader would draw it in is not something the model records at block level.
     /// </summary>
     [Fact]
-    public void A_code_block_keeps_its_words_but_not_its_kind()
+    public async Task A_code_block_keeps_its_words_but_not_its_kind()
     {
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("var x = 1;"), ParagraphKind.Code)]));
 
         Assert.Equal(ParagraphKind.Body, Para(back).Kind);
@@ -419,9 +419,9 @@ public class RtfExportTests
     /// <see cref="RtfImporter"/> documents; the words of each line are compared without it.
     /// </summary>
     [Fact]
-    public void A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines()
+    public async Task A_multi_line_code_block_comes_back_as_one_paragraph_with_the_same_lines()
     {
-        var back = RoundTrip(new DocumentNode([
+        var back = await RoundTrip(new DocumentNode([
             ParagraphNode.FromText("before"),
             new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
             ParagraphNode.FromText("after")]));
@@ -438,13 +438,13 @@ public class RtfExportTests
     /// so the emphasis survives and the role does not.
     /// </summary>
     [Fact]
-    public void A_header_cell_keeps_its_emphasis_but_not_its_role()
+    public async Task A_header_cell_keeps_its_emphasis_but_not_its_role()
     {
         var doc = new DocumentNode([
             new TableNode([
                 new TableRowNode([new TableCellNode([ParagraphNode.FromText("head")], isHeader: true)])])]);
 
-        var table = Assert.IsType<TableNode>(Assert.Single(RoundTrip(doc).Blocks));
+        var table = Assert.IsType<TableNode>(Assert.Single((await RoundTrip(doc)).Blocks));
         var cell = table.Rows[0].Cells[0];
         var paragraph = (ParagraphNode)cell.Blocks[0];
 
@@ -459,8 +459,8 @@ public class RtfExportTests
     [Theory]
     [InlineData(" leading", "leading")]
     [InlineData("trailing ", "trailing")]
-    public void A_space_at_the_edge_of_a_paragraph_is_lost(string written, string read) =>
-        Assert.Equal(read, TextOf(RoundTrip(DocumentNode.FromParagraphs(written))));
+    public async Task A_space_at_the_edge_of_a_paragraph_is_lost(string written, string read) =>
+        Assert.Equal(read, TextOf(await RoundTrip(DocumentNode.FromParagraphs(written))));
 
     /// <summary>
     /// Whitespace between words is written faithfully — RTF keeps every space, and a word
@@ -472,12 +472,12 @@ public class RtfExportTests
     [Theory]
     [InlineData("two  spaces", "two  spaces", "two \u00a0spaces")]
     [InlineData("left\tright", @"\tab ", "leftright")]
-    public void Whitespace_between_words_is_written_faithfully(string text, string written, string read)
+    public async Task Whitespace_between_words_is_written_faithfully(string text, string written, string read)
     {
         var doc = DocumentNode.FromParagraphs(text);
 
         Assert.Contains(written, RtfExporter.Instance.Export(doc));
-        Assert.Equal(read, TextOf(RoundTrip(doc)));
+        Assert.Equal(read, TextOf(await RoundTrip(doc)));
     }
 
     // ---- the exporter itself ------------------------------------------------------------------
@@ -495,7 +495,7 @@ public class RtfExportTests
 
     /// <summary>Everything at once, which is what a real copy looks like.</summary>
     [Fact]
-    public void A_realistic_document_survives()
+    public async Task A_realistic_document_survives()
     {
         var doc = new DocumentNode([
             new ParagraphNode(InlineContent.FromText("Report"), ParagraphKind.Heading1),
@@ -515,7 +515,7 @@ public class RtfExportTests
                 TextAlign.Right),
         ]);
 
-        Survives(doc);
+        await Survives(doc);
     }
 
     private static DocumentNode Styled(string text, int start, int length, MarkSet mark) =>

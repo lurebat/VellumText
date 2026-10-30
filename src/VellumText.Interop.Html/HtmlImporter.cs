@@ -29,22 +29,38 @@ public static class HtmlImporter
     /// <summary>Reads HTML into a document.</summary>
     /// <param name="html">The markup. A fragment is fine; it does not need to be a whole document.</param>
     /// <param name="options">How much to trust it, or null for the paranoid defaults.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the wait. The parse itself cannot be stopped part-way; its result is discarded.
+    /// </param>
     /// <returns>The document, and everything that could not be brought across.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="html"/> is null.</exception>
-    public static ImportResult Import(string html, HtmlImportOptions? options = null)
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
+    /// </exception>
+    /// <remarks>
+    /// Asynchronous because a paste of a large web page or a Word document takes long enough to
+    /// freeze whatever thread waits for it: the parse runs on a thread of its own with a stack the
+    /// input cannot exhaust (see <c>LargeStack</c>), and the caller gets a task back at once.
+    /// </remarks>
+    public static Task<ImportResult> ImportAsync(
+        string html, HtmlImportOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(html);
 
         options ??= HtmlImportOptions.Default;
 
-        // The parser and the CSS parser recurse per level of nesting in the input, so they get a
-        // stack the input cannot exhaust; see LargeStack. A nested call from the Markdown or RTF
-        // importer is already on one and runs inline.
-        return LargeStack.Run(() => ImportOnLargeStack(html, options));
+        return LargeStack.RunAsync(() => ImportOnCurrentStack(html, options), cancellationToken);
     }
 
-    private static ImportResult ImportOnLargeStack(string html, HtmlImportOptions options)
+    /// <summary>The import itself, on whatever stack the caller is using.</summary>
+    /// <remarks>
+    /// Internal for the Markdown and RTF importers, which finish here and are already on a large
+    /// stack of their own by then.
+    /// </remarks>
+    internal static ImportResult ImportOnCurrentStack(string html, HtmlImportOptions? options)
     {
+        options ??= HtmlImportOptions.Default;
+
         var diagnostics = new List<ImportDiagnostic>();
 
         try
@@ -86,17 +102,32 @@ public static class HtmlImporter
     /// </summary>
     /// <param name="payload">What came off the clipboard.</param>
     /// <param name="options">How much to trust it, or null for the paranoid defaults.</param>
+    /// <param name="cancellationToken">
+    /// Abandons the wait. The parse itself cannot be stopped part-way; its result is discarded.
+    /// </param>
     /// <returns>The document, and everything that could not be brought across.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="payload"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled — the only way the task faults.
+    /// </exception>
     /// <remarks>
     /// The envelope's <c>SourceURL</c> becomes the base address for relative links, but only when
     /// the caller has not named one: an explicit choice outranks a copied document's opinion about
     /// where it came from.
     /// </remarks>
-    public static ImportResult ImportClipboard(string payload, HtmlImportOptions? options = null)
+    public static Task<ImportResult> ImportClipboardAsync(
+        string payload, HtmlImportOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
+        return LargeStack.RunAsync(
+            () => ImportClipboardOnCurrentStack(payload, options),
+            cancellationToken);
+    }
+
+    /// <summary>The clipboard import itself, on whatever stack the caller is using.</summary>
+    internal static ImportResult ImportClipboardOnCurrentStack(string payload, HtmlImportOptions? options)
+    {
         options ??= HtmlImportOptions.Default;
 
         var fragment = ClipboardHtml.ExtractFragment(payload, out var sourceUri);
@@ -106,7 +137,7 @@ public static class HtmlImporter
             options = options with { BaseUri = sourceUri };
         }
 
-        return Import(fragment, options);
+        return ImportOnCurrentStack(fragment, options);
     }
 
     private static DocumentNode Build(
@@ -114,10 +145,11 @@ public static class HtmlImporter
         HtmlImportOptions options,
         List<ImportDiagnostic> diagnostics)
     {
-        // CSS support has to be configured on the context, not added later: without it an element
-        // has no style declaration, and the sanitizer would then find nothing to sanitize in a
-        // style attribute rather than finding it clean.
-        var context = BrowsingContext.New(Configuration.Default.WithCss());
+        // Deliberately without CSS support: with it every element's style attribute is parsed while
+        // the tree is built, which for a Word document is the same few strings parsed once per
+        // element. Styles are sanitized and parsed once per distinct value instead — see
+        // SanitizingReader.Sanitize and CssStyles.StyleOf.
+        var context = BrowsingContext.New(Configuration.Default);
 
         var guarded = HtmlInputGuard.Bound(html, options);
 
@@ -183,6 +215,10 @@ public static class HtmlImporter
     private sealed class Walker(HtmlImportOptions options, List<ImportDiagnostic> diagnostics)
     {
         private readonly HashSet<string> _reported = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Style declarations already parsed in this import, by attribute value.</summary>
+        private readonly Dictionary<string, AngleSharp.Css.Dom.ICssStyleDeclaration?> _styles =
+            new(StringComparer.Ordinal);
 
         /// <summary>The grid slots the tables still to come may cover; see <see cref="HtmlImportOptions.MaxTableSlots"/>.</summary>
         private long _tableSlotsLeft = options.MaxTableSlots;
@@ -305,7 +341,7 @@ public static class HtmlImporter
                     break;
             }
 
-            var style = CssStyles.StyleOf(element);
+            var style = CssStyles.StyleOf(element, _styles);
             var inner = ApplyElementMark(element, mark);
 
             if (style is not null)
@@ -482,7 +518,7 @@ public static class HtmlImporter
         /// </remarks>
         private const double MaxImageDimension = 32768.0;
 
-        private static double? Dimension(IElement element, string name)
+        private double? Dimension(IElement element, string name)
         {
             var attribute = element.GetAttribute(name);
 
@@ -494,7 +530,7 @@ public static class HtmlImporter
                 return value;
             }
 
-            var style = CssStyles.StyleOf(element);
+            var style = CssStyles.StyleOf(element, _styles);
 
             if (style is not null
                 && CssStyles.TryLength(style.GetPropertyValue(name), out var length)
@@ -742,7 +778,7 @@ public static class HtmlImporter
             WalkChildren(cellElement, mark, cellStyle, inner, depth);
             inner.Flush(cellStyle);
 
-            var style = CssStyles.StyleOf(cellElement);
+            var style = CssStyles.StyleOf(cellElement, _styles);
             Rgba? background = null;
 
             if (style is not null

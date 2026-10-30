@@ -1,5 +1,6 @@
 using System.Globalization;
 using AngleSharp.Css.Dom;
+using AngleSharp.Css.Parser;
 using AngleSharp.Css.Values;
 using AngleSharp.Dom;
 
@@ -38,26 +39,41 @@ internal static class CssStyles
 
     /// <summary>Reads the inline style of an element, or null when it has none.</summary>
     /// <param name="element">The element.</param>
+    /// <param name="cache">The declarations already parsed in this import, by attribute value.</param>
     /// <returns>The declaration, or null.</returns>
-    internal static ICssStyleDeclaration? StyleOf(IElement element)
+    /// <remarks>
+    /// The document is built without CSS support (see <c>SanitizingReader.Sanitize</c>), so the
+    /// attribute is parsed here, once per distinct value: a Word document repeats a handful of
+    /// style strings on every one of its elements. Parsed from the value the sanitizer left.
+    /// </remarks>
+    internal static ICssStyleDeclaration? StyleOf(
+        IElement element, Dictionary<string, ICssStyleDeclaration?> cache)
     {
-        // An element only has a style declaration when the document was built with CSS support and
-        // the attribute survived sanitizing. Both are true here, but neither is guaranteed by the
-        // type, so this stays a question rather than an assumption.
-        if (!element.HasAttribute("style"))
+        if (element.GetAttribute("style") is not { Length: > 0 } value)
         {
             return null;
         }
 
+        if (cache.TryGetValue(value, out var known))
+        {
+            return known;
+        }
+
+        ICssStyleDeclaration? parsed;
+
         try
         {
-            return element.GetStyle();
+            parsed = new CssParser().ParseDeclaration(value);
         }
         catch (Exception)
         {
             // A declaration AngleSharp cannot make sense of is not worth failing an import over.
-            return null;
+            parsed = null;
         }
+
+        cache[value] = parsed;
+
+        return parsed;
     }
 
     /// <summary>Applies the character formatting an inline style asks for.</summary>

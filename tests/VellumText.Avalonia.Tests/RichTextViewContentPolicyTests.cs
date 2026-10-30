@@ -35,8 +35,8 @@ public class RichTextViewContentPolicyTests
         public ImportResult Import(string text) =>
             new(DocumentNode.FromParagraphs(text.Split('\n')), Compromises);
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
     }
 
     private static RichTextView Shown(params string[] paragraphs)
@@ -138,7 +138,7 @@ public class RichTextViewContentPolicyTests
     }
 
     [AvaloniaFact]
-    public void A_refused_drop_leaves_the_document_alone()
+    public async Task A_refused_drop_leaves_the_document_alone()
     {
         var view = Shown("hello");
 
@@ -151,6 +151,8 @@ public class RichTextViewContentPolicyTests
             view,
             new Point(4, 4),
             KeyModifiers.None));
+
+        await view.PendingDrop;
 
         Assert.Equal("hello", DocumentText.Of(view.State.Doc).Trim());
         Assert.False(view.CanUndo);

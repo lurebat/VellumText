@@ -45,34 +45,34 @@ public class RtfFormatOptionsTests
     /// ever makes.
     /// </summary>
     [Fact]
-    public void A_relative_url_resolves_against_the_base_the_registered_format_carries()
+    public async Task A_relative_url_resolves_against_the_base_the_registered_format_carries()
     {
         IDocumentImporter configured = RtfFormat.Instance.With(
             new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
-        Assert.True(AnyLink(configured.Import(RelativeLink), "https://example.com/relative"));
+        Assert.True(AnyLink(await configured.ImportAsync(RelativeLink), "https://example.com/relative"));
     }
 
     /// <summary>
     /// The companion that stops the test above passing for the wrong reason: the default drops it.
     /// </summary>
     [Fact]
-    public void A_relative_url_is_still_dropped_by_the_shared_instance()
+    public async Task A_relative_url_is_still_dropped_by_the_shared_instance()
     {
         IDocumentImporter shared = RtfFormat.Instance;
 
-        Assert.False(AnyLink(shared.Import(RelativeLink), "https://example.com/relative"));
+        Assert.False(AnyLink(await shared.ImportAsync(RelativeLink), "https://example.com/relative"));
     }
 
     [Fact]
-    public void The_stream_overload_carries_the_options_as_well()
+    public async Task The_stream_overload_carries_the_options_as_well()
     {
         IDocumentImporter configured = RtfFormat.Instance.With(
             new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
         using var source = new MemoryStream(System.Text.Encoding.Latin1.GetBytes(RelativeLink));
 
-        Assert.True(AnyLink(configured.Import(source), "https://example.com/relative"));
+        Assert.True(AnyLink(await configured.ImportAsync(source), "https://example.com/relative"));
     }
 
     private static bool AnyLink(ImportResult result, string href) =>

@@ -38,9 +38,9 @@ public sealed class HostileListStartTests
         new([new ListNode(items.Select(ListItemNode.FromText), ListKind.Ordered, start)]);
 
     [AvaloniaFact]
-    public void An_imported_start_is_clamped_and_Shift_Tab_does_not_throw()
+    public async Task An_imported_start_is_clamped_and_Shift_Tab_does_not_throw()
     {
-        var result = HtmlImporter.Import("<ol start=\"2147483646\"><li>a<li>b<li>c<li>d</ol>");
+        var result = await HtmlImporter.ImportAsync("<ol start=\"2147483646\"><li>a<li>b<li>c<li>d</ol>");
         var list = Assert.IsType<ListNode>(Assert.Single(result.Doc.Blocks));
 
         Assert.Equal(999_999_999, list.Start);

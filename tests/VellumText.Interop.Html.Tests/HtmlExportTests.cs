@@ -20,21 +20,21 @@ namespace VellumText.Tests.Interop.Html;
 public class HtmlExportTests
 {
     /// <summary>Exports a document and reads it straight back.</summary>
-    private static DocumentNode RoundTrip(DocumentNode doc)
+    private static async Task<DocumentNode> RoundTrip(DocumentNode doc)
     {
         var html = HtmlExporter.Instance.Export(doc);
-        var result = HtmlImporter.Import(html);
+        var result = await HtmlImporter.ImportAsync(html);
 
         Assert.Empty(result.Diagnostics);
 
         return result.Doc;
     }
 
-    private static void Survives(DocumentNode doc) => Assert.Equal(doc, RoundTrip(doc));
+    private static async Task Survives(DocumentNode doc) => Assert.Equal(doc, await RoundTrip(doc));
 
     [Fact]
-    public void Plain_paragraphs_survive() =>
-        Survives(DocumentNode.FromParagraphs("first", "second", "third"));
+    public async Task Plain_paragraphs_survive() =>
+        await Survives(DocumentNode.FromParagraphs("first", "second", "third"));
 
     [Fact]
     public void An_empty_document_does_not_throw()
@@ -49,8 +49,8 @@ public class HtmlExportTests
     /// empty element to nothing, so without a deliberate break the line is silently lost.
     /// </summary>
     [Fact]
-    public void An_empty_paragraph_between_two_others_is_not_swallowed() =>
-        Survives(DocumentNode.FromParagraphs("above", "", "below"));
+    public async Task An_empty_paragraph_between_two_others_is_not_swallowed() =>
+        await Survives(DocumentNode.FromParagraphs("above", "", "below"));
 
     /// <summary>
     /// HTML throws away a leading space, a trailing space and the second of any pair. A clipboard
@@ -65,8 +65,8 @@ public class HtmlExportTests
     [InlineData("   ")]
     [InlineData(" both ")]
     [InlineData("tab\tseparated")]
-    public void Spaces_that_html_would_collapse_survive(string text) =>
-        Survives(DocumentNode.FromParagraphs(text));
+    public async Task Spaces_that_html_would_collapse_survive(string text) =>
+        await Survives(DocumentNode.FromParagraphs(text));
 
     /// <summary>
     /// Defending the spaces switches the paragraph onto the preformatted path, where a line break
@@ -75,16 +75,16 @@ public class HtmlExportTests
     [Theory]
     [InlineData("two  spaces\nand a break")]
     [InlineData("\ttabbed\nlines\t")]
-    public void A_line_break_survives_alongside_spaces_that_need_defending(string text) =>
-        Survives(DocumentNode.FromParagraphs(text));
+    public async Task A_line_break_survives_alongside_spaces_that_need_defending(string text) =>
+        await Survives(DocumentNode.FromParagraphs(text));
 
     /// <summary>
     /// A non-breaking space is content a source chose deliberately, and Word fills its output
     /// with them. It must not be confused with the ordinary spaces being defended around it.
     /// </summary>
     [Fact]
-    public void A_non_breaking_space_stays_non_breaking() =>
-        Survives(DocumentNode.FromParagraphs("a\u00a0b", "a\u00a0 b"));
+    public async Task A_non_breaking_space_stays_non_breaking() =>
+        await Survives(DocumentNode.FromParagraphs("a\u00a0b", "a\u00a0 b"));
 
     /// <summary>
     /// The round trip cannot see the difference, but everything downstream can: a paragraph that
@@ -118,8 +118,8 @@ public class HtmlExportTests
     [InlineData(ParagraphKind.Quote)]
     [InlineData(ParagraphKind.Code)]
     [InlineData(ParagraphKind.Body)]
-    public void Every_paragraph_kind_survives(ParagraphKind kind) =>
-        Survives(new DocumentNode([new ParagraphNode(InlineContent.FromText("text"), kind)]));
+    public async Task Every_paragraph_kind_survives(ParagraphKind kind) =>
+        await Survives(new DocumentNode([new ParagraphNode(InlineContent.FromText("text"), kind)]));
 
     /// <summary>
     /// The HTML parser throws away a newline immediately after a &lt;pre&gt; start tag, which is
@@ -131,8 +131,8 @@ public class HtmlExportTests
     [InlineData("\n\ntwo of them")]
     [InlineData("trailing\n")]
     [InlineData("  indented\n    more\n")]
-    public void A_code_block_keeps_the_newlines_at_its_edges(string text) =>
-        Survives(new DocumentNode([
+    public async Task A_code_block_keeps_the_newlines_at_its_edges(string text) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(text), ParagraphKind.Code)]));
 
     /// <summary>
@@ -140,8 +140,8 @@ public class HtmlExportTests
     /// &lt;pre&gt; block with the same text, not a block per line.
     /// </summary>
     [Fact]
-    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines() =>
-        Survives(new DocumentNode([
+    public async Task A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines() =>
+        await Survives(new DocumentNode([
             ParagraphNode.FromText("before"),
             new ParagraphNode(InlineContent.FromText("if (x) {\n\n    y();  \n}"), ParagraphKind.Code),
             ParagraphNode.FromText("after")]));
@@ -152,8 +152,8 @@ public class HtmlExportTests
     [InlineData(TextAlign.Right)]
     [InlineData(TextAlign.Justify)]
     [InlineData(TextAlign.Default)]
-    public void Every_alignment_survives(TextAlign align) =>
-        Survives(new DocumentNode([
+    public async Task Every_alignment_survives(TextAlign align) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text"), ParagraphKind.Body, align),
         ]));
 
@@ -165,8 +165,8 @@ public class HtmlExportTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(5)]
-    public void Indent_depth_survives(int level) =>
-        Survives(new DocumentNode([
+    public async Task Indent_depth_survives(int level) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(
                 InlineContent.FromText("text"), ParagraphKind.Body, TextAlign.Default, level),
         ]));
@@ -180,14 +180,14 @@ public class HtmlExportTests
     [InlineData(TextStyle.Super)]
     [InlineData(TextStyle.Sub)]
     [InlineData(TextStyle.Bold | TextStyle.Italic | TextStyle.Underline)]
-    public void Every_character_style_survives(TextStyle style) =>
-        Survives(new DocumentNode([
+    public async Task Every_character_style_survives(TextStyle style) =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text", new MarkSet(style))),
         ]));
 
     [Fact]
-    public void Colours_survive() =>
-        Survives(new DocumentNode([
+    public async Task Colours_survive() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(
                 "text",
                 new MarkSet(
@@ -200,14 +200,14 @@ public class HtmlExportTests
     /// default drops it, and the difference only shows on a dark theme.
     /// </summary>
     [Fact]
-    public void Explicit_black_survives() =>
-        Survives(new DocumentNode([
+    public async Task Explicit_black_survives() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("text", new MarkSet(foreground: Rgba.Black))),
         ]));
 
     [Fact]
-    public void Font_family_and_size_survive() =>
-        Survives(new DocumentNode([
+    public async Task Font_family_and_size_survive() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(
                 "text", new MarkSet(fontFamily: "Georgia", fontSize: 18))),
         ]));
@@ -217,28 +217,28 @@ public class HtmlExportTests
     /// the name comes back mangled.
     /// </summary>
     [Fact]
-    public void A_font_family_with_a_space_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_font_family_with_a_space_survives() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(
                 "text", new MarkSet(fontFamily: "Times New Roman"))),
         ]));
 
     [Fact]
-    public void Links_survive() =>
-        Survives(new DocumentNode([
+    public async Task Links_survive() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText(
                 "text", new MarkSet(link: new LinkMark("https://example.com/a?b=1&c=2")))),
         ]));
 
     [Fact]
-    public void Lists_survive() =>
-        Survives(new DocumentNode([
+    public async Task Lists_survive() =>
+        await Survives(new DocumentNode([
             new ListNode([ListItemNode.FromText("one"), ListItemNode.FromText("two")]),
         ]));
 
     [Fact]
-    public void An_ordered_list_keeps_its_starting_number() =>
-        Survives(new DocumentNode([
+    public async Task An_ordered_list_keeps_its_starting_number() =>
+        await Survives(new DocumentNode([
             new ListNode(
                 [ListItemNode.FromText("one"), ListItemNode.FromText("two")],
                 ListKind.Ordered,
@@ -246,8 +246,8 @@ public class HtmlExportTests
         ]));
 
     [Fact]
-    public void A_nested_list_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_nested_list_survives() =>
+        await Survives(new DocumentNode([
             new ListNode([
                 new ListItemNode([
                     ParagraphNode.FromText("outer"),
@@ -257,8 +257,8 @@ public class HtmlExportTests
         ]));
 
     [Fact]
-    public void Tables_survive() =>
-        Survives(new DocumentNode([
+    public async Task Tables_survive() =>
+        await Survives(new DocumentNode([
             new TableNode([
                 new TableRowNode([TableCellNode.FromText("a"), TableCellNode.FromText("b")]),
                 new TableRowNode([TableCellNode.FromText("c"), TableCellNode.FromText("d")]),
@@ -266,8 +266,8 @@ public class HtmlExportTests
         ]));
 
     [Fact]
-    public void A_rule_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_rule_survives() =>
+        await Survives(new DocumentNode([
             ParagraphNode.FromText("above"),
             RuleNode.Instance,
             ParagraphNode.FromText("below"),
@@ -278,12 +278,12 @@ public class HtmlExportTests
     /// let HTML's whitespace collapsing turn it into a space.
     /// </summary>
     [Fact]
-    public void A_line_break_inside_a_paragraph_stays_a_line_break() =>
-        Survives(new DocumentNode([ParagraphNode.FromText("above\nbelow")]));
+    public async Task A_line_break_inside_a_paragraph_stays_a_line_break() =>
+        await Survives(new DocumentNode([ParagraphNode.FromText("above\nbelow")]));
 
     /// <summary>Text that is markup, which must come back as text rather than as elements.</summary>
     [Fact]
-    public void Markup_in_the_text_is_escaped()
+    public async Task Markup_in_the_text_is_escaped()
     {
         var doc = new DocumentNode([
             ParagraphNode.FromText("<script>alert('x' & \"y\")</script>"),
@@ -292,7 +292,7 @@ public class HtmlExportTests
         var html = HtmlExporter.Instance.Export(doc);
 
         Assert.DoesNotContain("<script>", html, StringComparison.Ordinal);
-        Survives(doc);
+        await Survives(doc);
     }
 
     /// <summary>A quote in a link target must not be able to end the attribute early.</summary>
@@ -308,8 +308,8 @@ public class HtmlExportTests
     }
 
     [Fact]
-    public void Bidi_and_clusters_survive() =>
-        Survives(DocumentNode.FromParagraphs(
+    public async Task Bidi_and_clusters_survive() =>
+        await Survives(DocumentNode.FromParagraphs(
             "the Hebrew word \u05e9\u05dc\u05d5\u05dd inside English",
             "\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466 and e\u0301\u0332"));
 
@@ -318,8 +318,8 @@ public class HtmlExportTests
     /// each construct alone and wrong about how they nest.
     /// </summary>
     [Fact]
-    public void A_realistic_document_survives() =>
-        Survives(new DocumentNode([
+    public async Task A_realistic_document_survives() =>
+        await Survives(new DocumentNode([
             new ParagraphNode(InlineContent.FromText("Title"), ParagraphKind.Heading1),
             new ParagraphNode(InlineContent.Create(
                 "bold and a link",
@@ -340,7 +340,7 @@ public class HtmlExportTests
 
     /// <summary>The clipboard flavour is the same markup inside the CF_HTML envelope.</summary>
     [Fact]
-    public void The_clipboard_flavour_carries_the_envelope()
+    public async Task The_clipboard_flavour_carries_the_envelope()
     {
         var doc = DocumentNode.FromParagraphs("hello");
         var payload = HtmlExporter.Instance.ExportForClipboard(doc);
@@ -349,7 +349,7 @@ public class HtmlExportTests
         Assert.Contains("StartFragment:", payload, StringComparison.Ordinal);
 
         // And it reads back through the same envelope-aware path a paste uses.
-        Assert.Equal(doc, HtmlImporter.Import(ClipboardHtml.ExtractFragment(payload, out _)).Doc);
+        Assert.Equal(doc, (await HtmlImporter.ImportAsync(ClipboardHtml.ExtractFragment(payload, out _))).Doc);
     }
 
     /// <summary>The <c>CF_HTML</c> envelope is a Windows convention, so only Windows gets it.</summary>
@@ -368,7 +368,7 @@ public class HtmlExportTests
     /// </para>
     /// </remarks>
     [Fact]
-    public void The_envelope_is_windows_only()
+    public async Task The_envelope_is_windows_only()
     {
         var doc = DocumentNode.FromParagraphs("hello");
         var payload = HtmlFormat.Instance.Export(doc);
@@ -385,7 +385,7 @@ public class HtmlExportTests
             Assert.StartsWith("<", payload, StringComparison.Ordinal);
         }
 
-        Assert.Equal(doc, HtmlFormat.Instance.Import(payload).Doc);
+        Assert.Equal(doc, (await HtmlFormat.Instance.ImportAsync(payload)).Doc);
     }
 
     [Fact]

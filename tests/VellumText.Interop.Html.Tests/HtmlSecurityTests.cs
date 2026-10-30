@@ -11,8 +11,8 @@ public class HtmlSecurityTests
     private const string Png =
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-    private static ImportResult Import(string html, HtmlImportOptions? options = null) =>
-        HtmlImporter.Import(html, options);
+    private static async Task<ImportResult> Import(string html, HtmlImportOptions? options = null) =>
+        await HtmlImporter.ImportAsync(html, options);
 
     private static string PlainText(ImportResult result) =>
         string.Join("\n", result.Doc.Blocks.OfType<ParagraphNode>().Select(p => p.Content.Text));
@@ -34,9 +34,9 @@ public class HtmlSecurityTests
     [InlineData("<link rel=stylesheet href='https://evil.test'>")]
     [InlineData("<base href='https://evil.test'>")]
     [InlineData("<meta http-equiv=refresh content='0;url=https://evil.test'>")]
-    public void Active_content_never_survives(string html)
+    public async Task Active_content_never_survives(string html)
     {
-        var text = PlainText(Import(html));
+        var text = PlainText(await Import(html));
 
         Assert.DoesNotContain("alert", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("evil.test", text, StringComparison.OrdinalIgnoreCase);
@@ -44,7 +44,7 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void A_mangled_script_tag_leaves_inert_text_behind()
+    public async Task A_mangled_script_tag_leaves_inert_text_behind()
     {
         // "<scr<script>ipt>" is the classic filter-evasion shape: a naive sanitizer that removes
         // the string "<script>" reassembles a working tag. Here the parser reads it as an unknown
@@ -54,7 +54,7 @@ public class HtmlSecurityTests
         // Text reading "alert(1)" is not a vulnerability -- a user could type it. What matters is
         // that nothing became an element, an attribute or a URL, and that the leftovers carry no
         // markup that could be reassembled by whoever renders the document next.
-        var result = Import("<scr<script>ipt>alert(1)</script>");
+        var result = await Import("<scr<script>ipt>alert(1)</script>");
 
         var text = PlainText(result);
 
@@ -72,12 +72,12 @@ public class HtmlSecurityTests
     [InlineData("<p onmouseover='alert(1)'>hi</p>")]
     [InlineData("<img src='x' onerror='alert(1)'>hi")]
     [InlineData("<p ONCLICK='alert(1)'>hi</p>")]
-    public void Event_handlers_never_survive(string html)
+    public async Task Event_handlers_never_survive(string html)
     {
         // There is nowhere in the document model to put an event handler, so the proof is that the
         // import produced only text and marks -- but the sanitizer must also have said it removed
         // something, or it never saw the attribute at all.
-        var result = Import(html);
+        var result = await Import(html);
 
         Assert.DoesNotContain("alert", PlainText(result), StringComparison.OrdinalIgnoreCase);
     }
@@ -91,9 +91,9 @@ public class HtmlSecurityTests
     [InlineData("vbscript:msgbox(1)")]
     [InlineData("file:///etc/passwd")]
     [InlineData("data:text/html,<script>alert(1)</script>")]
-    public void Dangerous_link_schemes_are_dropped(string href)
+    public async Task Dangerous_link_schemes_are_dropped(string href)
     {
-        var result = Import($"<a href=\"{href}\">click</a>");
+        var result = await Import($"<a href=\"{href}\">click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         // The text stays; only the destination goes.
@@ -106,19 +106,19 @@ public class HtmlSecurityTests
     [InlineData("http://example.com/a")]
     [InlineData("mailto:someone@example.com")]
     [InlineData("tel:+15551234")]
-    public void Ordinary_link_schemes_are_kept(string href)
+    public async Task Ordinary_link_schemes_are_kept(string href)
     {
-        var result = Import($"<a href=\"{href}\">click</a>");
+        var result = await Import($"<a href=\"{href}\">click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.NotNull(paragraph.Content.MarkAt(0).Link);
     }
 
     [Fact]
-    public void A_remote_image_is_dropped_unless_the_host_opts_in()
+    public async Task A_remote_image_is_dropped_unless_the_host_opts_in()
     {
         // The tracking pixel: rendering it tells whoever sent the document that it was opened.
-        var result = Import("<img src='https://tracker.test/pixel.gif' width='1' height='1'>");
+        var result = await Import("<img src='https://tracker.test/pixel.gif' width='1' height='1'>");
 
         Assert.Empty(Images(result));
         Assert.True(result.AnythingDropped);
@@ -128,9 +128,9 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void A_remote_image_is_kept_when_the_host_does_opt_in()
+    public async Task A_remote_image_is_kept_when_the_host_does_opt_in()
     {
-        var result = Import(
+        var result = await Import(
             "<img src='https://cdn.test/a.png'>",
             new HtmlImportOptions { AllowRemoteImages = true });
 
@@ -140,9 +140,9 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void An_inline_image_survives_because_that_is_how_a_paste_arrives()
+    public async Task An_inline_image_survives_because_that_is_how_a_paste_arrives()
     {
-        var result = Import($"<img src='{Png}' alt='dot'>");
+        var result = await Import($"<img src='{Png}' alt='dot'>");
         var image = Assert.Single(Images(result));
 
         Assert.StartsWith("data:image/png;base64,", image.Source, StringComparison.Ordinal);
@@ -150,20 +150,20 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void An_inline_image_is_dropped_when_the_host_says_so()
+    public async Task An_inline_image_is_dropped_when_the_host_says_so()
     {
-        var result = Import($"<img src='{Png}'>", new HtmlImportOptions { AllowDataImages = false });
+        var result = await Import($"<img src='{Png}'>", new HtmlImportOptions { AllowDataImages = false });
 
         Assert.Empty(Images(result));
         Assert.True(result.AnythingDropped);
     }
 
     [Fact]
-    public void The_inline_image_exception_does_not_extend_to_links()
+    public async Task The_inline_image_exception_does_not_extend_to_links()
     {
         // The exception exists for <img src>. Granting it to any URL attribute would let a
         // data: URL back into an href, which is a navigable document rather than a picture.
-        var result = Import($"<a href='{Png}'>click</a>");
+        var result = await Import($"<a href='{Png}'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Null(paragraph.Content.MarkAt(0).Link);
@@ -171,21 +171,21 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void The_inline_image_exception_does_not_extend_to_other_attributes_of_an_image()
+    public async Task The_inline_image_exception_does_not_extend_to_other_attributes_of_an_image()
     {
-        var result = Import($"<img src='' href='{Png}' cite='{Png}'>");
+        var result = await Import($"<img src='' href='{Png}' cite='{Png}'>");
 
         Assert.Empty(Images(result));
     }
 
     [Fact]
-    public void The_inline_image_exception_does_not_extend_to_other_elements_that_carry_a_source()
+    public async Task The_inline_image_exception_does_not_extend_to_other_elements_that_carry_a_source()
     {
         // The allow-list for attributes is not per-element, so "src" is spellable on anything that
         // survives sanitizing. The exception for data: URLs exists so a pasted picture keeps
         // working; anywhere else a data: URL is a payload being carried past the scheme filter,
         // and the caller is entitled to be told it was taken away.
-        var result = Import($"<span src='{Png}'>x</span>");
+        var result = await Import($"<span src='{Png}'>x</span>");
 
         Assert.True(result.AnythingDropped);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped);
@@ -198,22 +198,22 @@ public class HtmlSecurityTests
     [InlineData("data:application/javascript,alert(1)")]
     [InlineData("data:windows/metafile;base64,AQIDBAU=")]
     [InlineData("data:,hello")]
-    public void Inline_data_that_is_not_a_decodable_image_is_dropped(string src)
+    public async Task Inline_data_that_is_not_a_decodable_image_is_dropped(string src)
     {
         // SVG is the one that matters: it passes every check that only looks at the word before
         // the slash, and it is a document format that can carry script.
-        var result = Import($"<img src=\"{src}\">");
+        var result = await Import($"<img src=\"{src}\">");
 
         Assert.Empty(Images(result));
         Assert.True(result.AnythingDropped);
     }
 
     [Fact]
-    public void An_inline_image_larger_than_the_limit_is_dropped()
+    public async Task An_inline_image_larger_than_the_limit_is_dropped()
     {
         var big = "data:image/png;base64," + new string('A', 4096);
 
-        var result = Import(
+        var result = await Import(
             $"<img src='{big}'>",
             new HtmlImportOptions { MaxDataImageBytes = 1024 });
 
@@ -221,12 +221,93 @@ public class HtmlSecurityTests
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("larger than"));
     }
 
+    /// <summary>
+    /// Every refusal of an image's source is reported in context <c>img</c>, whatever the reason.
+    /// </summary>
+    /// <remarks>
+    /// A paste reads that context to decide whether the rich flavour lost a picture and the bitmap
+    /// beside it should win instead (OD-4b). Unsupported types, relative addresses and disallowed
+    /// schemes were reported in contexts of their own and so read as nothing lost.
+    /// </remarks>
+    [Theory]
+    [InlineData("<img src='https://tracker.test/pixel.gif'>", null)]
+    [InlineData("<img src='foo.png'>", null)]
+    [InlineData("<img src='javascript:alert(1)'>", null)]
+    [InlineData("<img src='data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='>", null)]
+    [InlineData("<img src='data:image/png;base64,!!!!'>", null)]
+    [InlineData("<img src='data:image/png;base64,AAAAAAAAAAAAAAAA'>", 4)]
+    [InlineData("<img src='data:image/png;base64,AAAA'>", -1)]
+    public async Task Every_refused_image_source_is_reported_as_a_removed_image(string html, int? limit)
+    {
+        var options = limit switch
+        {
+            null => new HtmlImportOptions(),
+            -1 => new HtmlImportOptions { AllowDataImages = false },
+            _ => new HtmlImportOptions { MaxDataImageBytes = limit.Value },
+        };
+
+        var result = await Import(html, options);
+
+        Assert.Empty(Images(result));
+        Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped && d.Context == "img");
+    }
+
+    /// <summary>
+    /// Images refused for different reasons are each reported, all in context <c>img</c>.
+    /// </summary>
+    /// <remarks>
+    /// Sharing one context must not make the first refusal hide the others: the caller would be
+    /// told a picture was relative when another was also refused for its type and a third for its
+    /// size.
+    /// </remarks>
     [Fact]
-    public void Styles_that_are_not_formatting_are_removed()
+    public async Task Images_refused_for_different_reasons_report_every_reason()
+    {
+        var result = await Import(
+            "<img src='data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='>"
+            + "<img src='foo.png'>"
+            + "<img src='data:image/png;base64,AAAAAAAAAAAAAAAA'>",
+            new HtmlImportOptions { MaxDataImageBytes = 4 });
+
+        var messages = result.Diagnostics.Where(d => d.Context == "img").ToList();
+
+        Assert.Empty(Images(result));
+        Assert.Equal(3, messages.Count);
+        Assert.All(messages, d => Assert.Equal(DiagnosticSeverity.Dropped, d.Severity));
+        Assert.Contains(messages, d => d.Message.Contains("supported image type", StringComparison.Ordinal));
+        Assert.Contains(messages, d => d.Message.Contains("relative", StringComparison.Ordinal));
+        Assert.Contains(messages, d => d.Message.Contains("larger than 4 bytes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Images_refused_for_the_same_reason_are_reported_once()
+    {
+        var html = string.Concat(Enumerable.Repeat("<img src='foo.png'>", 100));
+
+        var result = await Import(html);
+
+        Assert.Empty(Images(result));
+        Assert.Single(result.Diagnostics, d => d.Context == "img");
+    }
+
+    [Theory]
+    [InlineData("<a href='data:text/plain,x'>link</a>")]
+    [InlineData("<a href='javascript:alert(1)'>link</a>")]
+    [InlineData("<a href='foo.html'>link</a>")]
+    public async Task A_refused_address_that_is_not_an_image_source_is_not_reported_as_one(string html)
+    {
+        var result = await Import(html);
+
+        Assert.True(result.AnythingDropped);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Context == "img");
+    }
+
+    [Fact]
+    public async Task Styles_that_are_not_formatting_are_removed()
     {
         // position, behavior and -moz-binding have all been script vectors, and none of them mean
         // anything in a document model that does no layout of its own.
-        var result = Import(
+        var result = await Import(
             "<p style=\"position:fixed;behavior:url(x.htc);-moz-binding:url(x.xml);color:red\">hi</p>");
 
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
@@ -259,9 +340,9 @@ public class HtmlSecurityTests
     [InlineData("<div><noscript>fallback</noscript>ok</div>", "fallback")]
     [InlineData("<div><template><p>inert</p></template>ok</div>", "inert")]
     [InlineData("<body><title>Doc Title</title><p>body text</p></body>", "Doc Title")]
-    public void Code_bearing_elements_do_not_leak_their_bodies_as_text(string html, string forbidden)
+    public async Task Code_bearing_elements_do_not_leak_their_bodies_as_text(string html, string forbidden)
     {
-        var text = PlainText(Import(html));
+        var text = PlainText(await Import(html));
 
         Assert.DoesNotContain(forbidden, text, StringComparison.OrdinalIgnoreCase);
     }
@@ -281,9 +362,9 @@ public class HtmlSecurityTests
     [InlineData("<foo>kept text</foo>", "kept text")]
     [InlineData("<bar><baz>deep text</baz></bar>", "deep text")]
     [InlineData("<div><p>para</p></div>", "para")]
-    public void Surrounding_content_survives_the_removal(string html, string expected)
+    public async Task Surrounding_content_survives_the_removal(string html, string expected)
     {
-        var text = PlainText(Import(html));
+        var text = PlainText(await Import(html));
 
         Assert.Contains(expected, text, StringComparison.Ordinal);
     }
@@ -301,9 +382,9 @@ public class HtmlSecurityTests
     [Theory]
     [InlineData("-1")]
     [InlineData("-2147483648")]
-    public void A_negative_list_start_does_not_discard_the_document(string start)
+    public async Task A_negative_list_start_does_not_discard_the_document(string start)
     {
-        var result = Import($"<p>before</p><ol start='{start}'><li>x</li></ol><p>after</p>");
+        var result = await Import($"<p>before</p><ol start='{start}'><li>x</li></ol><p>after</p>");
 
         var text = string.Join(
             " ",
@@ -316,9 +397,9 @@ public class HtmlSecurityTests
 
     /// <summary>A positive start is still honoured, so the guard has not swallowed the feature.</summary>
     [Fact]
-    public void A_positive_list_start_is_still_kept()
+    public async Task A_positive_list_start_is_still_kept()
     {
-        var result = Import("<ol start='5'><li>x</li></ol>");
+        var result = await Import("<ol start='5'><li>x</li></ol>");
         var list = Assert.IsType<ListNode>(result.Doc.Blocks[0]);
 
         Assert.Equal(5, list.Start);
@@ -344,7 +425,7 @@ public class HtmlSecurityTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void A_data_image_that_is_not_base64_is_refused(bool decodable)
+    public async Task A_data_image_that_is_not_base64_is_refused(bool decodable)
     {
         var encoded = Png["data:image/png;base64,".Length..];
         var payload = decodable
@@ -352,7 +433,7 @@ public class HtmlSecurityTests
             : string.Concat(
                 Convert.FromBase64String(encoded).Select(b => "%" + b.ToString("X2", CultureInfo.InvariantCulture)));
 
-        var result = Import(
+        var result = await Import(
             $"<img src='data:image/png,{payload}'>",
             new HtmlImportOptions { AllowDataImages = true });
 
@@ -361,9 +442,9 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void Relative_urls_are_dropped_when_there_is_nothing_to_resolve_them_against()
+    public async Task Relative_urls_are_dropped_when_there_is_nothing_to_resolve_them_against()
     {
-        var result = Import("<a href='/somewhere'>click</a>");
+        var result = await Import("<a href='/somewhere'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Null(paragraph.Content.MarkAt(0).Link);
@@ -392,9 +473,9 @@ public class HtmlSecurityTests
     [InlineData(@"\\evil.test\share\payload")]
     [InlineData("/etc/passwd")]
     [InlineData("relative/path")]
-    public void Scheme_less_addresses_are_dropped_however_the_platform_reads_them(string href)
+    public async Task Scheme_less_addresses_are_dropped_however_the_platform_reads_them(string href)
     {
-        var result = Import($"<a href='{href}'>click</a>");
+        var result = await Import($"<a href='{href}'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
 
         Assert.Null(paragraph.Content.MarkAt(0).Link);
@@ -408,9 +489,9 @@ public class HtmlSecurityTests
     [InlineData("tel:+123456", true)]
     [InlineData("file:///etc/passwd", false)]
     [InlineData("C:/Windows/win.ini", false)]
-    public void Only_allowed_schemes_survive(string href, bool kept)
+    public async Task Only_allowed_schemes_survive(string href, bool kept)
     {
-        var result = Import($"<a href='{href}'>click</a>");
+        var result = await Import($"<a href='{href}'>click</a>");
         var paragraph = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
         var link = paragraph.Content.MarkAt(0).Link;
 
@@ -432,9 +513,9 @@ public class HtmlSecurityTests
     /// scheme-less would pass every one of them and quietly break the case the feature exists for.
     /// </remarks>
     [Fact]
-    public void A_protocol_relative_address_resolves_against_a_base()
+    public async Task A_protocol_relative_address_resolves_against_a_base()
     {
-        var result = Import(
+        var result = await Import(
             "<a href='//other.test/p'>click</a>",
             new HtmlImportOptions { BaseUri = new Uri("https://example.test/page") });
 
@@ -444,9 +525,9 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void Relative_urls_resolve_against_a_base_the_caller_supplies()
+    public async Task Relative_urls_resolve_against_a_base_the_caller_supplies()
     {
-        var result = Import(
+        var result = await Import(
             "<a href='/somewhere'>click</a>",
             new HtmlImportOptions { BaseUri = new Uri("https://example.com/page") });
 
@@ -456,7 +537,7 @@ public class HtmlSecurityTests
     }
 
     [Fact]
-    public void Deep_nesting_does_not_overflow_the_stack()
+    public async Task Deep_nesting_does_not_overflow_the_stack()
     {
         // A recursive walk over ten thousand nested elements is a stack overflow, and a stack
         // overflow cannot be caught -- it takes the host process with it.
@@ -464,7 +545,7 @@ public class HtmlSecurityTests
             + "deep"
             + string.Concat(Enumerable.Repeat("</div>", 10_000));
 
-        var result = Import(html);
+        var result = await Import(html);
 
         Assert.Contains("deep", PlainText(result), StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, d => d.Context == "nesting");
@@ -484,9 +565,9 @@ public class HtmlSecurityTests
     [InlineData("0", 1)]
     [InlineData("-5", 1)]
     [InlineData("three", 1)]
-    public void A_span_of_a_thousand_columns_is_not_a_table(string attribute, int expected)
+    public async Task A_span_of_a_thousand_columns_is_not_a_table(string attribute, int expected)
     {
-        var result = Import($"<table><tr><td colspan='{attribute}'>x</td></tr></table>");
+        var result = await Import($"<table><tr><td colspan='{attribute}'>x</td></tr></table>");
         var table = Assert.IsType<TableNode>(result.Doc.Blocks[0]);
 
         TableGeometry.Place(table, out var width);
@@ -504,17 +585,17 @@ public class HtmlSecurityTests
     [InlineData("<p><b><i>tangled</p></b></i>")]
     [InlineData("\0\0\0")]
     [InlineData("<table><tr><td>ragged</td><td>x</td></tr><tr><td>y</td></tr></table>")]
-    public void Malformed_input_never_throws(string html)
+    public async Task Malformed_input_never_throws(string html)
     {
-        var result = Import(html);
+        var result = await Import(html);
 
         Assert.NotNull(result.Doc);
         Assert.NotEmpty(result.Doc.Blocks);
     }
 
     [Fact]
-    public void Null_input_is_the_callers_mistake_and_is_reported_as_one()
+    public async Task Null_input_is_the_callers_mistake_and_is_reported_as_one()
     {
-        Assert.Throws<ArgumentNullException>(() => HtmlImporter.Import(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => HtmlImporter.ImportAsync(null!));
     }
 }

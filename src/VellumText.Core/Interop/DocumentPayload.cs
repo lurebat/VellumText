@@ -7,7 +7,7 @@ namespace VellumText;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="IDocumentImporter.Import(Stream)"/> and
+/// <see cref="IDocumentImporter.ImportAsync(Stream, CancellationToken)"/> and
 /// <see cref="IDocumentExporter.Export(Stream, DocumentNode)"/> are what every format has to
 /// implement, and for a text format the body is always the same two steps: decode the bytes, hand
 /// the string to the parser. These are those two steps, in one place, because getting them subtly
@@ -23,15 +23,20 @@ public static class DocumentPayload
     /// <summary>Reads a stream to its end as text.</summary>
     /// <param name="source">The payload, positioned at its first byte.</param>
     /// <param name="encoding">The encoding to decode with.</param>
+    /// <param name="cancellationToken">Stops the read.</param>
     /// <returns>Everything the stream held.</returns>
     /// <exception cref="ArgumentNullException">Either argument is <see langword="null"/>.</exception>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled.
+    /// </exception>
     /// <remarks>
     /// The stream is left open, because the caller owns it and may be reading more from it. A byte
     /// order mark wins over <paramref name="encoding"/> when one is present, which is what lets a
     /// file written by another application be read back rather than arriving with three stray
     /// characters at the front.
     /// </remarks>
-    public static string ReadAllText(Stream source, Encoding encoding)
+    public static async Task<string> ReadAllTextAsync(
+        Stream source, Encoding encoding, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(encoding);
@@ -39,7 +44,7 @@ public static class DocumentPayload
         using var reader = new StreamReader(
             source, encoding, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
 
-        return reader.ReadToEnd();
+        return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Writes text to a stream.</summary>

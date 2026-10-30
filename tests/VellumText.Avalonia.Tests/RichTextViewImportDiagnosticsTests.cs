@@ -41,8 +41,8 @@ public class RichTextViewImportDiagnosticsTests
         public ImportResult Import(string text) =>
             new(DocumentNode.FromParagraphs(text.Split('\n')), Compromises);
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
     }
 
     /// <summary>An importer that has nothing to complain about.</summary>
@@ -56,8 +56,8 @@ public class RichTextViewImportDiagnosticsTests
 
         public ImportResult Import(string text) => new(DocumentNode.FromParagraphs(text.Split('\n')));
 
-        public ImportResult Import(Stream source) =>
-            Import(DocumentPayload.ReadAllText(source, Encoding.UTF8));
+        public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default) =>
+            Import(await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken));
     }
 
     private static RichTextView Shown(params string[] paragraphs)
@@ -129,7 +129,7 @@ public class RichTextViewImportDiagnosticsTests
     /// discarded.
     /// </remarks>
     [AvaloniaFact]
-    public void A_drop_reports_what_the_importer_had_to_give_up()
+    public async Task A_drop_reports_what_the_importer_had_to_give_up()
     {
         var view = Shown("hello");
         var seen = new List<RichTextView.ContentImportedEventArgs>();
@@ -143,6 +143,8 @@ public class RichTextViewImportDiagnosticsTests
             view,
             new Point(4, 4),
             KeyModifiers.None));
+
+        await view.PendingDrop;
 
         Assert.Contains("dropped", DocumentText.Of(view.State.Doc));
 
@@ -177,7 +179,7 @@ public class RichTextViewImportDiagnosticsTests
     /// which it can only do if that paste tells it anything at all.
     /// </remarks>
     [AvaloniaFact]
-    public void A_clean_import_reports_an_empty_list_rather_than_nothing()
+    public async Task A_clean_import_reports_an_empty_list_rather_than_nothing()
     {
         var view = Shown("hello");
         var seen = new List<RichTextView.ContentImportedEventArgs>();
@@ -192,6 +194,8 @@ public class RichTextViewImportDiagnosticsTests
             view,
             new Point(4, 4),
             KeyModifiers.None));
+
+        await view.PendingDrop;
 
         var reported = Assert.Single(seen);
 

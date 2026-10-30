@@ -27,7 +27,7 @@ public class RtfImportTests
         @"\pard Caf\'e9, \u1513?\u1500?\u1493?\u1501? and \u55357?\u56832?.\par " +
         @"}";
 
-    private static ImportResult Import(string rtf) => RtfImporter.Import(rtf);
+    private static async Task<ImportResult> Import(string rtf) => await RtfImporter.ImportAsync(rtf);
 
     private static string PlainText(ImportResult result) =>
         string.Join("\n", Paragraphs(result).Select(p => p.Content.Text));
@@ -86,20 +86,20 @@ public class RtfImportTests
     /// front of it.
     /// </remarks>
     [Fact]
-    public void Interior_spaces_survive_and_a_tab_does_not()
+    public async Task Interior_spaces_survive_and_a_tab_does_not()
     {
-        var spaced = RtfImporter.Import(@"{\rtf1\ansi a    b}").Doc;
+        var spaced = (await RtfImporter.ImportAsync(@"{\rtf1\ansi a    b}")).Doc;
 
         Assert.Equal("a \u00A0\u00A0\u00A0b", ((ParagraphNode)spaced.Blocks[0]).Content.Text);
 
-        var tabbed = RtfImporter.Import(@"{\rtf1\ansi tab\tab here}").Doc;
+        var tabbed = (await RtfImporter.ImportAsync(@"{\rtf1\ansi tab\tab here}")).Doc;
 
         Assert.Equal("tabhere", ((ParagraphNode)tabbed.Blocks[0]).Content.Text);
     }
     [Fact]
-    public void The_words_survive()
+    public async Task The_words_survive()
     {
-        var text = PlainText(Import(Wordish));
+        var text = PlainText(await Import(Wordish));
 
         Assert.Contains("Heading", text, StringComparison.Ordinal);
         Assert.Contains("Plain,", text, StringComparison.Ordinal);
@@ -112,15 +112,15 @@ public class RtfImportTests
     [InlineData(TextStyle.Italic)]
     [InlineData(TextStyle.Underline)]
     [InlineData(TextStyle.Strikethrough)]
-    public void Character_formatting_survives(TextStyle style)
+    public async Task Character_formatting_survives(TextStyle style)
     {
-        Assert.True(AnyRunHas(Import(Wordish), m => m.Style.HasFlag(style)));
+        Assert.True(AnyRunHas(await Import(Wordish), m => m.Style.HasFlag(style)));
     }
 
     [Fact]
-    public void Colour_survives()
+    public async Task Colour_survives()
     {
-        Assert.True(AnyRunHas(Import(Wordish), m => m.Foreground == new Rgba(255, 0, 0, 255)));
+        Assert.True(AnyRunHas(await Import(Wordish), m => m.Foreground == new Rgba(255, 0, 0, 255)));
     }
 
     /// <summary>
@@ -133,39 +133,39 @@ public class RtfImportTests
     [InlineData(255, 136, 0)]
     [InlineData(18, 52, 86)]
     [InlineData(220, 20, 60)]
-    public void A_colour_that_is_not_saturated_arrives_intact(byte r, byte g, byte b)
+    public async Task A_colour_that_is_not_saturated_arrives_intact(byte r, byte g, byte b)
     {
         var rtf =
             @"{\rtf1\ansi{\fonttbl{\f0 Calibri;}}{\colortbl ;\red" + r + @"\green" + g + @"\blue" + b + @";}" +
             @"\pard\cf1 shade\par}";
 
-        Assert.True(AnyRunHas(Import(rtf), m => m.Foreground == new Rgba(r, g, b, 255)));
+        Assert.True(AnyRunHas(await Import(rtf), m => m.Foreground == new Rgba(r, g, b, 255)));
     }
 
     [Fact]
-    public void The_font_a_run_asked_for_survives()
+    public async Task The_font_a_run_asked_for_survives()
     {
-        Assert.True(AnyRunHas(Import(Wordish), m => m.FontFamily is not null && m.FontFamily.Contains("Georgia", StringComparison.Ordinal)));
+        Assert.True(AnyRunHas(await Import(Wordish), m => m.FontFamily is not null && m.FontFamily.Contains("Georgia", StringComparison.Ordinal)));
     }
 
     [Fact]
-    public void A_centred_paragraph_is_still_centred()
+    public async Task A_centred_paragraph_is_still_centred()
     {
-        var result = Import(Wordish);
+        var result = await Import(Wordish);
 
         Assert.Contains(Paragraphs(result), p => p.Align == TextAlign.Center);
     }
 
     [Fact]
-    public void An_indent_becomes_an_indent()
+    public async Task An_indent_becomes_an_indent()
     {
-        Assert.Contains(Paragraphs(Import(Wordish)), p => p.IndentLevel > 0);
+        Assert.Contains(Paragraphs(await Import(Wordish)), p => p.IndentLevel > 0);
     }
 
     [Fact]
-    public void A_bullet_list_becomes_a_list_and_not_a_paragraph_starting_with_a_dot()
+    public async Task A_bullet_list_becomes_a_list_and_not_a_paragraph_starting_with_a_dot()
     {
-        var result = Import(Wordish);
+        var result = await Import(Wordish);
 
         var list = Assert.Single(result.Doc.Blocks.OfType<ListNode>());
 
@@ -177,17 +177,17 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void A_hyperlink_field_becomes_a_link()
+    public async Task A_hyperlink_field_becomes_a_link()
     {
-        var result = Import(Wordish);
+        var result = await Import(Wordish);
 
         Assert.True(AnyRunHas(result, m => m.Link is not null && m.Link.Href == "https://example.com/"));
     }
 
     [Fact]
-    public void Text_that_is_not_ascii_survives_however_it_was_encoded()
+    public async Task Text_that_is_not_ascii_survives_however_it_was_encoded()
     {
-        var text = PlainText(Import(Wordish));
+        var text = PlainText(await Import(Wordish));
 
         // \'e9 is a code-page byte, \uN is a Unicode escape, and an astral character arrives as a
         // surrogate pair written as two of them.
@@ -197,11 +197,11 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void What_comes_out_is_a_document_the_model_would_accept()
+    public async Task What_comes_out_is_a_document_the_model_would_accept()
     {
         Assert.True(
-            DocumentSchema.IsValid(Import(Wordish).Doc),
-            string.Join("; ", DocumentSchema.Validate(Import(Wordish).Doc)));
+            DocumentSchema.IsValid((await Import(Wordish)).Doc),
+            string.Join("; ", DocumentSchema.Validate((await Import(Wordish)).Doc)));
     }
 
     // ---- what arrives broken ----------------------------------------------------------------
@@ -211,11 +211,11 @@ public class RtfImportTests
     [InlineData("plain text")]
     [InlineData("")]
     [InlineData("   ")]
-    public void Something_that_is_not_rtf_is_reported_and_not_thrown_over(string input)
+    public async Task Something_that_is_not_rtf_is_reported_and_not_thrown_over(string input)
     {
         // A clipboard manager offers whatever it has to whichever reader might take it, so being
         // handed the wrong format is routine rather than exceptional.
-        var result = RtfImporter.Import(input);
+        var result = await RtfImporter.ImportAsync(input);
 
         Assert.True(result.IsEmpty);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
@@ -229,27 +229,27 @@ public class RtfImportTests
     [InlineData(@"{\rtf1")]
     [InlineData(@"{\rtf1\ansi \")]
     [InlineData(@"{\rtf1\ansi {\fonttbl}{\colortbl}\par}")]
-    public void Damaged_rtf_produces_a_result_rather_than_an_exception(string input)
+    public async Task Damaged_rtf_produces_a_result_rather_than_an_exception(string input)
     {
-        var result = RtfImporter.Import(input);
+        var result = await RtfImporter.ImportAsync(input);
 
         Assert.True(DocumentSchema.IsValid(result.Doc));
     }
 
     [Fact]
-    public void Nothing_at_all_is_the_callers_mistake_and_is_reported_as_one()
+    public async Task Nothing_at_all_is_the_callers_mistake_and_is_reported_as_one()
     {
-        Assert.Throws<ArgumentNullException>(() => RtfImporter.Import(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => RtfImporter.ImportAsync(null!));
     }
 
     // ---- what must not come through ---------------------------------------------------------
 
     [Fact]
-    public void A_picture_does_not_arrive_as_a_format_nothing_can_decode()
+    public async Task A_picture_does_not_arrive_as_a_format_nothing_can_decode()
     {
         // RtfPipe renders \pict as a data: URL whose media type is "windows/metafile". It is not
         // an image type anything here can decode, and the importer must not take it on faith.
-        var result = RtfImporter.Import(
+        var result = await RtfImporter.ImportAsync(
             @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}after}");
 
         // The surrounding words prove the document was read at all, so that the absence of an
@@ -260,11 +260,11 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void A_link_to_somewhere_dangerous_does_not_survive_the_trip_through_html()
+    public async Task A_link_to_somewhere_dangerous_does_not_survive_the_trip_through_html()
     {
         // Going through the HTML importer is what makes this true; a second RTF-specific idea of
         // which URLs are safe would be a second one to get wrong.
-        var result = RtfImporter.Import(
+        var result = await RtfImporter.ImportAsync(
             @"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK ""javascript:alert(1)""}}{\fldrslt{click}}}}");
 
         Assert.Contains("click", PlainText(result), StringComparison.Ordinal);
@@ -272,9 +272,9 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void Coloured_text_keeps_its_colour()
+    public async Task Coloured_text_keeps_its_colour()
     {
-        var result = Import(
+        var result = await Import(
             @"{\rtf1\ansi{\colortbl;\red255\green0\blue0;}\pard\cf1 red\cf0  plain\par}");
 
         Assert.True(
@@ -283,12 +283,12 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void Highlighted_text_keeps_its_highlight()
+    public async Task Highlighted_text_keeps_its_highlight()
     {
         // RtfPipe writes the highlight as the `background` shorthand rather than
         // `background-color`, and the CSS reader expands it. Worth pinning: reading the longhand
         // only would silently drop every highlight, and a clipboard manager would never show one.
-        var result = Import(
+        var result = await Import(
             @"{\rtf1\ansi{\colortbl;\red255\green255\blue0;}\pard\highlight1 lit\highlight0  plain\par}");
 
         Assert.True(
@@ -307,9 +307,9 @@ public class RtfImportTests
     /// of RtfPipe changing its mind is a failing test rather than a surprise.
     /// </remarks>
     [Fact]
-    public void Explicit_black_arrives_as_no_colour_at_all()
+    public async Task Explicit_black_arrives_as_no_colour_at_all()
     {
-        var result = Import(
+        var result = await Import(
             @"{\rtf1\ansi{\colortbl;\red0\green0\blue0;}\pard\cf1 black text\par}");
 
         Assert.Contains("black text", PlainText(result), StringComparison.Ordinal);
@@ -317,16 +317,16 @@ public class RtfImportTests
     }
 
     [Fact]
-    public void The_hosts_options_reach_the_html_importer()
+    public async Task The_hosts_options_reach_the_html_importer()
     {
         var rtf =
             @"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK ""/relative""}}{\fldrslt{click}}}}";
 
-        var withBase = RtfImporter.Import(
+        var withBase = await RtfImporter.ImportAsync(
             rtf,
             new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
         Assert.True(AnyRunHas(withBase, m => m.Link?.Href == "https://example.com/relative"));
-        Assert.False(AnyRunHas(RtfImporter.Import(rtf), m => m.Link is not null));
+        Assert.False(AnyRunHas(await RtfImporter.ImportAsync(rtf), m => m.Link is not null));
     }
 }
