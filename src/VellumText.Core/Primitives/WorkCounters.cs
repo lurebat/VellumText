@@ -30,7 +30,7 @@ internal static class WorkCounters
     [ThreadStatic]
     internal static long MarkLookups;
 
-    /// <summary>Paragraphs inside containers <see cref="DocumentPreview.IsLongerThan"/> has counted.</summary>
+    /// <summary>Paragraphs inside containers <see cref="DocumentPreview"/> has counted.</summary>
     [ThreadStatic]
     internal static long PreviewParagraphsMeasured;
 
@@ -84,8 +84,7 @@ internal static class WorkCounters
     internal static long TableCellsMeasured;
 
     /// <summary>
-    /// Embeds inside containers whose fallback text <see cref="DocumentPreview.IsLongerThan"/> has
-    /// counted.
+    /// Embeds inside containers whose fallback text <see cref="DocumentPreview"/> has counted.
     /// </summary>
     [ThreadStatic]
     internal static long PreviewEmbedsMeasured;

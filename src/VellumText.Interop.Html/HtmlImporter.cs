@@ -657,6 +657,12 @@ public static class HtmlImporter
 
             var alt = element.GetAttribute("alt");
 
+            // A picture handed over as bytes becomes its data URL only here, once.
+            if (options.Pictures is { } pictures && pictures.TryGet(source, out var mediaType, out var bytes))
+            {
+                source = InlinePictures.DataUrl(mediaType, bytes);
+            }
+
             return new ImageEmbed(
                 source,
                 Dimension(element, "width"),
