@@ -131,6 +131,15 @@ public class ModelPropertyTests
 
     // ---------------------------------------------------------------- property 2
 
+    /// <summary>
+    /// The shrunk counterexample the property above found about once in 1,500 runs: one paste that
+    /// replaces exactly the marker with an image. The marker is gone, but its ends stay one apart,
+    /// because the replacement is one position wide too.
+    /// </summary>
+    [Fact]
+    public void AMarkerReplacedByOnePositionOfSomethingElseIsSeenAsGone() =>
+        ATrackedPositionAgreesWithWhereTheMarkerActuallyIs([7, 11, 10, -10]);
+
     [Property(MaxTest = 400)]
     public void ATrackedPositionAgreesWithWhereTheMarkerActuallyIs(int[] script)
     {
@@ -156,17 +165,24 @@ public class ModelPropertyTests
             }
 
             state = state.Apply(tr);
-            head = tr.Mapping.Map(head, Assoc.After);
-            tail = tr.Mapping.Map(tail, Assoc.Before);
 
-            // The marker is one character wide. Its two ends meeting means it was deleted.
-            alive &= tail - head == 1;
+            var mappedHead = tr.Mapping.MapWithResult(head, Assoc.After);
+            var mappedTail = tr.Mapping.MapWithResult(tail, Assoc.Before);
+
+            head = mappedHead.Pos;
+            tail = mappedTail.Pos;
+
+            // The marker is one character wide, and both ends are bound to it, so the mapping
+            // saying either end's content is gone is the deletion. Its ends meeting is not enough
+            // on its own: a step that replaces exactly the marker with one position of something
+            // else - an image, a character - leaves them one apart.
+            alive &= !mappedHead.Deleted && !mappedTail.Deleted && tail - head == 1;
 
             var actual = FindMarker(state.Doc);
 
             if (alive)
             {
-                Assert.Equal(actual, head);
+                Assert.Equal(head, actual);
             }
             else
             {
