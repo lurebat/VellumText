@@ -278,6 +278,149 @@ public class RichTextViewHeadingAndQuoteKeyTests
         Assert.Equal((string.Empty, 0), Caret(view));
     }
 
+    // ---- Backspace at the start of a quote ------------------------------------------------------
+
+    /// <summary>
+    /// Backspace at the start of a quote takes the quote off first, as Notion and Tiptap do, and the
+    /// next one joins. It used to join straight away, so the quoted words became body text inside
+    /// the paragraph above.
+    /// </summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_quote_takes_the_quote_off_first()
+    {
+        var view = Laid(Doc(Para("above"), Quote("said")), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "above"
+            p "said"
+            """,
+            view);
+        Assert.Equal(("said", 0), Caret(view));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "abovesaid"
+            """,
+            view);
+        Assert.Equal(("abovesaid", 5), Caret(view));
+    }
+
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_line_in_the_middle_of_a_quote_takes_only_that_line_out()
+    {
+        var view = Laid(Doc(Quote("one"), Quote("two"), Quote("three")), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            quote "one"
+            p "two"
+            quote "three"
+            """,
+            view);
+    }
+
+    /// <summary>Taking the kind off keeps the paragraph's own alignment; nothing was left.</summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_centred_quote_keeps_it_centred()
+    {
+        var view = Laid(Doc(Para("above"), Quote("said", TextAlign.Center)), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "above"
+            p "said" align=Center
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Backspace_in_an_empty_quote_line_takes_the_quote_off_first()
+    {
+        var view = Laid(Doc(Para("above"), Quote(string.Empty)), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "above"
+            p ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
+    /// <summary>A quote as the first block used to ignore Backspace, with nothing to join to.</summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_quote_that_is_the_first_block_makes_it_body_text()
+    {
+        var view = Laid(Doc(Quote("said"), Para("below")), In(0, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "said"
+            p "below"
+            """,
+            view);
+        Assert.Equal(("said", 0), Caret(view));
+    }
+
+    [AvaloniaFact]
+    public void Backspace_inside_a_quote_still_deletes_a_character()
+    {
+        var view = Laid(Doc(Quote("said")), In(0, 1));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            quote "aid"
+            """,
+            view);
+    }
+
+    /// <summary>Headings are left as they were: Backspace at the start joins them to the paragraph above.</summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_heading_after_a_paragraph_still_joins_it()
+    {
+        var view = Laid(Doc(Para("above"), Heading("Title")), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            p "aboveTitle"
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void One_undo_puts_the_quote_backspace_took_off_back()
+    {
+        var view = Laid(Doc(Para("above"), Quote("said")), In(1, 0));
+
+        Press(view, Key.Back);
+        Press(view, Key.Z, KeyModifiers.Control);
+
+        Shaped(
+            """
+            p "above"
+            quote "said"
+            """,
+            view);
+        Assert.Equal(("said", 0), Caret(view));
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ParagraphNode Heading(string text, TextAlign align = TextAlign.Default) =>

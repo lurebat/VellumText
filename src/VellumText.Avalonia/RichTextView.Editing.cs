@@ -106,7 +106,8 @@ public partial class RichTextView
     /// lifting the item one level, out of the list at the top — and keeps the words, as word
     /// processors do; joining the words onto the item above is the next Backspace. In an empty
     /// code block it turns the block into an ordinary paragraph, which is the way out of a code
-    /// block that has nothing in it yet.
+    /// block that has nothing in it yet. At the very start of a quote it takes the quote off
+    /// first, as Notion and Tiptap do, and the next Backspace joins.
     /// </remarks>
     /// <returns>Whether anything changed.</returns>
     public bool Backspace()
@@ -116,12 +117,17 @@ public partial class RichTextView
             && _state.Doc.Resolve(_state.Selection.From) is
                 { Parent: ParagraphNode { Kind: ParagraphKind.Code, Content.Text.Length: 0 } } code)
         {
-            var transaction = _state.Transaction()
-                .As(TransactionKind.Format)
-                .Step(new SetBlockAttrStep(
-                    code.Before(code.Depth), BlockAttr.ParagraphKind, (int)ParagraphKind.Body));
+            return MakeBody(code, TransactionKind.Format, defaultAlign: false);
+        }
 
-            return Apply(transaction);
+        // Joining straight away put the quoted words into the paragraph above as body text, which
+        // is rarely what taking the quote off was for.
+        if (Rectangle is null
+            && _state.Selection.IsEmpty
+            && _state.Doc.Resolve(_state.Selection.From) is
+                { ParentOffset: 0, Parent: ParagraphNode { Kind: ParagraphKind.Quote } } quote)
+        {
+            return MakeBody(quote, TransactionKind.Format, defaultAlign: false);
         }
 
         if (Rectangle is null
