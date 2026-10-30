@@ -640,6 +640,63 @@ public class ToolbarOutcomeTests
         AssertNoOverlappingLines(view);
     }
 
+    /// <summary>
+    /// Undo and Redo, clicked, step the document, the screen and the bar back and forth together,
+    /// and are enabled exactly when there is something to step to.
+    /// </summary>
+    [AvaloniaFact]
+    public void UndoAndRedoStepTheDocumentTheScreenAndTheBarTogether()
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var undo = Find(bar, "Undo (Ctrl+Z)")!;
+        var redo = Find(bar, "Redo (Ctrl+Y)")!;
+        var bold = Toggle(bar, "Bold (Ctrl+B)");
+        var sizeBox = Box(bar, "PART_SizeBox");
+        var body = RunAt(view, 0, 6).FontRenderingEmSize;
+        const double pixels = 48 * 96 / 72.0;
+
+        Assert.False(undo.IsEnabled);
+
+        SelectAcross(view);
+        Commit(sizeBox, 48.0);
+        UserClick(bold);
+
+        AssertStep(sized: true, bolded: true);
+        Assert.False(redo.IsEnabled);
+
+        UserClick(undo);
+        AssertStep(sized: true, bolded: false);
+        Assert.True(redo.IsEnabled);
+
+        UserClick(undo);
+        AssertStep(sized: false, bolded: false);
+        Assert.False(undo.IsEnabled);
+        Assert.Equal([First, Second, Third], Paragraphs(editor.State.Doc).Select(p => p.Content.Text));
+
+        UserClick(redo);
+        AssertStep(sized: true, bolded: false);
+
+        UserClick(redo);
+        AssertStep(sized: true, bolded: true);
+        Assert.False(redo.IsEnabled);
+        Assert.True(undo.IsEnabled);
+
+        void AssertStep(bool sized, bool bolded)
+        {
+            AssertMarkedExactly(editor.State.Doc, sized ? Across : [], marks => marks.FontSize is not null, "a size");
+            AssertMarkedExactly(editor.State.Doc, bolded ? Across : [], marks => marks.Has(TextStyle.Bold), "bold");
+            Assert.Equal(bolded, bold.IsChecked);
+            Assert.Equal(sized ? "48" : string.Empty, sizeBox.Text);
+
+            var run = RunAt(view, 0, 6);
+
+            Assert.Equal(sized ? pixels : body, run.FontRenderingEmSize, 3);
+            Assert.Equal(bolded, run.Typeface.Weight == FontWeight.Bold);
+            AssertNoOverlappingLines(view);
+        }
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
