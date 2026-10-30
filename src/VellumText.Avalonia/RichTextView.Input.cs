@@ -614,7 +614,12 @@ public partial class RichTextView
                 break;
 
             case Key.Enter:
-                if (!(extend ? InsertLineBreak() : Split()))
+                // Ctrl+Enter, or Cmd+Enter on macOS, is the way out of a code block from anywhere
+                // in it, since Enter there only breaks the line. Anywhere else it is still Enter.
+                if (!((word || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+                        && InCodeBlock(_state.Doc, _state.Selection.Head)
+                        ? LeaveCodeBlock(trim: false)
+                        : extend ? InsertLineBreak() : Split()))
                 {
                     return;
                 }

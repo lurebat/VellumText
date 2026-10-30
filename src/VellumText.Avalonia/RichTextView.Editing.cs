@@ -140,11 +140,18 @@ public partial class RichTextView
 
     /// <summary>Splits the block at the selection, replacing it if it is not empty.</summary>
     /// <remarks>
+    /// <para>
     /// The half that follows the caret keeps the block's presentation — its kind, alignment and
     /// indent — because pressing Enter in the middle of a quote should give two quotes rather
     /// than a quote and a body paragraph. Enter at the <em>end</em> of a heading is the case
     /// where users usually want a body paragraph instead, and that is a deliberate omission
     /// here: it is a policy about heading kinds, and kinds arrive in the next piece of work.
+    /// </para>
+    /// <para>
+    /// A code block is the exception: its lines are newlines in its text, so Enter there breaks
+    /// the line and the block stays one block. Enter on an empty last line under another empty
+    /// line leaves it instead, dropping the empty lines at its end.
+    /// </para>
     /// </remarks>
     /// <returns>Whether anything changed.</returns>
     public bool Split()
@@ -152,6 +159,13 @@ public partial class RichTextView
         if (Block is null || Rectangle is not null || !AcceptsReturn)
         {
             return false;
+        }
+
+        // Splitting a code block made every line of code a block of its own, with no way out of
+        // the last one but the toolbar.
+        if (InCodeBlock(_state.Doc, _state.Selection.From))
+        {
+            return OnEmptyLinesAtEndOfCode() ? LeaveCodeBlock(trim: true) : InsertLineBreak();
         }
 
         // Enter in an empty bullet leaves the list rather than adding another empty one. It is
@@ -227,6 +241,83 @@ public partial class RichTextView
     /// </remarks>
     /// <returns>Whether anything changed.</returns>
     public bool InsertLineBreak() => AcceptsReturn && InsertText("\n");
+
+    /// <summary>Whether a position is inside a code block.</summary>
+    private static bool InCodeBlock(DocumentNode doc, int position) =>
+        doc.Resolve(position).Parent is ParagraphNode { Kind: ParagraphKind.Code };
+
+    /// <summary>
+    /// Whether the caret is at the end of a code block whose last line is empty and whose line
+    /// before that is empty too — the third Enter of the three that leave the block.
+    /// </summary>
+    /// <remarks>
+    /// Only from a caret at the very end: two empty lines in the middle of the code are content,
+    /// and Enter over a selection replaces it with a line break as it does anywhere else.
+    /// </remarks>
+    private bool OnEmptyLinesAtEndOfCode()
+    {
+        var selection = _state.Selection;
+
+        if (!selection.IsEmpty
+            || _state.Doc.Resolve(selection.Head) is not
+                { Parent: ParagraphNode { Kind: ParagraphKind.Code } code } at
+            || at.ParentOffset != code.ContentSize)
+        {
+            return false;
+        }
+
+        var text = code.Content.Text;
+
+        return text.EndsWith('\n') && (text.Length == 1 || text[^2] == '\n');
+    }
+
+    /// <summary>
+    /// Leaves the code block the caret is in for a new body paragraph directly below it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every way out of a code block ends here — the third Enter, Ctrl+Enter, and ↓ from its last
+    /// line when there is nothing below — so they all land in the same place: an ordinary
+    /// paragraph straight after the block, inside whatever list item or cell holds it.
+    /// </para>
+    /// <para>
+    /// <paramref name="trim"/> drops the empty lines at the end of the block, which is what the
+    /// Enters that asked to leave typed. Removing them and adding the paragraph are one
+    /// transaction, so one undo puts the empty lines and the caret back.
+    /// </para>
+    /// </remarks>
+    /// <param name="trim">Whether to drop the empty lines at the end of the block.</param>
+    /// <returns>Whether anything changed.</returns>
+    private bool LeaveCodeBlock(bool trim)
+    {
+        if (Rectangle is not null
+            || !AcceptsReturn
+            || _state.Doc.Resolve(_state.Selection.Head) is not
+                { Parent: ParagraphNode { Kind: ParagraphKind.Code } code } at)
+        {
+            return false;
+        }
+
+        var text = code.Content.Text;
+        var removed = trim ? text.Length - text.TrimEnd('\n').Length : 0;
+        var end = at.End(at.Depth);
+        var after = at.After(at.Depth) - removed;
+        var transaction = _state.Transaction().As(TransactionKind.Structure);
+
+        if (removed > 0)
+        {
+            transaction.Delete(end - removed, end);
+        }
+
+        transaction
+            .Replace(after, after, new Slice([ParagraphNode.Empty], 0, 0))
+            .SetSelection(TextSelection.Cursor(after + 1))
+            .SetStoredMarks(null);
+
+        _goalX = null;
+
+        return Apply(transaction);
+    }
 
     /// <inheritdoc/>
     protected override void OnTextInput(TextInputEventArgs e)

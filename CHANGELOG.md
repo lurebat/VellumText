@@ -50,6 +50,13 @@ NuGet; packages are published to a local feed, and
 
 ### Fixed
 
+- **Enter in a code block adds a line to the same block.** It split the block,
+  so every line of code became a code block of its own and the toolbar was the
+  only way out of the last one. The lines stay newlines in the one block now, as
+  Shift+Enter already made them. Three Enters at the end of the block — Enter on
+  an empty last line under another empty line — leave it for a body paragraph
+  below and drop the empty lines at its end; Ctrl+Enter (Cmd+Enter on macOS)
+  leaves it from anywhere and keeps every line.
 - **Enter in a bullet starts the next bullet.** It split the paragraph inside
   the same item, so the new line had no bullet, Tab could not nest it, and
   Shift+Tab took both lines out of the list. Backspace at the start of a bullet
