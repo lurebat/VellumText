@@ -735,6 +735,9 @@ internal sealed class ParagraphView : BlockView
     /// line reported <c>Height</c> 19.2 and <c>Baseline</c> 40, which cannot describe a real box.
     /// So a paragraph whose tallest embed does not fit gives the leading up and lets the font
     /// decide, which grows only the lines that need it rather than every line in the paragraph.
+    /// Text is held to the same rule: the forced height is worked out from the paragraph's own
+    /// size, and text set larger than that — a size picked from the toolbar, a pasted heading
+    /// with a size of its own — was drawn over the line below it.
     /// </para>
     /// </remarks>
     private TextParagraphProperties ParagraphProperties()
@@ -750,9 +753,47 @@ internal sealed class ParagraphView : BlockView
             alwaysCollapsible: false,
             _styles.Default,
             TextWrapping.Wrap,
-            lineHeight: scaled >= TallestEmbed() ? scaled : 0,
+            lineHeight: scaled > 0 && scaled >= TallestEmbed() && scaled >= TallestText() ? scaled : 0,
             indent: 0,
             letterSpacing: 0);
+    }
+
+    /// <summary>
+    /// The height a line needs for the largest text in the paragraph: its font's ascent, descent
+    /// and line gap at its size.
+    /// </summary>
+    /// <remarks>
+    /// Each distinct set of marks is resolved once, so the cost is the number of differently
+    /// formatted stretches, not the length of the paragraph; text with no marks of its own is
+    /// the paragraph's own size, which the forced height was worked out for.
+    /// </remarks>
+    private double TallestText()
+    {
+        var tallest = 0.0;
+        HashSet<MarkSet>? seen = null;
+
+        foreach (var span in _paragraph.Content.Marks)
+        {
+            if (!(seen ??= []).Add(span.Value))
+            {
+                continue;
+            }
+
+            var properties = _styles.Resolve(span.Value);
+
+            if (properties.FontRenderingEmSize <= _styles.Default.FontRenderingEmSize)
+            {
+                continue;
+            }
+
+            var metrics = properties.Typeface.GlyphTypeface.Metrics;
+            var lineSpacing = (metrics.Descent - metrics.Ascent + metrics.LineGap)
+                / (double)metrics.DesignEmHeight;
+
+            tallest = Math.Max(tallest, properties.FontRenderingEmSize * lineSpacing);
+        }
+
+        return tallest;
     }
 
     /// <summary>The height of the tallest embed in the paragraph, or zero if it has none.</summary>

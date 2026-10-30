@@ -69,6 +69,51 @@ public class ParagraphViewLineHeightTests
                 .Concat(InlineContent.FromEmbed(new ImageEmbed("x.png", width, height)))
                 .Concat(InlineContent.FromText("b")))]);
 
+    /// <summary>
+    /// Text set larger than the paragraph's own size gets lines tall enough for it. The forced
+    /// line height is worked out from the paragraph's size, and it took no account of larger text:
+    /// every line kept the body pitch, so 48-pixel text wrapped onto lines 25.6 pixels apart and
+    /// each line was drawn over the next (found live, picking a size from the toolbar and pasting
+    /// a wrapped heading).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(ParagraphKind.Body, 48.0)]
+    [InlineData(ParagraphKind.Body, 24.0)]
+    [InlineData(ParagraphKind.Heading1, 64.0)]
+    public void LargerTextGetsLinesTallEnoughForIt(ParagraphKind kind, double size)
+    {
+        var text = string.Join(" ", Enumerable.Range(0, 30).Select(i => "word" + i));
+        var view = Shown(new DocumentNode([new ParagraphNode(
+            InlineContent.Create(text, [new ValueSpan<MarkSet>(0, text.Length, new MarkSet { FontSize = size })], []),
+            kind)]));
+        var lines = ((ParagraphView)view.Blocks[0]).Layout.TextLines;
+
+        Assert.True(lines.Count > 2, $"the paragraph was meant to wrap; it is {lines.Count} lines");
+
+        // A line is at least as tall as the text on it: otherwise its glyphs reach into the next.
+        Assert.All(lines, line => Assert.True(
+            line.Height >= size,
+            $"{size}px text was put on lines {line.Height}px tall"));
+        Assert.True(view.Blocks[0].Size.Height >= lines.Count * size);
+    }
+
+    /// <summary>
+    /// A paragraph holding only one larger word gives the leading up only for itself: plain text
+    /// and text no larger than the paragraph's own size keep the leading they had.
+    /// </summary>
+    [AvaloniaFact]
+    public void TextNoLargerThanTheParagraphKeepsTheLeading()
+    {
+        var plain = Shown(DocumentNode.FromParagraphs("a b"));
+        var smaller = Shown(new DocumentNode([new ParagraphNode(
+            InlineContent.Create("a b", [new ValueSpan<MarkSet>(0, 1, new MarkSet { FontSize = 10 })], []))]));
+        var larger = Shown(new DocumentNode([new ParagraphNode(
+            InlineContent.Create("a b", [new ValueSpan<MarkSet>(0, 1, new MarkSet { FontSize = 40 })], []))]));
+
+        Assert.Equal(plain.Blocks[0].Size.Height, smaller.Blocks[0].Size.Height, 3);
+        Assert.True(larger.Blocks[0].Size.Height >= 40);
+    }
+
     private static RichTextView Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };

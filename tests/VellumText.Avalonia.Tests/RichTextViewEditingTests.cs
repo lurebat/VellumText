@@ -430,13 +430,11 @@ public class RichTextViewEditingTests
         Assert.True(view.Split());
 
         var list = Assert.IsType<ListNode>(Assert.Single(view.State.Doc.Blocks));
-        var item = Assert.Single(list.Items);
 
-        // Two paragraphs in one bullet is what Enter inside a bullet does today, pinned by
-        // Enter_in_a_bullet_with_words_in_it_still_splits_it. What matters here is that the
-        // selection is gone rather than split around.
-        Assert.Equal(2, item.Blocks.Length);
-        Assert.All(item.Blocks, b => Assert.Equal(string.Empty, ((ParagraphNode)b).Content.Text));
+        // Enter in a bullet starts the next bullet (Enter_at_the_end_of_a_bullet_starts_the_next_one).
+        // What matters here is that the selection is gone rather than split around.
+        Assert.Equal(2, list.Items.Length);
+        Assert.All(list.Items, i => Assert.Equal(string.Empty, ((ParagraphNode)Assert.Single(i.Blocks)).Content.Text));
     }
 
     [AvaloniaFact]
