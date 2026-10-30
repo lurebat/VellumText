@@ -1,5 +1,6 @@
 using System.Globalization;
 using global::Avalonia.Controls;
+using global::Avalonia.Headless;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Media;
 using global::Avalonia.Media.TextFormatting;
@@ -695,6 +696,51 @@ public class ToolbarOutcomeTests
             Assert.Equal(bolded, run.Typeface.Weight == FontWeight.Bold);
             AssertNoOverlappingLines(view);
         }
+    }
+
+    /// <summary>
+    /// After a real pointer click on a toolbar button — or on a colour in its flyout — the
+    /// keyboard is still in the document: the next character typed lands in the text, over the
+    /// selection the button just formatted.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Bold (Ctrl+B)")]
+    [InlineData("Centre")]
+    [InlineData("Bulleted list (Ctrl+Shift+8)")]
+    [InlineData("Heading 2")]
+    [InlineData("Increase indent")]
+    [InlineData("Text colour")]
+    public void AfterAToolbarClickTheNextKeystrokeLandsInTheDocument(string tip)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+
+        view.Focus();
+        SelectPart(view);
+
+        var before = editor.State.Doc;
+        var button = Find(bar, tip)!;
+
+        PointerClick(button);
+
+        if (button.Flyout is Flyout flyout)
+        {
+            Assert.True(flyout.IsOpen, "the flyout did not open");
+
+            var content = (Control)flyout.Content!;
+
+            Layout(WindowOf(button));
+            PointerClick(content.GetVisualDescendants().OfType<Button>().Where(b => b.CommandParameter is string).ElementAt(8));
+
+            Assert.False(flyout.IsOpen);
+        }
+
+        Assert.NotSame(before, editor.State.Doc);
+        Assert.Same(view, Focused(view));
+
+        WindowOf(view).KeyTextInput("x");
+
+        Assert.StartsWith("x world", Paragraphs(editor.State.Doc)[0].Content.Text, StringComparison.Ordinal);
     }
 
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
