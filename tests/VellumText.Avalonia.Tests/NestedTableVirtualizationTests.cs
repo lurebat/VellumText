@@ -585,6 +585,41 @@ public class NestedTableVirtualizationTests
     }
 
     /// <summary>
+    /// A jump far into a long table in a cell, beside a long column of text: the text beside is
+    /// drawn where a fully laid-out copy draws it, though the rows above the point jumped to were
+    /// priced by an estimate the short rows at the table's top make wrong — the anchor's depth in
+    /// the row is made exact, because the text beside hangs from the row's top. One table deep and,
+    /// inside one-row tables, three.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void AJumpBesideALongColumnOfTextDrawsTheTextWhereItReallyIs(int depth)
+    {
+        BlockNode content = new TableNode([new TableRowNode([
+            new TableCellNode([Irregular(400)]),
+            new TableCellNode([.. Enumerable.Range(0, 2_000).Select(i => (BlockNode)ParagraphNode.FromText($"Beside {i}."))]),
+        ])]);
+
+        for (var d = 1; d < depth; d++)
+        {
+            content = new TableNode([new TableRowNode([new TableCellNode([content])])]);
+        }
+
+        var doc = new DocumentNode([content, ParagraphNode.FromText("After.")]);
+        var (window, view) = Shown(doc);
+        var twin = GeometryTransactionTests.FullyLaidOut(doc);
+
+        ResetCounters();
+
+        view.Offset = new Vector(0, 20_000);
+        Layout(window);
+
+        AssertTruthOnScreenIsLaidOut(view, twin);
+        AssertNoRepairs();
+    }
+
+    /// <summary>
     /// The viewport is held inside a table in a cell, near its end, and the cell beside is a
     /// little taller in truth: the row's bottom, and the row after it on screen, hang from that
     /// taller cell, so the depth of the anchor in the row is made exact and the row after is laid
@@ -1117,6 +1152,16 @@ public class NestedTableVirtualizationTests
             Enumerable.Range(0, 3).Select(c => TableCellNode.FromText(tag is null ? $"r{r}c{c}" : $"{tag} r{r}c{c}")))));
 
     /// <summary>
+    /// A rows × 2 table whose rows are one to eleven lines tall in no simple order, so no estimate
+    /// prices the rows nobody has measured at what they are.
+    /// </summary>
+    internal static TableNode Irregular(int rows, string? tag = null) =>
+        new(Enumerable.Range(0, rows).Select(r => new TableRowNode([
+            new TableCellNode([.. Enumerable.Range(0, 1 + ((r * 7) % 11)).Select(i => (BlockNode)ParagraphNode.FromText(i == 0 ? $"{tag}r{r}c0" : $"{tag}r{r} line {i}"))]),
+            TableCellNode.FromText($"{tag}r{r}c1"),
+        ])));
+
+    /// <summary>
     /// <paramref name="inner"/> nested <paramref name="depth"/> deep: in the only cell of one-row
     /// tables, the outermost of which has <paramref name="outerRows"/> rows with the table in row
     /// <paramref name="hostRow"/>; then a paragraph.
@@ -1157,34 +1202,18 @@ public class NestedTableVirtualizationTests
     }
 
     /// <summary>
-    /// Everything a fully laid-out copy shows in the viewport is laid out in the view, found
-    /// without laying anything out: the copy is aligned on the text at the top of the viewport,
-    /// and every point of a grid over the viewport is looked up in the copy and asked of the
-    /// view's block whether it is prepared.
+    /// Everything a fully laid-out copy shows in the viewport is laid out in the view and drawn
+    /// where the copy draws it (<see cref="AssertPlacedAsInTwin"/>), aligned on the content held
+    /// at the top of the viewport — read from the view's last layout, and asked whether it is laid
+    /// out before anything reads its geometry, so the check lays nothing out first.
     /// </summary>
     internal static void AssertTruthOnScreenIsLaidOut(RichTextView view, RichTextView twin)
     {
         var block = Enumerable.Range(view.RealizedBlocks.Start.Value, view.RealizedBlocks.End.Value - view.RealizedBlocks.Start.Value)
             .First(i => view.BlockOrigin(i).Y + view.Blocks[i].Size.Height > 0);
-        var table = view.Blocks[block];
-        var top = -view.BlockOrigin(block).Y;
-        var held = table.CaptureAnchor(top);
-        var start = view.Slots[block].Start;
-        var at = start + held.Position;
-        var shift = GeometryTransactionTests.ScreenTop(twin, at) - (view.BlockOrigin(block).Y + table.GetCaretRect(held.Position).Top);
+        var held = view.Blocks[block].CaptureAnchor(-view.BlockOrigin(block).Y);
 
-        for (var y = 1.0; y < Height; y += Height / 16)
-        {
-            for (var x = 4.0; x < Width; x += Width / 8)
-            {
-                var position = twin.PositionAt(new Point(x, y + shift));
-                var index = view.BlockIndexOf(position);
-
-                Assert.True(
-                    view.Blocks[index].IsPreparedAt(position - view.Slots[index].Start),
-                    $"position {position}, on screen at ({x:F0}, {y:F0}) in a fully laid-out copy, is not laid out");
-            }
-        }
+        AssertPlacedAsInTwin(view, twin, view.Slots[block].Start + held.Position);
     }
 
     /// <summary>
@@ -1209,6 +1238,15 @@ public class NestedTableVirtualizationTests
                 AssertPrepared(view, position, $"position {position}, on screen at ({x:F0}, {y:F0}) in a fully laid-out copy,");
 
                 var expected = Caret(twin, position).Translate(new Vector(0, -shift));
+
+                // A point in the empty part of a cell beside a taller one hits the end of that
+                // cell's text, which can be far above: only what the copy draws on screen is held
+                // to where it draws it.
+                if (expected.Bottom < 0 || expected.Top > Height)
+                {
+                    continue;
+                }
+
                 var actual = Caret(view, position);
 
                 Assert.True(
