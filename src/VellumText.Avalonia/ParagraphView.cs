@@ -375,6 +375,8 @@ internal sealed class ParagraphView : BlockView
             return Size;
         }
 
+        LayoutGuard.Changing("a paragraph laid out");
+
         // The indent and the padding both eat into the width the text may wrap to, so a padded
         // or indented paragraph wraps where it visually runs out of room rather than where a
         // plain one would. A width smaller than that still has to leave somewhere for the text.
@@ -779,6 +781,116 @@ internal sealed class ParagraphView : BlockView
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineCount => Lines.Length;
 
+    /// <inheritdoc/>
+    /// <remarks>Whether the paragraph has a layout; the host knows whether it is for the current width.</remarks>
+    internal override bool IsPreparedAt(int localPosition) => IsMeasured;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The first position of the visual line at <paramref name="y"/> and how far below that
+    /// line's top the offset is. A paragraph whose layout is gone — a composition dropped it — is
+    /// named by its box instead, since there are no lines to read.
+    /// </remarks>
+    internal override LocalAnchor CaptureAnchor(double y)
+    {
+        if (!IsMeasured)
+        {
+            return new LocalAnchor(0, y, AnchorKind.Box);
+        }
+
+        var lines = Lines;
+        var local = y - Origin.Y;
+        var low = 0;
+        var high = lines.Length - 1;
+
+        while (low < high)
+        {
+            var middle = low + ((high - low + 1) / 2);
+
+            if (lines[middle].Top <= local)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        var line = lines[low];
+
+        // A line that starts inside composed text and goes on into the paragraph's own text after
+        // it is held by that text, which is what the reader sees resume there, so the composition
+        // grows upward from it.
+        if (_preedit is { Length: > 0 } mixed
+            && line.Start > mixed.Offset
+            && line.Start < mixed.Offset + mixed.Length
+            && mixed.Offset < ContentSize
+            && mixed.Offset + mixed.Length < line.End)
+        {
+            return new LocalAnchor(mixed.Offset, y - (Origin.Y + line.Top), AnchorKind.Line, AfterComposition: true);
+        }
+
+        // A line that starts inside composed text and holds nothing else has no position of its
+        // own: the composition is not in the document. It is held from the line the composition
+        // starts on, by however far below that line the offset is, so the composed text stays put
+        // as it grows.
+        if (_preedit is { } preedit && line.Start > preedit.Offset && line.Start < preedit.Offset + preedit.Length)
+        {
+            var first = Lines[LineIndexAt(preedit.Offset, forward: true)];
+
+            return new LocalAnchor(preedit.Offset, y - (Origin.Y + first.Top), AnchorKind.Line, Unclamped: true);
+        }
+
+        // The line the paragraph's own text resumes on after a composition ending at a line break
+        // starts at the composition's position too; read back as a position it would name the
+        // composition's first line, so it says which side of the composition it is on.
+        if (_preedit is { } before && before.Length > 0 && line.Start == before.Offset + before.Length)
+        {
+            return new LocalAnchor(before.Offset, y - (Origin.Y + line.Top), AnchorKind.Line, AfterComposition: true);
+        }
+
+        return new LocalAnchor(
+            FromLayout(Math.Clamp(line.Start, 0, LayoutSize)),
+            y - (Origin.Y + line.Top),
+            AnchorKind.Line);
+    }
+
+    /// <inheritdoc/>
+    internal override double? AnchorPoint(LocalAnchor anchor)
+    {
+        if (anchor.Kind != AnchorKind.Line)
+        {
+            return base.AnchorPoint(anchor);
+        }
+
+        if (!IsMeasured)
+        {
+            return null;
+        }
+
+        var lines = Lines;
+        var index = anchor.AfterComposition && _preedit is { } composing && anchor.Position == composing.Offset
+            ? LayoutLineAt(composing.Offset + composing.Length)
+            : LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true);
+        var line = lines[index];
+
+        // Held within the line's slot — down to the next line, the last one to the paragraph's
+        // bottom, and the first one up to the paragraph's top — so an offset in the spacing around
+        // a line is kept as it was, and one a reflow left past the line is pulled back to it.
+        var above = index == 0 ? -(Origin.Y + line.Top) : 0;
+        var slot = index + 1 < lines.Length
+            ? lines[index + 1].Top - line.Top
+            : Size.Height - Origin.Y - line.Top;
+        var dy = anchor.Unclamped ? anchor.Dy : Math.Clamp(anchor.Dy, Math.Min(0, above), Math.Max(line.Line.Height, slot));
+
+        return Origin.Y + line.Top + dy;
+    }
+
+    /// <inheritdoc/>
+    internal override double TextBottom =>
+        IsMeasured && Lines is { Length: > 0 } lines ? Origin.Y + lines[^1].Top + lines[^1].Line.Height : Size.Height;
+
     /// <summary>The index of the visual line a position sits on.</summary>
     /// <remarks>
     /// A wrap boundary belongs to two lines, so the caller says which way it is travelling for
@@ -812,6 +924,22 @@ internal sealed class ParagraphView : BlockView
         }
 
         return forward ? lines.Length - 1 : 0;
+    }
+
+    /// <summary>The index of the visual line a layout position starts or sits on.</summary>
+    private int LayoutLineAt(int layoutPosition)
+    {
+        var lines = Lines;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (layoutPosition < lines[i].End)
+            {
+                return i;
+            }
+        }
+
+        return lines.Length - 1;
     }
 
     /// <summary>The first position on a visual line.</summary>

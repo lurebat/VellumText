@@ -285,7 +285,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
             context.FillRectangle(background, new Rect(Bounds.Size));
         }
 
-        RenderContent(context);
+        // Painting lays nothing out; see LayoutGuard.
+        using (LayoutGuard.Painting())
+        {
+            RenderContent(context);
+        }
     }
 
     /// <summary>Draws the realized blocks.</summary>

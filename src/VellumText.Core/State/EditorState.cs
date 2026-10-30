@@ -454,6 +454,10 @@ public sealed record EditorState
                 nameof(tr));
         }
 
-        return new EditorState(tr.Doc, tr.SelectionAfter, tr.StoredMarks);
+        var next = new EditorState(tr.Doc, tr.SelectionAfter, tr.StoredMarks);
+
+        StateLineage.Record(next, this, tr.Mapping);
+
+        return next;
     }
 }
