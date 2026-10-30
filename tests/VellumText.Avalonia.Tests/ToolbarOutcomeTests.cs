@@ -145,6 +145,92 @@ public class ToolbarOutcomeTests
         return paragraph.GetCaretRect(0).X;
     }
 
+    /// <summary>
+    /// An alignment button aligns exactly the paragraphs the selection touches, and stays lit when
+    /// it is clicked again. A ToggleButton flips itself before it runs its command; when the
+    /// command then changed nothing — the paragraphs already had that alignment — no state
+    /// property changed, the binding never put the button back, and it showed unlit over centred
+    /// text.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Align left", TextAlign.Left)]
+    [InlineData("Centre", TextAlign.Center)]
+    [InlineData("Align right", TextAlign.Right)]
+    [InlineData("Justify", TextAlign.Justify)]
+    public void AnAlignmentButtonAlignsTheSelectedParagraphsAndStaysLit(string tip, TextAlign align)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+
+        SelectAcross(view);
+
+        var button = Toggle(bar, tip);
+
+        UserClick(button);
+        UserClick(button);
+
+        var paragraphs = Paragraphs(editor.State.Doc);
+
+        Assert.Equal([align, align, TextAlign.Default], paragraphs.Select(p => p.Align));
+        Assert.Equal(align, bar.Align);
+        Assert.True(button.IsChecked, $"{tip} went dark on a second click; the paragraphs are still {align}");
+        Assert.All(
+            new[] { "Align left", "Centre", "Align right", "Justify" }.Where(other => other != tip),
+            other => Assert.False(Toggle(bar, other).IsChecked, $"{other} is lit too"));
+
+        // On screen: where the selected paragraphs' lines sit, and the third's left alone.
+        for (var block = 0; block < 2; block++)
+        {
+            var layout = ((ParagraphView)view.Blocks[block]).Layout;
+            var last = layout.TextLines[^1];
+
+            switch (align)
+            {
+                case TextAlign.Left:
+                    Assert.Equal(0, last.Start, 3);
+                    break;
+                case TextAlign.Center:
+                    Assert.Equal((layout.MaxWidth - last.Width) / 2, last.Start, 1);
+                    break;
+                case TextAlign.Right:
+                    Assert.Equal(layout.MaxWidth, last.Start + last.Width, 1);
+                    break;
+            }
+        }
+
+        if (align == TextAlign.Justify)
+        {
+            // Every line but the last fills the width; the last is left as it is, as in print.
+            var lines = ((ParagraphView)view.Blocks[0]).Layout.TextLines;
+
+            Assert.True(lines.Count > 1, "the first paragraph was meant to wrap");
+            Assert.All(lines.Take(lines.Count - 1), line => Assert.True(
+                line.WidthIncludingTrailingWhitespace >= ((ParagraphView)view.Blocks[0]).Layout.MaxWidth - 1,
+                $"a justified line is {line.WidthIncludingTrailingWhitespace} wide"));
+        }
+
+        Assert.Equal(0, ((ParagraphView)view.Blocks[2]).Layout.TextLines[0].Start, 3);
+        AssertNoOverlappingLines(view);
+    }
+
+    /// <summary>Body is a state, not a toggle: clicking it on body text leaves it body, and lit.</summary>
+    [AvaloniaFact]
+    public void ClickingBodyOnBodyTextLeavesItLit()
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var before = editor.State.Doc;
+        var body = Toggle(bar, "Body text");
+
+        SelectAcross(editor.View!);
+
+        Assert.True(body.IsChecked);
+
+        UserClick(body);
+
+        Assert.Same(before, editor.State.Doc);
+        Assert.True(body.IsChecked, "Body went dark over body text");
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {

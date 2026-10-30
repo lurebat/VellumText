@@ -25,8 +25,8 @@ namespace VellumText.Tests.Avalonia;
 /// </remarks>
 internal static class ToolbarHarness
 {
-    /// <summary>Long enough that a large size wraps it, so there are lines to compare.</summary>
-    public const string First = "hello world and enough further words that larger text has to wrap onto more lines";
+    /// <summary>Long enough to wrap even at the body size, so there are lines to compare and justify.</summary>
+    public const string First = "hello world and enough further words that the paragraph has to wrap onto more than one line at the ordinary body size, and larger text onto many more lines than that";
 
     public const string Second = "second line here";
 

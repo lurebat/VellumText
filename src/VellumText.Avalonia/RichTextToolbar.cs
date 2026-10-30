@@ -194,6 +194,7 @@ public class RichTextToolbar : TemplatedControl
     private Rgba? _highlight;
     private bool _canUndo;
     private bool _canRedo;
+    private bool _reasserting;
 
     /// <summary>Creates a toolbar with no editor attached.</summary>
     public RichTextToolbar()
@@ -482,9 +483,9 @@ public class RichTextToolbar : TemplatedControl
         };
     }
 
-    private ICommand Command(Func<bool?> run) => Track(new Action(run, IsEditable));
+    private ICommand Command(Func<bool?> run) => Track(new Action(run, this));
 
-    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, IsEditable));
+    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, this));
 
     private ToolbarCommand Track(ToolbarCommand command)
     {
@@ -578,8 +579,35 @@ public class RichTextToolbar : TemplatedControl
         Set(CanRedoProperty, ref _canRedo, _view?.CanRedo ?? false);
     }
 
-    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value) =>
-        SetAndRaise(property, ref field, value);
+    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value)
+    {
+        if (!SetAndRaise(property, ref field, value) && _reasserting)
+        {
+            RaisePropertyChanged(property, value, value);
+        }
+    }
+
+    /// <summary>Re-reads the bar's state after a command, announcing every value, changed or not.</summary>
+    /// <remarks>
+    /// A ToggleButton flips itself before it runs its command. When the command changes nothing —
+    /// Centre on text already centred, Body on body text — no state property changes, so its
+    /// binding never puts the button back, and it shows unlit over centred text until something
+    /// else changes. Announcing the unchanged value makes the binding re-apply what the document
+    /// says over what the click flipped.
+    /// </remarks>
+    private void Reassert()
+    {
+        _reasserting = true;
+
+        try
+        {
+            Sync();
+        }
+        finally
+        {
+            _reasserting = false;
+        }
+    }
 
     /// <summary>A command that is enabled exactly while the bound editor accepts edits.</summary>
     /// <remarks>
@@ -587,17 +615,18 @@ public class RichTextToolbar : TemplatedControl
     /// discards it: a button that reported failure by doing nothing visible is the same button
     /// either way, and the state properties already say what the document looks like afterwards.
     /// </remarks>
-    private abstract class ToolbarCommand(Func<bool> enabled) : ICommand
+    private abstract class ToolbarCommand(RichTextToolbar owner) : ICommand
     {
         public event EventHandler? CanExecuteChanged;
 
-        public bool CanExecute(object? parameter) => enabled();
+        public bool CanExecute(object? parameter) => owner.IsEditable();
 
         public void Execute(object? parameter)
         {
-            if (enabled())
+            if (owner.IsEditable())
             {
                 Run(parameter);
+                owner.Reassert();
             }
         }
 
@@ -607,13 +636,13 @@ public class RichTextToolbar : TemplatedControl
     }
 
     /// <summary>A command with no parameter.</summary>
-    private sealed class Action(Func<bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
+    private sealed class Action(Func<bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
     {
         protected override void Run(object? parameter) => run();
     }
 
     /// <summary>A command taking one typed parameter, tolerant of markup handing it the wrong thing.</summary>
-    private sealed class Action<T>(Func<T, bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
+    private sealed class Action<T>(Func<T, bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
     {
         protected override void Run(object? parameter)
         {
