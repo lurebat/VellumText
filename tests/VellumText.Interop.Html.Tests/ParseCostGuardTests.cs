@@ -155,6 +155,8 @@ public sealed class ParseCostGuardTests
     [InlineData("<script>hidden</script>")]
     [InlineData("<style>hidden</style>")]
     [InlineData("<template><template>x</template><p>hidden</p></template>")]
+    [InlineData("<template><template/>x</template>hidden</template>")]
+    [InlineData("<noscript><noscript/>x</noscript>hidden</noscript>")]
     public void Non_content_past_the_depth_limit_does_not_become_text(string body)
     {
         var options = HtmlImportOptions.Default with { MaxElementDepth = 2 };
@@ -164,6 +166,50 @@ public sealed class ParseCostGuardTests
 
         Assert.DoesNotContain("hidden", TextOf(result.Doc), StringComparison.Ordinal);
         Assert.Contains("after", TextOf(result.Doc), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Inside a <c>select</c> the tree builder ignores a start tag such as <c>plaintext</c>, or
+    /// makes it an ordinary element, and applies none of the implied closes it applies elsewhere.
+    /// Measuring the markup as if it were outside one let the guard stop reading tags at a
+    /// <c>plaintext</c> the parser never honoured, or close elements the parser kept open, while
+    /// the parser went on nesting.
+    /// </summary>
+    [Theory]
+    [InlineData("<select><plaintext></select>", "<div>")]
+    [InlineData("<p><select><div><plaintext></select>", "<div>")]
+    [InlineData("<select><option><b><i></b></select><plaintext>", "<div>")]
+    [InlineData("<select><option><style>", "<div>")]
+    [InlineData("<select><option><div><textarea>", "<div>")]
+    [InlineData("<select><option>", "<p>")]
+    [InlineData("<select><option>", "<br>")]
+    [InlineData("<select><option>", "<h1><h2>")]
+    public void Markup_inside_a_select_is_measured_as_the_parser_builds_it(string prefix, string unit)
+    {
+        var options = HtmlImportOptions.Default with { MaxElementDepth = 4 };
+        var html = prefix + string.Concat(Enumerable.Repeat(unit, 12)) + "x";
+
+        var guarded = HtmlInputGuard.Bound(html, options);
+
+        Assert.InRange(MaxDepthOf(guarded.Html), 0, 4);
+        Assert.True(guarded.DroppedDeepTags);
+    }
+
+    /// <summary>
+    /// What a browser writes for a <c>select</c> closes every element in it, so the markup after
+    /// one is measured exactly as before.
+    /// </summary>
+    [Fact]
+    public void A_closed_select_does_not_change_how_what_follows_is_measured()
+    {
+        var html = "<select><option>a</option><optgroup label=\"g\"><option>b</option></optgroup></select>"
+            + string.Concat(Enumerable.Range(0, 600).Select(i => $"<p>{i}"))
+            + "<style>p{}</style><textarea><div></textarea>";
+
+        var guarded = HtmlInputGuard.Bound(html, HtmlImportOptions.Default);
+
+        Assert.False(guarded.DroppedDeepTags);
+        Assert.Same(html, guarded.Html);
     }
 
     /// <summary>
@@ -207,8 +253,32 @@ public sealed class ParseCostGuardTests
     [InlineData("width:calc(1px + 2px)", 1)]
     [InlineData("width:calc((1px + (2px)))", 3)]
     [InlineData("a:b)))(", 1)]
+    [InlineData("a:f(/*)*/(b))", 2)]
+    [InlineData("a:f(/*(((*/b)", 1)]
     public void Bracket_depth_is_the_deepest_nesting(string css, int expected) =>
         Assert.Equal(expected, HtmlInputGuard.BracketDepth(css));
+
+    /// <summary>
+    /// A bracket inside a comment, a string or an escape is not a bracket to the CSS parser, so
+    /// counting it let a closing one cancel an opening one the parser does nest: forty units of
+    /// <c>(/*)*/</c> measured 2 deep and nested 41.
+    /// </summary>
+    [Theory]
+    [InlineData("(/*)*/")]
+    [InlineData("(\")\"")]
+    [InlineData("(')'")]
+    [InlineData("(\\)")]
+    [InlineData("(url(/*)")]
+    public void Brackets_the_css_parser_does_not_see_do_not_hide_nesting(string unit)
+    {
+        var css = "font-size:calc(" + string.Concat(Enumerable.Repeat(unit, 40)) + "1px" + new string(')', 40) + ")";
+
+        Assert.True(HtmlInputGuard.BracketDepth(css) > HtmlImportOptions.Default.MaxStyleNesting, $"measured {HtmlInputGuard.BracketDepth(css)}");
+
+        var result = HtmlImporter.Import("<p style=\"" + css.Replace("\"", "&quot;", StringComparison.Ordinal) + "\">x</p>");
+
+        Assert.Contains(result.Diagnostics, d => d.Context == "style-nesting");
+    }
 
     private static int MaxDepthOf(string html)
     {
