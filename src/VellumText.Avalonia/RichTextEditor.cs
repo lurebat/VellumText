@@ -764,7 +764,13 @@ public class RichTextEditor : TemplatedControl
 
         view.ImageStore = old.ImageStore;
         view.Embeds = old.Embeds;
-        view.TextStyles = old.TextStyles;
+        // A derived resolver is left behind: reading it would materialise one and assigning that
+        // would pin the new view to the old font, so it stopped following FontSize and the theme.
+        if (old.HasExplicitTextStyles)
+        {
+            view.TextStyles = old.TextStyles;
+        }
+
         view.ParagraphStyles = old.ParagraphStyles;
         view.SyntaxHighlighter = old.SyntaxHighlighter;
         view.SyntaxTheme = old.SyntaxTheme;
