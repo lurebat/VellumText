@@ -194,6 +194,7 @@ public class RichTextToolbar : TemplatedControl
     private Rgba? _highlight;
     private bool _canUndo;
     private bool _canRedo;
+    private bool _reasserting;
 
     /// <summary>Creates a toolbar with no editor attached.</summary>
     public RichTextToolbar()
@@ -207,8 +208,8 @@ public class RichTextToolbar : TemplatedControl
         SetHighlightCommand = Command<object?>(colour => _view?.SetHighlight(Colour(colour)));
         SetFontFamilyCommand = Command<string?>(family => _view?.SetFontFamily(family));
         SetFontSizeCommand = Command<object?>(size => _view?.SetFontSize(Points(size) * PixelsPerPoint));
-        IndentCommand = Command(() => _view?.Indent());
-        OutdentCommand = Command(() => _view?.Outdent());
+        IndentCommand = Command(() => _view?.ChangeLevel(outward: false));
+        OutdentCommand = Command(() => _view?.ChangeLevel(outward: true));
         ClearFormattingCommand = Command(() => _view?.ClearFormatting());
         UndoCommand = Command(() => _view?.Undo());
         RedoCommand = Command(() => _view?.Redo());
@@ -216,7 +217,7 @@ public class RichTextToolbar : TemplatedControl
         // Toggling rather than setting, because the button that makes a link is the button that
         // removes one -- a toolbar with a permanently lit "link" button and no way back is the
         // shape this avoids.
-        SetLinkCommand = Command<object?>(target => _view?.SetLink(Link(target)));
+        SetLinkCommand = Command<object?>(ToggleLink);
 
         // The event rather than an OnApplyTemplate override: the hook is an implementation
         // detail, and an override would be public API surface on an unsealed control.
@@ -336,16 +337,25 @@ public class RichTextToolbar : TemplatedControl
     /// </remarks>
     public ICommand SetFontSizeCommand { get; }
 
-    /// <summary>Indents every selected paragraph one level.</summary>
+    /// <summary>Indents every selected paragraph one level, or in a list, nests the selected items.</summary>
+    /// <remarks>
+    /// What Tab does. In a list it is the nesting that changes, not the indent: a bullet that
+    /// moved right without becoming a sub-item would look nested and not be.
+    /// </remarks>
     public ICommand IndentCommand { get; }
 
-    /// <summary>Outdents every selected paragraph one level.</summary>
+    /// <summary>Outdents every selected paragraph one level, or in a list, lifts the selected items.</summary>
+    /// <remarks>What Shift+Tab does; see <see cref="IndentCommand"/>.</remarks>
     public ICommand OutdentCommand { get; }
 
     /// <summary>Strips character formatting from the selection.</summary>
     public ICommand ClearFormattingCommand { get; }
 
     /// <summary>Makes the selection a link to the parameter, or removes the link it already has.</summary>
+    /// <remarks>
+    /// With no parameter and no link to remove, it raises <see cref="RichTextView.LinkRequested"/>
+    /// so the host can ask for the address, as Ctrl+K does.
+    /// </remarks>
     public ICommand SetLinkCommand { get; }
 
     /// <summary>Undoes the most recent edit.</summary>
@@ -462,24 +472,45 @@ public class RichTextToolbar : TemplatedControl
         _ => null,
     };
 
-    private LinkMark? Link(object? target)
+    /// <summary>Removes the selection's link, makes one to the target, or asks for the address.</summary>
+    /// <remarks>
+    /// With no address to link to — which is what the default template's button passes — the
+    /// host is asked through <see cref="RichTextView.LinkRequested"/>, exactly as Ctrl+K asks it:
+    /// the control has no link dialog of its own and should not grow one. Doing nothing there was
+    /// a Link button that could remove links and never make one.
+    /// </remarks>
+    private bool? ToggleLink(object? target)
     {
-        if (_view?.SelectionMarks.Link is not null)
+        if (_view is null)
         {
             return null;
         }
 
-        return target switch
+        if (_view.SelectionMarks.Link is not null)
         {
-            LinkMark link => link,
+            return _view.SetLink(null);
+        }
+
+        LinkMark? link = target switch
+        {
+            LinkMark mark => mark,
             string href when !string.IsNullOrWhiteSpace(href) => new LinkMark(href),
             _ => null,
         };
+
+        if (link is null)
+        {
+            _view.RaiseLinkRequested();
+
+            return false;
+        }
+
+        return _view.SetLink(link);
     }
 
-    private ICommand Command(Func<bool?> run) => Track(new Action(run, IsEditable));
+    private ICommand Command(Func<bool?> run) => Track(new Action(run, this));
 
-    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, IsEditable));
+    private ICommand Command<T>(Func<T, bool?> run) => Track(new Action<T>(run, this));
 
     private ToolbarCommand Track(ToolbarCommand command)
     {
@@ -573,8 +604,35 @@ public class RichTextToolbar : TemplatedControl
         Set(CanRedoProperty, ref _canRedo, _view?.CanRedo ?? false);
     }
 
-    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value) =>
-        SetAndRaise(property, ref field, value);
+    private void Set<T>(DirectPropertyBase<T> property, ref T field, T value)
+    {
+        if (!SetAndRaise(property, ref field, value) && _reasserting)
+        {
+            RaisePropertyChanged(property, value, value);
+        }
+    }
+
+    /// <summary>Re-reads the bar's state after a command, announcing every value, changed or not.</summary>
+    /// <remarks>
+    /// A ToggleButton flips itself before it runs its command. When the command changes nothing —
+    /// Centre on text already centred, Body on body text — no state property changes, so its
+    /// binding never puts the button back, and it shows unlit over centred text until something
+    /// else changes. Announcing the unchanged value makes the binding re-apply what the document
+    /// says over what the click flipped.
+    /// </remarks>
+    private void Reassert()
+    {
+        _reasserting = true;
+
+        try
+        {
+            Sync();
+        }
+        finally
+        {
+            _reasserting = false;
+        }
+    }
 
     /// <summary>A command that is enabled exactly while the bound editor accepts edits.</summary>
     /// <remarks>
@@ -582,17 +640,18 @@ public class RichTextToolbar : TemplatedControl
     /// discards it: a button that reported failure by doing nothing visible is the same button
     /// either way, and the state properties already say what the document looks like afterwards.
     /// </remarks>
-    private abstract class ToolbarCommand(Func<bool> enabled) : ICommand
+    private abstract class ToolbarCommand(RichTextToolbar owner) : ICommand
     {
         public event EventHandler? CanExecuteChanged;
 
-        public bool CanExecute(object? parameter) => enabled();
+        public bool CanExecute(object? parameter) => owner.IsEditable();
 
         public void Execute(object? parameter)
         {
-            if (enabled())
+            if (owner.IsEditable())
             {
                 Run(parameter);
+                owner.Reassert();
             }
         }
 
@@ -602,13 +661,13 @@ public class RichTextToolbar : TemplatedControl
     }
 
     /// <summary>A command with no parameter.</summary>
-    private sealed class Action(Func<bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
+    private sealed class Action(Func<bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
     {
         protected override void Run(object? parameter) => run();
     }
 
     /// <summary>A command taking one typed parameter, tolerant of markup handing it the wrong thing.</summary>
-    private sealed class Action<T>(Func<T, bool?> run, Func<bool> enabled) : ToolbarCommand(enabled)
+    private sealed class Action<T>(Func<T, bool?> run, RichTextToolbar owner) : ToolbarCommand(owner)
     {
         protected override void Run(object? parameter)
         {
