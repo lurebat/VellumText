@@ -906,6 +906,187 @@ public class NestedTableVirtualizationTests
         AssertNoRepairs();
     }
 
+    // ---- merged cells and bidirectional text ----------------------------------------------------
+
+    /// <summary>
+    /// A table in a cell with cells spanning columns, a cell spanning a hundred rows and all three
+    /// columns — the rows under it hold nothing of their own — then cells spanning two rows, and
+    /// Hebrew and Arabic among the text: held on a line deep in the merged cell, it stays there
+    /// through a resize, scrolling on moves the text by exactly the scroll into the rows spanned in
+    /// pairs, everything on screen is drawn where a fully laid-out copy draws it, and points far
+    /// above and below land where the copy has them. One and two tables deep.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void MergedCellsAndBidiTextInANestedTableAreHeldAndDrawnWhereTheyReallyAre(int depth)
+    {
+        var doc = Nested(depth, MergedAndBidi(), outerRows: 20, hostRow: 10);
+        var (window, view) = Shown(doc);
+        var twin = GeometryTransactionTests.FullyLaidOut(doc);
+        var merged = TextAt(doc, Merged(150));
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, merged) - 2);
+            Layout(window);
+        }
+
+        AssertTruthOnScreenIsLaidOut(view, twin);
+
+        var y = ScreenTop(view, merged);
+
+        ResetCounters();
+
+        foreach (var width in new[] { Width - 120, Width + 150, Width })
+        {
+            window.Width = width;
+            Layout(window);
+
+            Assert.True(Math.Abs(ScreenTop(view, merged) - y) <= 1, $"at width {width} the line held in the merged cell is drawn at {ScreenTop(view, merged):F1}, not {y:F1}");
+            AssertScreenLaidOut(view);
+        }
+
+        AssertTruthOnScreenIsLaidOut(view, twin);
+
+        // On out of the merged cell and down the rows spanned in pairs.
+        for (var step = 0; step < 40; step++)
+        {
+            var probe = view.PositionAt(new Point(20, Height / 2));
+            var before = ScreenTop(view, probe);
+
+            view.Offset += new Vector(0, 60);
+            Layout(window);
+
+            Assert.True(Math.Abs(ScreenTop(view, probe) - (before - 60)) <= 1, $"step {step}: the middle line moved from {before:F1} to {ScreenTop(view, probe):F1}, not {before - 60:F1}");
+            AssertScreenLaidOut(view);
+        }
+
+        AssertTruthOnScreenIsLaidOut(view, twin);
+
+        var held = view.PositionAt(new Point(20, 4));
+        var top = ScreenTop(view, held);
+        var shift = ScreenTop(twin, held) - top;
+
+        foreach (var text in new[] { "m20 spans two: " + Bidi(20), "m7c1 " + Bidi(7), Merged(10), "m194 tall 3: " + Bidi(3), "After the tables." })
+        {
+            foreach (var x in new[] { 30.0, Width / 2, Width - 30 })
+            {
+                var at = new Point(x, ScreenTop(twin, TextAt(doc, text)) + 3);
+                var answered = view.PositionAt(new Point(x, at.Y - shift));
+                var expected = new[] { 0, -0.01, 0.01 }.Select(e => twin.PositionAt(new Point(x, at.Y + e))).ToArray();
+
+                Assert.True(expected.Contains(answered), $"the point ({at.X:F0}, {at.Y:F1}) by \"{text}\" in a fully laid-out copy is position {expected[0]}, the view answered {answered}");
+            }
+        }
+
+        Assert.True(Math.Abs(ScreenTop(view, held) - top) <= 1, "a point question moved the line at the top");
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// A long table in a cell spanning three rows, text beside it in each — in the second row a long
+    /// column of it, hanging from the band's top beside the table: held deep in the table, the text
+    /// beside is drawn where a fully laid-out copy draws it, and a resize and scrolling on keep the
+    /// text held still.
+    /// </summary>
+    [AvaloniaFact]
+    public void ATableInACellSpanningRowsIsHeldAndDrawnWhereItReallyIs()
+    {
+        var doc = new DocumentNode([
+            new TableNode(Enumerable.Range(0, 30).Select(r => new TableRowNode(r switch
+            {
+                10 => [new TableCellNode([Irregular(300, "h")], rowSpan: 3), TableCellNode.FromText($"side {r}")],
+                11 => [new TableCellNode(Enumerable.Range(0, 300).Select(i => (BlockNode)ParagraphNode.FromText($"side 11 line {i}")))],
+                12 => [TableCellNode.FromText($"side {r}")],
+                _ => [TableCellNode.FromText($"outer {r}"), TableCellNode.FromText($"side {r}")],
+            }))),
+            ParagraphNode.FromText("After the tables."),
+        ]);
+        var (window, view) = Shown(doc);
+        var twin = GeometryTransactionTests.FullyLaidOut(doc);
+        var middle = TextAt(doc, "hr40c0");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, middle) - 2);
+            Layout(window);
+        }
+
+        ResetCounters();
+        AssertTruthOnScreenIsLaidOut(view, twin);
+
+        var y = ScreenTop(view, middle);
+
+        foreach (var width in new[] { Width - 120, Width })
+        {
+            window.Width = width;
+            Layout(window);
+
+            Assert.True(Math.Abs(ScreenTop(view, middle) - y) <= 1, $"at width {width} the held line is drawn at {ScreenTop(view, middle):F1}, not {y:F1}");
+        }
+
+        for (var step = 0; step < 20; step++)
+        {
+            var probe = view.PositionAt(new Point(20, Height / 2));
+            var before = ScreenTop(view, probe);
+
+            view.Offset += new Vector(0, 90);
+            Layout(window);
+
+            Assert.True(Math.Abs(ScreenTop(view, probe) - (before - 90)) <= 1, $"step {step}: the middle line moved from {before:F1} to {ScreenTop(view, probe):F1}, not {before - 90:F1}");
+        }
+
+        AssertTruthOnScreenIsLaidOut(view, twin);
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// A table in a cell made of bands of eleven rows each — a cell spanning ten rows and both
+    /// columns over nine empty rows, and a plain row — repeated fifty, a hundred and two hundred
+    /// times: laying it out, jumping to its middle and scrolling ten pages measures and examines
+    /// what the screen shows, however many bands there are.
+    /// </summary>
+    [AvaloniaFact]
+    public void RepeatedMergedBandsInANestedTableStayWithinTheBandWorkBound()
+    {
+        var examined = new List<long>();
+        var measured = Growth.Measure(
+            [50, 100, 200],
+            bands =>
+            {
+                var rows = new List<TableRowNode>();
+
+                for (var b = 0; b < bands; b++)
+                {
+                    rows.Add(new TableRowNode([new TableCellNode(Enumerable.Range(0, 10).Select(i => (BlockNode)ParagraphNode.FromText($"band {b} line {i}")), rowSpan: 10, columnSpan: 2)]));
+                    rows.AddRange(Enumerable.Range(0, 9).Select(_ => new TableRowNode([])));
+                    rows.Add(new TableRowNode([TableCellNode.FromText($"band {b} plain a"), TableCellNode.FromText($"band {b} plain b")]));
+                }
+
+                WorkCounters.TableCellsMeasured = 0;
+
+                var (window, view) = Shown(Nested(1, new TableNode(rows), outerRows: 20, hostRow: 10));
+
+                ToShare(window, view, 0.5);
+                WorkCounters.NestedBoundBands = 0;
+
+                for (var page = 0; page < 10; page++)
+                {
+                    view.Offset += new Vector(0, Height);
+                    Layout(window);
+                    AssertScreenLaidOut(view);
+                }
+
+                examined.Add(WorkCounters.NestedBoundBands);
+
+                return WorkCounters.TableCellsMeasured;
+            });
+
+        Growth.AssertFlat(measured, "cells measured laying out, jumping into and scrolling a table of merged bands");
+        Growth.AssertFlat([.. examined], "bands examined scrolling a table of merged bands");
+    }
+
     // ---- caret, selection, hit-test -----------------------------------------------------------
 
     /// <summary>The caret goes to far rows of a table nested three deep and is drawn on screen there.</summary>
@@ -1221,6 +1402,50 @@ public class NestedTableVirtualizationTests
     internal static TableNode Uniform(int rows, string? tag = null) =>
         new(Enumerable.Range(0, rows).Select(r => new TableRowNode(
             Enumerable.Range(0, 3).Select(c => TableCellNode.FromText(tag is null ? $"r{r}c{c}" : $"{tag} r{r}c{c}")))));
+
+    /// <summary>
+    /// Three columns: forty rows, every fifth with a cell spanning two columns; a cell spanning
+    /// all three and the next hundred rows, which hold nothing of their own, with two hundred
+    /// paragraphs (<see cref="Merged"/>); then sixty rows in pairs under a cell spanning both, one
+    /// to seven lines tall. Hebrew and Arabic (<see cref="Bidi"/>) run through the text.
+    /// </summary>
+    internal static TableNode MergedAndBidi()
+    {
+        var rows = new List<TableRowNode>();
+
+        for (var r = 0; r < 40; r++)
+        {
+            rows.Add(r % 5 == 0
+                ? new TableRowNode([new TableCellNode([ParagraphNode.FromText($"m{r} spans two: {Bidi(r)}")], columnSpan: 2), TableCellNode.FromText($"m{r}c2")])
+                : new TableRowNode([TableCellNode.FromText($"m{r}c0"), TableCellNode.FromText($"m{r}c1 {Bidi(r)}"), TableCellNode.FromText($"m{r}c2")]));
+        }
+
+        rows.Add(new TableRowNode([new TableCellNode(Enumerable.Range(0, 200).Select(i => (BlockNode)ParagraphNode.FromText(Merged(i))), rowSpan: 100, columnSpan: 3)]));
+        rows.AddRange(Enumerable.Range(41, 99).Select(_ => new TableRowNode([])));
+
+        for (var r = 140; r < 200; r += 2)
+        {
+            rows.Add(new TableRowNode([
+                new TableCellNode(Enumerable.Range(0, 1 + (r % 7)).Select(i => (BlockNode)ParagraphNode.FromText($"m{r} tall {i}: {Bidi(i)}")), rowSpan: 2),
+                TableCellNode.FromText($"m{r}c1"),
+                TableCellNode.FromText($"m{r}c2"),
+            ]));
+            rows.Add(new TableRowNode([TableCellNode.FromText($"m{r + 1}c1"), TableCellNode.FromText($"m{r + 1}c2")]));
+        }
+
+        return new TableNode(rows);
+    }
+
+    /// <summary>The text of the <paramref name="i"/>th paragraph of the merged cell of <see cref="MergedAndBidi"/>.</summary>
+    internal static string Merged(int i) => $"merged {i}: {Bidi(i)}";
+
+    /// <summary>Right-to-left text, alone or among left-to-right words.</summary>
+    internal static string Bidi(int i) => (i % 3) switch
+    {
+        0 => "שלום עולם",
+        1 => "مرحبا بالعالم",
+        _ => "mixed עברית and عربي text",
+    };
 
     /// <summary>
     /// A rows × 2 table whose rows are one to eleven lines tall in no simple order, so no estimate
