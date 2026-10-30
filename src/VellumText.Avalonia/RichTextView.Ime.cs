@@ -113,6 +113,9 @@ public partial class RichTextView
             anchor,
             cursorPosition is { } cursor ? Math.Clamp(cursor, 0, text.Length) : null);
 
+        // Before anything drops a layout: the line at the top of the viewport is read from it.
+        HoldViewportAnchor();
+
         var moved = !ReferenceEquals(_composing, block) && ClearComposition();
         var changed = block.SetPreedit(preedit);
 
@@ -137,6 +140,7 @@ public partial class RichTextView
         }
 
         _composing = null;
+        HoldViewportAnchor();
 
         if (!composing.SetPreedit(null))
         {
@@ -191,6 +195,8 @@ public partial class RichTextView
     {
         if (!changed)
         {
+            ReleaseViewportAnchor();
+
             return false;
         }
 

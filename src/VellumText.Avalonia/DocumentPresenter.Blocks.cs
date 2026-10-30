@@ -1,8 +1,18 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Automation.Peers;
 
 namespace VellumText.Avalonia;
+
+/// <summary>
+/// Content kept at the top of the viewport across a layout: a document position in
+/// <paramref name="Basis"/>, and how to find the point from the content there.
+/// </summary>
+/// <param name="Position">The document position the anchor is at.</param>
+/// <param name="Local">The anchor, local to the block it was taken in.</param>
+/// <param name="Basis">The document whose layout it was read from.</param>
+internal readonly record struct HeldAnchor(int Position, LocalAnchor Local, DocumentNode Basis);
 
 /// <summary>
 /// The block list: realising a document's blocks, keeping their vertical positions, and turning
@@ -29,6 +39,18 @@ public abstract partial class DocumentPresenter
     private protected readonly BlockHeightIndex _heights = new();
     private protected readonly List<BlockView> _views = [];
     private protected readonly BlockSlotList _slots = new();
+
+    /// <summary>Content held at the top of the viewport for the next <see cref="Realize"/>, if any.</summary>
+    private HeldAnchor? _heldAnchor;
+
+    /// <summary>Whether a <see cref="Realize"/> is running.</summary>
+    private bool _realizing;
+
+    /// <summary>
+    /// The content the last layout pass kept at the top of the viewport, and the offset it left
+    /// the viewport at.
+    /// </summary>
+    private (HeldAnchor Anchor, double Offset)? _settled;
 
     /// <summary>The document <see cref="_slots"/> describes, or null when it describes none.</summary>
     /// <remarks>
@@ -537,192 +559,507 @@ public abstract partial class DocumentPresenter
     /// <returns>The space the view asks for.</returns>
     private protected Size Realize()
     {
-        var held = HeldRow();
+        // Taken before the change is reconciled, while the views still show what the reader saw;
+        // a composition that was about to drop a layout took its own first. See ViewportAnchor.
+        var held = _heldAnchor ?? ViewportAnchor();
+        var mapping = held is { } h && !ReferenceEquals(h.Basis, PresentedDocument)
+            ? MappingFrom(h.Basis)
+            : null;
 
-        Reconcile();
+        _heldAnchor = null;
+        _realizing = true;
 
-        if (_views.Count == 0)
+        try
         {
-            _first = 0;
-            _last = -1;
-            SetExtent(default);
+            Reconcile();
 
-            return default;
-        }
-
-        // Which block the top of the viewport is looking at. Measuring replaces estimates with
-        // real heights, and a correction anywhere above the viewport moves everything below it;
-        // Settle is what puts this block back so the reader never sees that happen.
-        //
-        // A block laid out for a different width is not the height it was, so every height on
-        // record has become a guess again. Reset keeps what it has learned about how tall a
-        // block in this document tends to be, which is the part still true.
-        if (!_realizedWidth.Equals(_width))
-        {
-            _realizedWidth = _width;
-            _heights.Reset(_views.Count);
-        }
-
-        var size = Settle(held);
-
-        if (_pendingAnchor)
-        {
-            _pendingAnchor = false;
-
-            // Laying out a screenful replaces estimates with real heights, which moves the
-            // caret, which can put it back off the screen it was just scrolled onto. The bound
-            // is there because a loop waiting on an estimate to converge must be allowed not to.
-            for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+            if (_views.Count == 0)
             {
-                size = Settle(null);
+                _first = 0;
+                _last = -1;
+                SetExtent(default);
+
+                return default;
+            }
+
+            // A block laid out for a different width is not the height it was, so every height on
+            // record has become a guess again. Reset keeps what it has learned about how tall a
+            // block in this document tends to be, which is the part still true.
+            if (!_realizedWidth.Equals(_width))
+            {
+                _realizedWidth = _width;
+                _heights.Reset(_views.Count);
+            }
+
+            var size = Settle(Resolve(held, mapping));
+
+            if (_pendingAnchor)
+            {
+                _pendingAnchor = false;
+
+                // Laying out a screenful replaces estimates with real heights, which moves the
+                // caret, which can put it back off the screen it was just scrolled onto. The bound
+                // is there because a loop waiting on an estimate to converge must be allowed not to.
+                for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+                {
+                    size = Settle(null);
+                }
+            }
+
+            return Finish(size);
+        }
+        finally
+        {
+            _realizing = false;
+        }
+    }
+
+    /// <summary>
+    /// Makes sure everything the viewport and its overscan meet is laid out, whatever the passes
+    /// before left.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Drawing lays nothing out, so a row or a block on screen that is not laid out when this
+    /// returns is a blank on screen. The passes before keep the content at the top of the viewport
+    /// where it was and lay out outward from it until real heights reach the window's edges, so
+    /// the window is covered when they finish; this is the check that it is, and what happens if
+    /// it is not.
+    /// </para>
+    /// <para>
+    /// The check is the same in every build: the window is laid out again from the content at
+    /// its top, twice at most, and if that still leaves a hole — which would be a defect in the
+    /// passes above, and is counted and traced so a test sees it — every block is laid out whole.
+    /// That is slow, but nothing is left unlaid, so nothing can be drawn blank.
+    /// </para>
+    /// </remarks>
+    private Size Finish(Size size)
+    {
+        if (IsWindowCovered())
+        {
+            return size;
+        }
+
+        WorkCounters.CoverageRepairs++;
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            size = Settle(null);
+
+            if (IsWindowCovered())
+            {
+                return size;
             }
         }
+
+        WorkCounters.FullLayoutBackstops++;
+        Trace.TraceWarning("VellumText: the realized window did not cover the viewport; every block was laid out.");
+
+        size = LayOutEverything();
+
+        Invariant.That(IsWindowCovered(), "the viewport is covered once every block is laid out");
 
         return size;
     }
 
     /// <summary>
-    /// Lays out the window and puts the block at the top of the viewport back where it was.
+    /// The content at the top of the viewport, as the last layout drew it, or null when that is a
+    /// distance into a block rather than content in one.
     /// </summary>
     /// <remarks>
-    /// Measuring a block replaces the estimate for every block nobody has measured, because the
-    /// estimate is drawn from the ones that have been (<see cref="BlockHeightIndex.Estimate"/>). So laying out a screenful moves the
-    /// whole document under the viewport — and moves the window, which lays out more blocks,
-    /// which moves it again. Repeating until the window stops changing is what settles it; the
-    /// anchor is what stops the reader seeing any of it.
+    /// <para>
+    /// Inside a table the viewport is held by what is there — the line of text at its top, through
+    /// any table nested in a cell — rather than by a distance from the table's top. Measuring rows
+    /// above the viewport replaces their estimates, an edit far up the table changes their sizes,
+    /// and a composition reflows the paragraph it is in, and each of those moves the content under
+    /// a fixed distance. A document position moves with the content, and the transaction that
+    /// moved it says where to (<see cref="MappingFrom"/>), so the line at the top stays at the top
+    /// (owner decision Q3).
+    /// </para>
+    /// <para>
+    /// Read from the last layout, without laying anything out, because it is taken before an
+    /// edit is reconciled or a composition invalidates a paragraph: after either, the views no
+    /// longer show what the reader saw. Other blocks keep the distance they always had.
+    /// </para>
     /// </remarks>
-    private Size Settle((TableBlockView Table, int Version, int Row, double Fraction)? held)
+    private protected HeldAnchor? ViewportAnchor()
     {
-        var size = default(Size);
-
-        for (var attempt = 0; attempt < 3; attempt++)
+        if (_views.Count == 0 || _heights.Count != _views.Count || _slotsFor is null)
         {
-            var anchor = _heights.IndexAt(_offset.Y);
-            var into = _offset.Y - _heights.OffsetOf(anchor);
-            var first = _first;
-            var last = _last;
-
-            // Inside a table the anchor is a row, not the table: rows above the viewport are
-            // measured as it is realized, and holding only the distance into the table would let
-            // their corrections slide a different row under the top of the viewport.
-            var row = _views[anchor] is TableBlockView table
-                ? Anchored(table, into, attempt == 0 ? held : null)
-                : default((int Row, double Fraction)?);
-
-            size = RealizeWindow();
-
-            if (row is { } kept && _views[anchor] is TableBlockView settled)
-            {
-                into = settled.RowOffset(kept.Row, kept.Fraction);
-            }
-
-            // Clamped against the height the block turned out to have, not the one it was
-            // estimated to have. An anchor 40px tall that was guessed at 80 would otherwise keep a
-            // 60px offset into it, which is not inside it at all — the viewport would land on the
-            // block after the one the scroll bar pointed at.
-            var height = _heights.HeightOf(anchor);
-
-            ApplyOffset(
-                new Vector(_offset.X, _heights.OffsetOf(anchor) + Math.Min(into, height)),
-                relayout: false);
-
-            if (_first == first && _last == last)
-            {
-                break;
-            }
+            return null;
         }
 
-        return size;
+        // The content the last layout put at the top, while nothing has scrolled since: read from
+        // the layout again, a line that reflowed would be named by wherever it now starts, and a
+        // run of compositions or edits would walk the anchor up the paragraph one reflow at a time.
+        if (_settled is { } settled
+            && settled.Offset.Equals(_offset.Y)
+            && ReferenceEquals(settled.Anchor.Basis, _slotsFor))
+        {
+            return settled.Anchor;
+        }
+
+        var index = _heights.IndexAt(_offset.Y);
+
+        if (_views[index] is not TableBlockView table)
+        {
+            return null;
+        }
+
+        var local = table.CaptureAnchor(_offset.Y - _heights.OffsetOf(index));
+
+        return new HeldAnchor(_slots[index].Start + local.Position, local, _slotsFor);
     }
 
     /// <summary>
-    /// The table row at the top of the viewport as the last layout left it, before an edit is
-    /// reconciled into the blocks.
+    /// Holds the content at the top of the viewport before something drops a layout without the
+    /// document changing — a composition does — so the next <see cref="Realize"/> keeps that
+    /// content there rather than reading a layout that is no longer there.
     /// </summary>
     /// <remarks>
-    /// Taken before <see cref="Reconcile"/> because reconciling can move the estimate a table
-    /// prices its unmeasured rows at — deleting a measured row does, by taking its height out of the
-    /// mean — and that moves every unmeasured row above the viewport. The offset is still where it
-    /// was, so a row worked out from it afterwards is a different row, and the content slides.
+    /// Not while a realize is running: it has already held what was on screen before it began,
+    /// and a composition it clears while reconciling must not replace that.
     /// </remarks>
-    private (TableBlockView Table, int Version, int Row, double Fraction)? HeldRow()
+    private protected void HoldViewportAnchor()
     {
-        if (_views.Count == 0 || _heights.Count != _views.Count)
+        if (!_realizing && _heldAnchor is null)
+        {
+            _heldAnchor = ViewportAnchor();
+        }
+    }
+
+    /// <summary>Forgets a held anchor that no realize is going to consume.</summary>
+    private protected void ReleaseViewportAnchor() => _heldAnchor = null;
+
+    /// <summary>
+    /// How positions in a document the view last laid out moved to reach the one it presents now,
+    /// or null if that is not known.
+    /// </summary>
+    /// <remarks>
+    /// Null whenever the new document did not come from the old one by one transaction — a
+    /// document handed over whole, or two edits applied before the view saw either — and then the
+    /// viewport keeps its distance from the top, as it always did.
+    /// </remarks>
+    /// <param name="basis">The document the view last laid out.</param>
+    private protected virtual Mapping? MappingFrom(DocumentNode basis) => null;
+
+    /// <summary>A held anchor brought into the document as it is now, or null if it cannot be.</summary>
+    /// <remarks>
+    /// An anchor whose content the edit deleted lands where the content was, and is moved on to
+    /// the first leaf that survives there — the next one, or the last if none follows — with the
+    /// top of its first line at the top of the viewport.
+    /// </remarks>
+    private (int Block, LocalAnchor Local)? Resolve(HeldAnchor? held, Mapping? mapping)
+    {
+        if (held is not { } anchor || _views.Count == 0)
         {
             return null;
         }
 
-        var anchor = _heights.IndexAt(_offset.Y);
+        var position = anchor.Position;
+        var local = anchor.Local;
 
-        if (_views[anchor] is not TableBlockView table)
+        if (!ReferenceEquals(anchor.Basis, PresentedDocument))
         {
-            return null;
-        }
-
-        var (row, fraction) = table.RowAnchor(_offset.Y - _heights.OffsetOf(anchor));
-
-        return (table, table.Version, row, fraction);
-    }
-
-    /// <summary>The row to keep at the top of the viewport inside a table at the anchor.</summary>
-    /// <param name="table">The table at the top of the viewport.</param>
-    /// <param name="into">How far into the table the top of the viewport is.</param>
-    /// <param name="held">The row held from before the edit, if there was one.</param>
-    private static (int Row, double Fraction) Anchored(
-        TableBlockView table,
-        double into,
-        (TableBlockView Table, int Version, int Row, double Fraction)? held)
-    {
-        if (held is { } h
-            && ReferenceEquals(h.Table, table)
-            && table.RowAfterUpdate(h.Row, h.Version) is var row and >= 0)
-        {
-            return (row, h.Fraction);
-        }
-
-        return table.RowAnchor(into);
-    }
-
-    /// <summary>Lays out the blocks the viewport covers and reports what the view needs.</summary>
-    private Size RealizeWindow()
-    {
-        var virtualizing = IsVirtualizing;
-        var first = virtualizing ? _heights.IndexAt(Math.Max(0, _offset.Y - Overscan)) : 0;
-        var limit = virtualizing ? _offset.Y + ViewportHeight + Overscan : double.PositiveInfinity;
-
-        var width = 0d;
-        var last = first;
-
-        for (var i = first; i < _views.Count; i++)
-        {
-            // A block taller than the window — a long table — lays out only the part of itself
-            // the window covers; told in its own coordinates, against where it sits now.
-            if (virtualizing)
+            if (mapping is null)
             {
-                // Anchored at the top of the viewport if the block reaches above it, which is the
-                // point Settle keeps where it is; otherwise at the block's own top.
-                var top = _heights.OffsetOf(i);
-                var anchor = Math.Max(0, _offset.Y - top);
+                return null;
+            }
 
-                _views[i].SetWindow(anchor, anchor > 0 ? Overscan : 0, limit - top - anchor);
+            var mapped = mapping.MapWithResult(position, Assoc.After);
+
+            position = mapped.Pos;
+
+            if (mapped.Deleted)
+            {
+                position = SurvivingLeaf(position);
+                local = new LocalAnchor(0, 0, AnchorKind.Line);
+            }
+        }
+
+        var index = Math.Clamp(BlockIndexOf(position), 0, _views.Count - 1);
+
+        return (index, local with { Position = Math.Clamp(position - _slots[index].Start, 0, _views[index].ContentSize) });
+    }
+
+    /// <summary>The position itself if a leaf holds it, else the start of the next leaf, else the end of the last.</summary>
+    private int SurvivingLeaf(int position)
+    {
+        var leaves = Leaves;
+
+        if (leaves.IsEmpty)
+        {
+            return position;
+        }
+
+        var low = 0;
+        var high = leaves.Length - 1;
+        var found = -1;
+
+        while (low <= high)
+        {
+            var middle = low + ((high - low) / 2);
+
+            if (leaves[middle].Start <= position)
+            {
+                found = middle;
+                low = middle + 1;
             }
             else
             {
-                _views[i].SetWindow(0, 0, double.PositiveInfinity);
+                high = middle - 1;
             }
+        }
 
-            var size = _views[i].Measure(_width);
+        if (found >= 0 && position <= End(leaves[found]))
+        {
+            return position;
+        }
 
-            _heights.SetHeight(i, size.Height);
-            width = Math.Max(width, size.Width);
-            last = i;
+        return found + 1 < leaves.Length ? leaves[found + 1].Start : End(leaves[^1]);
 
-            // Asked after the measurement, not before: the block's own height is what decides
-            // whether the window is full, and its offset is only correct once it is recorded.
-            if (_heights.OffsetOf(i) + size.Height >= limit)
+        static int End(BlockSlot leaf) => leaf.Node.IsLeaf ? leaf.Start : leaf.Start + leaf.Node.ContentSize;
+    }
+
+    /// <summary>
+    /// Lays out the window and puts the content at the top of the viewport back where it was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measuring a block replaces the estimate for every block nobody has measured, because the
+    /// estimate is drawn from the ones that have been (<see cref="BlockHeightIndex.Estimate"/>). So
+    /// laying out a screenful moves the whole document under the viewport — and moves the window,
+    /// which lays out more blocks, which moves it again. Repeating until the window stops changing
+    /// and covers the viewport is what settles it; the anchor is what stops the reader seeing any
+    /// of it.
+    /// </para>
+    /// <para>
+    /// The anchor is held across every attempt, and the window is laid out outward from it, so the
+    /// content measured from is the content put back. Near the end of the document the offset can
+    /// be clamped above the anchor; the next attempt lays the window out from where the viewport's
+    /// top then is, relative to the anchor, so the content the clamp brought on screen is laid out
+    /// too.
+    /// </para>
+    /// </remarks>
+    /// <param name="held">The content to keep at the top, or null for what is there now.</param>
+    private Size Settle((int Block, LocalAnchor Local)? held)
+    {
+        var size = default(Size);
+        var anchor = held;
+        var top = 0.0;
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var first = _first;
+            var last = _last;
+            var (index, local) = anchor ??= AnchorAtOffset();
+
+            size = RealizeWindow(index, local, top);
+
+            var point = _heights.OffsetOf(index) + PointOf(index, local);
+
+            ApplyOffset(new Vector(_offset.X, point), relayout: false);
+
+            // Zero unless the offset was clamped: where the viewport's top is, from the anchor.
+            top = _offset.Y - point;
+
+            if (_first == first && _last == last && IsWindowCovered())
             {
                 break;
             }
+        }
+
+        // Not when the offset was clamped: then the anchor is not at the top of the viewport, and
+        // holding it would name content the reader cannot see there.
+        _settled = top == 0 && anchor is var (block, content) && _views[block] is TableBlockView && _slotsFor is { } basis
+            ? (new HeldAnchor(_slots[block].Start + content.Position, content, basis), _offset.Y)
+            : null;
+
+        AfterSettle?.Invoke();
+
+        return size;
+    }
+
+    /// <summary>Called at the end of every layout pass, for tests that break what a pass left.</summary>
+    internal Action? AfterSettle { get; set; }
+
+    /// <summary>The block at the top of the viewport and the content there.</summary>
+    private (int Block, LocalAnchor Local) AnchorAtOffset()
+    {
+        var index = _heights.IndexAt(_offset.Y);
+        var into = _offset.Y - _heights.OffsetOf(index);
+
+        return (index, _views[index] is TableBlockView table
+            ? table.CaptureAnchor(into)
+            : new LocalAnchor(0, into, AnchorKind.Box));
+    }
+
+    /// <summary>Where an anchor's point is in its block now.</summary>
+    /// <remarks>
+    /// Clamped against the height the block turned out to have, not the one it was estimated to
+    /// have. An anchor 40px tall that was guessed at 80 would otherwise keep a 60px offset into
+    /// it, which is not inside it at all — the viewport would land on the block after the one the
+    /// scroll bar pointed at.
+    /// </remarks>
+    private double PointOf(int index, LocalAnchor local) =>
+        _views[index].AnchorPoint(local) is { } point && double.IsFinite(point)
+            ? Math.Clamp(point, 0, _heights.HeightOf(index))
+            : Math.Clamp(local.Dy, 0, _heights.HeightOf(index));
+
+    /// <summary>
+    /// Whether every block, and every row of every table, that the viewport and its overscan meet
+    /// is laid out.
+    /// </summary>
+    private protected bool IsWindowCovered()
+    {
+        if (!IsVirtualizing || _views.Count == 0)
+        {
+            return true;
+        }
+
+        var top = Math.Max(0, _offset.Y - Overscan);
+        var bottom = Math.Min(_heights.TotalHeight, _offset.Y + ViewportHeight + Overscan);
+
+        if (_last < _first || _heights.IndexAt(top) < _first)
+        {
+            return false;
+        }
+
+        if (bottom > top && _heights.IndexAt(Math.Max(top, bottom - 0.5)) > _last)
+        {
+            return false;
+        }
+
+        for (var i = _first; i <= _last; i++)
+        {
+            if (!_heights.Measured(i))
+            {
+                return false;
+            }
+
+            if (_views[i] is TableBlockView table)
+            {
+                var at = _heights.OffsetOf(i);
+
+                if (!table.Covers(top - at, bottom - at))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Lays every block out whole, keeping the content at the top of the viewport.</summary>
+    /// <remarks>The last resort of <see cref="Finish"/>: slow, and leaves nothing unlaid.</remarks>
+    private Size LayOutEverything()
+    {
+        var (index, local) = AnchorAtOffset();
+        var width = 0d;
+
+        for (var i = 0; i < _views.Count; i++)
+        {
+            _views[i].SetWindow(0, 0, double.PositiveInfinity);
+
+            var measured = _views[i].Measure(_width);
+
+            _heights.SetHeight(i, measured.Height);
+            width = Math.Max(width, measured.Width);
+        }
+
+        _first = 0;
+        _last = _views.Count - 1;
+        SetExtent(new Size(width, _heights.TotalHeight));
+        ApplyOffset(new Vector(_offset.X, _heights.OffsetOf(index) + PointOf(index, local)), relayout: false);
+
+        return new Size(width, IsVirtualizing ? Math.Min(_heights.TotalHeight, ViewportHeight) : _heights.TotalHeight);
+    }
+
+    /// <summary>Lays out the blocks the viewport covers and reports what the view needs.</summary>
+    /// <remarks>
+    /// Outward from the anchor: the anchor's block first, with its window set around the anchor's
+    /// content, then down and up from it, adding the real heights of what has been laid out until
+    /// they reach the viewport and its overscan. Walking forward from a block that an estimate said
+    /// was at the top of the window measured the wrong blocks whenever the estimate was wrong, and
+    /// the blocks above the anchor are exactly the ones priced at estimates.
+    /// </remarks>
+    /// <param name="index">The anchor's block.</param>
+    /// <param name="local">The anchor's content in it.</param>
+    /// <param name="top">Where the viewport's top is, from the anchor's point.</param>
+    private Size RealizeWindow(int index, LocalAnchor local, double top)
+    {
+        var width = 0d;
+
+        if (!IsVirtualizing)
+        {
+            for (var i = 0; i < _views.Count; i++)
+            {
+                _views[i].SetWindow(0, 0, double.PositiveInfinity);
+
+                var measured = _views[i].Measure(_width);
+
+                _heights.SetHeight(i, measured.Height);
+                width = Math.Max(width, measured.Width);
+            }
+
+            _first = 0;
+            _last = _views.Count - 1;
+            SetExtent(new Size(width, _heights.TotalHeight));
+
+            return new Size(width, _heights.TotalHeight);
+        }
+
+        // The window, relative to the anchor's point.
+        var above = Overscan - top;
+        var below = top + ViewportHeight + Overscan;
+        var anchor = _views[index];
+
+        if (anchor is TableBlockView table)
+        {
+            table.SetWindow(local, above, below);
+        }
+        else
+        {
+            anchor.SetWindow(Math.Max(0, local.Dy), above, below);
+        }
+
+        var size = anchor.Measure(_width);
+
+        _heights.SetHeight(index, size.Height);
+        width = size.Width;
+
+        var point = PointOf(index, local);
+        var reach = size.Height - point;
+        var last = index;
+
+        for (var i = index + 1; i < _views.Count && reach < below; i++)
+        {
+            _views[i].SetWindow(0, 0, below - reach);
+
+            var measured = _views[i].Measure(_width);
+
+            _heights.SetHeight(i, measured.Height);
+            width = Math.Max(width, measured.Width);
+            reach += measured.Height;
+            last = i;
+        }
+
+        reach = point;
+
+        var first = index;
+
+        for (var i = index - 1; i >= 0 && reach < above; i--)
+        {
+            // From its bottom, which is the edge facing the anchor.
+            _views[i].SetWindow(_views[i].Size.Height, above - reach, 0);
+
+            var measured = _views[i].Measure(_width);
+
+            _heights.SetHeight(i, measured.Height);
+            width = Math.Max(width, measured.Width);
+            reach += measured.Height;
+            first = i;
         }
 
         _first = first;
@@ -730,9 +1067,7 @@ public abstract partial class DocumentPresenter
 
         SetExtent(new Size(width, _heights.TotalHeight));
 
-        return new Size(
-            width,
-            virtualizing ? Math.Min(_heights.TotalHeight, ViewportHeight) : _heights.TotalHeight);
+        return new Size(width, Math.Min(_heights.TotalHeight, ViewportHeight));
     }
 
     /// <summary>Lays a block out if the realized window has not already.</summary>

@@ -71,6 +71,9 @@ public partial class RichTextView : DocumentPresenter
 
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
+
+    /// <summary>The state whose document the block views were last reconciled with.</summary>
+    private EditorState? _reconciledState;
     private bool _caretVisible;
     private int _caretBlock;
 
@@ -496,6 +499,7 @@ public partial class RichTextView : DocumentPresenter
     /// <inheritdoc/>
     private protected override void OnReconciled(BlockView? before)
     {
+        _reconciledState = _state;
         _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
         // A composition belongs to the paragraph the commit will replace the selection in. If
@@ -516,7 +520,18 @@ public partial class RichTextView : DocumentPresenter
     {
         _caretBlock = 0;
         _composing = null;
+        _reconciledState = null;
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Known when the state now presented was applied directly from the one last laid out, which
+    /// is every edit, undo and redo, since the view lays out after each.
+    /// </remarks>
+    private protected override Mapping? MappingFrom(DocumentNode basis) =>
+        _reconciledState is { } laidOut && ReferenceEquals(laidOut.Doc, basis)
+            ? StateLineage.MappingFrom(laidOut, _state)
+            : null;
 
     /// <inheritdoc/>
     /// <summary>

@@ -779,6 +779,75 @@ internal sealed class ParagraphView : BlockView
     /// <exception cref="InvalidOperationException">The paragraph has not been measured.</exception>
     public int LineCount => Lines.Length;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The first position of the visual line at <paramref name="y"/> and how far below that
+    /// line's top the offset is. A paragraph whose layout is gone — a composition dropped it — is
+    /// named by its box instead, since there are no lines to read.
+    /// </remarks>
+    internal override LocalAnchor CaptureAnchor(double y)
+    {
+        if (!IsMeasured)
+        {
+            return new LocalAnchor(0, y, AnchorKind.Box);
+        }
+
+        var lines = Lines;
+        var local = y - Origin.Y;
+        var low = 0;
+        var high = lines.Length - 1;
+
+        while (low < high)
+        {
+            var middle = low + ((high - low + 1) / 2);
+
+            if (lines[middle].Top <= local)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        var line = lines[low];
+
+        // A line that starts inside composed text has no position of its own: the composition
+        // is not in the document. It is held from the line the composition starts on, by however
+        // far below that line the offset is, so the composed text stays put as it grows.
+        if (_preedit is { } preedit && line.Start > preedit.Offset && line.Start < preedit.Offset + preedit.Length)
+        {
+            var first = Lines[LineIndexAt(preedit.Offset, forward: true)];
+
+            return new LocalAnchor(preedit.Offset, y - (Origin.Y + first.Top), AnchorKind.Line, Unclamped: true);
+        }
+
+        return new LocalAnchor(
+            FromLayout(Math.Clamp(line.Start, 0, LayoutSize)),
+            y - (Origin.Y + line.Top),
+            AnchorKind.Line);
+    }
+
+    /// <inheritdoc/>
+    internal override double? AnchorPoint(LocalAnchor anchor)
+    {
+        if (anchor.Kind != AnchorKind.Line)
+        {
+            return base.AnchorPoint(anchor);
+        }
+
+        if (!IsMeasured)
+        {
+            return null;
+        }
+
+        var line = Lines[LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true)];
+        var dy = anchor.Unclamped ? anchor.Dy : Math.Clamp(anchor.Dy, 0, line.Line.Height);
+
+        return Origin.Y + line.Top + dy;
+    }
+
     /// <summary>The index of the visual line a position sits on.</summary>
     /// <remarks>
     /// A wrap boundary belongs to two lines, so the caller says which way it is travelling for

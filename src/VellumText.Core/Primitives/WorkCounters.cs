@@ -84,6 +84,20 @@ internal static class WorkCounters
     internal static long TableCellsMeasured;
 
     /// <summary>
+    /// Layout passes whose realized window turned out not to cover the viewport and had to be laid
+    /// out again. A defect in the windowing when it is not zero.
+    /// </summary>
+    [ThreadStatic]
+    internal static long CoverageRepairs;
+
+    /// <summary>
+    /// Times a presenter laid every block out whole because laying out the window again did not
+    /// cover the viewport either.
+    /// </summary>
+    [ThreadStatic]
+    internal static long FullLayoutBackstops;
+
+    /// <summary>
     /// Embeds inside containers whose fallback text <see cref="DocumentPreview"/> has counted.
     /// </summary>
     [ThreadStatic]

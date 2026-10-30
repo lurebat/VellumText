@@ -80,8 +80,7 @@ internal sealed class TableBlockView : BlockView
     private int _remapSuffix;
     private int _remapFrom;
     private int _remapTo;
-    private int _windowRow;
-    private double _windowFraction;
+    private LocalAnchor _windowAnchor = new(0, 0, AnchorKind.RowShare);
     private double _windowAbove;
     private double _windowBelow = double.PositiveInfinity;
 
@@ -693,13 +692,14 @@ internal sealed class TableBlockView : BlockView
     /// whatever they had, and rows never inside one are priced at the estimate.
     /// </para>
     /// <para>
-    /// Kept as the row the anchor falls in, how far into that row, and the two distances — not as
-    /// positions. Rows are measured outwards from the anchor row until their real heights cover
-    /// the distances, so the rows the presenter keeps on screen are measured however far the
-    /// estimate that placed the anchor was from the truth: rows taller than estimated, measured
-    /// from a window top the estimate chose, used to run out of reach before the viewport began.
-    /// Measuring any row also moves the estimate and so every unmeasured row, which is the other
-    /// reason nothing here is remembered in pixels.
+    /// Kept as the content the anchor names — a position and its line, or a share of a row nobody
+    /// has laid out — and the two distances, not as positions in pixels. Rows are measured outwards
+    /// from the anchor's row until their real heights cover the distances, so the rows the
+    /// presenter keeps on screen are measured however far the estimate that placed the anchor was
+    /// from the truth: rows taller than estimated, measured from a window top the estimate chose,
+    /// used to run out of reach before the viewport began. Measuring any row also moves the
+    /// estimate and so every unmeasured row, which is the other reason nothing here is remembered
+    /// in pixels.
     /// </para>
     /// <para>
     /// Only the presenter calls this, and only for its own blocks. A table inside a cell is never
@@ -716,19 +716,32 @@ internal sealed class TableBlockView : BlockView
     /// </remarks>
     public override void SetWindow(double anchor, double above, double below)
     {
-        _windowAbove = Math.Max(0, above);
-        _windowBelow = below;
+        var (row, share) = RowAnchor(double.IsFinite(anchor) ? Math.Max(0, anchor) : 0);
 
-        if (_rows.Length == 0)
-        {
-            _windowRow = 0;
-            _windowFraction = 0;
-
-            return;
-        }
-
-        (_windowRow, _windowFraction) = RowAnchor(anchor);
+        SetWindow(new LocalAnchor(_rowStarts[Math.Min(row, _rowStarts.Length - 1)], share, AnchorKind.RowShare), above, below);
     }
+
+    /// <summary>
+    /// Sets the window around the content an anchor names rather than around a distance from the
+    /// top: what <see cref="Measure"/> measures outward from is then the content the presenter is
+    /// about to put back at the top of the viewport, wherever the measuring moves it.
+    /// </summary>
+    /// <param name="anchor">The point the viewport's top is kept at.</param>
+    /// <param name="above">How far above it to lay out.</param>
+    /// <param name="below">How far below it to lay out.</param>
+    internal void SetWindow(LocalAnchor anchor, double above, double below)
+    {
+        _windowAnchor = anchor;
+        _windowAbove = double.IsNaN(above) ? 0 : Math.Max(0, above);
+        _windowBelow = double.IsNaN(below) ? double.PositiveInfinity : Math.Max(0, below);
+    }
+
+    /// <summary>The row the window's anchor is in: the row whose positions hold it.</summary>
+    /// <remarks>
+    /// By position, not by height, so the same content names the same row however the rows above
+    /// it were priced. For a cell spanning rows that is the row the cell starts in.
+    /// </remarks>
+    private int WindowRow => _rows.Length == 0 ? 0 : Math.Clamp(RowAt(_windowAnchor.Position), 0, _rows.Length - 1);
 
     /// <inheritdoc/>
     public override Size Measure(double availableWidth)
@@ -749,8 +762,14 @@ internal sealed class TableBlockView : BlockView
 
         if (_rows.Length > 0)
         {
-            var anchor = Math.Min(_windowRow, _rows.Length - 1);
+            var anchor = WindowRow;
             var start = _bandStart[anchor];
+
+            // The anchor's own band first: where the anchor point is inside its row is only known
+            // once the row is laid out.
+            EnsureBand(start);
+
+            var into = IntoAnchorRow(anchor);
 
             // Down from the anchor, until the rows measured reach the window's bottom from the
             // anchor point. Added up from real heights rather than asked of row positions, which
@@ -766,14 +785,14 @@ internal sealed class TableBlockView : BlockView
                     below += HeightOf(r);
                 }
 
-                if (below >= (_windowFraction * HeightOf(anchor)) + _windowBelow)
+                if (below >= into + _windowBelow)
                 {
                     break;
                 }
             }
 
             // And up from it, for the overscan above the viewport.
-            var above = _windowFraction * HeightOf(anchor);
+            var above = into;
 
             for (var r = start; r < anchor; r++)
             {
@@ -856,7 +875,8 @@ internal sealed class TableBlockView : BlockView
                     // carries widths at all — see the remarks on this class. The text overflows
                     // the cell at this width, which is what a column this narrow means.
                     child.Top = content;
-                    content += child.View.Measure(Math.Max(1, inner)).Height;
+                    child.Height = child.View.Measure(Math.Max(1, inner)).Height;
+                    content += child.Height;
                 }
 
                 var height = content + (2 * CellPadding);
@@ -1050,6 +1070,253 @@ internal sealed class TableBlockView : BlockView
         return top + (fraction * (RowTop(row + 1) - top));
     }
 
+    /// <summary>How far below the top of its row the window's anchor point is now.</summary>
+    private double IntoAnchorRow(int row) =>
+        AnchorPoint(_windowAnchor) is { } y && double.IsFinite(y) ? y - RowTop(row) : 0;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// Descends to the content at the offset: the cell there, the block in the cell, and the line
+    /// in the block, or the row inside a table in the cell. Only rows that were laid out are
+    /// descended into — whether or not they were edited since, because an edit or a composition
+    /// marks a row before it is reconciled, and this is asked exactly then. A row nobody laid out
+    /// has nothing to name, so it is named by its share, as the window was before.
+    /// </para>
+    /// <para>
+    /// A cell spanning rows is looked for from the first row of any cell covering the row at the
+    /// offset, because the rows under a merged cell can hold no cells of their own: the text at
+    /// the top of the viewport is in the cell that starts higher up.
+    /// </para>
+    /// </remarks>
+    internal override LocalAnchor CaptureAnchor(double y)
+    {
+        if (_rows.Length == 0)
+        {
+            return new LocalAnchor(0, 0, AnchorKind.RowShare);
+        }
+
+        var row = RowAtY(y);
+
+        if (CoveringCellAt(row, y) is not { } found)
+        {
+            var top = RowTop(row);
+            var height = RowTop(row + 1) - top;
+
+            return new LocalAnchor(
+                _rowStarts[row],
+                height > 0 ? Math.Clamp((y - top) / height, 0, 1) : 0,
+                AnchorKind.RowShare);
+        }
+
+        var (owner, cell) = found;
+        var rowStart = _rowStarts[owner];
+        var content = CellBounds(cell.Placement).Y + CellPadding;
+        var local = y - content;
+        Child? previous = null;
+
+        foreach (var child in cell.Blocks)
+        {
+            if (local < child.Top)
+            {
+                // In the gap above the block: held from the block below it, as content is.
+                return new LocalAnchor(rowStart + child.Start, local - child.Top, AnchorKind.Box);
+            }
+
+            if (local < child.Top + child.Height)
+            {
+                return child.View.CaptureAnchor(local - child.Top).Shift(rowStart + child.Start);
+            }
+
+            previous = child;
+        }
+
+        return previous is null
+            ? new LocalAnchor(rowStart + cell.Start, local, AnchorKind.Box)
+            : new LocalAnchor(
+                rowStart + previous.Start,
+                local - (previous.Top + previous.Height),
+                AnchorKind.BoxBottom);
+    }
+
+    /// <summary>
+    /// The cell whose content is at a point in a row, among the realized and measured cells covering
+    /// the row, with the row it starts in; or null if no such cell is there.
+    /// </summary>
+    /// <remarks>
+    /// The first, in row order, whose content box holds the point; failing that, the one whose
+    /// content ends nearest above it, so a point in a cell's padding below its text is held by
+    /// that text.
+    /// </remarks>
+    private (int Row, Cell Cell)? CoveringCellAt(int row, double y)
+    {
+        (int Row, Cell Cell)? best = null;
+        var bestBottom = double.NegativeInfinity;
+
+        for (var r = _coverTop[row]; r <= row; r++)
+        {
+            if (_rows[r].Cells is not { } cells || double.IsNaN(_rowHeights[r]))
+            {
+                continue;
+            }
+
+            foreach (var cell in cells)
+            {
+                if (cell.Placement.Bottom <= row)
+                {
+                    continue;
+                }
+
+                var top = CellBounds(cell.Placement).Y + CellPadding;
+                var bottom = top + ContentHeight(cell);
+
+                if (y >= top && y < bottom)
+                {
+                    return (r, cell);
+                }
+
+                if (bottom <= y && bottom > bestBottom)
+                {
+                    best = (r, cell);
+                    bestBottom = bottom;
+                }
+                else if (best is null && y < top)
+                {
+                    best = (r, cell);
+                    bestBottom = double.NegativeInfinity;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>The height of a cell's blocks as last laid out, without its padding.</summary>
+    private static double ContentHeight(Cell cell) =>
+        cell.Blocks.IsEmpty ? 0 : cell.Blocks[^1].Top + cell.Blocks[^1].Height;
+
+    /// <inheritdoc/>
+    internal override double? AnchorPoint(LocalAnchor anchor)
+    {
+        if (_rows.Length == 0)
+        {
+            return 0;
+        }
+
+        var row = Math.Clamp(RowAt(anchor.Position), 0, _rows.Length - 1);
+
+        if (anchor.Kind == AnchorKind.RowShare)
+        {
+            var top = RowTop(row);
+
+            return top + (Math.Clamp(anchor.Dy, 0, 1) * (RowTop(row + 1) - top));
+        }
+
+        if (_rows[row].Cells is not { } cells || double.IsNaN(_rowHeights[row]))
+        {
+            return null;
+        }
+
+        var rowStart = _rowStarts[row];
+
+        foreach (var cell in cells)
+        {
+            foreach (var child in cell.Blocks)
+            {
+                var start = rowStart + child.Start;
+
+                if (anchor.Position < start || anchor.Position > start + child.View.ContentSize)
+                {
+                    continue;
+                }
+
+                var origin = ChildOrigin(cell, child).Y;
+
+                // A box at the block's own first position was named here, from the block's edge,
+                // and is the table's to apply: the block's own clamp would pull a point in the gap
+                // above it inside it.
+                return anchor.Kind switch
+                {
+                    AnchorKind.Box when anchor.Position == start => origin + anchor.Dy,
+                    AnchorKind.BoxBottom when anchor.Position == start => origin + child.View.Size.Height + anchor.Dy,
+                    _ => child.View.AnchorPoint(anchor.Shift(-start)) is { } inner ? origin + inner : null,
+                };
+            }
+
+            // A cell with no blocks in it is still somewhere to be.
+            if (cell.Blocks.IsEmpty && anchor.Position == rowStart + cell.Start)
+            {
+                return CellBounds(cell.Placement).Y + CellPadding + anchor.Dy;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether every row whose band meets a vertical range, in this table and in every table inside
+    /// those rows, is realized and laid out at the current width.
+    /// </summary>
+    /// <remarks>What drawing needs of the rows on screen, asked without laying anything out.</remarks>
+    /// <param name="top">The top of the range, in this table's coordinates.</param>
+    /// <param name="bottom">The bottom of the range.</param>
+    internal bool Covers(double top, double bottom)
+    {
+        if (_rows.Length == 0 || double.IsNaN(_width))
+        {
+            return true;
+        }
+
+        var (first, last) = RowsMeeting(top, bottom);
+
+        if (first > last)
+        {
+            return true;
+        }
+
+        var current = false;
+
+        for (var r = _coverTop[first]; r <= last; r++)
+        {
+            // Once a band, as drawing checks it: a cell spanning every row makes the table one
+            // band, and checking it again for each row would be rows × rows.
+            if (r == _coverTop[first] || r == _bandStart[r])
+            {
+                current = IsLaidOut(r);
+            }
+
+            if (!current)
+            {
+                return false;
+            }
+
+            foreach (var cell in _rows[r].Cells!)
+            {
+                var bounds = CellBounds(cell.Placement);
+
+                if (bounds.Bottom < top || bounds.Top > bottom)
+                {
+                    continue;
+                }
+
+                foreach (var child in cell.Blocks)
+                {
+                    if (child.View is TableBlockView nested)
+                    {
+                        var origin = ChildOrigin(cell, child).Y;
+
+                        if (!nested.Covers(top - origin, bottom - origin))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
     /// <inheritdoc/>
     public override void Render(DrawingContext context, Point origin) =>
         Render(context, origin, null);
@@ -1152,6 +1419,20 @@ internal sealed class TableBlockView : BlockView
         {
             WorkCounters.TableRowsChecked++;
 
+            if (_rows[r].Cells is null || _rows[r].Dirty || double.IsNaN(_rowHeights[r]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary><see cref="IsCurrent"/>, for a question that is not drawing and is not counted as it.</summary>
+    private bool IsLaidOut(int row)
+    {
+        for (var r = _bandStart[row]; r < _bandEnd[row]; r++)
+        {
             if (_rows[r].Cells is null || _rows[r].Dirty || double.IsNaN(_rowHeights[r]))
             {
                 return false;
@@ -1966,5 +2247,8 @@ internal sealed class TableBlockView : BlockView
 
         /// <summary>How far down the cell's content the block is drawn.</summary>
         public double Top { get; set; }
+
+        /// <summary>The height the block measured to when its row was last laid out.</summary>
+        public double Height { get; set; }
     }
 }
