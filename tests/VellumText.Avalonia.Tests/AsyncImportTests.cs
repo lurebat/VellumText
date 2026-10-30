@@ -7,6 +7,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using VellumText.Avalonia;
 using VellumText.Interop.Html;
+using VellumText.Interop.Rtf;
 
 namespace VellumText.Tests.Avalonia;
 
@@ -465,6 +466,85 @@ public class AsyncImportTests
         Assert.Contains("caption", DocumentText.Of(dropped.State.Doc), StringComparison.Ordinal);
         Assert.Empty(Images(pasted));
         Assert.Empty(Images(dropped));
+    }
+
+    private static DataTransferItem Flavour(string format, string payload)
+    {
+        var item = new DataTransferItem();
+
+        item.Set(RichTextClipboard.FlavorFor(format).DataFormat, Encoding.UTF8.GetBytes(payload));
+
+        return item;
+    }
+
+    private static DataTransferItem TextItem(string text)
+    {
+        var item = new DataTransferItem();
+
+        item.SetText(text);
+
+        return item;
+    }
+
+    /// <summary>
+    /// A rich flavour that imports to nothing is no answer. An empty <c>p</c> beside a bitmap used
+    /// to win, because a document always has a block and the resolver asked whether it had none,
+    /// so the gesture inserted nothing and the image was never looked at.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task An_html_flavour_that_imports_to_nothing_gives_way_to_the_image()
+    {
+        DataTransfer Both()
+        {
+            var data = Transfer("html", "<p></p>");
+
+            data.Add(BitmapItem());
+
+            return data;
+        }
+
+        var pasted = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+
+        await Put(pasted, Both());
+
+        Assert.True(await pasted.PasteAsync());
+        Assert.Single(Images(pasted));
+
+        var dropped = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+
+        await Drop(dropped, Both());
+
+        Assert.Single(Images(dropped));
+    }
+
+    /// <summary>
+    /// The same rule between rich flavours. HTML is preferred over RTF, so an HTML flavour that
+    /// imports to one empty paragraph used to shut out a good RTF beside it.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task A_preferred_flavour_that_imports_to_nothing_gives_way_to_the_next()
+    {
+        var view = Shown(DocumentNode.FromParagraphs("x"), RtfFormat.Instance, HtmlFormat.Instance);
+        var data = Transfer("html", "<p></p>");
+
+        data.Add(Flavour("rtf", @"{\rtf1\ansi caption}"));
+        await Put(view, data);
+
+        Assert.True(await view.PasteAsync());
+        Assert.Contains("caption", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public async Task A_rich_flavour_that_imports_to_nothing_gives_way_to_the_text()
+    {
+        var view = Shown(DocumentNode.FromParagraphs("x"), HtmlFormat.Instance);
+        var data = Transfer("html", "<p></p>");
+
+        data.Add(TextItem("plain"));
+        await Put(view, data);
+
+        Assert.True(await view.PasteAsync());
+        Assert.Contains("plain", DocumentText.Of(view.State.Doc), StringComparison.Ordinal);
     }
 
     /// <summary>
