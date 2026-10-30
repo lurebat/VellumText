@@ -112,6 +112,7 @@ public static class RtfImporter
     private static ImportResult ImportOnLargeStack(string rtf, RtfImportOptions options)
     {
         RtfReadResult read;
+        string? encapsulated;
         string html;
 
         try
@@ -127,14 +128,16 @@ public static class RtfImporter
 
         try
         {
-            html = ToHtml(read.Document, hoist: true);
+            encapsulated = Encapsulated(read.Document);
+            html = encapsulated ?? ToHtml(read.Document, hoist: true);
         }
         catch (Exception ex)
         {
             return Unreadable(ex);
         }
 
-        var result = HtmlImporter.ImportOnCurrentStack(html, options.ToHtmlOptions());
+        var result = HtmlImporter.ImportOnCurrentStack(
+            html, encapsulated is null ? options.ToHtmlOptions() : options.ToEncapsulatedHtmlOptions());
 
         return new ImportResult(result.Doc, [.. ReaderDiagnostics(read), .. result.Diagnostics]);
     }
@@ -146,17 +149,33 @@ public static class RtfImporter
     /// Whether the shared font is hoisted (<see cref="RtfFormattingHoist"/>); false only to test that
     /// hoisting changes nothing.
     /// </param>
-    internal static string ReadToHtml(string rtf, bool hoist = true) =>
-        ToHtml(RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document, hoist);
+    internal static string ReadToHtml(string rtf, bool hoist = true)
+    {
+        var document = RtfDocument.ParseResult(rtf, ReadOptions(RtfImportOptions.Default), CancellationToken.None).Document;
+
+        return Encapsulated(document) ?? ToHtml(document, hoist);
+    }
+
+    /// <summary>
+    /// The HTML Outlook encapsulated in the RTF (<c>\fromhtml1</c>), or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// It goes to the HTML stage as it is, not through the converter, which reads it back into
+    /// RTF first: the converter refuses HTML of more than 10,000 nodes, so a 40 KB message came
+    /// out empty (rubber-duck review finding 9.3), and no paste is capped by its total size. The
+    /// HTML stage has its own limits on depth and work. Asked before anything edits the model —
+    /// the list-shadow correction and the hoist both do — since an edit makes the encapsulation
+    /// stale, and the converter would then write the plain-text fallback beside it instead
+    /// (finding 9.4).
+    /// </remarks>
+    private static string? Encapsulated(RtfDocument document) =>
+        document.IsHtmlEncapsulationCurrent && document.HtmlEncapsulation is { Html: { } html } && !string.IsNullOrWhiteSpace(html)
+            ? html
+            : null;
 
     /// <summary>The reader's HTML for a document, with its shared font written once.</summary>
     private static string ToHtml(RtfDocument document, bool hoist)
     {
-        // Outlook's RTF carries the message's own HTML (\fromhtml1), which the converter prefers
-        // only while the model is as read: hoisting edits runs, and the import would be the
-        // plain-text fallback beside the HTML instead (rubber-duck review finding 9.4).
-        hoist &= !document.IsHtmlEncapsulationCurrent;
-
         RtfLegacyListShadow.Drop(document);
 
         var css = hoist ? RtfFormattingHoist.Hoist(document) : null;
