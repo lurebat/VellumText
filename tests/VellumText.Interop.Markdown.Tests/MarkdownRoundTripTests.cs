@@ -272,6 +272,29 @@ public class MarkdownRoundTripTests
         Assert.Equal("```\nnested\n```\n", Para(back, 0).Content.Text);
     }
 
+    /// <summary>
+    /// The lines of a code block — an empty one, indentation, trailing spaces — are one fence and
+    /// come back as one block. The one newline the closing fence adds is the convention
+    /// <see cref="A_code_block_keeps_its_line_breaks_and_its_style"/> pins.
+    /// </summary>
+    [Fact]
+    public void A_multi_line_code_block_comes_back_as_one_block_with_the_same_lines()
+    {
+        var back = Trip(
+            new DocumentNode([
+                ParagraphNode.FromText("before"),
+                new ParagraphNode(
+                    InlineContent.FromText("if (x) {\n\n    y();  \n}"),
+                    ParagraphKind.Code),
+                ParagraphNode.FromText("after")]),
+            "before\n\n```\nif (x) {\n\n    y();  \n}\n```\n\nafter\n");
+
+        Assert.Equal(3, back.Blocks.Length);
+        Assert.Equal(ParagraphKind.Code, Para(back, 1).Kind);
+        Assert.Equal("if (x) {\n\n    y();  \n}\n", Para(back, 1).Content.Text);
+        Assert.Equal("after", Para(back, 2).Content.Text);
+    }
+
     [Fact]
     public void A_rule_comes_back_a_rule()
     {
