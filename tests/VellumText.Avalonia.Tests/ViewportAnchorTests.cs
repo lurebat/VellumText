@@ -223,6 +223,58 @@ public class ViewportAnchorTests
     }
 
     /// <summary>
+    /// A composition of whole lines before a paragraph's text, ending at a line break, and the
+    /// paragraph's own first line at the top of the viewport: that line is held, not the line the
+    /// composition starts on — when it was scrolled to, while the composition grows, across a
+    /// resize, and when the composition is cleared.
+    /// </summary>
+    /// <remarks>
+    /// The line after the composition starts at the position the composition is at, which is also
+    /// where the composition's own first line starts; read back as a document position it named
+    /// the composition's first line, and the viewport snapped up to it.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TheLineRightAfterACompositionOfWholeLinesIsHeldAtTheTop()
+    {
+        var doc = Doc(1, Long("A", 30), Long("P", 30));
+        var (window, view) = Shown(doc);
+        var p = Start(doc, "P");
+
+        // The second character of the paragraph's own text: on its first line, and a position the
+        // composition before it does not share.
+        var marker = p + 1;
+
+        view.MoveTo(p, extend: false);
+        Layout(window);
+
+        Assert.True(view.SetPreedit("composed line one\ncomposed line two\n"));
+        Layout(window);
+
+        Assert.True(ScreenTop(view, marker) > ScreenTop(view, p), "the composition does not end at a line break");
+
+        // The paragraph's first line just across the top of the viewport.
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, marker) + 2);
+            Layout(window);
+        }
+
+        AssertAt(view, marker, -2);
+
+        Assert.True(view.SetPreedit("composed line one\ncomposed line two\ncomposed line three\n"));
+        Layout(window);
+        AssertAt(view, marker, -2);
+
+        window.Width = Width - 150;
+        Layout(window);
+        AssertAt(view, marker, -2);
+
+        Assert.True(view.SetPreedit(null));
+        Layout(window);
+        AssertAt(view, marker, -2);
+    }
+
+    /// <summary>
     /// Composing straight after a scroll, before any layout pass has run: the line at the new top
     /// is read from the layout before the composition drops the paragraph's, so the composition
     /// growing above it moves nothing.

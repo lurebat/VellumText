@@ -829,6 +829,14 @@ internal sealed class ParagraphView : BlockView
             return new LocalAnchor(preedit.Offset, y - (Origin.Y + first.Top), AnchorKind.Line, Unclamped: true);
         }
 
+        // The line the paragraph's own text resumes on after a composition ending at a line break
+        // starts at the composition's position too; read back as a position it would name the
+        // composition's first line, so it says which side of the composition it is on.
+        if (_preedit is { } before && before.Length > 0 && line.Start == before.Offset + before.Length)
+        {
+            return new LocalAnchor(before.Offset, y - (Origin.Y + line.Top), AnchorKind.Line, AfterComposition: true);
+        }
+
         return new LocalAnchor(
             FromLayout(Math.Clamp(line.Start, 0, LayoutSize)),
             y - (Origin.Y + line.Top),
@@ -849,7 +857,9 @@ internal sealed class ParagraphView : BlockView
         }
 
         var lines = Lines;
-        var index = LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true);
+        var index = anchor.AfterComposition && _preedit is { } composing && anchor.Position == composing.Offset
+            ? LayoutLineAt(composing.Offset + composing.Length)
+            : LineIndexAt(Math.Clamp(anchor.Position, 0, ContentSize), forward: true);
         var line = lines[index];
 
         // Held within the line's slot — down to the next line, the last one to the paragraph's
@@ -901,6 +911,22 @@ internal sealed class ParagraphView : BlockView
         }
 
         return forward ? lines.Length - 1 : 0;
+    }
+
+    /// <summary>The index of the visual line a layout position starts or sits on.</summary>
+    private int LayoutLineAt(int layoutPosition)
+    {
+        var lines = Lines;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (layoutPosition < lines[i].End)
+            {
+                return i;
+            }
+        }
+
+        return lines.Length - 1;
     }
 
     /// <summary>The first position on a visual line.</summary>

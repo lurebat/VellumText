@@ -49,7 +49,13 @@ internal enum AnchorKind
 /// made wholly of composed text, which has no position of its own, so the point is held from the
 /// line the composition starts on.
 /// </param>
-internal readonly record struct LocalAnchor(int Position, double Dy, AnchorKind Kind, bool Unclamped = false)
+/// <param name="AfterComposition">
+/// Whether <paramref name="Position"/> names the text right after a composition at it rather than
+/// the composition's start, which is the same position: the line held is the one the paragraph's
+/// own text resumes on.
+/// </param>
+internal readonly record struct LocalAnchor(
+    int Position, double Dy, AnchorKind Kind, bool Unclamped = false, bool AfterComposition = false)
 {
     /// <summary>The same point, moved by <paramref name="delta"/> positions.</summary>
     /// <param name="delta">How far to move it.</param>
