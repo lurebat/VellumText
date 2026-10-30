@@ -609,6 +609,22 @@ public partial class RichTextView
             return null;
         }
 
+        // Into code, content of more than one paragraph arrives as its text, a line per paragraph,
+        // as Tiptap and ProseMirror paste into code: a heading or a list has no meaning there, and
+        // keeping them split the block around them. One paragraph cannot split it and merges as
+        // it always did. Both come before the empty-host rule below, which would otherwise
+        // replace an empty code block outright with whatever was pasted.
+        if (InCodeBlock(_state.Doc, _state.Selection.From))
+        {
+            var code = doc.Blocks is [ParagraphNode single]
+                ? new Slice([single], 1, 1)
+                : TextSlice(DocumentText.Of(doc));
+
+            return code is null
+                ? null
+                : SliceTransaction(code, _state.Selection.From, _state.Selection.To);
+        }
+
         // Open ends are what make the first and last pasted paragraphs merge into the paragraph
         // the caret sits in, instead of pushing it apart — but only a paragraph can be entered
         // that way. Content that begins or ends with something else gets an empty open paragraph
@@ -677,15 +693,25 @@ public partial class RichTextView
 
     /// <summary>The paragraphs <paramref name="text"/> would become.</summary>
     /// <remarks>
+    /// <para>
     /// Shared with <see cref="PasteImportedText"/> so that what a host is shown and what lands
     /// cannot drift, and built out of <see cref="RichTextClipboard.Lines"/> so that a paste and a
     /// drop of one clip cannot either: line endings normalized the same way, and the reserved
     /// placeholder taken out by the same rule.
+    /// </para>
+    /// <para>
+    /// In a code block the lines stay one paragraph, joined by the newlines that are a code
+    /// block's lines, so the paste lands inside the block rather than splitting it.
+    /// </para>
     /// </remarks>
-    private static ImmutableArray<BlockNode> TextParagraphs(string text) =>
-        RichTextClipboard.Lines(text)
-            .Select(line => (BlockNode)new ParagraphNode(InlineContent.FromText(line)))
-            .ToImmutableArray();
+    private ImmutableArray<BlockNode> TextParagraphs(string text) =>
+        InCodeBlock(_state.Doc, _state.Selection.From)
+            ? [new ParagraphNode(
+                InlineContent.FromText(string.Join('\n', RichTextClipboard.Lines(text))),
+                ParagraphKind.Code)]
+            : RichTextClipboard.Lines(text)
+                .Select(line => (BlockNode)new ParagraphNode(InlineContent.FromText(line)))
+                .ToImmutableArray();
 
     /// <summary>The slice pasting <paramref name="text"/> would insert, or null if there is none.</summary>
     private Slice? TextSlice(string text)

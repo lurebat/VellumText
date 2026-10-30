@@ -306,12 +306,31 @@ public partial class RichTextView
             return true;
         }
 
+        var inList = ListKindAt is not null;
+        var changed = ChangeLevel(outward: lift);
+
+        return inList || changed;
+    }
+
+    /// <summary>
+    /// Takes the selection one level in or out: in a list, nests or lifts its items; anywhere
+    /// else, indents or outdents its paragraphs.
+    /// </summary>
+    /// <remarks>
+    /// What Tab does, and what the toolbar's indent buttons do — the reasons are in the remarks on
+    /// <see cref="Tab"/>. The public <see cref="Indent"/> and <see cref="Outdent"/> keep meaning
+    /// the paragraph's own indent level. The toolbar used to call them, so in a nested item
+    /// Decrease indent changed nothing visible and Increase indent drew the misleading bullet.
+    /// </remarks>
+    /// <param name="outward">True to lift or outdent, false to nest or indent.</param>
+    /// <returns>Whether anything changed.</returns>
+    internal bool ChangeLevel(bool outward)
+    {
         if (ListKindAt is null)
         {
-            return lift ? Outdent() : Indent();
+            return outward ? Outdent() : Indent();
         }
 
-        _ = lift ? LiftListItem() : NestListItem();
-        return true;
+        return outward ? LiftListItem() : NestListItem();
     }
 }
