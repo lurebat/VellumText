@@ -373,9 +373,7 @@ awaits `PasteAsync`.
   keeps the row at the top of the viewport in place while the rows above it are
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
-  painting a selection of the whole table realizes only the rows on screen. A
-  table inside a cell is not row-virtualized: it is laid out whole, as every
-  table was before, though only its rows on screen are drawn.
+  painting a selection of the whole table realizes only the rows on screen.
 - **Typing into a cell of a long table no longer re-validates the whole table.**
   Each step re-placed every cell of the edited table to prove it still tiled its
   grid: about 6 MB a keystroke at 10,000 rows. A table already known to tile,
@@ -403,6 +401,45 @@ awaits `PasteAsync`.
   position — and finds the caret's cell from the new table's placements. With
   the placement and sharing changes above, inserting a row into a 10,000 × 5
   table allocates under a third of what it did (77 MB before).
+- **A long table inside a table cell lays out only the rows near the viewport
+  too, at any depth.** A table in a cell was laid out whole whenever the row
+  holding it was: 135 MB and 1.5 s for the first layout of a 10,000 × 3 table in
+  a cell, 115 MB kept, and 26 MB for every resize. Each table now hands the
+  tables in its cells the part of its window that falls in them, so a table
+  nested one, two or three deep costs what it does at the top of the document
+  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows once laid out stay laid
+  out, as at the top level, so scrolling through a whole long table keeps what
+  it kept before. What the viewport shows stays where it is while estimates are
+  replaced — the text line at the top of the viewport is what is held, through
+  scrolling, resizing, edits far away, undo and redo, and composition (including
+  a line where composed text runs into the paragraph's own text, which is held
+  by that text as the composition grows above it) — and
+  text beside a long nested table, or a row's bottom that a nested table
+  beside it could move, is laid out exactly before it is shown, which can mean
+  laying that table out whole. Scrolling beside a nested table that is already
+  laid out whole costs a screenful a page, however long it is. A table whose
+  windows do not settle, or whose window cannot be worked out — a coordinate
+  that is not a number, or a viewport anchor that names nothing inside it — is
+  laid out whole, counted and traced, never left blank. The scroll range stays
+  of the order of the document's real height: a row holding a table only partly
+  laid out teaches the estimate for the rows nobody measured only what is known
+  of that table, not that table's own estimate, which had made the extent grow
+  as the product of the row counts along the path (34.6 billion pixels for a
+  document 5.8 million tall, after a resize).
+- **Ctrl+End reaches the end of a document whose unseen rows hold most of it.**
+  The caret was aimed at where the estimates for the rows above put it, and
+  with an extent far too small the offset was clamped short of it: the document
+  ended 8,389 pixels below the viewport, caret and all. Sending the caret to the
+  document's last position now lays the window out from the end up, with the end
+  at the bottom of the viewport, before the caret is brought into view.
+- **The text at the top of the viewport is held through the spacing around its
+  lines, a jump to rows nobody had laid out, and questions about far points.**
+  Scrolling a long table moved its text by up to 5.6 DIP more or less than the
+  scroll; a resize after jumping into a long table, or after a question about a
+  far row moved the viewport, put a different line at the top; text inserted at
+  the very start of the paragraph below the top moved it down; and a point
+  question exactly on the edge between two rows or blocks laid out the one below
+  while answering, moving the text on screen.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"

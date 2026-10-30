@@ -152,7 +152,9 @@ public partial class RichTextView
 
         _moveTarget = NearestTextPosition(PositionAt(point), forward: true);
 
-        InvalidateVisual();
+        // The target the drop caret is drawn at, which the point only led to: laid out now, since
+        // no layout pass comes before the frame that draws it.
+        InvalidatePaint();
     }
 
     /// <summary>Ends the gesture, by committing the move or by resolving the click.</summary>
@@ -302,7 +304,7 @@ public partial class RichTextView
     /// <summary>Draws the caret at the position a drop would land on.</summary>
     private void RenderDropCaret(DrawingContext context)
     {
-        if (!_moving || PositionRect(_moveTarget) is not { } rect)
+        if (!_moving || !PaintReady(_moveTarget) || PositionRect(_moveTarget) is not { } rect)
         {
             return;
         }
