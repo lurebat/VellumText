@@ -437,6 +437,7 @@ VellumText.Avalonia.RichTextView.ReplaceAll(string! replacement) -> int
 VellumText.Avalonia.RichTextView.ReplaceCurrent(string! replacement) -> bool
 VellumText.Avalonia.RichTextView.ResizeSelectedImage(Avalonia.Size size) -> bool
 VellumText.Avalonia.RichTextView.RichTextView() -> void
+VellumText.Avalonia.RichTextView.ScrollToEnd() -> void
 VellumText.Avalonia.RichTextView.SelectAll() -> bool
 VellumText.Avalonia.RichTextView.SelectedImage.get -> int?
 VellumText.Avalonia.RichTextView.SelectedText() -> string!

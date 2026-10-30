@@ -968,7 +968,11 @@ internal sealed class ParagraphView : BlockView
 >   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). The
 >   caret sent to the document's end (Ctrl+End) lays the window out from the end up and puts the
 >   end at the bottom of the viewport (`SettleAtEnd`) before the caret is brought into view, so an
->   extent far too small does not stop it short. Point
+>   extent far too small does not stop it short. `RichTextView.ScrollToEnd` asks the next layout
+>   pass for the same without moving the caret, and `RichTextEditor` asks it when its vertical
+>   scroll bar is taken to its maximum (`ScrollBar.Scroll`, which the wheel never raises). An offset
+>   set to the end of the scroll range is not such a request: the wheel sets the offset too, and a
+>   wheel scroll reaching the end of a range that is too small must not jump. Point
 >   questions lay out every row whose closed band touches the point before answering, and the
 >   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
 >   (`LayoutGuard.Painting`, `PreparePaintDependencies`).

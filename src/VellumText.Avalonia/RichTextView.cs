@@ -613,6 +613,44 @@ public sealed partial class RichTextView : DocumentPresenter
             ? StateLineage.MappingFrom(laidOut, _state)
             : null;
 
+    /// <summary>
+    /// Scrolls the document's end to the bottom of the viewport, leaving the caret and the
+    /// selection where they are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The scroll Ctrl+End makes, without moving the caret. It takes effect in the next layout
+    /// pass, and a scroll before that pass — the wheel, the scroll bar, the host setting
+    /// <see cref="DocumentPresenter.Offset"/> — cancels it, so a request nobody got to cannot pull
+    /// the view away from where the reader has since gone.
+    /// </para>
+    /// <para>
+    /// Setting <see cref="DocumentPresenter.Offset"/> to the end of the scroll range is not the
+    /// same, and neither is <see cref="ScrollViewer.ScrollToEnd"/>, which does exactly that. The
+    /// range is the <see cref="DocumentPresenter.Extent"/>, and the extent counts every block — and
+    /// every table row — nobody has laid out yet at an estimated height. When those estimates are
+    /// too small, as they are for rows that each hold a long nested table, the end of the range is
+    /// short of the end of the document, sometimes by many screens. This lays the window out from
+    /// the document's end up instead, so it reaches the end whatever the estimates say. The offset
+    /// alone stays a plain scroll on purpose: the wheel sets it too, and a wheel scroll that
+    /// reaches the end of the range must not jump.
+    /// </para>
+    /// <para>
+    /// <see cref="RichTextEditor"/> calls this when its vertical scroll bar is taken to the end:
+    /// the thumb dragged to the bottom, or an arrow or the track clicked until it gets there.
+    /// </para>
+    /// <para>
+    /// Does nothing visible when the whole document fits, or when the view is not the scroll
+    /// viewer's direct content and so lays everything out and is scrolled by its host.
+    /// </para>
+    /// </remarks>
+    public void ScrollToEnd() => RequestEnd();
+
+    /// <inheritdoc/>
+    /// <remarks>The caret at the last place in the document one can sit: where Ctrl+End puts it.</remarks>
+    private protected override bool IsAnchorAtDocumentEnd =>
+        _state.Selection.Head == Selection.AtEnd(_state.Doc).Head;
+
     /// <inheritdoc/>
     /// <summary>
     /// Scrolls until the caret is inside the viewport.
@@ -634,11 +672,6 @@ public sealed partial class RichTextView : DocumentPresenter
     /// </para>
     /// </remarks>
     /// <returns>Whether the view moved.</returns>
-    /// <inheritdoc/>
-    /// <remarks>The caret at the last place in the document one can sit: where Ctrl+End puts it.</remarks>
-    private protected override bool IsAnchorAtDocumentEnd =>
-        _state.Selection.Head == Selection.AtEnd(_state.Doc).Head;
-
     private protected override bool ScrollAnchorIntoView()
     {
         if (!IsVirtualizing || _views.Count == 0)
