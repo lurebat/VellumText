@@ -393,11 +393,13 @@ public class RichTextToolbar : TemplatedControl
         if (_fontBox is not null)
         {
             _fontBox.SelectionChanged -= OnFontPicked;
+            _fontBox.RemoveHandler(KeyDownEvent, OnBoxKeyDown);
         }
 
         if (_sizeBox is not null)
         {
             _sizeBox.SelectionChanged -= OnSizePicked;
+            _sizeBox.RemoveHandler(KeyDownEvent, OnBoxKeyDown);
         }
 
         _fontBox = scope.Find<ComboBox>("PART_FontBox");
@@ -406,14 +408,47 @@ public class RichTextToolbar : TemplatedControl
         if (_fontBox is not null)
         {
             _fontBox.SelectionChanged += OnFontPicked;
+            _fontBox.AddHandler(KeyDownEvent, OnBoxKeyDown, handledEventsToo: true);
             ShowFamiliesBare(_fontBox);
         }
 
         if (_sizeBox is not null)
         {
             _sizeBox.SelectionChanged += OnSizePicked;
+            _sizeBox.AddHandler(KeyDownEvent, OnBoxKeyDown, handledEventsToo: true);
         }
     }
+
+    /// <summary>Enter and Escape in a font or size box hand the keyboard back to the document.</summary>
+    /// <remarks>
+    /// As in Word and Docs: once a size is committed the user goes on typing, and leaving focus in
+    /// the box sent the next keystroke into it ("36x"). Enter has already committed through the
+    /// template's key binding; Escape commits nothing and puts the selection's own value back in
+    /// the box over whatever was typed. Handled-too, because the box handles Escape itself when
+    /// its list is open, and closing the list is not a reason to keep the keyboard.
+    /// </remarks>
+    private void OnBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyModifiers != KeyModifiers.None || e.Key is not (Key.Enter or Key.Escape))
+        {
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            Reassert();
+        }
+
+        ReturnToDocument();
+    }
+
+    /// <summary>Gives the keyboard back to the editor once the bar is done with it.</summary>
+    /// <remarks>
+    /// Posted, so that whatever is still handling the key or the pick — the box's own key binding,
+    /// its list closing — finishes against the box before focus moves.
+    /// </remarks>
+    private void ReturnToDocument() =>
+        Dispatcher.UIThread.Post(() => _view?.Focus());
 
     /// <summary>
     /// Shows the selection's family in the font box without the quotes it is stored in, and
@@ -461,8 +496,9 @@ public class RichTextToolbar : TemplatedControl
     /// select the matching item to go with it; reading that as a pick would re-apply the caret's
     /// own size to whatever is selected every time the caret moved. Typing still commits on Enter.
     /// A family is committed in its stored form, quoted if it holds a comma, as typing it does.
+    /// The keyboard then goes back to the document, as it does after Enter.
     /// </remarks>
-    private static void Picked(ComboBox? box, ICommand command, Func<object, object>? stored = null)
+    private void Picked(ComboBox? box, ICommand command, Func<object, object>? stored = null)
     {
         if (box is { IsDropDownOpen: true, SelectedItem: { } item })
         {
@@ -471,6 +507,7 @@ public class RichTextToolbar : TemplatedControl
             if (command.CanExecute(value))
             {
                 command.Execute(value);
+                ReturnToDocument();
             }
         }
     }
