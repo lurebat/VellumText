@@ -52,6 +52,9 @@ public abstract partial class DocumentPresenter
     /// </summary>
     private (HeldAnchor Anchor, double Offset)? _settled;
 
+    /// <summary>The content the last settle held, when the offset ended clamped short of putting it at the top.</summary>
+    private (int Block, LocalAnchor Local)? _clamped;
+
     /// <summary>The document <see cref="_slots"/> describes, or null when it describes none.</summary>
     /// <remarks>
     /// <para>
@@ -633,6 +636,15 @@ public abstract partial class DocumentPresenter
             // off screen — is laid out now, while laying out is allowed, and the viewport put back.
             PreparePaintDependencies();
 
+            // A settle that ended with the offset clamped at the end of the document left the
+            // content it held below the top. Laying out what painting needs can move the end — an
+            // estimate replaced — so the held content is put back as far toward the top as the end
+            // now allows, rather than the content the clamp happened to leave there.
+            if (_clamped is { } clamped)
+            {
+                size = Settle(clamped);
+            }
+
             return Finish(size);
         }
         finally
@@ -1097,7 +1109,17 @@ public abstract partial class DocumentPresenter
 
             size = RealizeWindow(index, local, Overscan - top, top + ViewportHeight + Overscan);
 
+            // A share of a row nobody had laid out names no content, and the point it names moves
+            // as the row's height does. A table holding tables turns it into the content it found
+            // there once that row was laid out, and measured around that; it is what is held now.
+            if (local.Kind == AnchorKind.RowShare && _views[index] is TableBlockView settling && settling.WindowAnchor != local)
+            {
+                local = settling.WindowAnchor;
+                anchor = (index, local);
+            }
+
             var point = _heights.OffsetOf(index) + PointOf(index, local);
+
 
             ApplyOffset(new Vector(_offset.X, point), relayout: false);
 
@@ -1121,6 +1143,8 @@ public abstract partial class DocumentPresenter
             anchor = (shared, sharedTable.CaptureAnchor(_offset.Y - _heights.OffsetOf(shared)));
         }
 
+        _clamped = top == 0 ? null : anchor;
+
         // Not when the offset was clamped: then the anchor is not at the top of the viewport, and
         // holding it would name content the reader cannot see there.
         _settled = top == 0 && anchor is var (block, content) && _views[block] is TableBlockView && _slotsFor is { } basis
@@ -1137,6 +1161,37 @@ public abstract partial class DocumentPresenter
 
     /// <summary>Called after a geometry question lays something out, for tests that break what it left.</summary>
     internal Action? AfterPrepare { get; set; }
+
+    /// <summary>
+    /// For tests: every block's height as the index holds it — measured, or the estimate — added
+    /// up one by one, and whether each block laid out in the window is the height recorded for it.
+    /// </summary>
+    internal (double Sum, bool Agree) HeightLedger()
+    {
+        var sum = 0.0;
+        var agree = _heights.Count == _views.Count;
+
+        for (var i = 0; i < _heights.Count; i++)
+        {
+            sum += _heights.HeightOf(i);
+
+            if (agree && i >= _first && i <= _last && _heights.Measured(i))
+            {
+                agree = Math.Abs(_views[i].Size.Height - _heights.HeightOf(i)) <= 0.01;
+            }
+        }
+
+        return (sum, agree);
+    }
+
+    /// <summary>
+    /// For tests: the document position of the text line held at the top of the viewport, while
+    /// one is held and nothing has scrolled since.
+    /// </summary>
+    internal int? HeldLine =>
+        _settled is { } settled && settled.Offset.Equals(_offset.Y) && settled.Anchor.Local.Kind == AnchorKind.Line
+            ? settled.Anchor.Position
+            : null;
 
     /// <summary>
     /// Called when a point question has laid out what it needs and starts answering, for tests

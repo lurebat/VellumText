@@ -751,6 +751,12 @@ internal sealed partial class TableBlockView : BlockView
         _windowBelow = double.IsNaN(below) ? double.PositiveInfinity : Math.Max(0, below);
     }
 
+    /// <summary>
+    /// What the window is measured around: the anchor it was given, or — given a share of a row
+    /// nobody had laid out — the content found at that point once the row was.
+    /// </summary>
+    internal LocalAnchor WindowAnchor => _windowAnchor;
+
     /// <summary>The row the window's anchor is in: the row whose positions hold it.</summary>
     /// <remarks>
     /// By position, not by height, so the same content names the same row however the rows above
@@ -831,7 +837,7 @@ internal sealed partial class TableBlockView : BlockView
                 below += HeightOf(r);
             }
 
-            if (below >= into + _windowBelow)
+            if (below >= into + _windowBelow + EdgeMargin)
             {
                 break;
             }
@@ -845,7 +851,7 @@ internal sealed partial class TableBlockView : BlockView
             above += HeightOf(r);
         }
 
-        for (var row = start - 1; row >= 0 && above < _windowAbove; row = _bandStart[row] - 1)
+        for (var row = start - 1; row >= 0 && above < _windowAbove + EdgeMargin; row = _bandStart[row] - 1)
         {
             EnsureBand(row);
             visited.Add(_bandStart[row]);
@@ -856,6 +862,13 @@ internal sealed partial class TableBlockView : BlockView
             }
         }
     }
+
+    /// <summary>
+    /// How far past the window's edges the walk goes: heights added up one by one and row edges
+    /// added up as prefix sums round differently, and a row ending a hair inside the window by one
+    /// sum and a hair outside it by the other is left unlaid where drawing meets it.
+    /// </summary>
+    private const double EdgeMargin = 0.5;
 
     /// <summary>A row's measured height, or the estimate when it has none.</summary>
     private double HeightOf(int row) => double.IsNaN(_rowHeights[row]) ? Estimate : _rowHeights[row];
@@ -1225,10 +1238,13 @@ internal sealed partial class TableBlockView : BlockView
             if (local < child.Top + child.Height)
             {
                 // In the spacing below a block's last line, the first text the reader sees is the
-                // next block's, so that is what is held, as in the gap between blocks.
-                if (i + 1 < cell.Blocks.Length && local >= child.Top + child.View.TextBottom)
+                // next block's, so that is what is held, as in the gap between blocks; below the
+                // cell's last block, its bottom is, which a rewrap moves with the text.
+                if (local >= child.Top + child.View.TextBottom)
                 {
-                    return HeldFrom(rowStart, cell.Blocks[i + 1], local);
+                    return i + 1 < cell.Blocks.Length
+                        ? HeldFrom(rowStart, cell.Blocks[i + 1], local)
+                        : new LocalAnchor(rowStart + child.Start, local - (child.Top + child.Height), AnchorKind.BoxBottom);
                 }
 
                 return child.View.CaptureAnchor(local - child.Top).Shift(rowStart + child.Start);

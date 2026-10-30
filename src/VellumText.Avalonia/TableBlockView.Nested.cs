@@ -47,8 +47,9 @@ internal sealed partial class TableBlockView
     private readonly Dictionary<TableBlockView, Exactness> _exact = [];
 
     /// <summary>
-    /// How many times one measure may settle rows again because a table in a cell changed height,
-    /// before every table in the window is laid out in full instead.
+    /// How many passes of one measure may only settle rows again because a table in a cell changed
+    /// height, without anything new made exact, before every table in the window is laid out in
+    /// full instead.
     /// </summary>
     internal int RefreshLimit { get; init; } = 4;
 
@@ -82,6 +83,8 @@ internal sealed partial class TableBlockView
     {
         _exact.Clear();
 
+        var settling = 0;
+
         for (var pass = 0; ; pass++)
         {
             Walk(_visited);
@@ -91,18 +94,34 @@ internal sealed partial class TableBlockView
                 break;
             }
 
+            // A share of a row nobody had laid out is a point that moves with the row's height,
+            // which every table in the row measuring more of itself changes: windows taken from it
+            // chase it from pass to pass. Once the row is laid out the content at that point is
+            // there to hold instead, as the presenter holds the text it shows. Not the table's top
+            // or bottom edge, which is where a table beside the anchor is held from.
+            if (pass == 0
+                && !HoldsContent()
+                && _windowAnchor.Dy is > 0 and < 1
+                && CaptureAnchor(AnchorY()) is var found
+                && found != _windowAnchor)
+            {
+                _windowAnchor = found;
+            }
+
             // The tables in the window are given it first: what is exact is decided from where
             // they are laid out for this window, not the last one.
-            var changed = RefreshNested(_visited);
+            var refreshed = RefreshNested(_visited);
+            var required = Close();
 
-            changed |= Close();
-
-            if (!changed)
+            if (!refreshed && !required)
             {
                 break;
             }
 
-            if (pass + 1 >= RefreshLimit)
+            // Making something exact is progress that ends — a table in the window can be required
+            // to lay out more only a few times — so only the passes that just settle heights again
+            // count against the limit.
+            if (!required && ++settling >= RefreshLimit)
             {
                 // The windows did not settle. Every table the window reaches is laid out whole:
                 // slow, and nothing it holds is left unlaid.
@@ -337,14 +356,18 @@ internal sealed partial class TableBlockView
     /// </para>
     /// </remarks>
     /// <returns>Whether anything was made exact that was not.</returns>
-    private bool Close()
-    {
-        if (!HoldsContent())
-        {
-            // No content is held — a row nobody has laid out — so there is nothing to keep still.
-            return false;
-        }
+    /// <remarks>
+    /// With no content held — a row nobody has laid out — there is nothing to keep still, unless
+    /// the table is held by its bottom edge, from below; and the rows above the anchor's are made
+    /// exact as far as the window reaches (<see cref="CloseAbove"/>).
+    /// </remarks>
+    private bool Close() => HoldsContent()
+        ? CloseAbove(includeAnchorBand: false) | CloseBeside()
+        : IsHeldByBottom() && CloseAbove(includeAnchorBand: true);
 
+    /// <summary>What <see cref="Close"/> makes exact in the anchor's own row.</summary>
+    private bool CloseBeside()
+    {
         var row = WindowRow;
         var start = _bandStart[row];
         var end = _bandEnd[row];
@@ -535,6 +558,117 @@ internal sealed partial class TableBlockView
                 if (child.View is TableBlockView nested && !nested.IsComplete())
                 {
                     changed |= Require(nested, new Exactness(Coverage.Full));
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Whether the window is held at this table's bottom edge: the table is above what the
+    /// viewport is held by, and everything in it is placed upward from its bottom.
+    /// </summary>
+    private bool IsHeldByBottom() =>
+        _rows.Length > 0
+            && _windowAnchor.Kind == AnchorKind.RowShare
+            && _windowAnchor.Dy >= 1
+            && WindowRow == _rows.Length - 1;
+
+    /// <summary>
+    /// The mirror of <see cref="CloseBeside"/> for the rows above the anchor's — or, for a table held
+    /// at its bottom edge, for every row the window reaches: what the window shows of a row placed
+    /// across an estimate is made exact.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Above the anchor every row is placed upward by the heights of the rows under it, and a row
+    /// wholly inside the window has every table in it inside the window too, so laid out whole.
+    /// What is not exact is a row the window's top cuts through: its cells hang from its top, which
+    /// is its bottom less its height, the tallest cell's — and a table in one of its cells not
+    /// wholly laid out is that height only by estimate. The window above the anchor is mostly the
+    /// overscan, which is not seen; it is seen above the anchor when the offset was clamped at the
+    /// end of the document, and the rule cannot tell the two apart, so it holds for both.
+    /// </para>
+    /// <para>
+    /// With one such table, if its lower bound is taller than every other cell by as much as the
+    /// window reaches into the row, it is the tallest, its rows are placed from its bottom with
+    /// real heights, and the others end above the window; otherwise it is laid out whole. With two
+    /// or more, either could be the tallest, so each is laid out whole (owner decision Q1: exact
+    /// and still, at the cost of laying them out). A band of several rows tied by spanning cells
+    /// lays out every table in it whole, as <see cref="Close"/> does.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether anything was made exact that was not.</returns>
+    /// <param name="includeAnchorBand">Whether the anchor's own band is one of them: it is when the table is held at its bottom.</param>
+    private bool CloseAbove(bool includeAnchorBand)
+    {
+        var changed = false;
+        var anchor = AnchorY();
+        var anchorBand = _bandStart[WindowRow];
+
+        foreach (var start in _visited)
+        {
+            if (!includeAnchorBand && start >= anchorBand)
+            {
+                continue;
+            }
+
+            // How far above the band's bottom the window reaches.
+            var reach = _windowAbove - (anchor - RowTop(_bandEnd[start]));
+
+            if (reach <= 0 || !BandHostsTables(start))
+            {
+                continue;
+            }
+
+            if (_bandEnd[start] - start > 1)
+            {
+                foreach (var nested in NestedInBand(start))
+                {
+                    if (!nested.IsComplete())
+                    {
+                        changed |= Require(nested, new Exactness(Coverage.Full));
+                    }
+                }
+
+                continue;
+            }
+
+            var cells = _rows[start].Cells!;
+
+            if (cells.Length < 2)
+            {
+                continue;
+            }
+
+            var unknown = cells.Where(cell => !double.IsFinite(Upper(cell))).ToList();
+
+            if (unknown.Count == 0)
+            {
+                continue;
+            }
+
+            if (unknown.Count == 1)
+            {
+                var others = cells.Where(cell => !ReferenceEquals(cell, unknown[0])).Max(Upper);
+                var needed = others + reach;
+                var lower = unknown[0].Blocks.Sum(child => Lower(child, needed));
+
+                if (lower >= needed)
+                {
+                    continue;
+                }
+            }
+
+            foreach (var cell in unknown)
+            {
+                foreach (var child in cell.Blocks)
+                {
+                    if (child.View is TableBlockView nested && !nested.IsComplete())
+                    {
+                        changed |= Require(nested, new Exactness(Coverage.Full));
+                    }
                 }
             }
         }

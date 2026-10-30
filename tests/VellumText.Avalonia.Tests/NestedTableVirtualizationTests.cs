@@ -1004,7 +1004,7 @@ public class NestedTableVirtualizationTests
     /// and every point of a grid over the viewport is looked up in the copy and asked of the
     /// view's block whether it is prepared.
     /// </summary>
-    private static void AssertTruthOnScreenIsLaidOut(RichTextView view, RichTextView twin)
+    internal static void AssertTruthOnScreenIsLaidOut(RichTextView view, RichTextView twin)
     {
         var block = Enumerable.Range(view.RealizedBlocks.Start.Value, view.RealizedBlocks.End.Value - view.RealizedBlocks.Start.Value)
             .First(i => view.BlockOrigin(i).Y + view.Blocks[i].Size.Height > 0);
