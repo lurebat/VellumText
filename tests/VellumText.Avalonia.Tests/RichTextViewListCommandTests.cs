@@ -417,8 +417,14 @@ public class RichTextViewListCommandTests
             view);
     }
 
+    /// <summary>
+    /// Enter in a bullet with words in it starts the next bullet, as it does in every word
+    /// processor. It used to split the paragraph inside the same item, so the new line had no
+    /// bullet, Tab could not nest it (it was not an item), and Shift+Tab took the item and both its
+    /// lines out of the list (found live).
+    /// </summary>
     [AvaloniaFact]
-    public void Enter_in_a_bullet_with_words_in_it_still_splits_it()
+    public void Enter_at_the_end_of_a_bullet_starts_the_next_one()
     {
         var view = Laid(Bulleted("one"), In(0, 3));
 
@@ -429,10 +435,122 @@ public class RichTextViewListCommandTests
             unordered-list
               list-item
                 p "one"
+              list-item
                 p ""
             """,
             view);
+        Assert.Equal((string.Empty, 0), Caret(view));
     }
+
+    [AvaloniaFact]
+    public void Enter_in_the_middle_of_a_bullet_carries_the_rest_into_the_next_one()
+    {
+        var view = Laid(Bulleted("onetwo", "three"), In(0, 3));
+
+        Assert.True(view.Split());
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+              list-item
+                p "two"
+              list-item
+                p "three"
+            """,
+            view);
+        Assert.Equal(("two", 0), Caret(view));
+    }
+
+    /// <summary>
+    /// What the hands-on check did, key by key: type, make it a bullet, Enter, type, Tab, Shift+Tab.
+    /// </summary>
+    [AvaloniaFact]
+    public void Typing_a_bulleted_list_from_the_keyboard_gives_items_that_nest_and_lift_one_at_a_time()
+    {
+        var view = Laid(Paragraphs(string.Empty), In(0, 0));
+
+        Assert.True(view.InsertText("one"));
+        Assert.True(view.ToggleList(ListKind.Unordered));
+        Press(view, Key.Enter);
+        Assert.True(view.InsertText("two"));
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+              list-item
+                p "two"
+            """,
+            view);
+
+        Press(view, Key.Tab);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+                unordered-list
+                  list-item
+                    p "two"
+            """,
+            view);
+
+        Press(view, Key.Tab, KeyModifiers.Shift);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+              list-item
+                p "two"
+            """,
+            view);
+
+        // Only the item the caret is in leaves the list; the one above keeps its bullet.
+        Press(view, Key.Tab, KeyModifiers.Shift);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+            p "two"
+            """,
+            view);
+    }
+
+    /// <summary>Backspace at the start of a bullet takes the bullet off, keeping the words.</summary>
+    [AvaloniaFact]
+    public void Backspace_at_the_start_of_a_bullet_lifts_it_out_of_the_list()
+    {
+        var view = Laid(Bulleted("one", "two"), In(1, 0));
+
+        Press(view, Key.Back);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                p "one"
+            p "two"
+            """,
+            view);
+        Assert.Equal(("two", 0), Caret(view));
+    }
+
+    private static void Press(RichTextView view, Key key, KeyModifiers modifiers = KeyModifiers.None) =>
+        view.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = modifiers,
+            Source = view,
+        });
 
     [AvaloniaFact]
     public void Tab_nests_inside_a_list_and_indents_outside_one()

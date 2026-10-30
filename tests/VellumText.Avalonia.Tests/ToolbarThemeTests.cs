@@ -4,7 +4,10 @@ using global::Avalonia.Controls.Primitives;
 using global::Avalonia.Headless.XUnit;
 using global::Avalonia.Interactivity;
 using global::Avalonia.Markup.Xaml.Styling;
+using global::Avalonia.Media;
+using global::Avalonia.Threading;
 using global::Avalonia.VisualTree;
+using System.Reflection;
 using VellumText;
 using VellumText.Avalonia;
 
@@ -293,6 +296,87 @@ public class ToolbarThemeTests
         Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(0);
 
     /// <summary>
+    /// A colour picked with a real click lands on the selected text, in the document and on screen,
+    /// and the flyout closes. The flyout used to close on the swatch's Click, which a button raises
+    /// before it runs its command: hiding the flyout took the swatch out of the tree and its command
+    /// binding with it, so the click closed the flyout and changed nothing (found live).
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("Text colour")]
+    [InlineData("Highlight")]
+    public void PickingAColourAppliesItToTheSelection(string tip)
+    {
+        var bar = Templated(out var editor);
+        var view = editor.View!;
+
+        // "hello", and not " world".
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.MoveTo(view.Slots[0].Start + 5, extend: true);
+
+        var swatch = Swatches(bar, tip)[8];
+        var colour = Color.Parse((string)swatch.CommandParameter!);
+        var flyout = (Flyout)Find(bar, tip)!.Flyout!;
+
+        UserClick(swatch);
+
+        var hello = FirstMark(editor);
+        var world = Assert.IsType<ParagraphNode>(editor.State.Doc.Blocks[0]).Content.MarkAt(7);
+
+        Assert.Equal(colour.ToVellumText(), tip == "Text colour" ? hello.Foreground : hello.Highlight);
+        Assert.Null(tip == "Text colour" ? world.Foreground : world.Highlight);
+        Assert.False(flyout.IsOpen);
+
+        // On screen too: the run drawn for "hello" carries the colour.
+        if (tip == "Text colour")
+        {
+            Layout(bar);
+
+            var run = ((ParagraphView)view.Blocks[0]).Layout.TextLines[0].TextRuns[0];
+
+            Assert.Equal(colour, Assert.IsAssignableFrom<ISolidColorBrush>(run.Properties!.ForegroundBrush).Color);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ClearingTheColourWithAClickRemovesIt()
+    {
+        var bar = Templated(out var editor);
+
+        SelectAll(editor.View!);
+        bar.SetForegroundCommand.Execute("#C82020");
+        Assert.NotNull(FirstMark(editor).Foreground);
+
+        var clear = Popup(bar, "Text colour").GetVisualDescendants().OfType<Button>()
+            .Single(b => b.Classes.Contains("VellumText-clear-colour"));
+        var flyout = (Flyout)Find(bar, "Text colour")!.Flyout!;
+
+        UserClick(clear);
+
+        Assert.Null(FirstMark(editor).Foreground);
+        Assert.False(flyout.IsOpen);
+    }
+
+    /// <summary>
+    /// Clicks a button the way a pointer release does: <see cref="Button"/>'s own click handling,
+    /// which raises <see cref="Button.ClickEvent"/> and then runs the command. Raising the event by
+    /// hand skips the command, which is how a broken pick once passed every test.
+    /// </summary>
+    private static void UserClick(Button button)
+    {
+        typeof(Button).GetMethod("OnClick", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(button, null);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static void Layout(Visual visual)
+    {
+        var window = (Window)TopLevel.GetTopLevel(visual)!;
+
+        window.UpdateLayout();
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0, 0, window.Width, window.Height));
+    }
+
+    /// <summary>
     /// Picking a colour closes the flyout it was picked from (owner decision). Found live: the
     /// colour applied and the flyout stayed open over the document until Escape or a click
     /// elsewhere — a second step for the commonest thing the flyout is for.
@@ -311,7 +395,7 @@ public class ToolbarThemeTests
 
         Assert.True(flyout.IsOpen);
 
-        swatch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        UserClick(swatch);
 
         Assert.False(flyout.IsOpen);
     }
@@ -327,7 +411,7 @@ public class ToolbarThemeTests
             .Single(b => b.Classes.Contains("VellumText-clear-colour"));
         var flyout = (Flyout)Find(bar, "Text colour")!.Flyout!;
 
-        clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        UserClick(clear);
 
         Assert.False(flyout.IsOpen);
     }
