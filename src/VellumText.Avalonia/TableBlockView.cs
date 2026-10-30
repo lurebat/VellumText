@@ -1219,7 +1219,7 @@ internal sealed partial class TableBlockView : BlockView
             if (local < child.Top)
             {
                 // In the gap above the block: held from the block below it, as content is.
-                return new LocalAnchor(rowStart + child.Start, local - child.Top, AnchorKind.Box);
+                return HeldFrom(rowStart, child, local);
             }
 
             if (local < child.Top + child.Height)
@@ -1228,9 +1228,7 @@ internal sealed partial class TableBlockView : BlockView
                 // next block's, so that is what is held, as in the gap between blocks.
                 if (i + 1 < cell.Blocks.Length && local >= child.Top + child.View.TextBottom)
                 {
-                    var next = cell.Blocks[i + 1];
-
-                    return new LocalAnchor(rowStart + next.Start, local - next.Top, AnchorKind.Box);
+                    return HeldFrom(rowStart, cell.Blocks[i + 1], local);
                 }
 
                 return child.View.CaptureAnchor(local - child.Top).Shift(rowStart + child.Start);
@@ -1246,6 +1244,18 @@ internal sealed partial class TableBlockView : BlockView
                 local - (previous.Top + previous.Height),
                 AnchorKind.BoxBottom);
     }
+
+    /// <summary>A point in the space above a block, held from that block.</summary>
+    /// <remarks>
+    /// A paragraph is held by its first line, the point above it as a signed distance from that
+    /// line, so the text stays where it was when an edit adds lines at the paragraph's very start:
+    /// the position moves with the text, as at the top line anywhere else. Anything else is held by
+    /// its box.
+    /// </remarks>
+    private static LocalAnchor HeldFrom(int rowStart, Child next, double local) =>
+        next.View is ParagraphView paragraph && paragraph.IsPreparedAt(0)
+            ? (paragraph.CaptureAnchor(local - next.Top) with { Unclamped = true }).Shift(rowStart + next.Start)
+            : new LocalAnchor(rowStart + next.Start, local - next.Top, AnchorKind.Box);
 
     /// <summary>
     /// The cell whose content is at a point in a row, among the realized and measured cells covering

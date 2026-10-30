@@ -466,6 +466,46 @@ public class ViewportAnchorTests
     }
 
     /// <summary>
+    /// The top of the viewport in the spacing just before a paragraph, and text that wraps onto
+    /// lines of its own inserted at the paragraph's very start: the text that was first stays
+    /// where it was, the new lines going above it out of sight, as an insertion above the top
+    /// line does anywhere else; through undo and redo too.
+    /// </summary>
+    [AvaloniaFact]
+    public void InsertingAtTheStartOfTheParagraphBelowTheSpacingAtTheTopKeepsItsTextStill()
+    {
+        var doc = Doc(1, Long("A", 30), Long("B", 30), Long("C", 30));
+        var (window, view) = Shown(doc);
+        var b = Start(view.State.Doc, "B");
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            view.Offset = new Vector(0, view.Offset.Y + ScreenTop(view, b) - 2);
+            Layout(window);
+        }
+
+        Assert.Equal(2, ScreenTop(view, b), 1);
+        Place(window, view);
+
+        var prefix = Text("NEW", 6) + " ";
+
+        view.Apply(Insert(view.State, b, prefix));
+        Layout(window);
+
+        AssertAt(view, b + prefix.Length, 2);
+
+        Assert.True(view.Undo());
+        Layout(window);
+
+        AssertAt(view, b, 2);
+
+        Assert.True(view.Redo());
+        Layout(window);
+
+        AssertAt(view, b + prefix.Length, 2);
+    }
+
+    /// <summary>
     /// The top of the viewport in the room a heading leaves above its line: the heading is the
     /// text held, and stays where it was when the paragraph above it rewraps.
     /// </summary>

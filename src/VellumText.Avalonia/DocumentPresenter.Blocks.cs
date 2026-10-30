@@ -922,7 +922,10 @@ public abstract partial class DocumentPresenter
     /// </remarks>
     private protected HeldAnchor? ViewportAnchor()
     {
-        if (_views.Count == 0 || _heights.Count != _views.Count || _slotsFor is null)
+        // Not scrolled at all, nothing is held, as a browser selects no scroll anchor there (CSS
+        // Scroll Anchoring, anchor node selection step 2): text typed or inserted at the very top
+        // pushes what follows down rather than scrolling the new text out of sight.
+        if (_views.Count == 0 || _heights.Count != _views.Count || _slotsFor is null || _offset.Y <= 0)
         {
             return null;
         }
