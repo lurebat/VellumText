@@ -592,6 +592,54 @@ public class ToolbarOutcomeTests
         }
     }
 
+    /// <summary>
+    /// Strip character formatting takes bold, colour and size off exactly the selection — in the
+    /// document and on screen — and leaves the formatting beside it and the link under it alone.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClearFormattingStripsExactlyTheSelection(bool across)
+    {
+        var bar = Templated(out var editor, ThreeParagraphs());
+        var view = editor.View!;
+        var red = new Rgba(0xC8, 0x20, 0x20, 255);
+        var link = new LinkMark("https://example.com/");
+
+        view.MoveTo(view.Slots[0].Start, extend: false);
+        view.MoveTo(view.Slots[^1].End, extend: true);
+        view.ToggleStyle(TextStyle.Bold);
+        view.SetForeground(red);
+        view.SetFontSize(32);
+        view.SetLink(link);
+
+        var selected = Select(view, across);
+        var bold = Toggle(bar, "Bold (Ctrl+B)");
+
+        Assert.True(bold.IsChecked);
+
+        UserClick(bar, "Strip character formatting (Ctrl+Space)");
+
+        // Formatted exactly where it was not selected, plain exactly where it was; the link stays.
+        AssertMarkedExactly(editor.State.Doc, selected, marks => !marks.Has(TextStyle.Bold) && marks.Foreground is null && marks.FontSize is null, "plain text");
+        AssertMarkedExactly(editor.State.Doc, [(0, 0, First.Length), (1, 0, Second.Length), (2, 0, Third.Length)], marks => marks.Link == link, "the link");
+        Assert.False(bold.IsChecked);
+        Assert.Null(bar.SelectionForeground);
+        Assert.Null(bar.SelectionFontSize);
+
+        var inside = RunAt(view, selected[0].Block, selected[0].From);
+        var outside = Outside(across)[0];
+        var beside = RunAt(view, outside.Block, outside.Offset);
+
+        Assert.NotEqual(FontWeight.Bold, inside.Typeface.Weight);
+        Assert.NotEqual(red.ToAvalonia(), DrawnColour(inside, foreground: true));
+        Assert.NotEqual(32, inside.FontRenderingEmSize, 3);
+        Assert.Equal(FontWeight.Bold, beside.Typeface.Weight);
+        Assert.Equal(red.ToAvalonia(), DrawnColour(beside, foreground: true));
+        Assert.Equal(32, beside.FontRenderingEmSize, 3);
+        AssertNoOverlappingLines(view);
+    }
+
     /// <summary>Selects part of a paragraph, or across two, and returns what was selected.</summary>
     private static (int Block, int From, int To)[] Select(RichTextView view, bool across)
     {
