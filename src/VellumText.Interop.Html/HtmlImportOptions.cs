@@ -88,7 +88,9 @@ public sealed record HtmlImportOptions
     /// it does so while the document is being parsed, before anything here can look at the result.
     /// A style attribute nested deeper than this is removed before parsing, with a
     /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. Real stylesheets nest two or three
-    /// levels.
+    /// levels. Brackets inside comments do not count; from the first string, escape or
+    /// <c>url(</c> in a value on, every opening bracket counts and no closing one does, because
+    /// where the parser ends those is not modelled here.
     /// </remarks>
     public int MaxStyleNesting { get; init; } = 32;
 
@@ -98,8 +100,9 @@ public sealed record HtmlImportOptions
     /// <remarks>
     /// A cell's <c>rowspan</c> and <c>colspan</c> are each clamped to 1,000, but their product
     /// is still a million slots for a 31-byte cell, and a few kilobytes of such cells cost seconds
-    /// and gigabytes to lay out. A table is charged the area its cells cover within the rows it
-    /// has; one that would take the import over budget becomes plain paragraphs, with a
+    /// and gigabytes to lay out. A table is charged the rectangle it spans — its rows by its
+    /// widest laid-out row, holes included, because that is the grid validating it walks; one
+    /// that would take the import over budget becomes plain paragraphs, with a
     /// <see cref="DiagnosticSeverity.Downgraded"/> diagnostic. 100,000 is a 1,000-row,
     /// 100-column paste.
     /// </remarks>
