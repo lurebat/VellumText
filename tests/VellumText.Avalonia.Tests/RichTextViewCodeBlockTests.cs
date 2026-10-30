@@ -311,6 +311,34 @@ public class RichTextViewCodeBlockTests
         Assert.Equal((string.Empty, 0), Caret(view));
     }
 
+    /// <summary>In a table cell, the way out stays in the cell.</summary>
+    [AvaloniaFact]
+    public void Ctrl_enter_in_a_code_block_in_a_table_cell_opens_a_paragraph_in_the_cell()
+    {
+        var doc = new DocumentNode([
+            new TableNode([new TableRowNode([
+                new TableCellNode([Code("x")]),
+                new TableCellNode([Para("y")]),
+            ])]),
+        ]);
+        var view = Laid(doc, In(0, 1));
+
+        Press(view, Key.Enter, KeyModifiers.Control);
+
+        Shaped(
+            """
+            table
+              table-row
+                table-cell
+                  code "x"
+                  p ""
+                table-cell
+                  p "y"
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
     /// <summary>Outside code Ctrl+Enter is what it was: Enter.</summary>
     [AvaloniaFact]
     public void Ctrl_enter_outside_a_code_block_still_splits_the_paragraph()
@@ -325,6 +353,155 @@ public class RichTextViewCodeBlockTests
             p "b"
             """,
             view);
+    }
+
+    // ---- ↓ ------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// ↓ on the last line of a code block that nothing follows opens a paragraph below it. Before,
+    /// the caret only went to the end of the document, and the toolbar was the way out.
+    /// </summary>
+    [AvaloniaFact]
+    public void Down_on_the_last_line_of_a_code_block_at_the_end_opens_a_paragraph_below()
+    {
+        var view = Laid(Doc(Para("above"), Code("a\nbc")), In(1, 3));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            p "above"
+            code "a\nbc"
+            p ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+
+        Type(view, "prose");
+
+        Shaped(
+            """
+            p "above"
+            code "a\nbc"
+            p "prose"
+            """,
+            view);
+    }
+
+    /// <summary>An empty last line is a line too.</summary>
+    [AvaloniaFact]
+    public void Down_on_an_empty_last_line_of_code_opens_a_paragraph_below()
+    {
+        var view = Laid(Doc(Code("a\n")), In(0, 2));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            code "a\n"
+            p ""
+            """,
+            view);
+    }
+
+    [AvaloniaFact]
+    public void Down_on_an_earlier_line_of_code_moves_to_the_next_line()
+    {
+        var view = Laid(Doc(Code("ab\ncd")), In(0, 1));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            code "ab\ncd"
+            """,
+            view);
+        Assert.Equal(("ab\ncd", 4), Caret(view));
+    }
+
+    /// <summary>With a block below, ↓ just moves into it, as it does from any paragraph.</summary>
+    [AvaloniaFact]
+    public void Down_from_a_code_block_with_a_paragraph_below_moves_into_it()
+    {
+        var view = Laid(Doc(Code("a"), Para("next")), In(0, 1));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            code "a"
+            p "next"
+            """,
+            view);
+        Assert.Equal("next", Caret(view).Text);
+    }
+
+    /// <summary>In a bullet the paragraph goes after the code, inside the bullet, where Ctrl+Enter puts it too.</summary>
+    [AvaloniaFact]
+    public void Down_from_a_code_block_ending_a_bullet_at_the_end_opens_a_paragraph_in_the_bullet()
+    {
+        var doc = new DocumentNode([new ListNode([new ListItemNode([Code("x")])])]);
+        var view = Laid(doc, In(0, 1));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            unordered-list
+              list-item
+                code "x"
+                p ""
+            """,
+            view);
+        Assert.Equal((string.Empty, 0), Caret(view));
+    }
+
+    /// <summary>Shift+↓ selects; it does not add anything.</summary>
+    [AvaloniaFact]
+    public void Shift_down_at_the_end_of_a_final_code_block_adds_nothing()
+    {
+        var view = Laid(Doc(Code("ab")), In(0, 0));
+
+        Press(view, Key.Down, KeyModifiers.Shift);
+
+        Shaped(
+            """
+            code "ab"
+            """,
+            view);
+    }
+
+    /// <summary>Only code is a trap; ↓ at the end of a final body paragraph is what it was.</summary>
+    [AvaloniaFact]
+    public void Down_at_the_end_of_a_final_body_paragraph_adds_nothing()
+    {
+        var view = Laid(Doc(Para("ab")), In(0, 1));
+
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            p "ab"
+            """,
+            view);
+        Assert.Equal(("ab", 2), Caret(view));
+    }
+
+    /// <summary>A read-only view moves the caret to the end, as it would in any final paragraph.</summary>
+    [AvaloniaFact]
+    public void Down_in_a_read_only_final_code_block_moves_to_its_end()
+    {
+        var view = Laid(Doc(Code("ab")), In(0, 1));
+
+        view.IsReadOnly = true;
+        Press(view, Key.Down);
+
+        Shaped(
+            """
+            code "ab"
+            """,
+            view);
+        Assert.Equal(("ab", 2), Caret(view));
     }
 
     // ---- helpers ------------------------------------------------------------------------------
