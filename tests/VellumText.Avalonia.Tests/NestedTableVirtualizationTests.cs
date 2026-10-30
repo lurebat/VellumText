@@ -1836,8 +1836,15 @@ public class NestedTableVirtualizationTests
         return node;
     }
 
+    /// <remarks>
+    /// The counters are thread-static, and every test on the headless dispatcher shares its thread:
+    /// a fallback another test counted on purpose would otherwise fail the next one that asserts
+    /// none, so they start at zero for every document shown.
+    /// </remarks>
     private static (Window Window, RichTextView View) Shown(DocumentNode doc)
     {
+        ResetCounters();
+
         var view = new RichTextView { State = EditorState.Create(doc) };
         var window = new Window { Content = view, Width = Width, Height = Height };
 

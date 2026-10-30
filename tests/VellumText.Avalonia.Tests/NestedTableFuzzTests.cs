@@ -84,10 +84,14 @@ public class NestedTableFuzzTests
     {
         var random = new Random(seed);
         var doc = new Generator(random).Document();
+
+        // Before the document is shown, so what its first layout repairs is counted, and nothing an
+        // earlier test on this thread counted is.
+        Reset();
+
         var (window, view) = Shown(doc);
         var twin = new Twin();
 
-        Reset();
         Check(view, $"seed {seed}, shown");
 
         for (var step = 0; step < steps; step++)
