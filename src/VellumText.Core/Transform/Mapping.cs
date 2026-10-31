@@ -38,6 +38,10 @@ public sealed class Mapping
     /// <param name="maps">The maps.</param>
     public static Mapping Of(params StepMap[] maps) => Of((IEnumerable<StepMap>)maps);
 
+    /// <summary>Wraps maps the caller has already made immutable, without copying them again.</summary>
+    /// <param name="maps">The maps.</param>
+    internal static Mapping Wrap(ImmutableArray<StepMap> maps) => new(maps);
+
     /// <summary>The maps, in the order their steps were applied.</summary>
     public ImmutableArray<StepMap> Maps => _maps;
 
@@ -49,6 +53,12 @@ public sealed class Mapping
 
     /// <summary>Returns this mapping with one more map on the end.</summary>
     /// <param name="map">The map to append.</param>
+    /// <remarks>
+    /// Copies the maps it already has, as anything appending to an immutable sequence must. A
+    /// caller appending one map per step of a long sequence should collect them and build the
+    /// mapping once with <see cref="Of(IEnumerable{StepMap})"/>, which is what
+    /// <see cref="Transaction"/> does.
+    /// </remarks>
     public Mapping Append(StepMap map) => new(_maps.Add(map));
 
     /// <summary>Returns this mapping followed by another.</summary>

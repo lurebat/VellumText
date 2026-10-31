@@ -421,7 +421,7 @@ public sealed record ReplaceStep(int From, int To, Slice Content) : Step
     /// walk prunes to the spine plus the new content. Validating the whole document after
     /// every keystroke was the largest single cost on the edit path.
     /// </remarks>
-    private static StepResult Validated(DocumentNode result, DocumentNode before)
+    internal static StepResult Validated(DocumentNode result, DocumentNode before)
     {
         var violations = DocumentSchema.Validate(result, before);
 

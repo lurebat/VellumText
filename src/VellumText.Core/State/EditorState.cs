@@ -60,7 +60,12 @@ public sealed class Transaction
     private readonly ImmutableArray<string>.Builder _failures =
         ImmutableArray.CreateBuilder<string>();
 
-    private Mapping _mapping = Mapping.Empty;
+    // One map per step, collected rather than appended to a Mapping: appending to an immutable
+    // mapping copies every map already in it, so a transaction of M steps made M²/2 copies. The
+    // mapping is built when it is read and kept until the next step extends it.
+    private readonly ImmutableArray<StepMap>.Builder _maps = ImmutableArray.CreateBuilder<StepMap>();
+
+    private Mapping? _mapping;
     private Selection? _selection;
     private MarkSet? _storedMarks;
     private bool _storedMarksSet;
@@ -91,7 +96,7 @@ public sealed class Transaction
     public ImmutableArray<string> Failures => _failures.ToImmutable();
 
     /// <summary>How the whole transaction moves positions.</summary>
-    public Mapping Mapping => _mapping;
+    public Mapping Mapping => _mapping ??= Mapping.Wrap(_maps.ToImmutable());
 
     /// <summary>Whether any step was applied.</summary>
     public bool ChangedDoc => _steps.Count > 0;
@@ -118,7 +123,7 @@ public sealed class Transaction
     /// </remarks>
     public Selection SelectionAfter => _selection is { } set
         ? set.Map(Doc, Mapping.Empty)
-        : Before.Selection.Map(Doc, _mapping);
+        : Before.Selection.Map(Doc, Mapping);
 
     /// <summary>
     /// The formatting armed for the next character typed, or null if there is none.
@@ -165,7 +170,8 @@ public sealed class Transaction
 
         var map = step.GetMap();
 
-        _mapping = _mapping.Append(map);
+        _maps.Add(map);
+        _mapping = null;
         _changedContent |= !map.IsIdentity;
         Doc = result.Doc!;
 
@@ -277,6 +283,26 @@ public sealed class Transaction
     /// <param name="mark">The formatting to give it.</param>
     public Transaction InsertText(int pos, string text, MarkSet mark = default) =>
         Step(ReplaceStep.Insert(pos, Slice.OfInline(InlineContent.FromText(text, mark))));
+
+    /// <summary>Replaces many stretches of paragraph text, as few steps as exactly can.</summary>
+    /// <param name="replacements">
+    /// The replacements, ascending and not overlapping, all measured against the document as it
+    /// stands. Two may touch.
+    /// </param>
+    /// <remarks>
+    /// The document, the mapping, and what undo and redo restore are those of one
+    /// <see cref="ReplaceStep"/> per replacement applied back to front; the cost is not. See
+    /// <see cref="ReplaceTextStep"/>.
+    /// </remarks>
+    internal Transaction ReplaceText(IReadOnlyList<TextReplacement> replacements)
+    {
+        foreach (var step in ReplaceTextStep.Batches(replacements))
+        {
+            Step(step);
+        }
+
+        return this;
+    }
 
     /// <summary>Where the selection should be once this transaction is applied.</summary>
     /// <param name="selection">The selection.</param>

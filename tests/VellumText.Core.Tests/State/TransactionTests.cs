@@ -112,6 +112,74 @@ public class TransactionTests
         Assert.Equal(9, tr.Mapping.Map(5));
     }
 
+    /// <remarks>
+    /// Recording a step's map used to copy every map before it — <see cref="Mapping.Append"/> on
+    /// an immutable array — so a transaction of M steps copied M²/2 maps. Replace All was the
+    /// transaction that found it: 8,000 matches allocated 768 MB on the maps alone. The steps
+    /// here cost nothing to apply, so whatever is allocated is the transaction's own bookkeeping,
+    /// and that has to be linear: a few growing arrays, not a triangle of them.
+    /// </remarks>
+    [Fact]
+    public void RecordingManyStepsAllocatesLinearlyInTheirNumber()
+    {
+        const int Steps = 8_000;
+
+        var state = Start();
+        var other = new DocumentNode([ParagraphNode.FromText("hello"), ParagraphNode.FromText("world")]);
+        var step = new Toggle(state.Doc, other);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var tr = state.Transaction();
+
+        for (var i = 0; i < Steps; i++)
+        {
+            tr.Step(step);
+        }
+
+        var mapping = tr.Mapping;
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(Steps, mapping.Count);
+        Assert.True(
+            allocated < 4 * 1024 * 1024,
+            $"{Steps:N0} steps allocated {allocated:N0} bytes of bookkeeping");
+    }
+
+    /// <remarks>
+    /// The mapping is assembled when it is read, so it must be assembled again once a later step
+    /// has extended it — and a mapping already handed out must not grow under its holder, who
+    /// took it as the movement of the steps up to that moment.
+    /// </remarks>
+    [Fact]
+    public void AMappingReadBeforeAnotherStepIsNeitherStaleNorChangedByIt()
+    {
+        var tr = EditorState.Create(Start().Doc, new TextSelection(4, 4)).Transaction().InsertText(1, "ab");
+        var early = tr.Mapping;
+
+        Assert.Same(early, tr.Mapping);
+
+        tr.InsertText(1, "cd");
+
+        Assert.Equal(1, early.Count);
+        Assert.Equal(7, early.Map(5));
+        Assert.Equal(2, tr.Mapping.Count);
+        Assert.Equal(9, tr.Mapping.Map(5));
+        Assert.Equal(new TextSelection(8, 8), tr.SelectionAfter);
+    }
+
+    /// <summary>A step that swaps the document for another and moves nothing.</summary>
+    private sealed record Toggle(DocumentNode A, DocumentNode B) : Step
+    {
+        public override StepResult Apply(DocumentNode doc) =>
+            StepResult.Ok(ReferenceEquals(doc, A) ? B : A);
+
+        public override Step Invert(DocumentNode docBefore) => this;
+
+        public override StepMap GetMap() => StepMap.Identity;
+
+        public override Step? Map(Mapping mapping) => this;
+    }
+
     [Fact]
     public void ATransactionFromAnotherStateIsRefused()
     {

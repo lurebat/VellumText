@@ -706,6 +706,83 @@ public class ScalingGuardTests
     /// cell, which is what it was, allocated 280 MB.
     /// </remarks>
     private const long FirstLayoutBudget = 12_000_000;
+
+    /// <summary>
+    /// Replace All, and its undo, cost the document plus the matches, not the two multiplied.
+    /// </summary>
+    /// <remarks>
+    /// Each match was its own <see cref="ReplaceStep"/>, and each step copied the document's block
+    /// array — or, in one long paragraph, the whole paragraph — and every step map before it:
+    /// 1.6 GB and seconds at 8,000 paragraphs, 865 MB in one 100,000-character paragraph, and as
+    /// much again to undo. The bench scenarios are <c>r-heavy</c> and <c>r-paste</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ReplacingAMatchInEveryParagraphAndUndoingItIsLinear()
+    {
+        int[] sizes = [2_000, 4_000, 8_000];
+        var replace = new long[sizes.Length];
+        var undo = new long[sizes.Length];
+
+        for (var i = 0; i < sizes.Length; i++)
+        {
+            var view = Shown(Growth.Paragraphs(sizes[i]));
+
+            view.Find("enough");
+
+            (replace[i], undo[i]) = ReplaceAllAndUndo(view, "plenty", sizes[i]);
+        }
+
+        Growth.AssertAtMostLinear(replace, "bytes to replace a match in every paragraph");
+        Growth.AssertAtMostLinear(undo, "bytes to undo it");
+        Assert.True(replace[^1] < ReplaceAllBudget, $"replacing allocated {replace[^1]:N0} bytes");
+        Assert.True(undo[^1] < ReplaceAllBudget, $"undoing allocated {undo[^1]:N0} bytes");
+    }
+
+    /// <inheritdoc cref="ReplacingAMatchInEveryParagraphAndUndoingItIsLinear"/>
+    /// <remarks>
+    /// A budget and not a growth row: through the view, a long paragraph's relayout is a few
+    /// megabytes that do not double cleanly with its length (measured 1.1, 2.2, 3.5 and 4.8 MB to
+    /// undo at 12,500 to 100,000 characters), which a ratio reads as noise or as a false alarm. The
+    /// replace and undo themselves are pinned linear in <c>ReplaceTextStepTests</c>, where they are
+    /// exactly so. The per-match steps took 832 MB to replace at 100,000 characters.
+    /// </remarks>
+    [AvaloniaFact]
+    public void ReplacingEveryMatchInALongParagraphAndUndoingItStaysWithinBudget()
+    {
+        var view = Shown(new DocumentNode([ParagraphNode.FromText(Growth.Words(100_000))]));
+        var matches = view.Find("word1");
+
+        var (replace, undo) = ReplaceAllAndUndo(view, "w1", matches);
+
+        Assert.True(replace < ReplaceAllBudget, $"replacing allocated {replace:N0} bytes");
+        Assert.True(undo < ReplaceAllBudget, $"undoing allocated {undo:N0} bytes");
+    }
+
+    /// <summary>
+    /// The most a Replace All, or its undo, may allocate at the largest size above. Linear work
+    /// at those sizes is a few megabytes; the per-match steps took hundreds.
+    /// </summary>
+    private const long ReplaceAllBudget = 50_000_000;
+
+    private static (long Replace, long Undo) ReplaceAllAndUndo(RichTextView view, string replacement, int matches)
+    {
+        Layout(view);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Equal(matches, view.ReplaceAll(replacement));
+        Layout(view);
+
+        var replace = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.True(view.Undo());
+        Layout(view);
+
+        return (replace, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
     /// <summary>
     /// F-32, inside one paragraph: once two stretches share nothing, the rest of the paragraph is
     /// not looked at.

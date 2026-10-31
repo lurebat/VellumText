@@ -472,6 +472,136 @@ public sealed class InlineContent : IEquatable<InlineContent>
     /// <param name="other">What to append.</param>
     public InlineContent Concat(InlineContent other) => Insert(Length, other);
 
+    /// <summary>Replaces several ranges at once, building the result once.</summary>
+    /// <param name="edits">
+    /// The ranges and what replaces each, ascending and not overlapping. The caller guarantees the
+    /// order; each range is checked against the text and its surrogate pairs.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException">A range falls outside the text.</exception>
+    /// <exception cref="ArgumentException">A range edge splits a surrogate pair.</exception>
+    /// <remarks>
+    /// The same content <see cref="Replace"/> would make one edit at a time, back to front — the
+    /// canonical form makes that a matter of equal text and equal formatting per character — at
+    /// the cost of one pass over the text, its spans and its embeds rather than one per edit.
+    /// </remarks>
+    internal InlineContent ReplaceMany(IReadOnlyList<(int Start, int Length, InlineContent Content)> edits)
+    {
+        var text = new System.Text.StringBuilder(Length);
+        var marks = new List<ValueSpan<MarkSet>>();
+        var embeds = new List<InlineEmbed>();
+        var span = 0;
+        var embed = 0;
+        var cursor = 0;
+
+        foreach (var (start, length, content) in edits)
+        {
+            ValidateRange(start, length);
+            CopyRange(cursor, start, text, marks, embeds, ref span, ref embed);
+
+            var shift = text.Length;
+
+            text.Append(content.Text);
+
+            foreach (var mark in content.Marks)
+            {
+                marks.Add(mark.WithRange(mark.Start + shift, mark.Length));
+            }
+
+            embeds.AddRange(content.Embeds);
+            cursor = start + length;
+        }
+
+        CopyRange(cursor, Length, text, marks, embeds, ref span, ref embed);
+
+        return Create(text.ToString(), marks, embeds);
+    }
+
+    /// <summary>Extracts several ranges as new content, in one pass.</summary>
+    /// <param name="ranges">
+    /// The ranges, ascending, not overlapping, inside the text and on character boundaries — which
+    /// the caller guarantees, having already cut there.
+    /// </param>
+    /// <remarks>
+    /// <see cref="Substring"/> for each range would be the same content, but each call looks at
+    /// every span and embed, and a long paragraph with many ranges would pay for that once per
+    /// range.
+    /// </remarks>
+    internal InlineContent[] Excerpts(IReadOnlyList<(int Start, int Length)> ranges)
+    {
+        var excerpts = new InlineContent[ranges.Count];
+        var text = new System.Text.StringBuilder();
+        var marks = new List<ValueSpan<MarkSet>>();
+        var embeds = new List<InlineEmbed>();
+        var span = 0;
+        var embed = 0;
+
+        for (var i = 0; i < ranges.Count; i++)
+        {
+            text.Clear();
+            marks.Clear();
+            embeds.Clear();
+
+            CopyRange(ranges[i].Start, ranges[i].Start + ranges[i].Length, text, marks, embeds, ref span, ref embed);
+
+            excerpts[i] = Create(text.ToString(), marks, embeds);
+        }
+
+        return excerpts;
+    }
+
+    /// <summary>
+    /// Appends <c>[from, to)</c> of this content — text, formatting and embeds — to what is being
+    /// built.
+    /// </summary>
+    /// <param name="from">Where the range starts.</param>
+    /// <param name="to">Where it ends.</param>
+    /// <param name="text">The text being built.</param>
+    /// <param name="marks">The spans being built, positioned in <paramref name="text"/>.</param>
+    /// <param name="embeds">The embeds being built.</param>
+    /// <param name="span">The first span that might reach the range; advanced past those that cannot.</param>
+    /// <param name="embed">The first embed that might be in the range; advanced past those copied.</param>
+    /// <remarks>
+    /// Called with ascending ranges, so the two cursors only move forward. A span reaching across
+    /// several ranges is looked at once for each, which is what keeps a paragraph that is bold
+    /// throughout from costing its length times its matches.
+    /// </remarks>
+    private void CopyRange(
+        int from,
+        int to,
+        System.Text.StringBuilder text,
+        List<ValueSpan<MarkSet>> marks,
+        List<InlineEmbed> embeds,
+        ref int span,
+        ref int embed)
+    {
+        var shift = text.Length - from;
+
+        text.Append(Text, from, to - from);
+
+        while (span < Marks.Length && Marks[span].End <= from)
+        {
+            span++;
+        }
+
+        for (var i = span; i < Marks.Length && Marks[i].Start < to; i++)
+        {
+            var start = Math.Max(Marks[i].Start, from);
+
+            // Empty when the range is: Create drops an empty span, so it needs no case here.
+            marks.Add(new ValueSpan<MarkSet>(start + shift, Math.Min(Marks[i].End, to) - start, Marks[i].Value));
+        }
+
+        while (embed < _placeholderOffsets.Length && _placeholderOffsets[embed] < to)
+        {
+            if (_placeholderOffsets[embed] >= from)
+            {
+                embeds.Add(Embeds[embed]);
+            }
+
+            embed++;
+        }
+    }
+
     /// <summary>
     /// Changes the selected fields of the formatting across a range, leaving the rest alone.
     /// </summary>
