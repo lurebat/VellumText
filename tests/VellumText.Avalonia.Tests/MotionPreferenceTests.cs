@@ -94,6 +94,18 @@ public class MotionPreferenceTests
         }
     }
 
+    [AvaloniaFact]
+    public void OnWindowsTheAnimationSettingIsReallyRead()
+    {
+        // user32 exports only SystemParametersInfoA and ...W. Declared by its bare name with exact
+        // spelling, the call threw EntryPointNotFoundException, the probe caught it, and Auto
+        // reported "full motion" on every machine - Remote Desktop included.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only");
+
+        var exception = Record.Exception(() => SystemMotion.WindowsPrefersReducedMotion());
+
+        Assert.Null(exception);
+    }
     [AvaloniaTheory]
     [InlineData(530u, 530.0)]
     [InlineData(1200u, 1200.0)]

@@ -149,6 +149,63 @@ public class ContrastAdaptationTests
     }
 
     [AvaloniaFact]
+    public void ChangingTheEditorsBackgroundAdaptsAgain()
+    {
+        // The editor paints its background on a Border in its template, an ancestor of the view: a
+        // "paper" toggle on the editor changes nothing on the view itself.
+        var editor = new RichTextEditor
+        {
+            State = EditorState.Create(Coloured(Rgba.Black)),
+            FontSize = 30,
+            Background = new SolidColorBrush(Dark),
+        };
+        var window = new Window { Width = 400, Height = 120, Content = editor };
+
+        window.Show();
+        window.UpdateLayout();
+
+        Assert.True(Brightest(window) > 200);
+
+        editor.Background = Brushes.White;
+        window.UpdateLayout();
+
+        Assert.Contains(Colours(window), c => Near(c, Colors.Black));
+    }
+
+    [AvaloniaFact]
+    public void ANestedTableIsReadAgainstTheCellItSitsIn()
+    {
+        // A white-shaded cell holding a table of its own with no shading: the inner text sits on the
+        // outer cell's white, not on the dark editor.
+        var inner = new TableNode([new TableRowNode([new TableCellNode(
+            [new ParagraphNode(InlineContent.FromText("WWWW WWWW", new MarkSet(foreground: Rgba.Black)))])])]);
+        var outer = new TableCellNode([inner], background: Rgba.White);
+        var doc = new DocumentNode([new TableNode([new TableRowNode([outer])])]);
+        var (window, _) = Shown(doc, Dark);
+
+        Assert.Contains(Colours(window), c => Near(c, Colors.Black));
+    }
+
+    [AvaloniaFact]
+    public void ANestedTableWhoseCellLosesItsFillIsReadAgainstTheEditor()
+    {
+        // The inner table is the same node before and after, so its view is the one kept: it has to
+        // learn that what it sits on changed.
+        var inner = new TableNode([new TableRowNode([new TableCellNode(
+            [new ParagraphNode(InlineContent.FromText("WWWW WWWW", new MarkSet(foreground: Rgba.Black)))])])]);
+        DocumentNode Doc(Rgba? fill) =>
+            new([new TableNode([new TableRowNode([new TableCellNode([inner], background: fill)])])]);
+        var (window, view) = Shown(Doc(Rgba.White), Dark);
+
+        Assert.Contains(Colours(window), c => Near(c, Colors.Black));
+
+        view.State = EditorState.Create(Doc(null));
+        window.UpdateLayout();
+
+        Assert.True(Brightest(window) > 200);
+    }
+
+    [AvaloniaFact]
     public void TheBackgroundIsFoundOnAnAncestorWhenTheViewHasNone()
     {
         // The editor's template paints its background on a Border around the view, so the view's

@@ -281,6 +281,11 @@ public abstract partial class DocumentPresenter
 
         if (Math.Abs(target - ScrollDestination) < 0.5)
         {
+            // Already on the way to the end: the notch is spent here, not handed to the scroll
+            // viewer, which would jump there, or to an outer one, which would scroll the page.
+            // Only a view resting at its limit passes the wheel on.
+            e.Handled = _scrollTarget is not null;
+
             return;
         }
 

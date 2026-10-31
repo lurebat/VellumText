@@ -517,14 +517,28 @@ internal sealed partial class TableBlockView : BlockView
             foreach (var slot in slots)
             {
                 var before = was is not null && at < was.Blocks.Length ? was.Blocks[at] : null;
-                var view = Reuse(before, slot.Node, Prepare) ?? _create(slot.Node);
+                var fill = Fill(cell.Background);
+                var view = Reuse(before, slot.Node, Prepare);
+
+                // A nested table laid out against another fill has its runs coloured for that one;
+                // built again, it is measured again, which a kept one would not be.
+                if (view is TableBlockView kept && kept.Backdrop != fill)
+                {
+                    view = null;
+                }
+
+                view ??= _create(slot.Node);
 
                 // A marker is not part of the paragraph node, so a reused view can be drawn
                 // for the same paragraph under a different bullet and must be told each time.
                 if (view is ParagraphView paragraph)
                 {
                     paragraph.SetLead(slot.Depth, slot.Marker);
-                    paragraph.SetBackdrop(cell.Background?.ToAvalonia());
+                    paragraph.SetBackdrop(fill);
+                }
+                else if (view is TableBlockView nested)
+                {
+                    nested.Backdrop = fill;
                 }
 
                 blocks.Add(new Child(slot.Node, view, slot.Start));
@@ -535,6 +549,18 @@ internal sealed partial class TableBlockView : BlockView
             cellStart += cell.NodeSize;
         }
     }
+
+    /// <summary>
+    /// The fill this table sits on inside an enclosing cell, or null for none: what its own cells'
+    /// text is read against where they have no fill of their own, for contrast adaptation.
+    /// </summary>
+    internal global::Avalonia.Media.Color? Backdrop { get; set; }
+
+    /// <summary>A cell's fill over whatever this table sits on.</summary>
+    private global::Avalonia.Media.Color? Fill(Rgba? cell) =>
+        cell is { } own
+            ? Backdrop is { } under ? TextContrast.Compose(own.ToAvalonia(), under) : own.ToAvalonia()
+            : Backdrop;
 
     /// <summary>Gives a row the views it did not have, if it had none.</summary>
     private Cell[] Realize(int row)

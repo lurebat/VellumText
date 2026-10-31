@@ -16,6 +16,7 @@ public abstract partial class DocumentPresenter
 
     private ITextStyleResolver? _renderStyles;
     private Color? _backdrop;
+    private Visual[] _watched = [];
 
     /// <summary>
     /// Whether text the document colours explicitly is drawn in a readable colour when, as written,
@@ -60,6 +61,8 @@ public abstract partial class DocumentPresenter
     /// </remarks>
     private void RefreshBackdrop()
     {
+        Unwatch();
+
         var found = FindBackdrop();
 
         if (found == _backdrop)
@@ -85,9 +88,34 @@ public abstract partial class DocumentPresenter
     private Color? FindBackdrop()
     {
         var layers = new List<Color>();
+        var walked = new List<Visual>();
 
+        // Every ancestor passed on the way is watched, so a background that changes above the
+        // control (an editor's template paints it on a Border) is looked for again.
+        try
+        {
+            return Walk(layers, walked);
+        }
+        finally
+        {
+            _watched = [.. walked];
+
+            foreach (var visual in _watched)
+            {
+                visual.PropertyChanged += OnBackdropChanged;
+            }
+        }
+    }
+
+    private Color? Walk(List<Color> layers, List<Visual> walked)
+    {
         for (Visual? visual = this; visual is not null; visual = visual.GetVisualParent())
         {
+            if (visual != this)
+            {
+                walked.Add(visual);
+            }
+
             if (BackgroundOf(visual) is not ISolidColorBrush { Color: var colour } brush)
             {
                 continue;
@@ -128,11 +156,41 @@ public abstract partial class DocumentPresenter
         _ => null,
     };
 
+    private void Unwatch()
+    {
+        foreach (var visual in _watched)
+        {
+            visual.PropertyChanged -= OnBackdropChanged;
+        }
+
+        _watched = [];
+    }
+
+    private void OnBackdropChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        // By name: Border, Panel, ContentPresenter and TemplatedControl each register their own.
+        if (e.Property.Name == nameof(Background))
+        {
+            RefreshBackdrop();
+        }
+    }
+
     /// <inheritdoc/>
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         RefreshBackdrop();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        Unwatch();
+
+        // Nothing is on screen to ease, and an animation left running would move the view the
+        // moment it was shown somewhere else.
+        StopScrollAnimation();
+        base.OnDetachedFromVisualTree(e);
     }
 
     /// <summary>Applies a change that bears on contrast adaptation.</summary>

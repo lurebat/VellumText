@@ -47,11 +47,7 @@ internal static class SystemMotion
         {
             if (OperatingSystem.IsWindows())
             {
-                // "Show animations in Windows". Remote Desktop sessions usually turn it off.
-                var enabled = 1;
-
-                return Windows.SystemParametersInfo(Windows.SpiGetClientAreaAnimation, 0, ref enabled, 0)
-                    && enabled == 0;
+                return WindowsPrefersReducedMotion();
             }
 
             if (OperatingSystem.IsMacOS())
@@ -65,6 +61,16 @@ internal static class SystemMotion
         }
 
         return false;
+    }
+
+    /// <summary>"Show animations in Windows", off. Remote Desktop sessions usually turn it off.</summary>
+    /// <remarks>Not guarded: on Windows a failure here is a wrong declaration, and a test has to see it.</remarks>
+    internal static bool WindowsPrefersReducedMotion()
+    {
+        var enabled = 1;
+
+        return Windows.SystemParametersInfo(Windows.SpiGetClientAreaAnimation, 0, ref enabled, 0)
+            && enabled == 0;
     }
 
     /// <summary>
@@ -105,7 +111,8 @@ internal static class SystemMotion
     {
         internal const uint SpiGetClientAreaAnimation = 0x1042;
 
-        [DllImport("user32.dll", ExactSpelling = true)]
+        // user32 exports only the A and W forms; with exact spelling the bare name does not resolve.
+        [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", ExactSpelling = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SystemParametersInfo(uint action, uint param, ref int value, uint flags);
 

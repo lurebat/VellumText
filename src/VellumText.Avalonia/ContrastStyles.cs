@@ -83,6 +83,24 @@ internal static class TextContrast
             (byte)Math.Round((top.B * a) + (bottom.B * (1 - a))));
     }
 
+    /// <summary><paramref name="top"/> painted over <paramref name="bottom"/>, either of which may be translucent.</summary>
+    internal static Color Compose(Color top, Color bottom)
+    {
+        var a = top.A / 255.0;
+        var b = bottom.A / 255.0;
+        var alpha = a + (b * (1 - a));
+
+        if (alpha <= 0)
+        {
+            return Colors.Transparent;
+        }
+
+        byte Channel(byte t, byte u) => (byte)Math.Round(((t * a) + (u * b * (1 - a))) / alpha);
+
+        return Color.FromArgb(
+            (byte)Math.Round(alpha * 255), Channel(top.R, bottom.R), Channel(top.G, bottom.G), Channel(top.B, bottom.B));
+    }
+
     private static double Luminance(Color c) =>
         (0.2126 * Linear(c.R)) + (0.7152 * Linear(c.G)) + (0.0722 * Linear(c.B));
 

@@ -35,6 +35,7 @@ internal sealed class CaretLayer : Control
     private long _start;
     private bool _placed;
     private DocumentNode? _doc;
+    private Selection? _selection;
     private bool _frameRequested;
     private bool _fading;
     private TimeSpan? _pendingFade;
@@ -113,12 +114,13 @@ internal sealed class CaretLayer : Control
         if (ElementComposition.GetElementVisual(this) is { } visual)
         {
             visual.StopAnimation("Opacity");
+
+            // Setting the value it already holds is no change to the compositor, which then keeps
+            // showing the animation's last frame — a caret stopped mid-fade stays half gone.
+            visual.Opacity = Opacity >= 0.5 ? 0 : 1;
             visual.Opacity = (float)Opacity;
         }
     }
-
-    /// <inheritdoc/>
-    
 
     /// <inheritdoc/>
     public override void Render(DrawingContext context)
@@ -150,6 +152,7 @@ internal sealed class CaretLayer : Control
         }
 
         _doc = _owner.State.Doc;
+        _selection = _owner.State.Selection;
 
         var progress = Progress();
         var rect = progress >= 1 ? _to : Lerp(_from, _to, EaseOut(progress));
@@ -173,7 +176,10 @@ internal sealed class CaretLayer : Control
     private void Retarget(Rect inDocument)
     {
         var typed = !ReferenceEquals(_doc, _owner.State.Doc) || _owner.Preedit is not null;
-        var glide = _placed && !typed && _owner.SmoothCaret && !_owner.ReducesMotion;
+        // A caret its text carried — a rewrap, a height learned above it — was not moved by anyone
+        // and must stay on the text rather than slide off it and back.
+        var moved = !Equals(_selection, _owner.State.Selection);
+        var glide = _placed && moved && !typed && _owner.SmoothCaret && !_owner.ReducesMotion;
 
         _from = glide ? Lerp(_from, _to, EaseOut(Progress())) : inDocument;
         _to = inDocument;

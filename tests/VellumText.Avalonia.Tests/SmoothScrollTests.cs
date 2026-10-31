@@ -261,6 +261,44 @@ public class SmoothScrollTests
         Assert.InRange(travelled, 6 * step, 1.5 * 6 * step);
     }
 
+    [AvaloniaFact]
+    public void AWheelNotchWhileEasingToTheEndKeepsGoingToTheEnd()
+    {
+        // The target is already the end, so the notch adds nothing - but passing it on let the scroll
+        // viewer move the view a notch from wherever the animation had got to, which stopped the
+        // animation short of the end.
+        var (window, view, time) = Shown();
+        var end = view.Extent.Height - view.Viewport.Height;
+
+        view.Offset = new Vector(0, end - view.Viewport.Height);
+        window.UpdateLayout();
+
+        Press(view, Key.PageDown);
+        Frame(window, time, 10);
+
+        Assert.True(view.IsScrollAnimating);
+        Assert.True(Wheel(window, view, -1).Handled);
+
+        Settle(window, time);
+
+        Assert.Equal(view.Extent.Height - view.Viewport.Height, view.Offset.Y, 0.5);
+    }
+
+    [AvaloniaFact]
+    public void AnAnimationDoesNotSurviveTheViewLeavingTheWindow()
+    {
+        var (window, view, time) = Shown();
+        var editor = (Control)window.Content!;
+
+        Wheel(window, view, -1);
+        Frame(window, time, 30);
+
+        window.Content = null;
+        window.Content = editor;
+        window.UpdateLayout();
+
+        Assert.False(view.IsScrollAnimating);
+    }
     // ------------------------------------------------------------------ the paging keys
 
     [AvaloniaFact]

@@ -37,7 +37,7 @@ public class CaretLayerTests
     {
         // Each tick of the hard blink used to invalidate the whole view: every visible block
         // was drawn again to turn one 1x20 rectangle on or off.
-        var (window, view) = Shown("hello world");
+        var (window, view) = Shown("hello world", blink: TimeSpan.FromHours(1));
 
         Assert.True(Redness(window) > 200);
 
@@ -116,8 +116,10 @@ public class CaretLayerTests
     public void AHardBlinkNeverShowsAHalfDrawnCaret()
     {
         // The control for the test above: sampled the same way, a timer blink is only ever fully
-        // on or fully off. The headless dispatcher does not run timers, so the ticks are driven.
-        var (window, view) = Shown("hello", blink: TimeSpan.FromMilliseconds(150));
+        // on or fully off. The ticks are driven, and the timer is set too slow to add its own: the
+        // headless dispatcher runs a timer that is due, and one ticking alongside these turned the
+        // caret back on as soon as they turned it off.
+        var (window, view) = Shown("hello", blink: TimeSpan.FromHours(1));
 
         var samples = Sample(window, TimeSpan.FromMilliseconds(900), tick: view.BlinkTick, invalidate: true);
         var seen = string.Join(",", samples);
@@ -132,7 +134,7 @@ public class CaretLayerTests
     {
         var (window, view) = Shown(
             "hello", style: CaretBlinkStyle.Smooth, motion: MotionPreference.Reduced,
-            blink: TimeSpan.FromMilliseconds(150));
+            blink: TimeSpan.FromHours(1));
 
         Assert.True(Timer(view).IsEnabled);
 
@@ -159,6 +161,24 @@ public class CaretLayerTests
         Assert.Empty(peer.GetChildren());
     }
 
+    [AvaloniaFact]
+    public void StoppingAFadeHalfwayLeavesTheCaretVisible()
+    {
+        // The compositor holds the opacity a stopped animation last reached. Writing back the value
+        // the control already had sent nothing, and a caret switched to Solid while faded out
+        // stayed invisible.
+        var (window, view) = Shown("hello", style: CaretBlinkStyle.Smooth);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        while (Sample(window, TimeSpan.FromMilliseconds(40)).Last() > 20)
+        {
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), "the caret never faded");
+        }
+
+        view.CaretBlink = CaretBlinkStyle.Solid;
+
+        Assert.All(Sample(window, TimeSpan.FromMilliseconds(300)), s => Assert.True(s > 200, $"the caret stayed at {s}"));
+    }
     // ------------------------------------------------------------------ gliding
 
     [AvaloniaFact]
@@ -269,6 +289,27 @@ public class CaretLayerTests
         time.Advance(TimeSpan.FromMilliseconds(30));
 
         Assert.True(view.CaretRect().Top > 0, "the caret's line should still be on screen");
+        Assert.Equal(Math.Round(view.CaretRect().Top), CaretRow(window), 1);
+    }
+
+    [AvaloniaFact]
+    public void ACaretMovedByLayoutRatherThanByTheUserDoesNotGlide()
+    {
+        // A resize rewraps the paragraph and moves the caret with its text; so does a height the
+        // layout learns above it. The caret did not move, its text did, and a glide would show it
+        // sliding off the text and back.
+        var (window, view, _) = Gliding(string.Join(" ", Enumerable.Repeat("word", 60)), smooth: true, width: 200);
+
+        view.MoveTo(view.BlockStart + 40, extend: false);
+        CaretColumn(window);
+
+        var before = view.CaretRect();
+
+        window.Width = 400;
+        window.UpdateLayout();
+
+        Assert.NotEqual(before, view.CaretRect());
+        Assert.Equal(Target(view), CaretColumn(window), 1);
         Assert.Equal(Math.Round(view.CaretRect().Top), CaretRow(window), 1);
     }
 
