@@ -43,10 +43,12 @@ public class TableBlockViewUpdateTests
         // the control would have, then counted from here on.
         var view = new TableBlockView(table, Build, Border);
 
-        _built = 0;
-
         GC.KeepAlive(inner);
         view.Measure(width);
+
+        // Counted from once the table is on screen: rows are given their views when they are first
+        // laid out, not when the table view is made.
+        _built = 0;
 
         return view;
 
@@ -153,9 +155,11 @@ public class TableBlockViewUpdateTests
 
         Assert.True(view.Update(new TableNode(rows)));
 
+        view.Measure(400);
+
         // Appending leaves the cells before it in the same place, so only the three new ones are
-        // built. A row inserted at the top would shift every cell along and rebuild more, which
-        // is correct and is what the positional match is for.
+        // built, when the new row is first laid out. A row inserted at the top would shift every
+        // cell along and rebuild more, which is correct and is what the positional match is for.
         Assert.Equal(3, _built);
     }
 

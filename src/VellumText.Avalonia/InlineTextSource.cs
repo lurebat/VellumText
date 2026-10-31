@@ -68,6 +68,8 @@ internal sealed class InlineTextSource : ITextSource
     /// <inheritdoc/>
     public TextRun? GetTextRun(int textSourceIndex)
     {
+        WorkCounters.RunsFetched++;
+
         // A negative index is the formatter asking about text before the paragraph, which for
         // a source that starts at zero means there is none.
         if (textSourceIndex < 0)

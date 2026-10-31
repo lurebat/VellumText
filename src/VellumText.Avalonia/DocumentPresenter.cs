@@ -285,7 +285,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
             context.FillRectangle(background, new Rect(Bounds.Size));
         }
 
-        RenderContent(context);
+        // Painting lays nothing out; see LayoutGuard.
+        using (LayoutGuard.Painting())
+        {
+            RenderContent(context);
+        }
     }
 
     /// <summary>Draws the realized blocks.</summary>
@@ -297,7 +301,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     {
         for (var i = _first; i <= _last; i++)
         {
-            _views[i].Render(context, BlockOrigin(i));
+            var origin = BlockOrigin(i);
+
+            // What of the block the control shows, in the block's own coordinates, so that a
+            // table taller than the viewport draws only the rows on screen.
+            _views[i].Render(context, origin, new Rect(-origin.X, -origin.Y, Bounds.Width, Bounds.Height));
         }
     }
 
@@ -357,12 +365,25 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
             foreach (var rect in view.GetSelectionRects(
                 Math.Max(0, from - slot.Start),
-                Math.Min(view.ContentSize, to - slot.Start)))
+                Math.Min(view.ContentSize, to - slot.Start),
+                RealizedWindowOf(origin)))
             {
                 onRect(rect.Translate(origin));
             }
         }
     }
+
+    /// <summary>
+    /// The window realized blocks are laid out for — the viewport and the overscan either side —
+    /// in the coordinates of a block at <paramref name="origin"/>.
+    /// </summary>
+    /// <remarks>
+    /// What a range or a cell rectangle is painted within. A paragraph outside it is not realized
+    /// and so is not asked; a long table is asked only for the rows inside it, which keeps a
+    /// selection running the length of the table from realizing every row to paint one screen.
+    /// </remarks>
+    private protected Rect RealizedWindowOf(Point origin) =>
+        new(-origin.X, -origin.Y - Overscan, Bounds.Width, Bounds.Height + (2 * Overscan));
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)

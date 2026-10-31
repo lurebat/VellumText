@@ -29,7 +29,8 @@ namespace VellumText.Avalonia;
 /// the scroll presenter reaches it: only the blocks near the viewport are laid out. Anything
 /// inserted between the scroll viewer and the view — a border for a page effect, say — silently
 /// puts the whole document back on the ordinary path, because a scroll presenter only inspects
-/// its immediate child.
+/// its immediate child. The vertical scroll bar taken to its end asks the view for the end of the
+/// document (<see cref="RichTextView.ScrollToEnd"/>), not only the end of the scroll range.
 /// </para>
 /// <para>
 /// <b>The selection toolbar</b> is a second <see cref="RichTextToolbar"/> in the template,
@@ -220,6 +221,8 @@ public class RichTextEditor : TemplatedControl
     private Panel? _overlay;
     private RichTextToolbar? _floating;
     private History? _pendingHistory;
+    private ScrollViewer? _scroller;
+    private ScrollBar? _verticalBar;
 
     /// <summary>The document and selection being edited.</summary>
     public EditorState State
@@ -666,6 +669,8 @@ public class RichTextEditor : TemplatedControl
         // catches a wheel notch as well as a resize.
         _view.LayoutUpdated += OnViewLayoutUpdated;
 
+        HookScroller(_view.Parent as ScrollViewer);
+
         // Optional, unlike the view: a replacement template that wants no floating bar simply
         // leaves it out, and the feature turns itself off rather than refusing to template.
         _overlay = e.NameScope.Find<Panel>(OverlayPart);
@@ -914,6 +919,84 @@ public class RichTextEditor : TemplatedControl
     }
 
     private void OnViewLayoutUpdated(object? sender, EventArgs e) => UpdateSelectionToolbar();
+
+    /// <summary>
+    /// Follows the scroll viewer the view is the content of, so its vertical scroll bar can be
+    /// heard when it is taken to the end.
+    /// </summary>
+    /// <remarks>
+    /// Through the scroll viewer's own template, which is applied after this control's: the bar
+    /// is a part of that template (<c>PART_VerticalScrollBar</c>), so it does not exist yet, and
+    /// it is replaced whenever the scroll viewer is templated again. A template whose view is not
+    /// a scroll viewer's direct content is not virtualized and has no end to settle.
+    /// </remarks>
+    private void HookScroller(ScrollViewer? scroller)
+    {
+        if (ReferenceEquals(scroller, _scroller))
+        {
+            return;
+        }
+
+        if (_scroller is not null)
+        {
+            _scroller.TemplateApplied -= OnScrollerTemplateApplied;
+        }
+
+        HookVerticalBar(null);
+
+        _scroller = scroller;
+
+        if (scroller is not null)
+        {
+            scroller.TemplateApplied += OnScrollerTemplateApplied;
+        }
+    }
+
+    private void OnScrollerTemplateApplied(object? sender, TemplateAppliedEventArgs e) =>
+        HookVerticalBar(e.NameScope.Find<ScrollBar>("PART_VerticalScrollBar"));
+
+    private void HookVerticalBar(ScrollBar? bar)
+    {
+        if (_verticalBar is not null)
+        {
+            _verticalBar.Scroll -= OnVerticalBarScroll;
+        }
+
+        _verticalBar = bar;
+
+        if (bar is not null)
+        {
+            bar.Scroll += OnVerticalBarScroll;
+        }
+    }
+
+    /// <summary>
+    /// The scroll bar taken to the end asks the view for the end of the document, not just the
+    /// end of the scroll range.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The range is built from estimates for whatever nobody has laid out, and when they are too
+    /// small the end of the range is short of the end of the document — a document ending in a
+    /// table whose rows each hold a long table stopped thousands of pixels short.
+    /// <see cref="RichTextView.ScrollToEnd"/> lays the end out and puts it at the bottom.
+    /// </para>
+    /// <para>
+    /// <see cref="ScrollBar.Scroll"/> rather than the offset, because the offset cannot tell the
+    /// scroll bar from the wheel and the wheel at the end of the range must stay a plain scroll.
+    /// The bar raises it only for its own input — the thumb dragged (<c>ThumbTrack</c>, then
+    /// <c>EndScroll</c> on release), the arrows and the track (<c>SmallIncrement</c>,
+    /// <c>LargeIncrement</c>) — after it has set its value, and never for the wheel, which it
+    /// passes to the scroll viewer. Any of them at the bar's maximum is the end.
+    /// </para>
+    /// </remarks>
+    private void OnVerticalBarScroll(object? sender, ScrollEventArgs e)
+    {
+        if (sender is ScrollBar bar && bar.Maximum > bar.Minimum && e.NewValue >= bar.Maximum)
+        {
+            _view?.ScrollToEnd();
+        }
+    }
 
     /// <remarks>
     /// The two properties are kept in step by hand rather than by a two-way binding, so that

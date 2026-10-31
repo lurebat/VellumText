@@ -47,6 +47,18 @@ and other UI work can run in between: a handler must not assume the editor is as
 it was when the paste began, and a host that needs the paste to have landed
 awaits `PasteAsync`.
 
+### Added
+
+- **`RichTextView.ScrollToEnd()`** shows the true end of the document at the
+  bottom of the viewport without moving the caret or the selection, as Ctrl+End
+  does with it. The end of the scroll range is not always the end of the
+  document: rows nobody has scrolled to are counted at an estimated height, and
+  when they each hold a long table the range can end many screens short. The
+  editor's scroll bar dragged or clicked to its bottom now asks for the true end
+  the same way; a document ending in such a table used to stop thousands of
+  pixels short. The mouse wheel, `Offset` and `ScrollViewer.ScrollToEnd()` stay a
+  plain scroll to the end of the range.
+
 ### Removed from the public API
 
 - `IDocumentImporter.Import(Stream)` and `Import(string)`, and the same members
@@ -338,6 +350,92 @@ awaits `PasteAsync`.
   few lookups whatever its size. The HTML, RTF and Markdown exporters read
   formatting runs the same way, off the mark spans instead of one lookup per
   character.
+- **Typing in a very long formatted paragraph no longer slows with the square
+  of its length.** Avalonia's line wrapping copies the remaining run list once
+  per line, so laying out one paragraph cost its lines times its runs, and every
+  keystroke laid out the whole paragraph again: 117 ms at 50,000 characters
+  with every other word bold and 326 ms at 100,000, 2.76× per doubling. A
+  paragraph longer than 4,096 characters is now held as consecutive layouts of
+  about 2,048 characters each, every one starting and ending at a line boundary,
+  and an edit lays out again only from the layout it lands in until the lines
+  meet the old ones. Caret, selection, hit testing, input-method composition and
+  drawing are exactly those of one layout. Paragraphs containing right-to-left
+  text, Arabic digits or explicit direction controls, and justified paragraphs,
+  stay one layout, because their lines depend on text arbitrarily far away.
+  Text so regular that every line holds the same number of words can still lay
+  out the rest of the paragraph after an edit — because every later line moved —
+  but now in time linear in what it lays out.
+- **A frame of a long table draws only the rows on screen, and a keystroke in
+  a table walks only its own row.** Every caret blink drew every cell's text
+  whatever the viewport showed — 13.3 ms a frame at 1,000 × 5 — and every
+  keystroke walked every cell to find the one that changed — 5.35 ms at
+  1,000 × 5 — both growing with the table. The table view now draws the row
+  bands that meet the visible area, found by a binary search over the row edges
+  (a cell spanning into them from above included), and keeps each row's cells
+  with positions relative to the row, so an edit that keeps the grid's shape
+  rebuilds the rows it replaced and moves the rest by one pass over their
+  starts. Resizing a column no longer rebuilds any cell.
+- **A long table lays out only the rows near the viewport.** Making a table's
+  view built a view of every block in every cell — 280 MB for a 10,000 × 5
+  table — and measuring it measured every cell. Rows are now realized and
+  measured in bands as the viewport, the caret, a click, a selection or a column
+  drag reaches them, with the rest priced at the mean height of the rows
+  measured so far, as the document already does for paragraphs. Laying out the
+  top of a 10,000-row table measures 95 cells and allocates 7.8 MB; scrolling
+  keeps the row at the top of the viewport in place while the rows above it are
+  measured, including rows taller than the estimate, and through inserting or
+  deleting a row, which keeps the heights of the rows it did not touch;
+  painting a selection of the whole table realizes only the rows on screen.
+  Typing into a cell of a very long table still allocates about 6 MB a
+  keystroke in the document model, which validates the whole edited table after
+  each step.
+- **A long table inside a table cell lays out only the rows near the viewport
+  too, at any depth.** A table in a cell was laid out whole whenever the row
+  holding it was: 135 MB and 1.5 s for the first layout of a 10,000 × 3 table in
+  a cell, 115 MB kept, and 26 MB for every resize. Each table now hands the
+  tables in its cells the part of its window that falls in them, so a table
+  nested one, two or three deep costs what it does at the top of the document
+  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows of a table in a cell
+  that scrolling has left far behind give up their views and keep their heights,
+  so scrolling through a whole 10,000-row table in a cell keeps 3.4 MB rather
+  than 116 MB (5 MB rather than 562 MB three deep beside a line of text); the
+  caret's row and a composition are kept wherever they are, and a row comes back
+  exactly as tall as it was, so letting rows go never moves anything on screen.
+  A table at the top of the document keeps the rows it has laid out, as before. What the viewport shows stays where it is while estimates are
+  replaced — the text line at the top of the viewport is what is held, through
+  scrolling, resizing, edits far away, undo and redo, and composition (including
+  a line where composed text runs into the paragraph's own text, which is held
+  by that text as the composition grows above it) — and
+  text beside a long nested table, or a row's bottom that a nested table
+  beside it could move, is laid out exactly before it is shown, which can mean
+  laying that table out whole. Scrolling beside a nested table that is already
+  laid out whole costs a screenful a page, however long it is. A table whose
+  windows do not settle, or whose window cannot be worked out — a coordinate
+  that is not a number, or a viewport anchor that names nothing inside it — is
+  laid out whole, counted and traced, never left blank. The scroll range stays
+  of the order of the document's real height: a row holding a table only partly
+  laid out teaches the estimate for the rows nobody measured only what is known
+  of that table, not that table's own estimate, which had made the extent grow
+  as the product of the row counts along the path (34.6 billion pixels for a
+  document 5.8 million tall, after a resize). The document learns the same way
+  from a table at its top level: priced at that table's whole height, estimate
+  and all, the blocks nobody measured had made a document 99 times its height.
+- **Ctrl+End reaches the end of a document whose unseen rows hold most of it.**
+  The caret was aimed at where the estimates for the rows above put it, and
+  with an extent far too small the offset was clamped short of it: the document
+  ended 8,389 pixels below the viewport, caret and all. Sending the caret to the
+  document's last position now lays the window out from the end up, with the end
+  at the bottom of the viewport, before the caret is brought into view. So does
+  a scroll whose offset ends up clamped at the end while laying out the end keeps
+  moving it: the last rows of a long table there were left unlaid and repaired.
+- **The text at the top of the viewport is held through the spacing around its
+  lines, a jump to rows nobody had laid out, and questions about far points.**
+  Scrolling a long table moved its text by up to 5.6 DIP more or less than the
+  scroll; a resize after jumping into a long table, or after a question about a
+  far row moved the viewport, put a different line at the top; text inserted at
+  the very start of the paragraph below the top moved it down; and a point
+  question exactly on the edge between two rows or blocks laid out the one below
+  while answering, moving the text on screen.
 - **Whole-word search no longer treats letters outside the basic plane as word
   boundaries.** The characters either side of a match were read one UTF-16 code
   unit at a time, and neither half of a surrogate pair is a letter, so "cat"

@@ -773,6 +773,199 @@ internal sealed class ParagraphView : BlockView
 > paragraph length and well over the frame budget long before a document is large. The owner decided
 > (OD-6) to replace the wholesale rebuild for long paragraphs with line-range sub-layouts, after
 > profiling which term is superlinear; §12.4 records the decision.
+>
+> **As built (Phase 9.1, 2026-10-27): line-range sub-layouts.** The 9.0 profile
+> (`docs/increment-9-0-profile.md`) found the superlinear term inside Avalonia: wrapping copies the
+> run list that remains once per line, so one layout costs lines × runs, and formatting makes the
+> runs grow with the paragraph. A paragraph whose laid-out text is longer than
+> `ParagraphChunking.Default.Threshold` (4,096 code units) is therefore held by `ParagraphChunks` as
+> consecutive independent `TextLayout`s. Each is given a window of about `Window` (2,048) characters
+> cut off with an end of paragraph, keeps every line but the last two — the line after a kept line is
+> complete, so whatever decided its break lay inside the window — and the next chunk starts where the
+> kept lines end. A line started afresh at a line boundary is the line the formatter would have
+> produced continuing from the line before, which is what makes the seams exact.
+>
+> - **Geometry goes through lines, not a layout.** `ParagraphView` answers every question from a
+>   list of placed lines (line, offset of its layout, top). For a chunked paragraph,
+>   `TextLayout.HitTestPoint` and `HitTestTextPosition` are reproduced step for step and the metrics
+>   are accumulated in the same order, so a chunked paragraph and an unchunked one agree to the bit:
+>   `ParagraphChunkingTests` compares sizes, lines, caret rectangles and movement at every position,
+>   hit tests on a grid, selection rectangles across every seam, image boxes, compositions at every
+>   seam and the drawn pixels. A short paragraph keeps its single layout and its run cache.
+> - **An edit lays out again from the chunk it lands in** — or the one before, when it is on a
+>   chunk's first line, whose break was decided by what fitted on the line above — and stops when a
+>   new chunk ends exactly where an old chunk the change did not reach begins; that chunk and every
+>   one after it are kept, shifted. What changed is found by matching text, formatting spans, embeds
+>   and the composition from both ends, so several edits before one layout are one change. A width,
+>   indent, alignment, line-height or font change lays everything out again.
+> - **Never `InvalidateFrom`** (A1 holds): chunks are separate layouts, either kept whole or built
+>   again.
+> - **Not chunked: right-to-left text and justified text.** Bidirectional resolution runs over the
+>   whole paragraph; a number or a neutral at the start of a line can take its direction from Hebrew
+>   on the line before, and brackets pair across any distance. Measured with the check removed: the
+>   caret at such a seam moved from x = 268 to x = 0. So a paragraph holding any character of class
+>   R, AL or AN, or an explicit embedding, override or isolate, stays one layout. A justified layout
+>   reports its width measured before its lines were stretched, which a chunk cannot reproduce, so it
+>   stays one layout too.
+> - **Reflow is exact, so it is not always short.** In prose the lines meet the old ones within a
+>   line or two. Text so regular that every line holds the same number of words can shift every
+>   later line by a word after one edit; those lines really did change, so they are laid out again —
+>   in time linear in their length, where the single layout was quadratic. `ScalingGuardTests` pins
+>   both: lines × fetched runs for laying out a paragraph grows at most linearly, and a keystroke in
+>   prose lays out at most four windows at 25,000, 50,000 and 100,000 characters.
+>
+> **As built (Phase 9.2, 2026-10-27): a table draws and updates by row.** The 9.0 profile put 93% of
+> a frame showing the top of a 1,000 × 5 table in `TableBlockView.Render` drawing every cell, and a
+> keystroke walked every cell in `Update`. Two changes, both linear in nothing but the rows:
+>
+> - **`BlockView.Render(context, origin, visible)`** tells a block what of it the control shows.
+>   It is a hint, not a clip — the default draws everything — and `TableBlockView` uses it to draw
+>   only the row bands meeting the visible area: a binary search over the row edges, widened by the
+>   border, and a per-row `coverTop` (the first row of any cell covering it) so that a cell spanning
+>   into the band from above is drawn too. `TableRowUpdateTests` compares the pixels of a hinted
+>   draw against an unhinted one under the same clip.
+> - **Rows hold their cells with positions relative to the row**, and one array holds where each
+>   row starts. An edit that keeps the grid's shape — the same rows, each with cells of the same
+>   spans, so `TableGeometry.Place` would place every cell where it was — rebuilds only the rows
+>   whose nodes it replaced and refreshes the row starts in one pass. A shape change places and
+>   walks everything, as before. Column widths are not shape, so a column resize rebuilds no cell.
+>
+> **As built (Phase 9.3, 2026-10-27): table rows are virtualized.** A table is one block to the
+> presenter, so the presenter's own virtualization realized all of it: every cell's view was built
+> when the table view was made (280 MB for 10,000 × 5) and every cell was measured whenever it was.
+> Now rows are realized as they are needed, the same idea as `BlockHeightIndex` one level down:
+>
+> - **`BlockView.SetWindow(anchor, above, below)`** tells a block which part of it the next
+>   `Measure` must lay out: the point the presenter keeps at the top of the viewport (or the
+>   block's top), and how far above and below it, in real pixels. The table keeps the anchor as a
+>   row and a share of that row's height and measures outwards from it until real heights cover
+>   both distances. Corrected 2026-10-28: the first version took a window top and bottom placed by
+>   the estimate, so where rows were taller than estimated it measured a few rows above the
+>   viewport and ran out of reach before reaching it; and since measuring any row moves the
+>   estimate, nothing is remembered in pixels.
+> - **Rows are realized and measured in bands** — the runs of rows that cells spanning rows tie
+>   together — with exactly the two-pass rule the whole table used (single-row cells settle their
+>   rows, then a spanning cell that does not fit pushes the last row it covers). A row nobody has
+>   measured is priced at the mean of those that have been. Row tops are prefix sums recomputed in
+>   order from the first row whose height moved (or from the top when the estimate moved), so a
+>   fully measured table has bit-for-bit the geometry it had.
+> - **Anything that needs a row realizes it.** The caret, hit testing, a paragraph or image lookup,
+>   a selection rectangle or a column boundary in a row outside the window realize and measure that
+>   row's band first. Hit testing finds the nearest cell from placements and row edges alone and
+>   looks only at rows within the best distance found, which gives the answer a scan of every cell
+>   gave. **Drawing lays nothing out:** a row is drawn only once its band is realized and measured
+>   at the current width, which the window sees to for every row on screen. (The first version laid
+>   rows out while drawing; each one moved the estimate and the table's height mid-frame, behind the
+>   presenter's back, and could draw a paragraph never measured.)
+> - **The presenter anchors on the text line at the top.** `Settle` keeps the content at the top of
+>   the viewport where it was while estimates are replaced. Inside a table that is the text line at
+>   the top, at any depth (`LocalAnchor`: a document position and the offset from its line; a
+>   box or a share of a row only where there is no line — a row nobody has laid out is held by its
+>   share until it is, then by the text found there). It is read from the last layout before an
+>   edit or a composition invalidates it and carried through the transaction's position mapping, so
+>   edits far away, undo and redo, a composition growing above it and a resize all leave that line
+>   where it was (owner decision Q3, the browser's scroll anchoring; not at all when the viewport is
+>   not scrolled, as a browser selects no anchor there). A line made only of composed text is held
+>   from where the composition starts; a line that starts inside it and runs on into the paragraph's
+>   own text is held by that text. Corrected 2026-10-30 (rubber-duck finding
+>   10.4); the first version kept the row at the top at the same share of its height.
+> - **A row insert or delete keeps what is on screen.** Corrected 2026-10-28: the row commands
+>   rebuild every row node around the cells they keep, and any change of the grid's shape rebuilt
+>   the view and forgot every measured height, so the offset priced at uniform mean heights named a
+>   row a hundred further on. A rebuild now matches rows by their cells (reference-equal) from both
+>   ends and carries a band's views and height through when the same rows form the same band,
+>   measured and unedited; only the rows the edit replaced are built and measured. The presenter
+>   takes the row at the top of the viewport before reconciling the edit
+>   (`TableBlockView.RowAfterUpdate` maps it across that one update), because deleting a measured
+>   row moves the mean that prices the unmeasured rows above it.
+> - **Painting asks only for what is realized.** `BlockView.GetSelectionRects(from, to, visible)` and
+>   `TableBlockView.GetCellRects(cells, start, visible)` take the realized window, so selecting all
+>   of a long table paints its screenful without realizing every row; `SelectionBounds` reports the
+>   realized part, as it already did for paragraphs outside the window.
+> - **Tables inside cells are row-virtualized too** (2026-10-30, rubber-duck finding 10.4, owner
+>   decision: full nested virtualization; `TableBlockView.Nested.cs`). A table gives each table in
+>   a band it measures the part of its window that falls in it before measuring it (`WindowNested`):
+>   the anchor itself when the anchor is inside it; from its bottom up to the window's top for a
+>   table in a row above the anchor's; from its top down for one below; by its geometry beside the
+>   anchor. Every pass re-windows and measures the tables in the bands walked and settles a band
+>   whose table changed height without measuring the rest of it (`RefreshNested`, `SettleBand`);
+>   a question that lays out a far nested row settles every row above it the same way. Whatever is
+>   placed across an estimate where the window shows it is made exact first (`Close`): text beside
+>   a long nested table, the bottom of a row a nested table beside it could move, a row above the
+>   anchor whose top hangs on a nested table's height — by proving from lower bounds that it cannot
+>   be seen, or by laying the competing table out (owner decision Q1: exact and still, at the cost
+>   of laying it out). Windows that do not settle — only passes that just settle heights again
+>   count — lay the tables in the window out whole, counted and traced, never blank; so does a
+>   window that cannot be translated into a table: a coordinate that is not a number, or an anchor
+>   inside a table by position that names nothing there (a boundary between its rows, cells or
+>   blocks), which the two tables would otherwise resolve to different places. Whether a table is
+>   wholly laid out, which the decisions beside the anchor ask on every pass, is kept as the bands
+>   found complete (`CompleteBefore`) until a row of any table stops being laid out — an edited or
+>   composed row, heights forgotten for a width — so a table laid out whole beside the one being
+>   scrolled costs a screenful a page, not its length. A row holding a table not wholly laid out is
+>   placed at its height, but teaches its table's estimate for unmeasured rows only what is known of
+>   that table (`ExactHeight`: measured rows at what is known of them, each band nobody measured at
+>   its padding), kept as rows are recorded and forgotten. Learning from the height, which includes
+>   that table's own estimate, made every level price its rows like the one on screen, so the extent
+>   grew as the product of the row counts along the path: after a resize, 37 times the truth two
+>   levels deep, 6,000 times three deep. What remains is the ordinary limit of an estimate: rows
+>   nobody has seen are
+>   priced from those that have been, at every depth, so a document whose unseen rows hold most of
+>   its content can show an extent hundreds of times too small until they are reached (the fuzz
+>   bounds the extent between a thousandth of and 32 times a fully laid-out copy's height). The
+>   caret sent to the document's end (Ctrl+End) lays the window out from the end up and puts the
+>   end at the bottom of the viewport (`SettleAtEnd`) before the caret is brought into view, so an
+>   extent far too small does not stop it short. `RichTextView.ScrollToEnd` asks the next layout
+>   pass for the same without moving the caret, and `RichTextEditor` asks it when its vertical
+>   scroll bar is taken to its maximum (`ScrollBar.Scroll`, which the wheel never raises). An offset
+>   set to the end of the scroll range is not such a request: the wheel sets the offset too, and a
+>   wheel scroll reaching the end of a range that is too small must not jump. Point
+>   questions lay out every row whose closed band touches the point before answering, and the
+>   answer itself lays nothing out (`LayoutGuard.Answering`). Painting reads only prepared geometry
+>   (`LayoutGuard.Painting`, `PreparePaintDependencies`).
+>
+>   Measured with `tests/VellumText.LayoutProbe` (Release, 10,000 × 3, nested in one-row tables),
+>   before → after: first layout 134.9 MB / 1.5 s → 5.2 MB / 33 ms, kept 115 MB → 1.6 MB, a resize
+>   26.3 MB / 142 ms → 54 KB / 2 ms, at depths 1–3 within 1% of the same table at the top level;
+>   a page-by-page traversal at depth 3 takes 1.6 s, as at the top. A table in a cell lets go of the
+>   views of rows far outside its window at the end of the layout pass that lays the viewport out
+>   (`TableBlockView.Eviction.cs`; owner decision: tables in cells only, the caret's and the
+>   composition's rows kept, heights kept): bands further than a window's height from the window,
+>   once a table holds more than `max(64, 4 × the rows its window reached)`, and only bands that can
+>   come back exactly as they are — bands of text, and bands whose tables are wholly laid out and
+>   no taller than twice the window, which come back with those tables laid out whole; a far band
+>   that cannot keeps its views, and the tables in it let go of their rows instead, at any depth and
+>   in a table of any length — so letting go never moves anything, never changes the extent, and
+>   leaves what is known
+>   (`ExactHeight`, the bands found complete) true. A traversal of the 10,000-row table keeps
+>   3.4 MB at depths 1 and 3 (115.6 MB before), 5.0 MB three deep beside a line of text (562 MB),
+>   and 3.7 MB with every row holding a table of its own (311 MB), where the same table at the top
+>   keeps its 115.9 MB. `NestedTableLayoutProbeTests` runs the probe in a child process and asserts
+>   exit code and peak working set, and that a traversal keeps about what the first layout
+>   does, flat over 2,500 to 10,000 rows. Every test that scrolls through, fuzzes or lets rows go
+>   runs in a child process of the test assembly with a memory cap and a time limit (`Isolated`):
+>   run in the test process, the fuzz's fully laid-out copies, up to 3.3 GB for a seed, grew it to
+>   40 GB;
+>   `NestedTableFuzzTests` puts random documents with tables nested up to three deep, merged cells
+>   and lists through random scrolls, jumps, resizes, far edits, structural edits with undo and
+>   redo, compositions and far questions, checking after each that the extent is the sum of the
+>   heights, every table at every depth records each block at its height and each row alone in its
+>   band at its tallest cell, every row on screen is laid out at every depth, a frame draws without
+>   laying anything out, a layout pass again moves nothing on screen, nothing on screen moved but
+>   by the scroll, the line held at the top is still there through a structural edit, its undo and
+>   its redo, and a far point lands where a fully laid-out copy has it. The other nested tests hold
+>   what is on screen to where that copy draws it (caret top and left), with merged cells, rows a
+>   merged cell leaves empty, right-to-left text, and wrapping replacements undone and redone.
+>   These assertions are on laid-out
+>   geometry, which depends on font metrics: they have run headless on Windows; Linux and macOS CI
+>   should run them before the figures above are taken as cross-platform.
+>
+> Measured by `ScalingGuardTests`: laying out the top of a 2,500-, 5,000- or 10,000-row table builds
+> and measures 95 cells; scrolling to its middle measures one window; laying out a 10,000-row table
+> allocates 7.8 MB (most of it `TableGeometry.Place`), against 280 MB. **Not fixed here:** typing
+> into a cell of a 10,000-row table still allocates about 6 MB in the *model*, because
+> `ReplaceStep.Apply` validates the edited table and `DocumentSchema.ValidateTable` places every cell
+> to do it; the view's share of that keystroke is 0.4 MB.
 
 ### 4.7 The text source
 
@@ -1632,7 +1825,7 @@ Headless (`Avalonia.Headless` + xUnit), CI on Windows/Linux/macOS:
 |---|---|---|---|
 | **R1** | **No `ITextProvider` in Avalonia (C1).** Screen readers get plain text via `IValueProvider` at best — no ranges, no formatting, no caret events. A rich text editor with weak a11y is a real limitation, and no amount of work in *our* repo fixes it. | ~~High~~ **Medium — being lifted upstream** | Ship `IValueProvider` + `AutomationProperties` in v1 (done, P7). **[2026-08-16]** The upstream gap is closing without us: [#21988](https://github.com/AvaloniaUI/Avalonia/pull/21988) is open and adds platform-agnostic `ITextProvider`/`ITextRangeProvider` plus a `TextBox` peer and Win32 UIA glue. So the mitigation is no longer "propose it" but **watch it and implement the contracts on `DocumentPresenterAutomationPeer` once they land** — a rich text editor is the strongest case for that API, and VellumText can be an early consumer rather than the petitioner. Document the limitation honestly in the README until then. |
 | **R2** | Table layout is entirely ours (C2) — column sizing, spans, cell content reflow, page-width interaction. | High | Sequence it last (Increment 6), after the block host has proven itself recursive. Constrain v1 to fixed/proportional column widths; no auto-fit-to-content. |
-| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. |
+| **R3** | `TextRunCache` incremental invalidation may not behave as assumed (A1). | ~~Medium~~ **Low — realised and resolved** | Increment 0 measured it: `InvalidateFrom(k>0)` is stale, so paragraph layouts are rebuilt wholesale on edit (measured 0.35–0.6 ms at 800 chars, comfortably inside a frame budget). The cache is retained for width-only relayout, where it is correct and ≈3.5× faster. **[2026-10-27]** The wholesale rebuild was quadratic for long formatted paragraphs (F-33), so a paragraph longer than 4,096 characters is now held as line-range chunks that are each rebuilt wholesale or kept whole — still never invalidated by offset (§4.6, Phase 9.1). Right-to-left and justified paragraphs keep the single rebuild. |
 | **R4** | Clipboard behavior varies across X11 compositors and Wayland (A3). | Medium | Capability-test at runtime; always include `DataFormat.Text`. Integration-test GNOME/KDE on both X11 and Wayland. |
 | **R5** | Scope creep — the AC list is a commercial product's feature list. | High | Increment gating (§10). Increments 0–5 are a genuinely useful editor on their own; 6–8 are the long tail. |
 | **R6** | Trimming/NativeAOT regressions from Open XML SDK. | Low | DOCX lives in a separate package; core and the demo stay trimming-clean. |
@@ -2660,7 +2853,7 @@ with the basis it rests on now. The plan that carried them out is
 | `DocumentBlocks.Flatten` is 6% of a keystroke and not worth making incremental. | F-14: at AC12's 50,000 paragraphs it was 3.2 MB of a 4.2 MB keystroke and drove gen-2 collections. | The view's block list is patched in place; see the dated notes in §4.6. |
 | Enter and Backspace-join at 50,000 paragraphs cost about 8 ms. | F-15: 14.4 ms and 16.0 ms, with 6.9 MB and 10.1 MB allocated. | They rebuild only the blocks they touch and copy the root once; about 0.6 MB each. |
 | Importers are "linear-ish" (`SECURITY.md`). | F-31: AngleSharp is quadratic in element nesting (200 KB of nested `<div>` took 7.5 s) and in attributes per element. | `MaxElementDepth` and `MaxAttributesPerElement` are enforced before parsing; `SECURITY.md` states the bounds instead of the hope. |
-| A very long paragraph costs 7–12 ms per keystroke, bounded by its length. | F-33: with ordinary formatting, 23.6 ms at 12,500 characters and 2.6× per doubling. | Owner decision OD-6, below. |
+| A very long paragraph costs 7–12 ms per keystroke, bounded by its length. | F-33: with ordinary formatting, 23.6 ms at 12,500 characters and 2.6× per doubling. | Owner decision OD-6, below. Done in Phase 9.1: line-range sub-layouts make a layout linear in the paragraph and a keystroke in prose a few thousand characters of layout (§4.6). |
 | With find open, re-running the search on every edit is the same order as layout (`RichTextView.Find.cs`). | F-36: 19.3 ms per keystroke at 50,000 paragraphs in the audit's run. | **Kept.** The late end-to-end pass measured 11.8 ms with find open against 7.9–8.6 ms without, within the frame budget, and the finding was dropped. |
 
 **Reversed by the owner (2026-10-26)**
@@ -2670,5 +2863,5 @@ with the basis it rests on now. The plan that carried them out is
 | `IDocumentImporter` is synchronous, with the string member derived from the stream member (§4.9). | Asynchronous only, and the editor runs every importer off the UI thread whatever it claims (OD-2, Q-1; 0.8.0). See §4.9. |
 | `RichTextToolbar` commands are always enabled. | Disabled while the bound editor is read-only. For an editable editor they stay enabled wherever the caret is, for the reason the toolbar's remarks give. |
 | RTF is read by RtfPipe (§5.4, §12.1). | Read by `OfficeIMO.Rtf` + `OfficeIMO.Html.Rtf`, pinned to one exact version, chosen through the phase 8 selection gate (OD-8, owner's option 1, 2026-10-27). The accepted risks — a young library with one principal maintainer, pictures stored only as Word shapes, the AngleSharp bump — are in §5.4. |
-| R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Long paragraphs get line-range sub-layouts, once profiling has shown which term is superlinear (OD-6). |
-| R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view itself becomes row-virtualized (OD-6). |
+| R3's mitigation: paragraph layouts are rebuilt wholesale on edit. | Paragraphs longer than 4,096 characters are laid out in line-range sub-layouts (Phase 9.1, after the 9.0 profile found the lines × runs term in Avalonia's wrapping); right-to-left and justified paragraphs, and short ones, keep the single layout. See §4.6. |
+| R2: constrain v1 tables. | Still constrained for widths — no auto-fit. The table view is row-virtualized (Phase 9.2–9.3): it draws only the row bands on screen, updates only the rows an edit replaced, and realizes and measures rows in bands as the viewport or a geometry question reaches them. See §4.6. |

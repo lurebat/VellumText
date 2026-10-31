@@ -210,3 +210,23 @@ rather than rediscovered.
   specific to code. Re-measure all three against the Phase 8 reader before doing any work here; if
   they persist, the likely fix is marking code on export (a monospace style or a named paragraph
   style) and reading it back in the importer, with whitespace carried as written.
+
+### To fix before 1.0
+Deferred from the nested-table virtualization series (10.4) by the owner (2026-10-30), to be done
+before 1.0 rather than accepted as limitations.
+- **A change only to what is known of a nested table rebuilds every outer row edge.** When a host
+  row's known height (`ExactHeight`) changes without its placed height changing, the outer table's
+  estimate changes, and with it the estimated contribution of every unmeasured outer row; the row
+  edges are recomputed from the first changed row to the end, which is O(outer rows) per page
+  scrolled (review 3, finding 4). The fix is an indexed row-edge structure for placement edges (a
+  Fenwick or prefix-sum tree) in which unmeasured rows contribute the estimate lazily. A first
+  attempt that replaced the sequential sums with "measured prefix + unmeasured count × estimate"
+  was reverted: it changed exact row-boundary arithmetic (two exact-equality boundary tests and a
+  paint-purity check failed), and host-row size drift at the last bit kept the recomputation
+  O(rows) anyway. The attempt is kept outside the repository (`finding4-lazy-edges.diff` in the
+  10.4 session files); any new attempt must keep row edges bit-identical to sequential sums.
+  Tracked as https://github.com/lurebat/VellumText/issues/17.
+- **Dragging the scrollbar to its maximum stopped short of the end when the extent was
+  underestimated.** Fixed by `RichTextView.ScrollToEnd` (1a540c4): the scroll bar taken to its end
+  and `ScrollToEnd` are settled from the end up, as Ctrl+End is, so the view ends at the
+  document's end however far the estimates are from the truth.

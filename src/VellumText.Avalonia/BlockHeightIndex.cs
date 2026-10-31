@@ -16,7 +16,7 @@ namespace VellumText.Avalonia;
 /// <para>
 /// The subtlety is not the tree, it is the blocks nobody has measured. Their height has to be
 /// <em>guessed</em>, because scrolling to the end of a document may not measure everything on
-/// the way. The guess used here is the mean of the heights actually measured so far, which
+/// the way. The guess used here is the mean of the heights actually measured so far, with any one block's share bounded (see <see cref="Estimate"/>), which
 /// starts as a caller-supplied estimate and improves as the user scrolls. That means a block's
 /// stored height changes when its neighbours are measured, and the total moves under the
 /// scrollbar — unavoidable with estimates, and the reason
@@ -38,11 +38,10 @@ internal sealed class BlockHeightIndex
     private double[] _tree = new double[1];
     private int[] _pending = new int[1];
     private double[] _height = [];
+    private double[] _sample = [];
     private bool[] _measured = [];
     private int _count;
-    private int _measuredCount;
-    private double _measuredTotal;
-    private double _seed;
+    private readonly HeightEstimate _estimate;
 
     /// <summary>Creates an index with no blocks.</summary>
     /// <param name="estimate">
@@ -59,7 +58,7 @@ internal sealed class BlockHeightIndex
                 nameof(estimate), estimate, "An estimated height must be positive and finite.");
         }
 
-        _seed = estimate;
+        _estimate = new HeightEstimate(estimate);
     }
 
     /// <summary>The height assumed for a block before any block has been measured.</summary>
@@ -69,9 +68,11 @@ internal sealed class BlockHeightIndex
     public int Count => _count;
 
     /// <summary>The height currently assumed for a block nobody has measured.</summary>
-    /// <remarks>The mean of the measured heights, or the seed estimate until there are any.</remarks>
-    public double Estimate => _measuredCount == 0 ? _seed : _measuredTotal / _measuredCount;
-
+    /// <remarks>
+    /// Drawn from the measured heights with any one block's share bounded, so one giant
+    /// paragraph cannot price all the others like itself; see <see cref="HeightEstimate"/>.
+    /// </remarks>
+    public double Estimate => _estimate.Value;
     /// <summary>The height of every block together, measured and estimated alike.</summary>
     public double TotalHeight => SumTo(_count);
 
@@ -164,14 +165,33 @@ internal sealed class BlockHeightIndex
     }
 
     /// <summary>
-    /// Records a block's measured height.
+    /// Records a block's measured height, which is all known: what the estimate learns from it.
     /// </summary>
     /// <param name="index">The block's index.</param>
     /// <param name="height">The measured height.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="index"/> is not a block, or <paramref name="height"/> is negative or not finite.
     /// </exception>
-    public void SetHeight(int index, double height)
+    public void SetHeight(int index, double height) => SetHeight(index, height, height);
+
+    /// <summary>
+    /// Records a block's measured height, and how much of it is known: what the estimate for the
+    /// blocks nobody measured learns from it.
+    /// </summary>
+    /// <remarks>
+    /// A table at the top of the document lays out only what the window reaches, and is as tall as
+    /// its own estimate says of the rest. Learning from that height, every block nobody measured was
+    /// priced like the table's estimate — a document 99 times its height, fuzz seed 10,045 — as a
+    /// row learning from a table in its cell priced every row like it, before rows learned only what
+    /// is known of the tables in them (<c>TableBlockView.ExactHeight</c>).
+    /// </remarks>
+    /// <param name="index">The block's index.</param>
+    /// <param name="height">The measured height, where the block is placed.</param>
+    /// <param name="sample">How much of it is known; no more than the height.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="index"/> is not a block, or a height is negative or not finite.
+    /// </exception>
+    public void SetHeight(int index, double height, double sample)
     {
         CheckIndex(index);
 
@@ -181,14 +201,19 @@ internal sealed class BlockHeightIndex
                 nameof(height), height, "A measured height must be zero or more, and finite.");
         }
 
+        if (sample < 0 || double.IsNaN(sample) || double.IsInfinity(sample))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sample), sample, "What is known of a height must be zero or more, and finite.");
+        }
+
         if (_measured[index])
         {
-            _measuredTotal -= _height[index];
+            _estimate.Remove(_sample[index]);
             AddMeasured(index, height - _height[index]);
         }
         else
         {
-            _measuredCount++;
             _measured[index] = true;
 
             // The block stops being counted as unmeasured and starts contributing its height.
@@ -196,8 +221,9 @@ internal sealed class BlockHeightIndex
             AddMeasured(index, height);
         }
 
-        _measuredTotal += height;
+        _estimate.Add(sample);
         _height[index] = height;
+        _sample[index] = sample;
 
         // No rewrite of the other blocks. They never held the estimate, so the estimate moving
         // is already reflected everywhere it is used - which is what makes this logarithmic
@@ -232,6 +258,7 @@ internal sealed class BlockHeightIndex
         EnsureCapacity(_count + count);
 
         Array.Copy(_height, index, _height, index + count, _count - index);
+        Array.Copy(_sample, index, _sample, index + count, _count - index);
         Array.Copy(_measured, index, _measured, index + count, _count - index);
 
         var estimate = Estimate;
@@ -269,12 +296,12 @@ internal sealed class BlockHeightIndex
         {
             if (_measured[i])
             {
-                _measuredCount--;
-                _measuredTotal -= _height[i];
+                _estimate.Remove(_sample[i]);
             }
         }
 
         Array.Copy(_height, index + count, _height, index, _count - index - count);
+        Array.Copy(_sample, index + count, _sample, index, _count - index - count);
         Array.Copy(_measured, index + count, _measured, index, _count - index - count);
 
         _count -= count;
@@ -293,13 +320,11 @@ internal sealed class BlockHeightIndex
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
 
-        _seed = Estimate;
-        _measuredCount = 0;
-        _measuredTotal = 0;
+        _estimate.Restart();
 
         EnsureCapacity(count);
 
-        Array.Fill(_height, _seed, 0, count);
+        Array.Fill(_height, _estimate.Seed, 0, count);
         Array.Clear(_measured, 0, count);
 
         _count = count;
@@ -316,12 +341,15 @@ internal sealed class BlockHeightIndex
 
         var capacity = Math.Max(count, _height.Length * 2);
         var heights = new double[capacity];
+        var samples = new double[capacity];
         var measured = new bool[capacity];
 
         Array.Copy(_height, heights, _count);
+        Array.Copy(_sample, samples, _count);
         Array.Copy(_measured, measured, _count);
 
         _height = heights;
+        _sample = samples;
         _measured = measured;
         _tree = new double[capacity + 1];
         _pending = new int[capacity + 1];

@@ -48,6 +48,9 @@
     <ProjectReference Include="..\..\src\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Rtf\VellumText.Interop.Rtf.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Json\VellumText.Interop.Json.csproj" />
+
+    <!-- Lays out long nested tables in a child process, so a runaway layout fails a test honestly. -->
+    <ProjectReference Include="..\VellumText.LayoutProbe\VellumText.LayoutProbe.csproj" />
   </ItemGroup>
 
 </Project>

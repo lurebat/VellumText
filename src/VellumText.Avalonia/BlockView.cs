@@ -11,7 +11,7 @@ namespace VellumText.Avalonia;
 /// A block view owns its own layout and reports geometry, but it draws neither the caret nor
 /// the selection highlight. Those belong to the view that hosts the blocks, because a selection
 /// can span several of them and the caret is one concern with one blink timer. Blocks answer
-/// <see cref="GetCaretRect"/> and <see cref="GetSelectionRects"/> and stop there.
+/// <see cref="GetCaretRect"/> and <see cref="GetSelectionRects(int, int)"/> and stop there.
 /// </para>
 /// <para>
 /// Every position in this API is <em>local</em> to the block's content: 0 is the first position
@@ -40,6 +40,91 @@ internal abstract class BlockView
     public abstract void Render(DrawingContext context, Point origin);
 
     /// <summary>
+    /// Draws the block, knowing that only <paramref name="visible"/> of it can be seen.
+    /// </summary>
+    /// <remarks>
+    /// A hint, not a clip: drawing more than this is correct and only wasted. The default draws
+    /// everything; a block whose cost is in parts that can be off screen — a table's rows — skips
+    /// the ones that are.
+    /// </remarks>
+    /// <param name="context">The drawing context.</param>
+    /// <param name="origin">Where the block's top-left corner sits.</param>
+    /// <param name="visible">The part of the block that can be seen, in its own coordinates.</param>
+    public virtual void Render(DrawingContext context, Point origin, Rect visible) => Render(context, origin);
+
+    /// <summary>
+    /// Tells the block which part of it, in its own coordinates, the next <see cref="Measure"/>
+    /// must lay out: <paramref name="below"/> pixels down from <paramref name="anchor"/> and
+    /// <paramref name="above"/> pixels up from it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The presenter's realized window, so that a block taller than the viewport — a table of ten
+    /// thousand rows — can lay out the part about to be seen and estimate the rest. The default
+    /// ignores it and lays out everything, which is what every block but a table does. An infinite
+    /// <paramref name="below"/> from zero means everything.
+    /// </para>
+    /// <para>
+    /// An anchor and two distances, not two positions, because the distances are in real pixels
+    /// and the positions of parts nobody has laid out are estimates: the anchor is the point the
+    /// presenter keeps at the top of the viewport, and what is on screen is what lies below it
+    /// once laid out, however wrong the estimate that placed it was.
+    /// </para>
+    /// </remarks>
+    /// <param name="anchor">The point the viewport's top is kept at, or the block's top.</param>
+    /// <param name="above">How far above the anchor to lay out.</param>
+    /// <param name="below">How far below the anchor to lay out.</param>
+    public virtual void SetWindow(double anchor, double above, double below)
+    {
+    }
+
+    /// <summary>
+    /// The content at a vertical offset in the block, as the last layout drew it.
+    /// </summary>
+    /// <remarks>
+    /// Reads the last layout and lays nothing out, so it can be asked after an edit or a
+    /// composition has invalidated the layout and before the change is reconciled. The default
+    /// names the point by its distance from the block's top, which is right for a block with
+    /// nothing inside it to move.
+    /// </remarks>
+    /// <param name="y">The offset, from the block's top.</param>
+    internal virtual LocalAnchor CaptureAnchor(double y) => new(0, y, AnchorKind.Box);
+
+    /// <summary>The bottom of the block's last line of text, from its top; its height if it has none.</summary>
+    /// <remarks>Below it is only spacing, which the host names from the block that follows.</remarks>
+    internal virtual double TextBottom => Size.Height;
+
+    /// <summary>
+    /// Where the point an anchor names is now, from the block's top, or null if the content it
+    /// names has not been laid out.
+    /// </summary>
+    /// <remarks>Lays nothing out.</remarks>
+    /// <param name="anchor">The anchor, local to this block.</param>
+    internal virtual double? AnchorPoint(LocalAnchor anchor) => anchor.Kind switch
+    {
+        AnchorKind.BoxBottom => Size.Height + anchor.Dy,
+        _ => Math.Clamp(anchor.Dy, 0, Size.Height),
+    };
+
+    /// <summary>
+    /// Lays out whatever a question about a local position needs, so that the question itself
+    /// lays nothing out.
+    /// </summary>
+    /// <remarks>
+    /// Split from the questions so the host can lay out first, put the viewport back, and only
+    /// then ask — and so painting can ask without laying anything out at all. The default has
+    /// nothing beyond <see cref="Measure"/> to lay out.
+    /// </remarks>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual void PrepareAt(int localPosition)
+    {
+    }
+
+    /// <summary>Whether a question about a local position can be answered without laying anything out.</summary>
+    /// <param name="localPosition">A local position.</param>
+    internal virtual bool IsPreparedAt(int localPosition) => true;
+
+    /// <summary>
     /// Finds the position nearest a point in the block's own coordinates.
     /// </summary>
     /// <param name="local">The point, relative to the block's top-left corner.</param>
@@ -63,6 +148,20 @@ internal abstract class BlockView
     public abstract IReadOnlyList<Rect> GetSelectionRects(int from, int to);
 
     /// <summary>
+    /// The highlight rectangles for a local range, as far as they fall in <paramref name="visible"/>.
+    /// </summary>
+    /// <remarks>
+    /// For painting: rectangles outside <paramref name="visible"/> may be left out, and are, by a
+    /// block that would otherwise have to lay out parts of itself nobody can see. The default
+    /// returns them all.
+    /// </remarks>
+    /// <param name="from">The local start position.</param>
+    /// <param name="to">The local end position.</param>
+    /// <param name="visible">What of the block can be seen, in its own coordinates.</param>
+    public virtual IReadOnlyList<Rect> GetSelectionRects(int from, int to, Rect visible) =>
+        GetSelectionRects(from, to);
+
+    /// <summary>
     /// The paragraph at a local position, or null if there is no editable text there.
     /// </summary>
     /// <remarks>
@@ -83,10 +182,33 @@ internal abstract class BlockView
     public virtual TextAt? ParagraphAt(int localPosition) => null;
 
     /// <summary>
+    /// Tells the block that a paragraph inside it, one <see cref="ParagraphAt"/> handed out, has
+    /// dropped its layout without the block being updated — a composition does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The default holds no paragraphs of its own, which is right for a block that lays its
+    /// paragraphs out whenever it is measured. A block that measures only the parts it knows have
+    /// changed has to count this as a change, or it goes on answering for a paragraph that cannot
+    /// answer.
+    /// </para>
+    /// <para>
+    /// The paragraph is named by reference and the position is only where to look first. A
+    /// composition is cleared from the paragraph it was drawn in, after the selection has left it
+    /// and perhaps after the document has moved it, so the position it was found at may no longer
+    /// lead to it.
+    /// </para>
+    /// </remarks>
+    /// <param name="paragraph">The paragraph that changed.</param>
+    /// <param name="localPosition">Where the paragraph is likely to be, as a local position.</param>
+    /// <returns>Whether the paragraph is inside this block.</returns>
+    public virtual bool ParagraphChanged(ParagraphView paragraph, int localPosition) => false;
+
+    /// <summary>
     /// The box an image at a local position is drawn in, or null if there is no image there.
     /// </summary>
     /// <remarks>
-    /// Distinct from <see cref="GetSelectionRects"/>, which for an inline image returns the
+    /// Distinct from <see cref="GetSelectionRects(int, int)"/>, which for an inline image returns the
     /// <em>line</em> box: as tall as the line and reaching below the picture by the descent of the
     /// text beside it. Resize handles drawn on that rectangle float visibly off the image, so the
     /// block is asked where the picture itself is rather than where its position is.

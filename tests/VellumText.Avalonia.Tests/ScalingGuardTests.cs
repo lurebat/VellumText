@@ -380,6 +380,333 @@ public class ScalingGuardTests
     }
 
     /// <summary>
+    /// F-33: laying out one long paragraph does work in proportion to its length, not to its length
+    /// squared.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Avalonia's line wrapping copies the run list that remains once per line, so one layout of a
+    /// formatted paragraph costs lines × runs, both of which grow with the paragraph: 326 ms a
+    /// keystroke at 100,000 characters, 2.76× per doubling (docs/increment-9-0-profile.md). The
+    /// paragraph is now laid out in chunks of bounded size, so the product is bounded per chunk.
+    /// The bench scenario is <c>a-longpara</c>.
+    /// </para>
+    /// <para>
+    /// Unformatted text was always linear, being one run; it is here so that a chunk which stopped
+    /// cutting its window off — and so laid out the rest of the paragraph each time — would show.
+    /// </para>
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LayingOutALongParagraphIsLinearInItsLength(bool formatted)
+    {
+        var work = Growth.Measure(
+            [25_000, 50_000, 100_000],
+            n =>
+            {
+                var text = Growth.Words(n);
+                var doc = new DocumentNode([new ParagraphNode(
+                    formatted ? Growth.EveryOtherWordBold(text) : InlineContent.FromText(text))]);
+
+                WorkCounters.WrappingWork = 0;
+
+                Shown(doc);
+
+                return WorkCounters.WrappingWork;
+            });
+
+        Growth.AssertAtMostLinear(work, $"lines × runs wrapped to lay out one long paragraph (formatted: {formatted})");
+    }
+
+    /// <summary>
+    /// F-33: a keystroke in one long formatted paragraph of ordinary prose lays out a stretch of it
+    /// whose size does not depend on the paragraph's length.
+    /// </summary>
+    /// <remarks>
+    /// An edit lays out again from the chunk it lands in and stops where the lines meet the old
+    /// ones, which in prose is within a line or two. Text so regular that every line holds the
+    /// same number of words can shift every later line by a word, and then the whole tail is laid
+    /// out again — exactly, and in linear time, which the row above pins.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AKeystrokeInALongFormattedParagraphLaysOutABoundedStretchOfIt()
+    {
+        var laidOut = Growth.Measure(
+            [25_000, 50_000, 100_000],
+            n =>
+            {
+                var doc = new DocumentNode([new ParagraphNode(Growth.EveryOtherWordBold(Growth.Prose(n)))]);
+                var view = Shown(doc);
+
+                view.MoveTo(1 + (n / 2), false);
+                Layout(view);
+                view.InsertText("x");
+                Layout(view);
+
+                WorkCounters.CharactersLaidOut = 0;
+
+                view.InsertText("x");
+                Layout(view);
+
+                return WorkCounters.CharactersLaidOut;
+            });
+
+        // A bound rather than a ratio: what is laid out comes in whole chunks, so one keystroke
+        // landing on a chunk's first line lays out two where its neighbour lays out one.
+        Assert.True(
+            laidOut.All(count => count <= MostLaidOutPerKeystroke),
+            $"a keystroke laid out {string.Join(", ", laidOut)} characters of 25,000, 50,000 and 100,000");
+    }
+
+    /// <summary>
+    /// The most of a long paragraph a keystroke in it may lay out: the chunk it lands in, the one
+    /// before it when the edit is on a chunk's first line, and two more for the reflow to settle.
+    /// </summary>
+    private const long MostLaidOutPerKeystroke = 4 * 2_048;
+
+    /// <summary>
+    /// F-35: painting a frame of a long table draws the rows on screen, not every row.
+    /// </summary>
+    /// <remarks>
+    /// <c>TableBlockView.Render</c> drew every cell's paragraph whatever the viewport showed — 93%
+    /// of a frame, 13.3 ms at 1,000 × 5 and linear in rows (docs/increment-9-0-profile.md). Every
+    /// caret blink is a frame. The bench scenario is <c>a-table</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingAFrameOfALongTableDrawsOnlyTheRowsOnScreen()
+    {
+        var drawn = Growth.Measure(
+            [250, 500, 1_000],
+            n =>
+            {
+                var view = new RichTextView { State = EditorState.Create(Growth.Table(n)) };
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                WorkCounters.TableCellsRendered = 0;
+                WorkCounters.TableCellsExamined = 0;
+
+                using var frame = window.CaptureRenderedFrame();
+
+                Assert.NotNull(frame);
+                Assert.True(WorkCounters.TableCellsRendered > 0, "no cell was painted");
+
+                return WorkCounters.TableCellsExamined;
+            });
+
+        Growth.AssertFlat(drawn, "table cells looked at to paint one frame showing the top of the table");
+    }
+
+    /// <summary>
+    /// Painting a frame of a table one cell of which spans every row looks at each row once.
+    /// </summary>
+    /// <remarks>
+    /// Such a cell makes the whole table one band, and a frame showing the bottom of it walks
+    /// every row from the top, where the cell starts. Each row checked that its whole band was
+    /// laid out before drawing it, so the frame looked at rows × rows: about 10⁸ checks at 10,000
+    /// rows (rubber-duck review finding 10.3).
+    /// </remarks>
+    [AvaloniaFact]
+    public void PaintingAFrameOfATableSpannedByOneCellIsLinearInItsRows()
+    {
+        var work = Growth.Measure(
+            [1_000, 2_000, 4_000],
+            n =>
+            {
+                var doc = new DocumentNode([
+                    new TableNode(Enumerable.Range(0, n).Select(r => new TableRowNode(r == 0
+                        ? [new TableCellNode([ParagraphNode.FromText("spanning every row")], rowSpan: n), TableCellNode.FromText("r0")]
+                        : [TableCellNode.FromText($"r{r}")]))),
+                    ParagraphNode.FromText("After the table."),
+                ]);
+                var view = new RichTextView { State = EditorState.Create(doc) };
+                var window = new Window { Content = view, Width = Width, Height = Height };
+
+                window.Show();
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                view.Offset = new Vector(0, view.Extent.Height - Height);
+                window.Measure(new Size(Width, Height));
+                window.Arrange(new Rect(0, 0, Width, Height));
+
+                WorkCounters.TableCellsRendered = 0;
+                WorkCounters.TableCellsExamined = 0;
+                WorkCounters.TableRowsChecked = 0;
+
+                using var frame = window.CaptureRenderedFrame();
+
+                Assert.NotNull(frame);
+                Assert.True(WorkCounters.TableCellsRendered > 0, "no cell was painted");
+
+                return WorkCounters.TableCellsExamined + WorkCounters.TableRowsChecked;
+            });
+
+        Growth.AssertAtMostLinear(work, "table rows and cells looked at to paint one frame of the bottom of a spanned table");
+    }
+
+    /// <summary>
+    /// F-35: a keystroke in a table cell rebuilds the row it is in, not every row.
+    /// </summary>
+    /// <remarks>
+    /// <c>TableBlockView.Update</c> walked every cell of the table — flattening its blocks and
+    /// matching its views — on every keystroke anywhere in it: 5.35 ms at 1,000 × 5 and linear in
+    /// rows. The bench scenario is <c>a-table</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public void AKeystrokeInATableRebuildsOnlyTheRowItIsIn()
+    {
+        var built = Growth.Measure(
+            [250, 500, 1_000],
+            n =>
+            {
+                var view = Shown(Growth.Table(n));
+
+                view.MoveTo(Growth.FirstCellText, false);
+                Layout(view);
+                view.InsertText("x");
+                Layout(view);
+
+                WorkCounters.TableCellsBuilt = 0;
+
+                view.InsertText("x");
+                Layout(view);
+
+                return WorkCounters.TableCellsBuilt;
+            });
+
+        Growth.AssertFlat(built, "table cells rebuilt by a keystroke in the first cell");
+        Assert.True(built.All(count => count <= 5), $"cells rebuilt: {string.Join(", ", built)}");
+    }
+    /// <summary>
+    /// F-35: laying out a long table measures and builds the rows on screen, not every row.
+    /// </summary>
+    /// <remarks>
+    /// The table view built a view for every block of every cell when it was created and measured
+    /// all of them whenever it was measured: 3.4 s of a 1,000-row profile in <c>Measure</c> alone,
+    /// and linear in rows (docs/increment-9-0-profile.md). Rows are now realized in bands as the
+    /// viewport reaches them, with the rest priced at an estimate.
+    /// </remarks>
+    [AvaloniaFact]
+    public void LayingOutALongTableRealizesOnlyTheRowsOnScreen()
+    {
+        var built = new long[3];
+        var measured = Growth.Measure(
+            [2_500, 5_000, 10_000],
+            n =>
+            {
+                var doc = Growth.Table(n);
+
+                WorkCounters.TableCellsMeasured = 0;
+                WorkCounters.TableCellsBuilt = 0;
+
+                Shown(doc);
+
+                built[Array.IndexOf([2_500, 5_000, 10_000], n)] = WorkCounters.TableCellsBuilt;
+
+                return WorkCounters.TableCellsMeasured;
+            });
+
+        Growth.AssertFlat(measured, "table cells measured to lay out the top of a long table");
+        Growth.AssertFlat(built, "table cells built to lay out the top of a long table");
+    }
+
+    /// <summary>
+    /// F-35: scrolling to the middle of a long table measures the rows it brings on screen.
+    /// </summary>
+    [AvaloniaFact]
+    public void ScrollingALongTableRealizesOnlyTheRowsItBringsOnScreen()
+    {
+        var measured = Growth.Measure(
+            [2_500, 5_000, 10_000],
+            n =>
+            {
+                var view = Shown(Growth.Table(n));
+
+                WorkCounters.TableCellsMeasured = 0;
+
+                view.Offset = new Vector(0, view.Extent.Height / 2);
+                Layout(view);
+
+                Assert.True(WorkCounters.TableCellsMeasured > 0, "the scroll measured nothing");
+
+                return WorkCounters.TableCellsMeasured;
+            });
+
+        Growth.AssertFlat(measured, "table cells measured to scroll to the middle of a long table");
+    }
+
+    /// <summary>
+    /// The AC12 row for a table, the view's share: after a keystroke in the first cell of a
+    /// 10,000-row table, bringing the view up to date measures that row again and allocates within
+    /// the keystroke budget.
+    /// </summary>
+    /// <remarks>
+    /// Only the view's share, because the model's is not the view's to fix: applying the step
+    /// validates the edited table, and <c>DocumentSchema.ValidateTable</c> places every cell to do
+    /// it — about 6 MB at this size, measured, linear in cells and the same before and after this
+    /// change. The edit is therefore applied to the state outside the measurement and handed to
+    /// the view, which reconciles and lays it out exactly as it does a typed one.
+    /// </remarks>
+    [AvaloniaFact]
+    public void Ac12AKeystrokeInATenThousandRowTableLaysOutOneRowWithinItsBudget()
+    {
+        var view = Shown(Growth.Table(10_000));
+
+        view.MoveTo(Growth.FirstCellText, false);
+        Layout(view);
+        Typed(view);
+
+        WorkCounters.TableCellsMeasured = 0;
+
+        var bytes = Typed(view);
+
+        Assert.True(bytes <= Ac12Budget, $"laying out a keystroke allocated {bytes:N0} bytes (budget {Ac12Budget:N0})");
+        Assert.InRange(WorkCounters.TableCellsMeasured, 1, 5);
+
+        static long Typed(RichTextView view)
+        {
+            var state = view.State;
+            var head = state.Selection.Head;
+            var next = state.Apply(state.Transaction().InsertText(head, "x").SetSelection(TextSelection.Cursor(head + 1)));
+            var before = GC.GetAllocatedBytesForCurrentThread();
+
+            view.State = next;
+            Layout(view);
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+    }
+
+    /// <summary>
+    /// Laying out a 10,000-row table allocates for the rows on screen and a few words of
+    /// bookkeeping per row, not a laid-out view of every cell.
+    /// </summary>
+    [AvaloniaFact]
+    public void LayingOutATenThousandRowTableAllocatesBookkeepingNotViews()
+    {
+        var doc = Growth.Table(10_000);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        Shown(doc);
+
+        var bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(bytes <= FirstLayoutBudget, $"laying out the table allocated {bytes:N0} bytes (budget {FirstLayoutBudget:N0})");
+    }
+
+    /// <summary>What laying out a 10,000 × 5 table for the first time may allocate.</summary>
+    /// <remarks>
+    /// Measured at 7.8 MB, about 780 bytes a row, most of it placing the cells
+    /// (<c>TableGeometry.Place</c>'s occupancy set) and the per-row arrays. A laid-out view of every
+    /// cell, which is what it was, allocated 280 MB.
+    /// </remarks>
+    private const long FirstLayoutBudget = 12_000_000;
+    /// <summary>
     /// F-32, inside one paragraph: once two stretches share nothing, the rest of the paragraph is
     /// not looked at.
     /// </summary>
@@ -477,7 +804,68 @@ internal static class Growth
                 $"Paragraph {i} with enough words in it to need shaping and to wrap once.")))
             .ToArray());
 
-    private static InlineContent EveryOtherWordBold(string text)
+    /// <summary>
+    /// <paramref name="length"/> characters of short numbered words, the bench's long-paragraph
+    /// text.
+    /// </summary>
+    public static string Words(int length)
+    {
+        var text = new System.Text.StringBuilder(length + 16);
+        var word = 0;
+
+        while (text.Length < length)
+        {
+            text.Append("word").Append(word++ % 10).Append(' ');
+        }
+
+        return text.ToString(0, length);
+    }
+
+    /// <summary>
+    /// <paramref name="length"/> characters of words of irregular length, as prose has: the lines
+    /// of a paragraph do not all hold the same number of words.
+    /// </summary>
+    public static string Prose(int length)
+    {
+        var random = new Random(20261027);
+        var text = new System.Text.StringBuilder(length + 16);
+
+        while (text.Length < length)
+        {
+            var letters = random.Next(1, 12);
+
+            for (var i = 0; i < letters; i++)
+            {
+                text.Append((char)('a' + random.Next(26)));
+            }
+
+            text.Append(random.Next(9) == 0 ? ", " : " ");
+        }
+
+        return text.ToString(0, length);
+    }
+
+    /// <summary>
+    /// A paragraph, a table of <paramref name="rows"/> × <paramref name="columns"/> one-line
+    /// cells, and a paragraph: the bench's <c>a-table</c> document.
+    /// </summary>
+    public static DocumentNode Table(int rows, int columns = 5) =>
+        new([
+            ParagraphNode.FromText("Before the table."),
+            new TableNode(Enumerable.Range(0, rows).Select(r =>
+                new TableRowNode(Enumerable.Range(0, columns).Select(c =>
+                    TableCellNode.FromText($"Row {r} column {c} value {r * c}"))))),
+            ParagraphNode.FromText("After the table."),
+        ]);
+
+    /// <summary>
+    /// The document position just inside the text of <see cref="Table"/>'s first cell: past the
+    /// paragraph before it (17 characters and its two boundaries) and the table, row, cell and
+    /// paragraph openings, and one character in.
+    /// </summary>
+    public const int FirstCellText = 24;
+    /// <summary>The text with every other word bold.</summary>
+    public static InlineContent EveryOtherWordBold(string text)
     {
         var spans = new List<ValueSpan<MarkSet>>();
         var bold = new MarkSet { Style = TextStyle.Bold };

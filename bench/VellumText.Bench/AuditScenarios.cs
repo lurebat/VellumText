@@ -225,15 +225,26 @@ internal static class AuditScenarios
     {
         var lengths = new[] { 12_500, 25_000, 50_000, 100_000 };
 
-        foreach (var marked in new[] { false, true })
+        // "prose" varies word length, so one inserted character does not push every later line
+        // break along with it the way the uniform "wordN " text does (phase 9: that text is the
+        // worst case for line-range sub-layouts, prose the ordinary one).
+        foreach (var (marked, prose) in new[] { (false, false), (true, false), (true, true) })
         {
             var points = lengths.Select(len =>
             {
                 var sb = new StringBuilder(len + 16);
                 var w = 0;
+                var rng = new Random(42);
                 while (sb.Length < len)
                 {
-                    sb.Append("word").Append(w++ % 10).Append(' ');
+                    if (prose)
+                    {
+                        sb.Append('w', rng.Next(1, 12)).Append(' ');
+                    }
+                    else
+                    {
+                        sb.Append("word").Append(w++ % 10).Append(' ');
+                    }
                 }
 
                 var text = sb.ToString(0, len);
@@ -259,7 +270,7 @@ internal static class AuditScenarios
             }).ToList();
 
             Measure.Report(
-                $"AUDIT Keystroke in the middle of one long paragraph ({(marked ? $"every other word bold, ~len/12 spans" : "no marks")})",
+                $"AUDIT Keystroke in the middle of one long paragraph ({(marked ? $"every other word bold, ~len/12 spans" : "no marks")}{(prose ? ", prose word lengths" : string.Empty)})",
                 "chars",
                 points,
                 "Budget 16 ms per keystroke.");
@@ -301,7 +312,8 @@ internal static class AuditScenarios
 
     internal static void TableCell()
     {
-        var rows = new[] { 125, 250, 500, 1_000 };
+        // 10,000 rows is the size phase 9's row virtualization was built for (plan 9.3).
+        var rows = new[] { 125, 250, 500, 1_000, 10_000 };
 
         var type = rows.Select(r =>
         {

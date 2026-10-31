@@ -71,6 +71,9 @@ public partial class RichTextView : DocumentPresenter
 
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
+
+    /// <summary>The state whose document the block views were last reconciled with.</summary>
+    private EditorState? _reconciledState;
     private bool _caretVisible;
     private int _caretBlock;
 
@@ -342,14 +345,29 @@ public partial class RichTextView : DocumentPresenter
     /// changes and a stale copy would edit the wrong paragraph. It is a search through one
     /// block, not the document.
     /// </remarks>
-    private TextAt? CaretText =>
-        _views.Count == 0
-            ? null
-            : _views[_caretBlock].ParagraphAt(
+    private TextAt? CaretText
+    {
+        get
+        {
+            if (_views.Count == 0)
+            {
+                return null;
+            }
+
+            // Laid out first, outside a frame, so that asking a table for the paragraph does not
+            // lay out a far row behind the presenter's back; painting reads it ready-made.
+            if (!LayoutGuard.IsPainting)
+            {
+                PreparePosition(_state.Selection.Head);
+            }
+
+            return _views[_caretBlock].ParagraphAt(
                 Math.Clamp(
                     _state.Selection.Head - _slots[_caretBlock].Start,
                     0,
                     _views[_caretBlock].ContentSize));
+        }
+    }
 
     /// <summary>
     /// The view of the paragraph the caret is in, or null before the control has been measured.
@@ -496,6 +514,7 @@ public partial class RichTextView : DocumentPresenter
     /// <inheritdoc/>
     private protected override void OnReconciled(BlockView? before)
     {
+        _reconciledState = _state;
         _caretBlock = Math.Min(BlockIndexOf(_state.Selection.Head), Math.Max(0, _views.Count - 1));
 
         // A composition belongs to the paragraph the commit will replace the selection in. If
@@ -516,6 +535,151 @@ public partial class RichTextView : DocumentPresenter
     {
         _caretBlock = 0;
         _composing = null;
+        _reconciledState = null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The caret and the composition, both ends of the selection for the touch handles, the
+    /// selected picture for its handles, and the drop target of a move being dragged.
+    /// </remarks>
+    private protected override void PreparePaintDependencies()
+    {
+        var selection = _state.Selection;
+
+        PreparePosition(selection.Head);
+        PreparePosition(selection.From);
+        PreparePosition(selection.To);
+
+        if (SelectedImage is { } image)
+        {
+            PreparePosition(image);
+        }
+
+        if (_moving)
+        {
+            PreparePosition(_moveTarget);
+        }
+    }
+
+    /// <summary>Lays out what painting will ask about, then asks for a frame.</summary>
+    /// <remarks>
+    /// For a change something painted depends on that comes without a layout pass — a drop
+    /// target moving under the pointer, handles appearing — so the frame finds it laid out.
+    /// </remarks>
+    private void InvalidatePaint()
+    {
+        PreparePaintDependencies();
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Whether every position a piece of painting asks about was laid out before the frame.
+    /// </summary>
+    /// <remarks>
+    /// Painting lays nothing out (<see cref="LayoutGuard"/>). A position nothing prepared is a
+    /// missed <see cref="InvalidatePaint"/>: a debug build throws, so the test that paints it says
+    /// where; a release build leaves that piece out of this frame and asks for another once the
+    /// position is laid out, rather than laying it out mid-frame or drawing it in the wrong place.
+    /// </remarks>
+    /// <param name="positions">The positions.</param>
+    private bool PaintReady(params ReadOnlySpan<int> positions)
+    {
+        foreach (var position in positions)
+        {
+            if (!IsPositionPrepared(position))
+            {
+#if DEBUG
+                throw new InvalidOperationException(
+                    $"Painting asked about position {position}, which nothing laid out before the frame.");
+#else
+                Dispatcher.UIThread.Post(InvalidatePaint);
+
+                return false;
+#endif
+            }
+        }
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Known when the state now presented was applied directly from the one last laid out, which
+    /// is every edit, undo and redo, since the view lays out after each.
+    /// </remarks>
+    private protected override Mapping? MappingFrom(DocumentNode basis) =>
+        _reconciledState is { } laidOut && ReferenceEquals(laidOut.Doc, basis)
+            ? StateLineage.MappingFrom(laidOut, _state)
+            : null;
+
+    /// <summary>
+    /// Scrolls the document's end to the bottom of the viewport, leaving the caret and the
+    /// selection where they are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The scroll Ctrl+End makes, without moving the caret. It takes effect in the next layout
+    /// pass, and a scroll before that pass — the wheel, the scroll bar, the host setting
+    /// <see cref="DocumentPresenter.Offset"/> — cancels it, so a request nobody got to cannot pull
+    /// the view away from where the reader has since gone.
+    /// </para>
+    /// <para>
+    /// Setting <see cref="DocumentPresenter.Offset"/> to the end of the scroll range is not the
+    /// same, and neither is <see cref="ScrollViewer.ScrollToEnd"/>, which does exactly that. The
+    /// range is the <see cref="DocumentPresenter.Extent"/>, and the extent counts every block — and
+    /// every table row — nobody has laid out yet at an estimated height. When those estimates are
+    /// too small, as they are for rows that each hold a long nested table, the end of the range is
+    /// short of the end of the document, sometimes by many screens. This lays the window out from
+    /// the document's end up instead, so it reaches the end whatever the estimates say. The offset
+    /// alone stays a plain scroll on purpose: the wheel sets it too, and a wheel scroll that
+    /// reaches the end of the range must not jump.
+    /// </para>
+    /// <para>
+    /// <see cref="RichTextEditor"/> calls this when its vertical scroll bar is taken to the end:
+    /// the thumb dragged to the bottom, or an arrow or the track clicked until it gets there.
+    /// </para>
+    /// <para>
+    /// Does nothing visible when the whole document fits, or when the view is not the scroll
+    /// viewer's direct content and so lays everything out and is scrolled by its host.
+    /// </para>
+    /// </remarks>
+    public void ScrollToEnd() => RequestEnd();
+
+    /// <inheritdoc/>
+    /// <remarks>The caret at the last place in the document one can sit: where Ctrl+End puts it.</remarks>
+    private protected override bool IsAnchorAtDocumentEnd =>
+        _state.Selection.Head == Selection.AtEnd(_state.Doc).Head;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The caret, which typing and the input method keep coming back to; the composition, drawn at
+    /// the start of the selection, which a row let go would take with it; the selected picture,
+    /// whose handles are drawn; and the drop target of a move being dragged. The other end of a
+    /// selection is not kept: when it is far from the viewport it is laid out again, for the frame
+    /// that asks about it, by the preparation that follows every layout pass.
+    /// </remarks>
+    private protected override int[] PinnedPositions()
+    {
+        var selection = _state.Selection;
+        var pins = new List<int>(4) { selection.Head };
+
+        if (IsComposing)
+        {
+            pins.Add(selection.From);
+        }
+
+        if (SelectedImage is { } image)
+        {
+            pins.Add(image);
+        }
+
+        if (_moving)
+        {
+            pins.Add(_moveTarget);
+        }
+
+        return [.. pins];
     }
 
     /// <inheritdoc/>
@@ -681,7 +845,7 @@ public partial class RichTextView : DocumentPresenter
 
             var origin = BlockOrigin(i);
 
-            foreach (var rect in table.GetCellRects(wanted, _slots[i].Start))
+            foreach (var rect in table.GetCellRects(wanted, _slots[i].Start, RealizedWindowOf(origin)))
             {
                 onRect(rect.Translate(origin));
             }
@@ -695,7 +859,7 @@ public partial class RichTextView : DocumentPresenter
     /// </remarks>
     private void RenderCaret(DrawingContext context)
     {
-        if (!_caretVisible || _views.Count == 0)
+        if (!_caretVisible || _views.Count == 0 || !PaintReady(_state.Selection.Head, _state.Selection.From))
         {
             return;
         }
