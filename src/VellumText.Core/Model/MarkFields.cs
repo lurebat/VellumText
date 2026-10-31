@@ -69,7 +69,7 @@ public enum MarkFields
 }
 
 /// <summary>Conversions between <see cref="MarkFields"/> and <see cref="TextStyle"/>.</summary>
-public static class MarkFieldsExtensions
+internal static class MarkFieldsExtensions
 {
     /// <summary>Extracts the style bits, discarding the scalar-field selectors.</summary>
     /// <param name="fields">The selection to convert.</param>

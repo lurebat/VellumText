@@ -63,11 +63,13 @@ public sealed class RtfFormat : IDocumentImporter, IDocumentExporter
     public Encoding? TextEncoding => Encoding.Latin1;
 
     /// <inheritdoc/>
-    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) =>
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken) =>
         RtfImporter.ImportAsync(text, ImportOptions, cancellationToken);
 
     /// <inheritdoc/>
+#pragma warning disable RS0027 // Ties with the string overload on purpose; see IDocumentImporter.
     public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+#pragma warning restore RS0027
     {
         var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.Latin1, cancellationToken)
             .ConfigureAwait(false);

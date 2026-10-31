@@ -36,9 +36,7 @@ public class ExcelClipboardTests
         var result = await ImportFixture("excel-range-A1D6");
         var table = Assert.IsType<TableNode>(Assert.Single(result.Doc.Blocks));
 
-        TableGeometry.Place(table, out var width);
-
-        Assert.Equal(4, width);
+        Assert.Equal(4, TableGrid.Build(0, table).Columns);
         Assert.Equal(
             [
                 ["Name", "Qty", "Price", "Note"],

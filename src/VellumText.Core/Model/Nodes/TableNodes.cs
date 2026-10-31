@@ -285,7 +285,7 @@ public sealed class TableCellNode : BlockNode
 /// <param name="Left">The first column it occupies.</param>
 /// <param name="Bottom">One past the last row it occupies.</param>
 /// <param name="Right">One past the last column it occupies.</param>
-public readonly record struct CellPlacement(int Top, int Left, int Bottom, int Right);
+internal readonly record struct CellPlacement(int Top, int Left, int Bottom, int Right);
 
 /// <summary>
 /// Works out which grid slots each cell of a table occupies.
@@ -303,7 +303,7 @@ public readonly record struct CellPlacement(int Top, int Left, int Bottom, int R
 /// and the view uses it to decide which column a cell is drawn in.
 /// </para>
 /// </remarks>
-public static class TableGeometry
+internal static class TableGeometry
 {
     /// <summary>
     /// Places every cell of a table, in row-major order, matching the order the rows and

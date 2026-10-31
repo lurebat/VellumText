@@ -64,7 +64,7 @@ public class MarkdownRoundTripPropertyTests
                     start,
                     length,
                     MarkSet.Empty with { Style = style },
-                    style.ToFields());
+                    (MarkFields)style);
             }
 
             var kind = rng.Next(6) switch

@@ -61,7 +61,7 @@ public class RichTextViewFormatTests
         view.Formats.Add(HtmlFormat.Instance);
 
         var item = Assert.Single(view.BuildCopyData("bold and plain").Items);
-        var doc = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"))).Doc;
+        var doc = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"), CancellationToken.None)).Doc;
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(doc.Blocks));
 
         Assert.Equal("bold and plain", paragraph.Content.Text);
@@ -78,7 +78,7 @@ public class RichTextViewFormatTests
         view.Formats.Add(RtfFormat.Instance);
 
         var item = Assert.Single(view.BuildCopyData("bold and plain").Items);
-        var doc = (await RtfFormat.Instance.ImportAsync(Decode(item, "rtf"))).Doc;
+        var doc = (await RtfFormat.Instance.ImportAsync(Decode(item, "rtf"), CancellationToken.None)).Doc;
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(doc.Blocks));
 
         Assert.Equal("bold and plain", paragraph.Content.Text);
@@ -101,7 +101,7 @@ public class RichTextViewFormatTests
         view.State = EditorState.Create(doc, TextSelection.Create(doc, 8, 14));
 
         var item = Assert.Single(view.BuildCopyData(view.SelectedText()).Items);
-        var copied = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"))).Doc;
+        var copied = (await HtmlFormat.Instance.ImportAsync(Decode(item, "html"), CancellationToken.None)).Doc;
 
         Assert.Equal("second", Assert.IsType<ParagraphNode>(Assert.Single(copied.Blocks)).Content.Text);
     }

@@ -128,7 +128,7 @@ public static class Program
         "rtf" => RtfImporter.ImportAsync(input).GetAwaiter().GetResult(),
         "rtf-no-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { AllowDataImages = false }).GetAwaiter().GetResult(),
         "rtf-small-data-images" => RtfImporter.ImportAsync(input, new RtfImportOptions { MaxDataImageBytes = 1024 }).GetAwaiter().GetResult(),
-        "json" => JsonFormat.Instance.ImportAsync(input).GetAwaiter().GetResult(),
+        "json" => JsonFormat.Instance.ImportAsync(input, CancellationToken.None).GetAwaiter().GetResult(),
         _ => throw new ArgumentException($"unknown format '{format}'"),
     };
 }

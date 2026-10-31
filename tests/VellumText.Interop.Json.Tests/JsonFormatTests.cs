@@ -13,7 +13,7 @@ namespace VellumText.Tests.Interop.Json;
 public class JsonFormatTests
 {
     private static async Task<DocumentNode> RoundTrip(DocumentNode doc) =>
-        (await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc))).Doc;
+        (await JsonFormat.Instance.ImportAsync(JsonFormat.Instance.Export(doc), TestContext.Current.CancellationToken)).Doc;
 
     [Fact]
     public async Task PlainParagraphsSurvive()

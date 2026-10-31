@@ -542,7 +542,8 @@ cost. Import reports in the ordinary way, through `ImportResult.Diagnostics`.
 Or use them directly:
 
 ```csharp
-ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
+// A string import takes a token; pass CancellationToken.None if there is nothing to cancel.
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html, CancellationToken.None);
 
 if (result.AnythingDropped)
 {
@@ -1003,7 +1004,7 @@ if (result is not null)
 // Restore.
 await RichTextClipboard.WriteAsync(
     clipboard,
-    (await JsonFormat.Instance.ImportAsync(entry.Stored)).Doc,
+    (await JsonFormat.Instance.ImportAsync(entry.Stored, CancellationToken.None)).Doc,
     [HtmlFormat.Instance, RtfFormat.Instance]);
 ```
 

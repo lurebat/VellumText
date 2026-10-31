@@ -135,7 +135,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
     /// For tests and diagnostics: this is the evidence that virtualization is happening at all.
     /// Empty when nothing has been realized yet.
     /// </remarks>
-    public Range RealizedBlocks => _last < _first ? new Range(0, 0) : new Range(_first, _last + 1);
+    internal Range RealizedBlocks => _last < _first ? new Range(0, 0) : new Range(_first, _last + 1);
 
     bool ILogicalScrollable.IsLogicalScrollEnabled => true;
 

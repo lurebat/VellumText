@@ -68,7 +68,7 @@ public partial class RichTextView
     private double _columnDragFrom;
 
     /// <summary>Whether a column boundary is being dragged.</summary>
-    public bool IsResizingColumn => _columnDrag is not null;
+    internal bool IsResizingColumn => _columnDrag is not null;
 
     /// <summary>Starts a column resize if the pointer went down on a boundary.</summary>
     /// <remarks>

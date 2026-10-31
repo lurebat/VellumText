@@ -26,7 +26,7 @@ namespace VellumText.Interop.Html;
 /// Importing the whole document instead of the fragment is how a paste of three words ends up
 /// carrying a page's navigation bar with it.
 /// </remarks>
-public static class ClipboardHtml
+internal static class ClipboardHtml
 {
     private const string StartFragmentComment = "<!--StartFragment-->";
     internal const string EndFragmentComment = "<!--EndFragment-->";

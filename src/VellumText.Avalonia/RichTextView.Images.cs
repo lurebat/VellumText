@@ -99,7 +99,7 @@ public partial class RichTextView
     }
 
     /// <summary>Whether an image is being resized by a pointer drag.</summary>
-    public bool IsResizingImage => _resizing is not null;
+    internal bool IsResizingImage => _resizing is not null;
 
     /// <summary>Selects the image at a position.</summary>
     /// <param name="position">The position the image occupies.</param>

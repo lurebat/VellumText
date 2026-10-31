@@ -25,7 +25,7 @@ namespace VellumText.Avalonia;
 /// which is knowledge it has no business having.
 /// </para>
 /// </remarks>
-public partial class RichTextView : DocumentPresenter
+public sealed partial class RichTextView : DocumentPresenter
 {
     /// <summary>Defines the <see cref="State"/> property.</summary>
     public static readonly DirectProperty<RichTextView, EditorState> StateProperty =
@@ -286,7 +286,8 @@ public partial class RichTextView : DocumentPresenter
     /// <inheritdoc/>
     protected internal override bool SupportsTextInput => !IsReadOnly;
 
-    /// <inheritdoc/>
+    /// <summary>Replaces the whole document with plain text, on behalf of an automation client.</summary>
+    /// <param name="text">The replacement text.</param>
     /// <remarks>
     /// <para>
     /// One transaction replacing the whole document with the text's paragraphs, so one undo takes
@@ -300,7 +301,7 @@ public partial class RichTextView : DocumentPresenter
     /// outside it and survived a "replace everything".
     /// </para>
     /// </remarks>
-    protected internal override void SetTextFromAutomation(string text)
+    internal void SetTextFromAutomation(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
 
@@ -310,10 +311,9 @@ public partial class RichTextView : DocumentPresenter
         // clipboard before its delete declines.
         //
         // The peer refuses before it gets here, so this is unreachable through the only caller
-        // in this assembly. It stays because DocumentPresenter is deliberately derivable and
-        // SupportsTextInput is virtual: a subclass that answers true while locked reaches this,
-        // and a second internal caller would too. Tested directly rather than through the peer,
-        // because a guard nothing can turn red is a guard nobody can rely on.
+        // in this assembly. It stays because a second internal caller would not be refused by
+        // the peer. Tested directly rather than through the peer, because a guard nothing can
+        // turn red is a guard nobody can rely on.
         if (IsReadOnly)
         {
             return;
@@ -406,7 +406,7 @@ public partial class RichTextView : DocumentPresenter
     }
 
     /// <summary>Whether the caret is currently painted, for tests and for the blink timer.</summary>
-    public bool IsCaretVisible => _caretVisible;
+    internal bool IsCaretVisible => _caretVisible;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -434,7 +434,7 @@ public partial class RichTextView : DocumentPresenter
     /// Without this a caret moved just before the timer ticks vanishes on arrival, which reads
     /// as a dropped keystroke.
     /// </remarks>
-    public void ResetCaretBlink()
+    internal void ResetCaretBlink()
     {
         _caretVisible = IsFocused;
         _blink.Stop();
@@ -905,7 +905,7 @@ public partial class RichTextView : DocumentPresenter
     /// </remarks>
     /// <param name="caret">The caret rectangle in device-independent pixels.</param>
     /// <param name="scale">The render scaling of the surface being drawn on.</param>
-    public static Rect SnapCaret(Rect caret, double scale)
+    internal static Rect SnapCaret(Rect caret, double scale)
     {
         if (scale <= 0 || double.IsNaN(scale) || double.IsInfinity(scale))
         {

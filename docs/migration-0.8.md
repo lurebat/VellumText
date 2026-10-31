@@ -1,7 +1,9 @@
 # Migrating to VellumText 0.8
 
-0.8.0 makes importing asynchronous. It is the one breaking change in the release; nothing about
-exporting, the document model or the editor's own API changes shape.
+0.8.0 makes importing asynchronous, and trims the public API to what 1.0 will freeze. Those are
+the two breaking changes in the release. The first touches every caller and implementer of an
+importer; the second touches only code that subclassed a control or a step, or reached into
+members that were public by accident. See [The 1.0 API trim](#the-10-api-trim).
 
 ## Why
 
@@ -17,7 +19,7 @@ import started.
 | 0.7 | 0.8 |
 |---|---|
 | `IDocumentImporter.Import(Stream)` | `IDocumentImporter.ImportAsync(Stream, CancellationToken = default)` |
-| `IDocumentImporter.Import(string)` | `IDocumentImporter.ImportAsync(string, CancellationToken = default)` |
+| `IDocumentImporter.Import(string)` | `IDocumentImporter.ImportAsync(string, CancellationToken)` — the token is required |
 | `HtmlFormat`/`RtfFormat`/`MarkdownFormat`/`JsonFormat` `.Import(…)` | `.ImportAsync(…)` |
 | `HtmlImporter.Import(html, options)` | `HtmlImporter.ImportAsync(html, options, cancellationToken)` |
 | `HtmlImporter.ImportClipboard(payload, options)` | `HtmlImporter.ImportClipboardAsync(payload, options, cancellationToken)` |
@@ -40,8 +42,14 @@ Await it:
 ImportResult result = HtmlFormat.Instance.Import(html);
 
 // 0.8
-ImportResult result = await HtmlFormat.Instance.ImportAsync(html);
+ImportResult result = await HtmlFormat.Instance.ImportAsync(html, cancellationToken);
 ```
+
+The string overload takes a token with no default; pass `CancellationToken.None` where there is
+nothing to cancel. Without one the call fails to compile with *cannot convert from 'string' to
+'System.IO.Stream'*, because the stream overload, whose token is optional, is the only candidate
+left. The static `HtmlImporter`, `RtfImporter` and `MarkdownImporter` methods keep their optional
+parameters.
 
 Do not block on it with `.Result` or `.GetAwaiter().GetResult()` on a UI thread. That is the freeze
 this release removes, and on a thread with a synchronization context it can deadlock.
@@ -65,7 +73,7 @@ public sealed class MyFormat : IDocumentImporter
         return Parse(text);
     }
 
-    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default) =>
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken) =>
         Task.FromResult(Parse(text));
 
     private static ImportResult Parse(string text) => /* … */;
@@ -74,6 +82,40 @@ public sealed class MyFormat : IDocumentImporter
 
 A synchronous parser wrapped in `Task.FromResult`, as above, is fine: the editor runs it on a
 background thread regardless.
+
+## The 1.0 API trim
+
+The [public API review](plans/2026-10-28-public-api-review.md) closed what 1.0 should not promise.
+Every package's API is now listed in `PublicAPI.Shipped.txt` and `PublicAPI.Unshipped.txt` beside
+it, and the build fails on any change those files do not record.
+
+**Closed to subclassing.** `RichTextView`, `RichTextEditor` and `RichTextViewer` are `sealed`.
+`DocumentPresenter` is still public and abstract, but its constructor is `private protected`. `Step`
+is closed the same way, so the steps VellumText ships are the only ones; they all stay public and
+sealed. A subclass written against 0.7 will not compile. Wrap the control instead of deriving from
+it: everything a subclass could reach through a protected override is available as a property,
+event or command on the control. To build an edit, combine the built-in steps through
+`Transaction`.
+
+**Made internal.** These were reachable but were plumbing for the controls, the exporters or the
+tests:
+
+| Was public | Use instead |
+|---|---|
+| `RichTextView.GoalX`, `IsCaretVisible`, `SnapCaret`, `ResetCaretBlink` | nothing; the caret is the control's own |
+| `RichTextView.Preedit`, `SetPreedit`, the `Preedit` record | `IsComposing`; the input method drives the composition |
+| `RichTextView.IsResizingColumn`, `IsResizingImage`, `IsDraggingTouchHandle` | `IsDragging` and `IsMovingSelection`, for waiting until a drag ends |
+| `RichTextView.TouchHandles` | `ShowTouchHandles`, `HideTouchHandles`, `AreTouchHandlesVisible` |
+| `DocumentPresenter.RealizedBlocks` | nothing; it was diagnostic |
+| `DocumentPresenter.SetTextFromAutomation` | `DocumentPresenterAutomationPeer.SetValue`, which is what calls it |
+| `BlockSlot`, `ListMarker`, `DocumentBlocks` | the block-index API: `BlockCount`, `BlockIndexAt`, `BlockIndexOf`, `BlockOrigin`, `PositionAt` |
+| `TableGeometry.Place`, `CellPlacement` | `TableGrid.Build(tablePos, table)`: `Columns`, `Rows`, `Cells` (each a `TableSlot`) |
+| `MarkFieldsExtensions.ToFields`, `ToStyle`, `Includes` | `(MarkFields)style`; `(TextStyle)(fields & MarkFields.AllStyles)`; `(fields & wanted) == wanted` |
+| `ClipboardHtml` | `HtmlImporter.ImportClipboardAsync`, `HtmlExporter.ExportForClipboard` |
+
+**No public constructor.** `HtmlExporter`, `RtfExporter`, `MarkdownExporter`, `JsonFormat` and
+`JsonHighlighter` are reached through `Instance`, as `HtmlFormat`, `RtfFormat` and `MarkdownFormat`
+already were. Replace `new HtmlExporter()` with `HtmlExporter.Instance`.
 
 ## What the editor does differently
 
@@ -97,6 +139,6 @@ background thread regardless.
 A host that vendors VellumText 0.7.0 packages (Clipthrough does, from a local feed) upgrades by
 packing 0.8.0 into the same feed, bumping its package references, and then letting the compiler
 list the call sites: every one is an `Import`, `ImportClipboard`, `Decode`, `Read` or `ReadAllText`
-call from the table above, or a class implementing `IDocumentImporter`. Nothing else in the editor's
-API changed shape. Because NuGet caches by id and version, clear the host's cached 0.8.0 packages if
+call from the table above, a string `ImportAsync` call on a `*Format` that does not pass a token, a
+class implementing `IDocumentImporter`, or a member from [The 1.0 API trim](#the-10-api-trim). Because NuGet caches by id and version, clear the host's cached 0.8.0 packages if
 the feed is re-packed under the same version (see [consuming](consuming.md#packing)).

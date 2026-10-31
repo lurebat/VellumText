@@ -63,9 +63,22 @@ public readonly record struct StepResult
 /// position stale; one that cannot be rebased forecloses collaboration. Requiring all four up
 /// front is what stops a change from being added that quietly cannot do one of them.
 /// </para>
+/// <para>
+/// <b>The hierarchy is closed.</b> The constructor is <c>private protected</c>, and every built-in
+/// step is <c>sealed</c>. Nothing in the library switches on which step it is, so a step written
+/// elsewhere would work; the hierarchy is closed because custom steps are not a supported
+/// extension point for 1.0, and opening it later is a compatible change where closing it after
+/// 1.0 would not have been. As with <see cref="InlineEmbed"/>, a record's copy constructor must
+/// stay <c>protected</c> (CS8878), so a derivation that chains to it is still possible on purpose,
+/// just not by accident.
+/// </para>
 /// </remarks>
 public abstract record Step
 {
+    private protected Step()
+    {
+    }
+
     /// <summary>Applies this step to a document.</summary>
     /// <param name="doc">The document to change.</param>
     public abstract StepResult Apply(DocumentNode doc);

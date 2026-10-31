@@ -37,6 +37,10 @@ public sealed class MarkdownExporter : IDocumentExporter
     /// <summary>A shared instance. The exporter holds no state.</summary>
     public static MarkdownExporter Instance { get; } = new();
 
+    private MarkdownExporter()
+    {
+    }
+
     /// <inheritdoc/>
     public string Format => "markdown";
 

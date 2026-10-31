@@ -2,7 +2,21 @@
 
 Date: 2026-10-28. Reviewed at commit `36518f2`, the one that added the baselines (branch `user/asafmahlev/ci-cross-platform-and-public-api`, on top of the audit-fix stack).
 
-This is the input to the 1.0 public-API freeze. It lists what each package exposes, and flags members that look accidental or internal-only, with the evidence. **Nothing here has been changed**: visibility and removals are owner decisions, and each flag below is a question, not a verdict.
+This is the input to the 1.0 public-API freeze. It lists what each package exposes, and flags members that look accidental or internal-only, with the evidence. The sections after *Decisions* are the review as it was written, before anything changed. Each flag in them was a question for the owner, not a verdict. The counts are as of `36518f2`.
+
+## Decisions (2026-10-29)
+
+The owner answered every question below. All of it ships in 0.8.0; see `CHANGELOG.md` and `docs/migration-0.8.md`.
+
+1. **Internal:** `RichTextView.GoalX`, `IsCaretVisible` and `SnapCaret`; `DocumentPresenter.RealizedBlocks`; `BlockSlot`, `ListMarker` and `DocumentBlocks`. **Private constructors** on `HtmlExporter`, `RtfExporter`, `MarkdownExporter`, `JsonFormat` and `JsonHighlighter`. **Kept public:** `PlaceholderEmbedRenderer`.
+2. **`Step` is closed** with a `private protected` constructor. Every built-in step, including `ReplaceTextStep` and `TextReplacement`, stays public and sealed. This reversed a documented choice: `docs/architecture.md` (§4.5) kept `Step` open because nothing switches on which step it is, and `ClosedHierarchyTests` pinned it open. That review did not surface the conflict. It came up while the decision was being applied, and the owner confirmed closing. The architecture note and the test now record the closure and its reason, which is that custom steps are not a supported 1.0 extension point.
+3. **`RichTextView`, `RichTextEditor` and `RichTextViewer` are sealed.** `DocumentPresenter` stays abstract, with a `private protected` constructor.
+4. **Control internals trimmed.** Internal: `SetPreedit`, the `Preedit` property and record, `IsResizingColumn`, `IsResizingImage`, `IsDraggingTouchHandle`, `TouchHandles`, `ResetCaretBlink`, and `SetTextFromAutomation`, which is now internal and non-virtual on `RichTextView`. Kept public: `IsComposing`, `IsDragging`, `IsMovingSelection`, `ShowTouchHandles`, `HideTouchHandles`, `AreTouchHandlesVisible`, the block-index geometry API and `DocumentPresenterAutomationPeer`. `IsMovingSelection` was first decided internal. The table below says only `IsDragging` had a documented host scenario, but `docs/guide.md` documents `IsMovingSelection` for a host hiding its chrome while content is dragged, and `IsDragging` is never true during such a move. `GuideCheckTests` caught it, and the owner kept it public.
+5. **Tables:** `TableGrid`/`TableSlot` stay public; `TableGeometry`/`CellPlacement` are internal.
+6. **Internal:** `MarkFieldsExtensions` and `ClipboardHtml`. **Kept public:** `RichTextClipboard.Flavors`, `FlavorFor` and `ClipboardFlavor`.
+7. **`ImportAsync(string, CancellationToken)` requires its token** on `IDocumentImporter` and every implementation; the `Stream` overload keeps its optional token. RS0026 and RS0027 are on again for `src/`. RS0027 also requires the optional overload to have strictly *more* parameters than every other overload. The two overloads tie at two, so the decided shape cannot satisfy it. That rule is suppressed on exactly the five `ImportAsync(Stream, …)` declarations, with the reason at `IDocumentImporter`. The tie cannot make a call ambiguous, because the first parameters differ in type.
+8. **Both entry points per format stay**: the `IDocumentFormat` singletons and the static importer and exporter types.
+9. **Public positional records stay as they are.**
 
 ## How the surface was captured, and how to keep it honest
 

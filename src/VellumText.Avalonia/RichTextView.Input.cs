@@ -39,7 +39,7 @@ public partial class RichTextView
     /// the column it reached, so passing through a short line does not permanently pull the
     /// caret left. Any other movement clears it.
     /// </remarks>
-    public double? GoalX => _goalX;
+    internal double? GoalX => _goalX;
 
     /// <summary>Whether a pointer drag is currently extending the selection.</summary>
     /// <remarks>

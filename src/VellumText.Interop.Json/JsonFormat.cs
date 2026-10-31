@@ -52,6 +52,10 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     /// <summary>The shared instance.</summary>
     public static readonly JsonFormat Instance = new();
 
+    private JsonFormat()
+    {
+    }
+
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = false };
 
     // The reader must accept whatever the writer emits, or a saved document comes back empty.
@@ -109,7 +113,9 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     }
 
     /// <inheritdoc/>
+#pragma warning disable RS0027 // Ties with the string overload on purpose; see IDocumentImporter.
     public async Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default)
+#pragma warning restore RS0027
     {
         var text = await DocumentPayload.ReadAllTextAsync(source, Encoding.UTF8, cancellationToken)
             .ConfigureAwait(false);
@@ -124,7 +130,7 @@ public sealed class JsonFormat : IDocumentImporter, IDocumentExporter
     /// future version should degrade into "cannot open these", not into an unhandled exception on a
     /// background thread.
     /// </remarks>
-    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default)
+    public Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(text))
         {

@@ -55,7 +55,15 @@ public interface IDocumentImporter : IDocumentFormat
     /// calling the underlying parser directly.
     /// </para>
     /// </remarks>
+    // RS0027 wants the one overload with an optional parameter to have strictly more parameters
+    // than the others, and this one ties with the string overload. The tie is the 1.0 decision:
+    // the token is optional here and required there, so a call can never be ambiguous between
+    // the two (their first parameters differ in type), and "ImportAsync(text)" does not compile.
+    // Implementations suppress it on this overload for the same reason. Every other
+    // optional-parameter overload in src/ is held to both rules.
+#pragma warning disable RS0027
     Task<ImportResult> ImportAsync(Stream source, CancellationToken cancellationToken = default);
+#pragma warning restore RS0027
 
     /// <summary>Reads <paramref name="text"/> in.</summary>
     /// <param name="text">The document in this importer's format.</param>
@@ -84,8 +92,13 @@ public interface IDocumentImporter : IDocumentFormat
     /// Must not throw, or fault the task, for any input at all, including input that is not this
     /// format; cancellation is the only exception.
     /// </para>
+    /// <para>
+    /// The token is required, unlike on the stream overload, so that only one overload of the
+    /// pair has an optional parameter. A caller with no token to pass writes
+    /// <c>CancellationToken.None</c>.
+    /// </para>
     /// </remarks>
-    async Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken = default)
+    async Task<ImportResult> ImportAsync(string text, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(text);
 

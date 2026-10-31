@@ -369,15 +369,19 @@ Three selection kinds is not over-engineering — it is the minimum that makes "
 > `Node`, `BlockNode` and `InlineEmbed` are closed for the same reason: `DocumentPresenter`'s block
 > factory, the HTML and RTF exporters and the JSON writer all switch and throw on the default.
 >
-> `Step` is deliberately **not** closed, and that is the contrast that makes the rule a rule rather
-> than a reflex. Nothing switches on which step it is; all four obligations are on the base, so a
-> step written elsewhere works everywhere a step is consumed. Open where the consumer is generic,
-> closed where it enumerates.
+> **`Step` is closed too, for a different reason** (2026-10-29, the 1.0 public-API review,
+> decision 2). Until then it was deliberately left open: nothing switches on which step it is, all
+> four obligations are on the base, and a step written elsewhere works everywhere a step is
+> consumed. That is still true of the code. What changed is the contract: custom steps are not a
+> supported extension point for 1.0, so `Step` has a `private protected` constructor and every
+> built-in step is `sealed` and public. The rule above ("closed where it enumerates") is why the
+> other four are closed; this one is closed because opening a hierarchy later is a compatible change
+> and closing it after 1.0 would not be.
 >
 > One hole cannot be closed and is stated rather than hidden: a record's copy constructor must be
-> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed` or
-> `Selection` by declaring one that chains to it. It cannot happen by accident, which is what the
-> closure is for.
+> `public` or `protected` (CS8878), so an outside caller can still derive from `InlineEmbed`,
+> `Selection` or `Step` by declaring one that chains to it. It cannot happen by accident, which is
+> what the closure is for.
 
 > **No virtual "is this a rectangle" member, and closing the hierarchy is why** (2026-08-18).
 > `is CellSelection` is open-coded at 17 sites, with the private `RichTextView.Rectangle` covering
@@ -2877,6 +2881,7 @@ was shaped from.
 | **Two-way `Document` binding?** | **No — one way, out of the control.** A view model can observe `Document` and `Selection` and bind them `OneWayToSource`; assigning a document in is not offered. Reconciling an external assignment against in-flight edits and the undo history is a design with real hazards — what an outstanding composition means, whether the history survives, what a stale assignment from a slow view model does to text typed since — and no consumer has asked for it. Loading stays `State`. See §1.1 AC13. | 2026-08-18 |
 | **Should a host be able to veto imported content?** | **Yes, as a second event rather than by making `ContentImported` cancellable.** `ContentImporting` carries the exact document that would be inserted and a `Cancel` flag, is raised only for content that would otherwise land, and treats a refusal as a paste that did not happen. `ContentImported` stays what it is — a report of what an import cost, raised when the undo entry already exists. See §4.9. | 2026-08-18 |
 | **Declarative XAML configuration of `Formats`?** | **No, and the reason is mechanical.** `HtmlFormat`, `RtfFormat` and `MarkdownFormat` are constructor-less: `Instance` and `With(options)` are the only ways to obtain one, which is what makes the paranoid defaults the default. XAML can only construct types with a public parameterless constructor, so a `<Formats>` collection in markup would require undoing that. Registering in code is one line and does not trade a security default for markup. | 2026-08-18 |
+| **The 1.0 public API** | **Trimmed to what hosts are meant to use, and recorded.** Every shipping package lists its API in `PublicAPI.Shipped.txt`/`PublicAPI.Unshipped.txt`, and the build fails on an unrecorded change. The three controls are `sealed` and `DocumentPresenter`'s constructor is `private protected`; `Step` is closed like the other hierarchies (§4.5 note); test and layout plumbing, the IME preedit, gesture flags other than `IsDragging` and `IsMovingSelection`, touch-handle geometry, `TableGeometry`, `MarkFieldsExtensions` and `ClipboardHtml` are internal; the `Instance` singletons have private constructors; `ImportAsync(string, CancellationToken)` requires its token, and RS0026/RS0027 hold for `src/`, with RS0027 suppressed only on the `ImportAsync(Stream)` overloads whose tie with the string overload is the decision. Kept public on purpose: both entry points per format, positional records, the block-index geometry, `TableGrid`/`TableSlot`, `PlaceholderEmbedRenderer`, `DocumentPresenterAutomationPeer` and the clipboard flavours. The question-by-question record is `docs/plans/2026-10-28-public-api-review.md`. | 2026-10-29 |
 
 ### 12.2 Still open
 

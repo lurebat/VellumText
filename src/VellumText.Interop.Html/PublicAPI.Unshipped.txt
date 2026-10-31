@@ -3,29 +3,24 @@ override VellumText.Interop.Html.HtmlImportOptions.Equals(object? obj) -> bool
 override VellumText.Interop.Html.HtmlImportOptions.GetHashCode() -> int
 override VellumText.Interop.Html.HtmlImportOptions.ToString() -> string!
 static readonly VellumText.Interop.Html.HtmlFormat.Instance -> VellumText.Interop.Html.HtmlFormat!
-static VellumText.Interop.Html.ClipboardHtml.ExtractFragment(string! text, out System.Uri? sourceUri) -> string!
-static VellumText.Interop.Html.ClipboardHtml.IsClipboardHtml(string? text) -> bool
-static VellumText.Interop.Html.ClipboardHtml.Wrap(string! fragmentHtml, System.Uri? sourceUri = null) -> string!
 static VellumText.Interop.Html.HtmlExporter.Instance.get -> VellumText.Interop.Html.HtmlExporter!
 static VellumText.Interop.Html.HtmlImporter.ImportAsync(string! html, VellumText.Interop.Html.HtmlImportOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 static VellumText.Interop.Html.HtmlImporter.ImportClipboardAsync(string! payload, VellumText.Interop.Html.HtmlImportOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 static VellumText.Interop.Html.HtmlImportOptions.Default.get -> VellumText.Interop.Html.HtmlImportOptions!
 static VellumText.Interop.Html.HtmlImportOptions.operator !=(VellumText.Interop.Html.HtmlImportOptions? left, VellumText.Interop.Html.HtmlImportOptions? right) -> bool
 static VellumText.Interop.Html.HtmlImportOptions.operator ==(VellumText.Interop.Html.HtmlImportOptions? left, VellumText.Interop.Html.HtmlImportOptions? right) -> bool
-VellumText.Interop.Html.ClipboardHtml
 VellumText.Interop.Html.HtmlExporter
 VellumText.Interop.Html.HtmlExporter.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
 VellumText.Interop.Html.HtmlExporter.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Html.HtmlExporter.ExportForClipboard(VellumText.DocumentNode! doc, System.Uri? sourceUri = null) -> string!
 VellumText.Interop.Html.HtmlExporter.Format.get -> string!
-VellumText.Interop.Html.HtmlExporter.HtmlExporter() -> void
 VellumText.Interop.Html.HtmlExporter.MediaType.get -> string!
 VellumText.Interop.Html.HtmlExporter.TextEncoding.get -> System.Text.Encoding?
 VellumText.Interop.Html.HtmlFormat
 VellumText.Interop.Html.HtmlFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
 VellumText.Interop.Html.HtmlFormat.Export(VellumText.DocumentNode! doc) -> string!
 VellumText.Interop.Html.HtmlFormat.Format.get -> string!
-VellumText.Interop.Html.HtmlFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Html.HtmlFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Html.HtmlFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
 VellumText.Interop.Html.HtmlFormat.ImportOptions.get -> VellumText.Interop.Html.HtmlImportOptions!
 VellumText.Interop.Html.HtmlFormat.MediaType.get -> string!

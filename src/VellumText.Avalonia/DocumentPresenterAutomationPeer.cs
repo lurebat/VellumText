@@ -96,7 +96,11 @@ public class DocumentPresenterAutomationPeer : ControlAutomationPeer, IValueProv
             throw new ElementNotEnabledException();
         }
 
-        Owner.SetTextFromAutomation(value ?? string.Empty);
+        // Only an editor ever reports itself writable, so only an editor gets here.
+        if (Owner is RichTextView editor)
+        {
+            editor.SetTextFromAutomation(value ?? string.Empty);
+        }
     }
 
     /// <inheritdoc/>

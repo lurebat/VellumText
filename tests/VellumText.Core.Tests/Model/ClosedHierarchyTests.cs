@@ -16,6 +16,12 @@ namespace VellumText.Tests.Model;
 /// extensibility, which fails at compile time in ours.
 /// </para>
 /// <para>
+/// <see cref="Step"/> is closed for a different reason. Nothing switches on which step it is, so a
+/// step written elsewhere would work; it is closed because custom steps are not a supported
+/// extension point for 1.0 (the public-API review, decision 2), and opening it later is
+/// compatible where closing it after 1.0 would not be.
+/// </para>
+/// <para>
 /// A reflection test rather than a compiler probe because the guarantee is about what an assembly
 /// that is <em>not</em> a friend can do, and this assembly is one. The constructor's declared
 /// accessibility is exactly the thing that decides it, so that is what gets asserted.
@@ -29,6 +35,7 @@ public class ClosedHierarchyTests
         typeof(BlockNode),
         typeof(InlineEmbed),
         typeof(VellumText.Selection),
+        typeof(Step),
     ];
 
     [Theory]
@@ -57,12 +64,13 @@ public class ClosedHierarchyTests
     /// <remarks>
     /// A record's copy constructor must be public or protected — declaring it
     /// <c>private protected</c> is CS8878 — so a caller outside this assembly can still derive
-    /// from the two records by declaring a copy constructor that chains to it. This test exists so
+    /// from the records by declaring a copy constructor that chains to it. This test exists so
     /// that the day the language offers a way to close it, the assertion below fails and says so.
     /// </remarks>
     [Theory]
     [InlineData(typeof(InlineEmbed))]
     [InlineData(typeof(VellumText.Selection))]
+    [InlineData(typeof(Step))]
     public void The_record_copy_constructor_is_the_one_hole_the_language_leaves(Type type)
     {
         var copy = type.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
@@ -75,25 +83,6 @@ public class ClosedHierarchyTests
     [Theory]
     [MemberData(nameof(Closed))]
     public void Every_closed_base_is_abstract(Type type) => Assert.True(type.IsAbstract);
-
-    /// <summary>
-    /// <see cref="Step"/> is deliberately <em>not</em> closed, and that is not an oversight.
-    /// </summary>
-    /// <remarks>
-    /// Nothing switches on a step's concrete type: the four obligations — apply, invert, map,
-    /// rebase — are all on the base, so a step written elsewhere is fully usable by everything
-    /// that consumes one. That is the difference between real extensibility and the fake kind, and
-    /// this test fails if someone closes it by reflex.
-    /// </remarks>
-    [Fact]
-    public void Step_stays_open_because_nothing_switches_on_which_step_it_is()
-    {
-        var constructor = Assert.Single(
-            typeof(Step).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic),
-            c => c.GetParameters().Length == 0);
-
-        Assert.True(constructor.IsFamily, $"Step..ctor() is {Accessibility(constructor)}");
-    }
 
     private static bool IsTheRecordCopyConstructor(Type type, ConstructorInfo constructor) =>
         constructor.GetParameters() is [{ } only] && only.ParameterType == type;
