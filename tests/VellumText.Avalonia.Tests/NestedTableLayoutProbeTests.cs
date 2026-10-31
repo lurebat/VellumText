@@ -24,7 +24,9 @@ public class NestedTableLayoutProbeTests
 {
     private const int Rows = 10_000;
 
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
+    // A hang guard only, generous for a slow shared runner: the cost these tests bound is bytes,
+    // relative to the same table at the top, which a busy machine does not change.
+    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
 
     private static readonly Lazy<LayoutProbeResult> TopLevel = new(() => Profile(0));
 
@@ -51,16 +53,13 @@ public class NestedTableLayoutProbeTests
         AssertClose(nested, top, "keystrokeBytes", slack: 512_000);
         Assert.True(nested.Value("resizeBytes") <= 2_000_000, $"a resize allocated {nested.Value("resizeBytes"):N0} bytes\n{nested}");
 
-        // Time is noisy on a shared machine; this catches every row being laid out (1.5 s for the
-        // first layout and 140 ms for a resize before), not a few milliseconds.
-        Assert.True(nested.Value("firstLayoutMs") <= (top.Value("firstLayoutMs") * 4) + 250, nested.ToString());
-        Assert.True(nested.Value("resizeMs") <= (top.Value("resizeMs") * 4) + 60, nested.ToString());
+        // No wall-clock bound: on a slow shared runner a correct probe took 105 s (macOS CI), and the
+        // bytes above already catch every row being laid out (135 MB for the first layout before).
 
         Assert.Equal(1, nested.Value("caretToMiddleOnScreen"));
         Assert.True(
             nested.Value("peakWorkingSetBytes") <= top.Value("peakWorkingSetBytes") + 64_000_000,
             $"peaked at {nested.Value("peakWorkingSetBytes"):N0} bytes against {top.Value("peakWorkingSetBytes"):N0} at the top\n{nested}");
-        Assert.True(nested.Elapsed < TimeSpan.FromSeconds(60), nested.ToString());
     }
 
     /// <summary>
@@ -95,7 +94,6 @@ public class NestedTableLayoutProbeTests
             $"scrolling through kept {after:N0} bytes, against {first:N0} after the first layout\n{nested}");
         Assert.True(top.Value("retainedAfterTraverseBytes") > 50_000_000, $"the top level let rows go\n{top}");
         Assert.True(nested.Value("pages") >= top.Value("pages") / 2, nested.ToString());
-        Assert.True(nested.Elapsed < TimeSpan.FromSeconds(90), nested.ToString());
     }
 
     /// <summary>
