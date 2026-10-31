@@ -282,6 +282,73 @@ public class TableRowUpdateTests
         Assert.Equal(0, WorkCounters.TableCellsRendered);
     }
 
+    [AvaloniaFact]
+    public void TheRowsBesideAnInsertOrADeleteAreFollowedToWhereTheyWent()
+    {
+        var rows = Grid(10, 3).Rows.ToList();
+        var view = Built(new TableNode(rows));
+        var version = view.Version;
+
+        rows.Insert(4, new TableRowNode([TableCellNode.FromText("n0"), TableCellNode.FromText("n1"), TableCellNode.FromText("n2")]));
+        Assert.True(view.Update(new TableNode(rows)));
+
+        // Row 4 is the first row the insert kept after it: it moved down, and the new row is not it.
+        Assert.Equal(5, view.RowAfterUpdate(4, version));
+
+        version = view.Version;
+        rows.RemoveAt(4);
+        Assert.True(view.Update(new TableNode(rows)));
+
+        // The deleted row is taken to be the row that now stands where it stood.
+        Assert.Equal(4, view.RowAfterUpdate(4, version));
+        Assert.Equal(5, view.RowAfterUpdate(6, version));
+    }
+
+    [AvaloniaFact]
+    public void ARowSpanMovingToAnotherCellOfItsRowPlacesTheRowBelowAgain()
+    {
+        // Every row keeps its number of cells and the row below is the very same node, but the
+        // span moved from the first column to the second, so that row's first cell moves left.
+        var rows = Grid(10, 3).Rows.ToList();
+
+        rows[3] = new TableRowNode([new TableCellNode([ParagraphNode.FromText("tall")], rowSpan: 2), rows[3].Cells[1], rows[3].Cells[2]]);
+        rows[4] = new TableRowNode([rows[4].Cells[1], rows[4].Cells[2]]);
+
+        var view = Built(new TableNode(rows));
+
+        rows[3] = new TableRowNode([TableCellNode.FromText("short"), new TableCellNode([ParagraphNode.FromText("tall")], rowSpan: 2), rows[3].Cells[2]]);
+
+        var moved = new TableNode(rows);
+
+        Assert.True(view.Update(moved));
+        view.Measure(Width);
+
+        AssertSameAs(Fresh(moved), view);
+    }
+
+    [AvaloniaFact]
+    public void DrawingOnlyTheVisibleRowsOfATableInACellDrawsWhatTheWholeTableDrawsThere()
+    {
+        // What is visible reaches a table nested in a cell in that table's own coordinates. Handed
+        // on in the outer table's, it names rows of the inner table further down than those on
+        // screen.
+        var rows = Grid(6, 2).Rows.ToList();
+
+        rows.Add(new TableRowNode([new TableCellNode([Grid(40, 2)]), TableCellNode.FromText("beside")]));
+        rows.AddRange(Grid(3, 2).Rows);
+
+        var table = new TableNode(rows);
+        var view = Fresh(table);
+        var top = view.GetCaretRect(PositionIn(table, 6, 1)).Top;
+
+        foreach (var into in new[] { 150.0, 400 })
+        {
+            var visible = new Rect(0, top + into, Width, 160);
+
+            Assert.Equal(Draw(view, visible, hint: false), Draw(view, visible, hint: true));
+        }
+    }
+
     private static readonly TextStyleResolver Styles = new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
     private static BlockView Create(BlockNode block) => block switch
@@ -420,15 +487,7 @@ public class TableRowUpdateTests
             }
         }
 
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(new PixelRect(size), (nint)buffer, pixels.Length * sizeof(uint), size.Width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         return pixels;
     }

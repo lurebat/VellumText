@@ -694,7 +694,7 @@ public class MarkdownRoundTripTests
 
         var back = await MarkdownImporter.ImportAsync(
             markdown,
-            new MarkdownImportOptions { AllowRemoteImages = true });
+            new MarkdownImportOptions { AllowRemoteImages = true }, cancellationToken: TestContext.Current.CancellationToken);
 
         var image = Assert.IsType<ImageEmbed>(Assert.Single(Para(back.Doc, 0).Content.Embeds));
 
@@ -885,7 +885,7 @@ public class MarkdownRoundTripTests
             """;
 
         var markdown = Source.ReplaceLineEndings("\n");
-        var once = MarkdownExporter.Instance.Export((await MarkdownImporter.ImportAsync(markdown)).Doc);
+        var once = MarkdownExporter.Instance.Export((await MarkdownImporter.ImportAsync(markdown, cancellationToken: TestContext.Current.CancellationToken)).Doc);
 
         Assert.Equal(markdown, once);
     }

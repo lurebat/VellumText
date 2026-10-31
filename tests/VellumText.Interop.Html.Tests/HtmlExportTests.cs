@@ -413,7 +413,7 @@ public class HtmlExportTests
         Assert.Contains("StartFragment:", payload, StringComparison.Ordinal);
 
         // And it reads back through the same envelope-aware path a paste uses.
-        Assert.Equal(doc, (await HtmlImporter.ImportAsync(ClipboardHtml.ExtractFragment(payload, out _))).Doc);
+        Assert.Equal(doc, (await HtmlImporter.ImportAsync(ClipboardHtml.ExtractFragment(payload, out _), cancellationToken: TestContext.Current.CancellationToken)).Doc);
     }
 
     /// <summary>The <c>CF_HTML</c> envelope is a Windows convention, so only Windows gets it.</summary>
@@ -449,7 +449,7 @@ public class HtmlExportTests
             Assert.StartsWith("<", payload, StringComparison.Ordinal);
         }
 
-        Assert.Equal(doc, (await HtmlFormat.Instance.ImportAsync(payload)).Doc);
+        Assert.Equal(doc, (await HtmlFormat.Instance.ImportAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc);
     }
 
     [Fact]

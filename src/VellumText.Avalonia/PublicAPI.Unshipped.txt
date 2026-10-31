@@ -1,0 +1,592 @@
+#nullable enable
+abstract VellumText.Avalonia.DocumentPresenter.PresentedDocument.get -> VellumText.DocumentNode!
+const VellumText.Avalonia.DataUriImageStore.DefaultMaximumBytes = 4194304 -> int
+const VellumText.Avalonia.RichTextEditor.OverlayPart = "PART_Overlay" -> string!
+const VellumText.Avalonia.RichTextEditor.SelectionToolbarPart = "PART_SelectionToolbar" -> string!
+const VellumText.Avalonia.RichTextEditor.ViewPart = "PART_View" -> string!
+const VellumText.Avalonia.RichTextView.ImageHandleSize = 8 -> double
+const VellumText.Avalonia.RichTextView.MaxIndentLevel = 8 -> int
+const VellumText.Avalonia.RichTextView.MinimumImageSide = 8 -> double
+const VellumText.Avalonia.RichTextView.TouchHandleRadius = 7 -> double
+const VellumText.Avalonia.RichTextView.TouchHandleTargetRadius = 22 -> double
+override VellumText.Avalonia.BlockSlot.GetHashCode() -> int
+override VellumText.Avalonia.ClipboardFlavor.Equals(object? obj) -> bool
+override VellumText.Avalonia.ClipboardFlavor.GetHashCode() -> int
+override VellumText.Avalonia.ClipboardFlavor.ToString() -> string!
+override VellumText.Avalonia.DocumentPresenter.ArrangeOverride(Avalonia.Size finalSize) -> Avalonia.Size
+override VellumText.Avalonia.DocumentPresenter.MeasureOverride(Avalonia.Size availableSize) -> Avalonia.Size
+override VellumText.Avalonia.DocumentPresenter.OnCreateAutomationPeer() -> Avalonia.Automation.Peers.AutomationPeer!
+override VellumText.Avalonia.DocumentPresenter.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
+override VellumText.Avalonia.DocumentPresenter.Render(Avalonia.Media.DrawingContext! context) -> void
+override VellumText.Avalonia.DocumentPresenterAutomationPeer.GetAutomationControlTypeCore() -> Avalonia.Automation.Peers.AutomationControlType
+override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsContentElementCore() -> bool
+override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsKeyboardFocusableCore() -> bool
+override VellumText.Avalonia.ListMarker.GetHashCode() -> int
+override VellumText.Avalonia.ParagraphStyle.Equals(object? obj) -> bool
+override VellumText.Avalonia.ParagraphStyle.GetHashCode() -> int
+override VellumText.Avalonia.ParagraphStyle.ToString() -> string!
+override VellumText.Avalonia.Preedit.Equals(object? obj) -> bool
+override VellumText.Avalonia.Preedit.GetHashCode() -> int
+override VellumText.Avalonia.Preedit.ToString() -> string!
+override VellumText.Avalonia.RichTextEditor.OnApplyTemplate(Avalonia.Controls.Primitives.TemplateAppliedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextEditor.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
+override VellumText.Avalonia.RichTextToolbar.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
+override VellumText.Avalonia.RichTextView.OnDetachedFromVisualTree(Avalonia.VisualTreeAttachmentEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnGotFocus(Avalonia.Input.FocusChangedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnKeyDown(Avalonia.Input.KeyEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnLostFocus(Avalonia.Input.FocusChangedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnPointerCaptureLost(Avalonia.Input.PointerCaptureLostEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnPointerMoved(Avalonia.Input.PointerEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnPointerPressed(Avalonia.Input.PointerPressedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnPointerReleased(Avalonia.Input.PointerReleasedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
+override VellumText.Avalonia.RichTextView.OnTextInput(Avalonia.Input.TextInputEventArgs! e) -> void
+override VellumText.Avalonia.RichTextView.PresentedDocument.get -> VellumText.DocumentNode!
+override VellumText.Avalonia.RichTextView.SetTextFromAutomation(string! text) -> void
+override VellumText.Avalonia.RichTextView.SupportsTextInput.get -> bool
+override VellumText.Avalonia.RichTextViewer.OnKeyDown(Avalonia.Input.KeyEventArgs! e) -> void
+override VellumText.Avalonia.RichTextViewer.OnPointerCaptureLost(Avalonia.Input.PointerCaptureLostEventArgs! e) -> void
+override VellumText.Avalonia.RichTextViewer.OnPointerMoved(Avalonia.Input.PointerEventArgs! e) -> void
+override VellumText.Avalonia.RichTextViewer.OnPointerPressed(Avalonia.Input.PointerPressedEventArgs! e) -> void
+override VellumText.Avalonia.RichTextViewer.OnPropertyChanged(Avalonia.AvaloniaPropertyChangedEventArgs! change) -> void
+override VellumText.Avalonia.RichTextViewer.PresentedDocument.get -> VellumText.DocumentNode!
+static readonly VellumText.Avalonia.DocumentPresenter.BackgroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.DocumentPresenter.FontFamilyProperty -> Avalonia.StyledProperty<Avalonia.Media.FontFamily!>!
+static readonly VellumText.Avalonia.DocumentPresenter.FontSizeProperty -> Avalonia.StyledProperty<double>!
+static readonly VellumText.Avalonia.DocumentPresenter.FontStretchProperty -> Avalonia.StyledProperty<Avalonia.Media.FontStretch>!
+static readonly VellumText.Avalonia.DocumentPresenter.FontStyleProperty -> Avalonia.StyledProperty<Avalonia.Media.FontStyle>!
+static readonly VellumText.Avalonia.DocumentPresenter.FontWeightProperty -> Avalonia.StyledProperty<Avalonia.Media.FontWeight>!
+static readonly VellumText.Avalonia.DocumentPresenter.ForegroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.DocumentPresenter.TableBorderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush!>!
+static readonly VellumText.Avalonia.DocumentPresenter.TableHeaderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextEditor.AcceptsReturnProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextEditor.AcceptsTabProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextEditor.CanRedoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, bool>!
+static readonly VellumText.Avalonia.RichTextEditor.CanUndoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, bool>!
+static readonly VellumText.Avalonia.RichTextEditor.CurrentMatchNumberProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
+static readonly VellumText.Avalonia.RichTextEditor.DocumentProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.DocumentNode!>!
+static readonly VellumText.Avalonia.RichTextEditor.IsReadOnlyProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabledProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextEditor.MatchCountProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
+static readonly VellumText.Avalonia.RichTextEditor.SelectionProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.Selection!>!
+static readonly VellumText.Avalonia.RichTextEditor.StateProperty -> Avalonia.StyledProperty<VellumText.EditorState!>!
+static readonly VellumText.Avalonia.RichTextEditor.UndoLimitProperty -> Avalonia.StyledProperty<int>!
+static readonly VellumText.Avalonia.RichTextEditor.ViewProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.Avalonia.RichTextView?>!
+static readonly VellumText.Avalonia.RichTextToolbar.AlignProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, VellumText.TextAlign?>!
+static readonly VellumText.Avalonia.RichTextToolbar.CanRedoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.CanUndoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.EditorProperty -> Avalonia.StyledProperty<VellumText.Avalonia.RichTextEditor?>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsBoldProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsItalicProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsLinkProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsStrikethroughProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsSubscriptProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsSuperscriptProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.IsUnderlineProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, bool>!
+static readonly VellumText.Avalonia.RichTextToolbar.ListKindProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, VellumText.ListKind?>!
+static readonly VellumText.Avalonia.RichTextToolbar.ParagraphKindProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, VellumText.ParagraphKind?>!
+static readonly VellumText.Avalonia.RichTextToolbar.SelectionFontFamilyProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, string?>!
+static readonly VellumText.Avalonia.RichTextToolbar.SelectionFontSizeProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, double?>!
+static readonly VellumText.Avalonia.RichTextToolbar.SelectionForegroundProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, VellumText.Rgba?>!
+static readonly VellumText.Avalonia.RichTextToolbar.SelectionHighlightProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextToolbar!, VellumText.Rgba?>!
+static readonly VellumText.Avalonia.RichTextView.AcceptsReturnProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextView.AcceptsTabProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextView.AreTouchHandlesVisibleProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
+static readonly VellumText.Avalonia.RichTextView.BlinkInterval -> System.TimeSpan
+static readonly VellumText.Avalonia.RichTextView.CanRedoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
+static readonly VellumText.Avalonia.RichTextView.CanUndoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
+static readonly VellumText.Avalonia.RichTextView.CaretBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.ColumnBoundaryTolerance -> double
+static readonly VellumText.Avalonia.RichTextView.CurrentFindHighlightBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.CurrentMatchProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, int>!
+static readonly VellumText.Avalonia.RichTextView.DocumentProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, VellumText.DocumentNode!>!
+static readonly VellumText.Avalonia.RichTextView.FindHighlightBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.ImageHandleBorderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.ImageHandleBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.IsDraggingProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
+static readonly VellumText.Avalonia.RichTextView.IsReadOnlyProperty -> Avalonia.StyledProperty<bool>!
+static readonly VellumText.Avalonia.RichTextView.MatchCountProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, int>!
+static readonly VellumText.Avalonia.RichTextView.MinimumColumnShare -> double
+static readonly VellumText.Avalonia.RichTextView.SelectionBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.SelectionProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, VellumText.Selection!>!
+static readonly VellumText.Avalonia.RichTextView.StateProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, VellumText.EditorState!>!
+static readonly VellumText.Avalonia.RichTextView.TouchHandleBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.RichTextView.UndoLimitProperty -> Avalonia.StyledProperty<int>!
+static readonly VellumText.Avalonia.RichTextViewer.DocumentProperty -> Avalonia.StyledProperty<VellumText.DocumentNode!>!
+static readonly VellumText.Avalonia.RichTextViewer.SelectionBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.ToolbarConverters.Is -> Avalonia.Data.Converters.IValueConverter!
+static readonly VellumText.Avalonia.ToolbarConverters.Points -> Avalonia.Data.Converters.IValueConverter!
+static readonly VellumText.Avalonia.ToolbarConverters.Swatch -> Avalonia.Data.Converters.IValueConverter!
+static VellumText.Avalonia.BitmapEmbedRenderer.Shared.get -> VellumText.Avalonia.BitmapEmbedRenderer!
+static VellumText.Avalonia.BlockSlot.operator !=(VellumText.Avalonia.BlockSlot left, VellumText.Avalonia.BlockSlot right) -> bool
+static VellumText.Avalonia.BlockSlot.operator ==(VellumText.Avalonia.BlockSlot left, VellumText.Avalonia.BlockSlot right) -> bool
+static VellumText.Avalonia.ClipboardFlavor.operator !=(VellumText.Avalonia.ClipboardFlavor? left, VellumText.Avalonia.ClipboardFlavor? right) -> bool
+static VellumText.Avalonia.ClipboardFlavor.operator ==(VellumText.Avalonia.ClipboardFlavor? left, VellumText.Avalonia.ClipboardFlavor? right) -> bool
+static VellumText.Avalonia.DocumentBlocks.Flatten(System.Collections.Generic.IReadOnlyList<VellumText.BlockNode!>! blocks, int start) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
+static VellumText.Avalonia.DocumentBlocks.Flatten(VellumText.DocumentNode! doc) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
+static VellumText.Avalonia.DocumentBlocks.Leaves(VellumText.DocumentNode! doc) -> System.Collections.Immutable.ImmutableArray<VellumText.Avalonia.BlockSlot>
+static VellumText.Avalonia.ListMarker.operator !=(VellumText.Avalonia.ListMarker left, VellumText.Avalonia.ListMarker right) -> bool
+static VellumText.Avalonia.ListMarker.operator ==(VellumText.Avalonia.ListMarker left, VellumText.Avalonia.ListMarker right) -> bool
+static VellumText.Avalonia.ParagraphStyle.Body.get -> VellumText.Avalonia.ParagraphStyle!
+static VellumText.Avalonia.ParagraphStyle.operator !=(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
+static VellumText.Avalonia.ParagraphStyle.operator ==(VellumText.Avalonia.ParagraphStyle? left, VellumText.Avalonia.ParagraphStyle? right) -> bool
+static VellumText.Avalonia.Preedit.operator !=(VellumText.Avalonia.Preedit? left, VellumText.Avalonia.Preedit? right) -> bool
+static VellumText.Avalonia.Preedit.operator ==(VellumText.Avalonia.Preedit? left, VellumText.Avalonia.Preedit? right) -> bool
+static VellumText.Avalonia.RichTextClipboard.Build(VellumText.DocumentNode! doc, System.Collections.Generic.IEnumerable<VellumText.IDocumentExporter!>! exporters, string? text = null, System.Action<VellumText.IDocumentExporter!, System.Exception!>? exportFailed = null) -> Avalonia.Input.DataTransfer!
+static VellumText.Avalonia.RichTextClipboard.DecodeAsync(VellumText.IDocumentImporter! importer, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+static VellumText.Avalonia.RichTextClipboard.Encode(VellumText.IDocumentExporter! exporter, VellumText.DocumentNode! doc) -> byte[]!
+static VellumText.Avalonia.RichTextClipboard.FlavorFor(string! format) -> VellumText.Avalonia.ClipboardFlavor!
+static VellumText.Avalonia.RichTextClipboard.Flavors.get -> System.Collections.Generic.IReadOnlyList<VellumText.Avalonia.ClipboardFlavor!>!
+static VellumText.Avalonia.RichTextClipboard.Preference.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static VellumText.Avalonia.RichTextClipboard.ReadAsync(Avalonia.Input.IAsyncDataTransfer! data, System.Collections.Generic.IEnumerable<VellumText.IDocumentImporter!>! importers) -> System.Threading.Tasks.Task<VellumText.ImportResult?>!
+static VellumText.Avalonia.RichTextClipboard.ReadAsync(Avalonia.Input.Platform.IClipboard! clipboard, System.Collections.Generic.IEnumerable<VellumText.IDocumentImporter!>! importers) -> System.Threading.Tasks.Task<VellumText.ImportResult?>!
+static VellumText.Avalonia.RichTextClipboard.WriteAsync(Avalonia.Input.Platform.IClipboard! clipboard, VellumText.DocumentNode! doc, System.Collections.Generic.IEnumerable<VellumText.IDocumentExporter!>! exporters, string? text = null, System.Action<VellumText.IDocumentExporter!, System.Exception!>? exportFailed = null) -> System.Threading.Tasks.Task<bool>!
+static VellumText.Avalonia.RichTextToolbar.FontFamilies.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static VellumText.Avalonia.RichTextToolbar.FontSizes.get -> System.Collections.Generic.IReadOnlyList<double>!
+static VellumText.Avalonia.RichTextToolbar.Palette.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static VellumText.Avalonia.RichTextView.SnapCaret(Avalonia.Rect caret, double scale) -> Avalonia.Rect
+static VellumText.Avalonia.SyntaxTheme.Dark.get -> VellumText.Avalonia.SyntaxTheme!
+static VellumText.Avalonia.SyntaxTheme.Light.get -> VellumText.Avalonia.SyntaxTheme!
+VellumText.Avalonia.BitmapEmbedRenderer
+VellumText.Avalonia.BitmapEmbedRenderer.AllowLocalSources.get -> bool
+VellumText.Avalonia.BitmapEmbedRenderer.AllowLocalSources.init -> void
+VellumText.Avalonia.BitmapEmbedRenderer.BitmapEmbedRenderer() -> void
+VellumText.Avalonia.BitmapEmbedRenderer.CacheBudgetBytes.get -> long
+VellumText.Avalonia.BitmapEmbedRenderer.CacheBudgetBytes.init -> void
+VellumText.Avalonia.BitmapEmbedRenderer.CacheLimit.get -> int
+VellumText.Avalonia.BitmapEmbedRenderer.CacheLimit.init -> void
+VellumText.Avalonia.BitmapEmbedRenderer.Dispose() -> void
+VellumText.Avalonia.BitmapEmbedRenderer.Draw(Avalonia.Media.DrawingContext! context, Avalonia.Rect bounds, VellumText.InlineEmbed! embed) -> void
+VellumText.Avalonia.BitmapEmbedRenderer.Invalidate() -> void
+VellumText.Avalonia.BitmapEmbedRenderer.MaximumPixels.get -> long
+VellumText.Avalonia.BitmapEmbedRenderer.MaximumPixels.init -> void
+VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.get -> int
+VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.init -> void
+VellumText.Avalonia.BitmapEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
+VellumText.Avalonia.BlockSlot
+VellumText.Avalonia.BlockSlot.BlockSlot() -> void
+VellumText.Avalonia.BlockSlot.BlockSlot(VellumText.BlockNode! Node, int Start, int Depth, VellumText.Avalonia.ListMarker? Marker) -> void
+VellumText.Avalonia.BlockSlot.ContentSize.get -> int
+VellumText.Avalonia.BlockSlot.Deconstruct(out VellumText.BlockNode! Node, out int Start, out int Depth, out VellumText.Avalonia.ListMarker? Marker) -> void
+VellumText.Avalonia.BlockSlot.Depth.get -> int
+VellumText.Avalonia.BlockSlot.Depth.init -> void
+VellumText.Avalonia.BlockSlot.End.get -> int
+VellumText.Avalonia.BlockSlot.Equals(VellumText.Avalonia.BlockSlot other) -> bool
+VellumText.Avalonia.BlockSlot.Marker.get -> VellumText.Avalonia.ListMarker?
+VellumText.Avalonia.BlockSlot.Marker.init -> void
+VellumText.Avalonia.BlockSlot.Node.get -> VellumText.BlockNode!
+VellumText.Avalonia.BlockSlot.Node.init -> void
+VellumText.Avalonia.BlockSlot.Start.get -> int
+VellumText.Avalonia.BlockSlot.Start.init -> void
+VellumText.Avalonia.ClipboardFlavor
+VellumText.Avalonia.ClipboardFlavor.<Clone>$() -> VellumText.Avalonia.ClipboardFlavor!
+VellumText.Avalonia.ClipboardFlavor.ClipboardFlavor(string! Format, Avalonia.Input.DataFormat<byte[]!>! DataFormat) -> void
+VellumText.Avalonia.ClipboardFlavor.DataFormat.get -> Avalonia.Input.DataFormat<byte[]!>!
+VellumText.Avalonia.ClipboardFlavor.DataFormat.init -> void
+VellumText.Avalonia.ClipboardFlavor.Deconstruct(out string! Format, out Avalonia.Input.DataFormat<byte[]!>! DataFormat) -> void
+VellumText.Avalonia.ClipboardFlavor.Equals(VellumText.Avalonia.ClipboardFlavor? other) -> bool
+VellumText.Avalonia.ClipboardFlavor.Format.get -> string!
+VellumText.Avalonia.ClipboardFlavor.Format.init -> void
+VellumText.Avalonia.DataUriImageStore
+VellumText.Avalonia.DataUriImageStore.DataUriImageStore(int maximumBytes = 4194304) -> void
+VellumText.Avalonia.DataUriImageStore.MaximumBytes.get -> int
+VellumText.Avalonia.DataUriImageStore.Save(System.ReadOnlySpan<byte> bytes, string! mediaType) -> string?
+VellumText.Avalonia.DocumentBlocks
+VellumText.Avalonia.DocumentPresenter
+VellumText.Avalonia.DocumentPresenter.Background.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.DocumentPresenter.Background.set -> void
+VellumText.Avalonia.DocumentPresenter.BlockCount.get -> int
+VellumText.Avalonia.DocumentPresenter.BlockIndexAt(double y) -> int
+VellumText.Avalonia.DocumentPresenter.BlockIndexOf(int position) -> int
+VellumText.Avalonia.DocumentPresenter.BlockOrigin(int index) -> Avalonia.Point
+VellumText.Avalonia.DocumentPresenter.CanHorizontallyScroll.get -> bool
+VellumText.Avalonia.DocumentPresenter.CanHorizontallyScroll.set -> void
+VellumText.Avalonia.DocumentPresenter.CanVerticallyScroll.get -> bool
+VellumText.Avalonia.DocumentPresenter.CanVerticallyScroll.set -> void
+VellumText.Avalonia.DocumentPresenter.DocumentPresenter() -> void
+VellumText.Avalonia.DocumentPresenter.Embeds.get -> VellumText.Avalonia.IEmbedRenderer!
+VellumText.Avalonia.DocumentPresenter.Embeds.set -> void
+VellumText.Avalonia.DocumentPresenter.Extent.get -> Avalonia.Size
+VellumText.Avalonia.DocumentPresenter.FontFamily.get -> Avalonia.Media.FontFamily!
+VellumText.Avalonia.DocumentPresenter.FontFamily.set -> void
+VellumText.Avalonia.DocumentPresenter.FontSize.get -> double
+VellumText.Avalonia.DocumentPresenter.FontSize.set -> void
+VellumText.Avalonia.DocumentPresenter.FontStretch.get -> Avalonia.Media.FontStretch
+VellumText.Avalonia.DocumentPresenter.FontStretch.set -> void
+VellumText.Avalonia.DocumentPresenter.FontStyle.get -> Avalonia.Media.FontStyle
+VellumText.Avalonia.DocumentPresenter.FontStyle.set -> void
+VellumText.Avalonia.DocumentPresenter.FontWeight.get -> Avalonia.Media.FontWeight
+VellumText.Avalonia.DocumentPresenter.FontWeight.set -> void
+VellumText.Avalonia.DocumentPresenter.Foreground.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.DocumentPresenter.Foreground.set -> void
+VellumText.Avalonia.DocumentPresenter.ImageRect(int position) -> Avalonia.Rect?
+VellumText.Avalonia.DocumentPresenter.IsOverContent(Avalonia.Point point) -> bool
+VellumText.Avalonia.DocumentPresenter.Offset.get -> Avalonia.Vector
+VellumText.Avalonia.DocumentPresenter.Offset.set -> void
+VellumText.Avalonia.DocumentPresenter.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
+VellumText.Avalonia.DocumentPresenter.ParagraphStyles.set -> void
+VellumText.Avalonia.DocumentPresenter.PositionAt(Avalonia.Point point) -> int
+VellumText.Avalonia.DocumentPresenter.RealizedBlocks.get -> System.Range
+VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.get -> VellumText.ISyntaxHighlighter?
+VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.set -> void
+VellumText.Avalonia.DocumentPresenter.SyntaxTheme.get -> VellumText.Avalonia.ISyntaxTheme!
+VellumText.Avalonia.DocumentPresenter.SyntaxTheme.set -> void
+VellumText.Avalonia.DocumentPresenter.TableBorderBrush.get -> Avalonia.Media.IBrush!
+VellumText.Avalonia.DocumentPresenter.TableBorderBrush.set -> void
+VellumText.Avalonia.DocumentPresenter.TableHeaderBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.DocumentPresenter.TableHeaderBrush.set -> void
+VellumText.Avalonia.DocumentPresenter.TextStyles.get -> VellumText.Avalonia.ITextStyleResolver!
+VellumText.Avalonia.DocumentPresenter.TextStyles.set -> void
+VellumText.Avalonia.DocumentPresenter.Viewport.get -> Avalonia.Size
+VellumText.Avalonia.DocumentPresenterAutomationPeer
+VellumText.Avalonia.DocumentPresenterAutomationPeer.DocumentPresenterAutomationPeer(VellumText.Avalonia.DocumentPresenter! owner) -> void
+VellumText.Avalonia.DocumentPresenterAutomationPeer.IsReadOnly.get -> bool
+VellumText.Avalonia.DocumentPresenterAutomationPeer.Owner.get -> VellumText.Avalonia.DocumentPresenter!
+VellumText.Avalonia.DocumentPresenterAutomationPeer.SetValue(string? value) -> void
+VellumText.Avalonia.DocumentPresenterAutomationPeer.Value.get -> string?
+VellumText.Avalonia.ExportFailedEventArgs
+VellumText.Avalonia.ExportFailedEventArgs.Exception.get -> System.Exception!
+VellumText.Avalonia.ExportFailedEventArgs.ExportFailedEventArgs(string! format, System.Exception! exception) -> void
+VellumText.Avalonia.ExportFailedEventArgs.Format.get -> string!
+VellumText.Avalonia.IEmbedRenderer
+VellumText.Avalonia.IEmbedRenderer.Draw(Avalonia.Media.DrawingContext! context, Avalonia.Rect bounds, VellumText.InlineEmbed! embed) -> void
+VellumText.Avalonia.IEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
+VellumText.Avalonia.IImageStore
+VellumText.Avalonia.IImageStore.Save(System.ReadOnlySpan<byte> bytes, string! mediaType) -> string?
+VellumText.Avalonia.IParagraphStyleResolver
+VellumText.Avalonia.IParagraphStyleResolver.Resolve(VellumText.ParagraphKind kind) -> VellumText.Avalonia.ParagraphStyle!
+VellumText.Avalonia.ISyntaxTheme
+VellumText.Avalonia.ISyntaxTheme.For(VellumText.TokenKind kind) -> VellumText.MarkSet?
+VellumText.Avalonia.ITextStyleResolver
+VellumText.Avalonia.ITextStyleResolver.Default.get -> Avalonia.Media.TextFormatting.TextRunProperties!
+VellumText.Avalonia.ITextStyleResolver.Resolve(VellumText.MarkSet marks) -> Avalonia.Media.TextFormatting.TextRunProperties!
+VellumText.Avalonia.ListMarker
+VellumText.Avalonia.ListMarker.Deconstruct(out VellumText.ListKind Kind, out int Ordinal) -> void
+VellumText.Avalonia.ListMarker.Equals(VellumText.Avalonia.ListMarker other) -> bool
+VellumText.Avalonia.ListMarker.Kind.get -> VellumText.ListKind
+VellumText.Avalonia.ListMarker.Kind.init -> void
+VellumText.Avalonia.ListMarker.ListMarker() -> void
+VellumText.Avalonia.ListMarker.ListMarker(VellumText.ListKind Kind, int Ordinal) -> void
+VellumText.Avalonia.ListMarker.Ordinal.get -> int
+VellumText.Avalonia.ListMarker.Ordinal.init -> void
+VellumText.Avalonia.ParagraphStyle
+VellumText.Avalonia.ParagraphStyle.<Clone>$() -> VellumText.Avalonia.ParagraphStyle!
+VellumText.Avalonia.ParagraphStyle.Background.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.ParagraphStyle.Background.init -> void
+VellumText.Avalonia.ParagraphStyle.Bar.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.ParagraphStyle.Bar.init -> void
+VellumText.Avalonia.ParagraphStyle.BarGap.get -> double
+VellumText.Avalonia.ParagraphStyle.BarGap.init -> void
+VellumText.Avalonia.ParagraphStyle.BarWidth.get -> double
+VellumText.Avalonia.ParagraphStyle.BarWidth.init -> void
+VellumText.Avalonia.ParagraphStyle.Deconstruct(out double FontScale, out Avalonia.Media.FontWeight? Weight, out Avalonia.Media.FontFamily? Family, out double SpaceBefore, out double SpaceAfter, out Avalonia.Media.IBrush? Bar, out double BarWidth, out double BarGap, out Avalonia.Media.IBrush? Background, out double LineHeightScale, out Avalonia.Thickness Padding) -> void
+VellumText.Avalonia.ParagraphStyle.Equals(VellumText.Avalonia.ParagraphStyle? other) -> bool
+VellumText.Avalonia.ParagraphStyle.Family.get -> Avalonia.Media.FontFamily?
+VellumText.Avalonia.ParagraphStyle.Family.init -> void
+VellumText.Avalonia.ParagraphStyle.FontScale.get -> double
+VellumText.Avalonia.ParagraphStyle.FontScale.init -> void
+VellumText.Avalonia.ParagraphStyle.LeftInset.get -> double
+VellumText.Avalonia.ParagraphStyle.LineHeightScale.get -> double
+VellumText.Avalonia.ParagraphStyle.LineHeightScale.init -> void
+VellumText.Avalonia.ParagraphStyle.Padding.get -> Avalonia.Thickness
+VellumText.Avalonia.ParagraphStyle.Padding.init -> void
+VellumText.Avalonia.ParagraphStyle.ParagraphStyle(double FontScale = 1, Avalonia.Media.FontWeight? Weight = null, Avalonia.Media.FontFamily? Family = null, double SpaceBefore = 0, double SpaceAfter = 0, Avalonia.Media.IBrush? Bar = null, double BarWidth = 0, double BarGap = 0, Avalonia.Media.IBrush? Background = null, double LineHeightScale = 0, Avalonia.Thickness Padding = default(Avalonia.Thickness)) -> void
+VellumText.Avalonia.ParagraphStyle.SpaceAfter.get -> double
+VellumText.Avalonia.ParagraphStyle.SpaceAfter.init -> void
+VellumText.Avalonia.ParagraphStyle.SpaceBefore.get -> double
+VellumText.Avalonia.ParagraphStyle.SpaceBefore.init -> void
+VellumText.Avalonia.ParagraphStyle.Weight.get -> Avalonia.Media.FontWeight?
+VellumText.Avalonia.ParagraphStyle.Weight.init -> void
+VellumText.Avalonia.ParagraphStyleResolver
+VellumText.Avalonia.ParagraphStyleResolver.ParagraphStyleResolver(Avalonia.Media.IBrush? bar = null, Avalonia.Media.IBrush? codeBackground = null, Avalonia.Media.FontFamily? codeFamily = null, double spacing = 10) -> void
+VellumText.Avalonia.ParagraphStyleResolver.Resolve(VellumText.ParagraphKind kind) -> VellumText.Avalonia.ParagraphStyle!
+VellumText.Avalonia.PlaceholderEmbedRenderer
+VellumText.Avalonia.PlaceholderEmbedRenderer.Draw(Avalonia.Media.DrawingContext! context, Avalonia.Rect bounds, VellumText.InlineEmbed! embed) -> void
+VellumText.Avalonia.PlaceholderEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
+VellumText.Avalonia.PlaceholderEmbedRenderer.PlaceholderEmbedRenderer() -> void
+VellumText.Avalonia.Preedit
+VellumText.Avalonia.Preedit.<Clone>$() -> VellumText.Avalonia.Preedit!
+VellumText.Avalonia.Preedit.CaretPosition.get -> int
+VellumText.Avalonia.Preedit.CursorPosition.get -> int?
+VellumText.Avalonia.Preedit.Equals(VellumText.Avalonia.Preedit? other) -> bool
+VellumText.Avalonia.Preedit.Length.get -> int
+VellumText.Avalonia.Preedit.Offset.get -> int
+VellumText.Avalonia.Preedit.Preedit(string! text, int offset, int? cursorPosition = null) -> void
+VellumText.Avalonia.Preedit.Text.get -> string!
+VellumText.Avalonia.RichTextClipboard
+VellumText.Avalonia.RichTextEditor
+VellumText.Avalonia.RichTextEditor.AcceptsReturn.get -> bool
+VellumText.Avalonia.RichTextEditor.AcceptsReturn.set -> void
+VellumText.Avalonia.RichTextEditor.AcceptsTab.get -> bool
+VellumText.Avalonia.RichTextEditor.AcceptsTab.set -> void
+VellumText.Avalonia.RichTextEditor.CanRedo.get -> bool
+VellumText.Avalonia.RichTextEditor.CanUndo.get -> bool
+VellumText.Avalonia.RichTextEditor.ClearFind() -> void
+VellumText.Avalonia.RichTextEditor.ContentImported -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportedEventArgs!>?
+VellumText.Avalonia.RichTextEditor.ContentImporting -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportingEventArgs!>?
+VellumText.Avalonia.RichTextEditor.CurrentMatchNumber.get -> int
+VellumText.Avalonia.RichTextEditor.Document.get -> VellumText.DocumentNode!
+VellumText.Avalonia.RichTextEditor.DocumentChanged -> System.EventHandler?
+VellumText.Avalonia.RichTextEditor.Embeds.get -> VellumText.Avalonia.IEmbedRenderer!
+VellumText.Avalonia.RichTextEditor.Embeds.set -> void
+VellumText.Avalonia.RichTextEditor.EnsureView() -> VellumText.Avalonia.RichTextView!
+VellumText.Avalonia.RichTextEditor.ExportFailed -> System.EventHandler<VellumText.Avalonia.ExportFailedEventArgs!>?
+VellumText.Avalonia.RichTextEditor.Find(string! query, VellumText.SearchOptions? options = null) -> int
+VellumText.Avalonia.RichTextEditor.FindNext() -> bool
+VellumText.Avalonia.RichTextEditor.FindPrevious() -> bool
+VellumText.Avalonia.RichTextEditor.Formats.get -> System.Collections.Generic.ICollection<VellumText.IDocumentFormat!>!
+VellumText.Avalonia.RichTextEditor.History.get -> VellumText.History?
+VellumText.Avalonia.RichTextEditor.History.set -> void
+VellumText.Avalonia.RichTextEditor.ImageRefused -> System.EventHandler<VellumText.Avalonia.RichTextView.ImageRefusedEventArgs!>?
+VellumText.Avalonia.RichTextEditor.ImageStore.get -> VellumText.Avalonia.IImageStore!
+VellumText.Avalonia.RichTextEditor.ImageStore.set -> void
+VellumText.Avalonia.RichTextEditor.IsReadOnly.get -> bool
+VellumText.Avalonia.RichTextEditor.IsReadOnly.set -> void
+VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabled.get -> bool
+VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabled.set -> void
+VellumText.Avalonia.RichTextEditor.MatchCount.get -> int
+VellumText.Avalonia.RichTextEditor.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
+VellumText.Avalonia.RichTextEditor.ParagraphStyles.set -> void
+VellumText.Avalonia.RichTextEditor.Redo() -> bool
+VellumText.Avalonia.RichTextEditor.ReplaceAll(string! replacement) -> int
+VellumText.Avalonia.RichTextEditor.ReplaceCurrent(string! replacement) -> bool
+VellumText.Avalonia.RichTextEditor.RichTextEditor() -> void
+VellumText.Avalonia.RichTextEditor.Selection.get -> VellumText.Selection!
+VellumText.Avalonia.RichTextEditor.SelectionChanged -> System.EventHandler?
+VellumText.Avalonia.RichTextEditor.SelectionToolbar.get -> VellumText.Avalonia.RichTextToolbar?
+VellumText.Avalonia.RichTextEditor.SelectionToolbarPlacement.get -> Avalonia.Point
+VellumText.Avalonia.RichTextEditor.State.get -> VellumText.EditorState!
+VellumText.Avalonia.RichTextEditor.State.set -> void
+VellumText.Avalonia.RichTextEditor.SyntaxHighlighter.get -> VellumText.ISyntaxHighlighter?
+VellumText.Avalonia.RichTextEditor.SyntaxHighlighter.set -> void
+VellumText.Avalonia.RichTextEditor.SyntaxTheme.get -> VellumText.Avalonia.ISyntaxTheme!
+VellumText.Avalonia.RichTextEditor.SyntaxTheme.set -> void
+VellumText.Avalonia.RichTextEditor.TextStyles.get -> VellumText.Avalonia.ITextStyleResolver!
+VellumText.Avalonia.RichTextEditor.TextStyles.set -> void
+VellumText.Avalonia.RichTextEditor.Undo() -> bool
+VellumText.Avalonia.RichTextEditor.UndoLimit.get -> int
+VellumText.Avalonia.RichTextEditor.UndoLimit.set -> void
+VellumText.Avalonia.RichTextEditor.View.get -> VellumText.Avalonia.RichTextView?
+VellumText.Avalonia.RichTextToolbar
+VellumText.Avalonia.RichTextToolbar.Align.get -> VellumText.TextAlign?
+VellumText.Avalonia.RichTextToolbar.CanRedo.get -> bool
+VellumText.Avalonia.RichTextToolbar.CanUndo.get -> bool
+VellumText.Avalonia.RichTextToolbar.ClearFormattingCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.Editor.get -> VellumText.Avalonia.RichTextEditor?
+VellumText.Avalonia.RichTextToolbar.Editor.set -> void
+VellumText.Avalonia.RichTextToolbar.IndentCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.IsBold.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsItalic.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsLink.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsStrikethrough.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsSubscript.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsSuperscript.get -> bool
+VellumText.Avalonia.RichTextToolbar.IsUnderline.get -> bool
+VellumText.Avalonia.RichTextToolbar.ListKind.get -> VellumText.ListKind?
+VellumText.Avalonia.RichTextToolbar.OutdentCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.ParagraphKind.get -> VellumText.ParagraphKind?
+VellumText.Avalonia.RichTextToolbar.RedoCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.RichTextToolbar() -> void
+VellumText.Avalonia.RichTextToolbar.SelectionFontFamily.get -> string?
+VellumText.Avalonia.RichTextToolbar.SelectionFontSize.get -> double?
+VellumText.Avalonia.RichTextToolbar.SelectionForeground.get -> VellumText.Rgba?
+VellumText.Avalonia.RichTextToolbar.SelectionHighlight.get -> VellumText.Rgba?
+VellumText.Avalonia.RichTextToolbar.SetAlignCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetFontFamilyCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetFontSizeCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetForegroundCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetHighlightCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetLinkCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.SetParagraphKindCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.ToggleListCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.ToggleParagraphKindCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.ToggleStyleCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextToolbar.UndoCommand.get -> System.Windows.Input.ICommand!
+VellumText.Avalonia.RichTextView
+VellumText.Avalonia.RichTextView.AcceptsDrop.get -> bool
+VellumText.Avalonia.RichTextView.AcceptsDrop.set -> void
+VellumText.Avalonia.RichTextView.AcceptsReturn.get -> bool
+VellumText.Avalonia.RichTextView.AcceptsReturn.set -> void
+VellumText.Avalonia.RichTextView.AcceptsTab.get -> bool
+VellumText.Avalonia.RichTextView.AcceptsTab.set -> void
+VellumText.Avalonia.RichTextView.AlignAt.get -> VellumText.TextAlign?
+VellumText.Avalonia.RichTextView.Apply(VellumText.Transaction! transaction) -> bool
+VellumText.Avalonia.RichTextView.ApplyLink(VellumText.LinkMark? link) -> bool
+VellumText.Avalonia.RichTextView.AreTouchHandlesVisible.get -> bool
+VellumText.Avalonia.RichTextView.Backspace() -> bool
+VellumText.Avalonia.RichTextView.BlockStart.get -> int
+VellumText.Avalonia.RichTextView.CanNestListItem.get -> bool
+VellumText.Avalonia.RichTextView.CanRedo.get -> bool
+VellumText.Avalonia.RichTextView.CanUndo.get -> bool
+VellumText.Avalonia.RichTextView.CaretBlockIndex.get -> int
+VellumText.Avalonia.RichTextView.CaretBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.CaretBrush.set -> void
+VellumText.Avalonia.RichTextView.CaretRect() -> Avalonia.Rect
+VellumText.Avalonia.RichTextView.ClearFind() -> void
+VellumText.Avalonia.RichTextView.ClearFormatting() -> bool
+VellumText.Avalonia.RichTextView.ContentImported -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportedEventArgs!>?
+VellumText.Avalonia.RichTextView.ContentImportedEventArgs
+VellumText.Avalonia.RichTextView.ContentImportedEventArgs.AnythingDropped.get -> bool
+VellumText.Avalonia.RichTextView.ContentImportedEventArgs.ContentImportedEventArgs(System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic> diagnostics) -> void
+VellumText.Avalonia.RichTextView.ContentImportedEventArgs.Diagnostics.get -> System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic>
+VellumText.Avalonia.RichTextView.ContentImporting -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportingEventArgs!>?
+VellumText.Avalonia.RichTextView.ContentImportingEventArgs
+VellumText.Avalonia.RichTextView.ContentImportingEventArgs.AnythingDropped.get -> bool
+VellumText.Avalonia.RichTextView.ContentImportingEventArgs.Content.get -> VellumText.DocumentNode!
+VellumText.Avalonia.RichTextView.ContentImportingEventArgs.ContentImportingEventArgs(VellumText.DocumentNode! content, System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic> diagnostics) -> void
+VellumText.Avalonia.RichTextView.ContentImportingEventArgs.Diagnostics.get -> System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic>
+VellumText.Avalonia.RichTextView.CopyAsync() -> System.Threading.Tasks.Task<bool>!
+VellumText.Avalonia.RichTextView.CurrentFindHighlightBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.CurrentFindHighlightBrush.set -> void
+VellumText.Avalonia.RichTextView.CurrentMatch.get -> int
+VellumText.Avalonia.RichTextView.CutAsync() -> System.Threading.Tasks.Task<bool>!
+VellumText.Avalonia.RichTextView.Delete() -> bool
+VellumText.Avalonia.RichTextView.DeleteColumn() -> bool
+VellumText.Avalonia.RichTextView.DeleteRow() -> bool
+VellumText.Avalonia.RichTextView.DeleteSelection() -> bool
+VellumText.Avalonia.RichTextView.Document.get -> VellumText.DocumentNode!
+VellumText.Avalonia.RichTextView.DocumentChanged -> System.EventHandler?
+VellumText.Avalonia.RichTextView.ExportFailed -> System.EventHandler<VellumText.Avalonia.ExportFailedEventArgs!>?
+VellumText.Avalonia.RichTextView.Find(string! query, VellumText.SearchOptions? options = null) -> int
+VellumText.Avalonia.RichTextView.FindHighlightBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.FindHighlightBrush.set -> void
+VellumText.Avalonia.RichTextView.FindNext() -> bool
+VellumText.Avalonia.RichTextView.FindPrevious() -> bool
+VellumText.Avalonia.RichTextView.Formats.get -> System.Collections.Generic.ICollection<VellumText.IDocumentFormat!>!
+VellumText.Avalonia.RichTextView.GoalX.get -> double?
+VellumText.Avalonia.RichTextView.HideTouchHandles() -> void
+VellumText.Avalonia.RichTextView.History.get -> VellumText.History!
+VellumText.Avalonia.RichTextView.History.set -> void
+VellumText.Avalonia.RichTextView.ImageHandleBorderBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.ImageHandleBorderBrush.set -> void
+VellumText.Avalonia.RichTextView.ImageHandleBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.ImageHandleBrush.set -> void
+VellumText.Avalonia.RichTextView.ImageRefused -> System.EventHandler<VellumText.Avalonia.RichTextView.ImageRefusedEventArgs!>?
+VellumText.Avalonia.RichTextView.ImageRefusedEventArgs
+VellumText.Avalonia.RichTextView.ImageRefusedEventArgs.ByteCount.get -> int
+VellumText.Avalonia.RichTextView.ImageRefusedEventArgs.ImageRefusedEventArgs(int byteCount, string! mediaType) -> void
+VellumText.Avalonia.RichTextView.ImageRefusedEventArgs.MediaType.get -> string!
+VellumText.Avalonia.RichTextView.ImageStore.get -> VellumText.Avalonia.IImageStore!
+VellumText.Avalonia.RichTextView.ImageStore.set -> void
+VellumText.Avalonia.RichTextView.Indent() -> bool
+VellumText.Avalonia.RichTextView.IndentLevelAt.get -> int?
+VellumText.Avalonia.RichTextView.InsertColumnLeft() -> bool
+VellumText.Avalonia.RichTextView.InsertColumnRight() -> bool
+VellumText.Avalonia.RichTextView.InsertImage(System.ReadOnlySpan<byte> bytes, string! mediaType) -> bool
+VellumText.Avalonia.RichTextView.InsertLineBreak() -> bool
+VellumText.Avalonia.RichTextView.InsertRowAbove() -> bool
+VellumText.Avalonia.RichTextView.InsertRowBelow() -> bool
+VellumText.Avalonia.RichTextView.InsertText(string! text) -> bool
+VellumText.Avalonia.RichTextView.IsActive(VellumText.TextStyle style) -> bool
+VellumText.Avalonia.RichTextView.IsCaretVisible.get -> bool
+VellumText.Avalonia.RichTextView.IsComposing.get -> bool
+VellumText.Avalonia.RichTextView.IsDragging.get -> bool
+VellumText.Avalonia.RichTextView.IsDraggingTouchHandle.get -> bool
+VellumText.Avalonia.RichTextView.IsInTable.get -> bool
+VellumText.Avalonia.RichTextView.IsMovingSelection.get -> bool
+VellumText.Avalonia.RichTextView.IsReadOnly.get -> bool
+VellumText.Avalonia.RichTextView.IsReadOnly.set -> void
+VellumText.Avalonia.RichTextView.IsResizingColumn.get -> bool
+VellumText.Avalonia.RichTextView.IsResizingImage.get -> bool
+VellumText.Avalonia.RichTextView.LiftListItem() -> bool
+VellumText.Avalonia.RichTextView.LinkActivated -> System.EventHandler<VellumText.Avalonia.RichTextView.LinkActivatedEventArgs!>?
+VellumText.Avalonia.RichTextView.LinkActivatedEventArgs
+VellumText.Avalonia.RichTextView.LinkActivatedEventArgs.Link.get -> VellumText.LinkMark!
+VellumText.Avalonia.RichTextView.LinkActivatedEventArgs.LinkActivatedEventArgs(VellumText.LinkMark! link, int position) -> void
+VellumText.Avalonia.RichTextView.LinkActivatedEventArgs.Position.get -> int
+VellumText.Avalonia.RichTextView.LinkAt(int position) -> VellumText.LinkMark?
+VellumText.Avalonia.RichTextView.LinkRequested -> System.EventHandler<VellumText.Avalonia.RichTextView.LinkRequestedEventArgs!>?
+VellumText.Avalonia.RichTextView.LinkRequestedEventArgs
+VellumText.Avalonia.RichTextView.LinkRequestedEventArgs.Existing.get -> VellumText.LinkMark?
+VellumText.Avalonia.RichTextView.LinkRequestedEventArgs.LinkRequestedEventArgs(VellumText.LinkMark? existing) -> void
+VellumText.Avalonia.RichTextView.ListKindAt.get -> VellumText.ListKind?
+VellumText.Avalonia.RichTextView.MatchCount.get -> int
+VellumText.Avalonia.RichTextView.Matches.get -> System.Collections.Immutable.ImmutableArray<VellumText.SearchMatch>
+VellumText.Avalonia.RichTextView.MergeCells() -> bool
+VellumText.Avalonia.RichTextView.MoveTo(int position, bool extend) -> void
+VellumText.Avalonia.RichTextView.NestListItem() -> bool
+VellumText.Avalonia.RichTextView.Outdent() -> bool
+VellumText.Avalonia.RichTextView.ParagraphKindAt.get -> VellumText.ParagraphKind?
+VellumText.Avalonia.RichTextView.PasteAsync() -> System.Threading.Tasks.Task<bool>!
+VellumText.Avalonia.RichTextView.PasteDocument(VellumText.DocumentNode! doc) -> bool
+VellumText.Avalonia.RichTextView.PasteImport(VellumText.ImportResult! result) -> bool
+VellumText.Avalonia.RichTextView.PasteText(string! text) -> bool
+VellumText.Avalonia.RichTextView.PasteTextAsync() -> System.Threading.Tasks.Task<bool>!
+VellumText.Avalonia.RichTextView.Preedit.get -> VellumText.Avalonia.Preedit?
+VellumText.Avalonia.RichTextView.Query.get -> string!
+VellumText.Avalonia.RichTextView.Redo() -> bool
+VellumText.Avalonia.RichTextView.RemoveLink() -> bool
+VellumText.Avalonia.RichTextView.ReplaceAll(string! replacement) -> int
+VellumText.Avalonia.RichTextView.ReplaceCurrent(string! replacement) -> bool
+VellumText.Avalonia.RichTextView.ResetCaretBlink() -> void
+VellumText.Avalonia.RichTextView.ResizeSelectedImage(Avalonia.Size size) -> bool
+VellumText.Avalonia.RichTextView.RichTextView() -> void
+VellumText.Avalonia.RichTextView.ScrollToEnd() -> void
+VellumText.Avalonia.RichTextView.SelectAll() -> bool
+VellumText.Avalonia.RichTextView.SelectedImage.get -> int?
+VellumText.Avalonia.RichTextView.SelectedText() -> string!
+VellumText.Avalonia.RichTextView.SelectImage(int position) -> bool
+VellumText.Avalonia.RichTextView.Selection.get -> VellumText.Selection!
+VellumText.Avalonia.RichTextView.SelectionBounds() -> Avalonia.Rect?
+VellumText.Avalonia.RichTextView.SelectionBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.SelectionBrush.set -> void
+VellumText.Avalonia.RichTextView.SelectionChanged -> System.EventHandler?
+VellumText.Avalonia.RichTextView.SelectionLink.get -> VellumText.LinkMark?
+VellumText.Avalonia.RichTextView.SelectionMarks.get -> VellumText.MarkSet
+VellumText.Avalonia.RichTextView.SelectParagraphAt(int position) -> bool
+VellumText.Avalonia.RichTextView.SelectWordAt(int position) -> bool
+VellumText.Avalonia.RichTextView.SetAlign(VellumText.TextAlign align) -> bool
+VellumText.Avalonia.RichTextView.SetFontFamily(string? family) -> bool
+VellumText.Avalonia.RichTextView.SetFontSize(double? size) -> bool
+VellumText.Avalonia.RichTextView.SetForeground(VellumText.Rgba? colour) -> bool
+VellumText.Avalonia.RichTextView.SetHighlight(VellumText.Rgba? colour) -> bool
+VellumText.Avalonia.RichTextView.SetIndentLevel(int level) -> bool
+VellumText.Avalonia.RichTextView.SetLink(VellumText.LinkMark? link) -> bool
+VellumText.Avalonia.RichTextView.SetMarks(VellumText.MarkSet value, VellumText.MarkFields fields) -> bool
+VellumText.Avalonia.RichTextView.SetParagraphKind(VellumText.ParagraphKind kind) -> bool
+VellumText.Avalonia.RichTextView.SetPreedit(string? text, int? cursorPosition = null) -> bool
+VellumText.Avalonia.RichTextView.SetStyle(VellumText.TextStyle style, bool on) -> bool
+VellumText.Avalonia.RichTextView.ShowTouchHandles() -> void
+VellumText.Avalonia.RichTextView.Split() -> bool
+VellumText.Avalonia.RichTextView.SplitCell() -> bool
+VellumText.Avalonia.RichTextView.State.get -> VellumText.EditorState!
+VellumText.Avalonia.RichTextView.State.set -> void
+VellumText.Avalonia.RichTextView.ToggleList(VellumText.ListKind kind) -> bool
+VellumText.Avalonia.RichTextView.ToggleParagraphKind(VellumText.ParagraphKind kind) -> bool
+VellumText.Avalonia.RichTextView.ToggleStyle(VellumText.TextStyle style) -> bool
+VellumText.Avalonia.RichTextView.TouchHandleBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextView.TouchHandleBrush.set -> void
+VellumText.Avalonia.RichTextView.TouchHandles.get -> System.Collections.Generic.IReadOnlyList<Avalonia.Rect>!
+VellumText.Avalonia.RichTextView.Undo() -> bool
+VellumText.Avalonia.RichTextView.UndoLimit.get -> int
+VellumText.Avalonia.RichTextView.UndoLimit.set -> void
+VellumText.Avalonia.RichTextViewer
+VellumText.Avalonia.RichTextViewer.ClearSelection() -> bool
+VellumText.Avalonia.RichTextViewer.CopyAsync() -> System.Threading.Tasks.Task<bool>!
+VellumText.Avalonia.RichTextViewer.Document.get -> VellumText.DocumentNode!
+VellumText.Avalonia.RichTextViewer.Document.set -> void
+VellumText.Avalonia.RichTextViewer.ExportFailed -> System.EventHandler<VellumText.Avalonia.ExportFailedEventArgs!>?
+VellumText.Avalonia.RichTextViewer.Formats.get -> System.Collections.Generic.ICollection<VellumText.IDocumentFormat!>!
+VellumText.Avalonia.RichTextViewer.RichTextViewer() -> void
+VellumText.Avalonia.RichTextViewer.SelectAll() -> bool
+VellumText.Avalonia.RichTextViewer.SelectedText() -> string!
+VellumText.Avalonia.RichTextViewer.SelectionBrush.get -> Avalonia.Media.IBrush?
+VellumText.Avalonia.RichTextViewer.SelectionBrush.set -> void
+VellumText.Avalonia.RichTextViewer.SelectionEnd.get -> int
+VellumText.Avalonia.RichTextViewer.SelectionStart.get -> int
+VellumText.Avalonia.RichTextViewer.SelectParagraphAt(int position) -> bool
+VellumText.Avalonia.RichTextViewer.SelectWordAt(int position) -> bool
+VellumText.Avalonia.SyntaxTheme
+VellumText.Avalonia.SyntaxTheme.For(VellumText.TokenKind kind) -> VellumText.MarkSet?
+VellumText.Avalonia.SyntaxTheme.SyntaxTheme(System.Collections.Generic.IReadOnlyDictionary<VellumText.TokenKind, VellumText.Rgba>! colours) -> void
+VellumText.Avalonia.TextStyleResolver
+VellumText.Avalonia.TextStyleResolver.Default.get -> Avalonia.Media.TextFormatting.TextRunProperties!
+VellumText.Avalonia.TextStyleResolver.Resolve(VellumText.MarkSet marks) -> Avalonia.Media.TextFormatting.TextRunProperties!
+VellumText.Avalonia.TextStyleResolver.TextStyleResolver(Avalonia.Media.Typeface typeface, double fontSize, Avalonia.Media.IBrush! foreground, Avalonia.Media.FontFamily? codeFamily = null) -> void
+VellumText.Avalonia.ToolbarConverters
+virtual VellumText.Avalonia.DocumentPresenter.SetTextFromAutomation(string! text) -> void
+virtual VellumText.Avalonia.DocumentPresenter.SupportsTextInput.get -> bool
+~override VellumText.Avalonia.BlockSlot.Equals(object obj) -> bool
+~override VellumText.Avalonia.BlockSlot.ToString() -> string
+~override VellumText.Avalonia.ListMarker.Equals(object obj) -> bool
+~override VellumText.Avalonia.ListMarker.ToString() -> string

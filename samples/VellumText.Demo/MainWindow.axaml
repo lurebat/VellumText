@@ -134,7 +134,7 @@
                            x:Name="Editor"
                            MaxWidth="680"
                            Margin="28,28,28,48"
-                           HorizontalAlignment="Center"
+                           HorizontalAlignment="Stretch"
                            Background="{DynamicResource Page}"
                            BorderBrush="{DynamicResource PageEdge}" BorderThickness="1"
                            CornerRadius="8"

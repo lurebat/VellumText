@@ -19,8 +19,8 @@
 
   <ItemGroup>
     <!-- The same headless stack as the Avalonia tests, drawing with Skia so text is really shaped. -->
-    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
-    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
   </ItemGroup>
 
   <ItemGroup>

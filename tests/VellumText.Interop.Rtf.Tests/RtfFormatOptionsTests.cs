@@ -50,7 +50,7 @@ public class RtfFormatOptionsTests
         IDocumentImporter configured = RtfFormat.Instance.With(
             new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
 
-        Assert.True(AnyLink(await configured.ImportAsync(RelativeLink), "https://example.com/relative"));
+        Assert.True(AnyLink(await configured.ImportAsync(RelativeLink, cancellationToken: TestContext.Current.CancellationToken), "https://example.com/relative"));
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public class RtfFormatOptionsTests
     {
         IDocumentImporter shared = RtfFormat.Instance;
 
-        Assert.False(AnyLink(await shared.ImportAsync(RelativeLink), "https://example.com/relative"));
+        Assert.False(AnyLink(await shared.ImportAsync(RelativeLink, cancellationToken: TestContext.Current.CancellationToken), "https://example.com/relative"));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class RtfFormatOptionsTests
 
         using var source = new MemoryStream(System.Text.Encoding.Latin1.GetBytes(RelativeLink));
 
-        Assert.True(AnyLink(await configured.ImportAsync(source), "https://example.com/relative"));
+        Assert.True(AnyLink(await configured.ImportAsync(source, cancellationToken: TestContext.Current.CancellationToken), "https://example.com/relative"));
     }
 
     private static bool AnyLink(ImportResult result, string href) =>

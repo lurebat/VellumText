@@ -579,6 +579,75 @@ public class ParagraphChunkingTests
         Assert.NotNull(longView.Chunks);
     }
 
+    [AvaloniaFact]
+    public void ResizingAnImageThatStartsAChunkMatchesAFreshLayout()
+    {
+        // The change is the one position the placeholder holds, and the chunk starting there is the
+        // first one at or past the change's start. It looked at the image, so it is laid out again
+        // rather than kept.
+        var content = InlineContent.Empty;
+        var words = Words(2_400).Split(' ');
+
+        for (var i = 0; i < words.Length; i++)
+        {
+            content = content
+                .Concat(InlineContent.FromText(words[i] + " "))
+                .Concat(InlineContent.FromEmbed(new ImageEmbed($"img{i}.png", 20, 10)))
+                .Concat(InlineContent.FromText(" "));
+        }
+
+        var chunked = Measured(Paragraph(content), Small);
+        var resized = new HashSet<int>();
+
+        for (var round = 0; round < 6; round++)
+        {
+            var current = chunked.Paragraph.Content;
+            var seam = chunked.Chunks!.Starts.Skip(1)
+                .FirstOrDefault(start => !resized.Contains(start) && current.TryGetEmbedAt(start, out _), -1);
+
+            if (seam < 0)
+            {
+                break;
+            }
+
+            Assert.True(current.TryGetEmbedAt(seam, out var embed));
+
+            var next = current.Replace(
+                seam, 1, InlineContent.FromEmbed(new ImageEmbed(((ImageEmbed)embed).Source, 60, 45)));
+
+            chunked.Update(new ParagraphNode(next));
+            chunked.Measure(Width);
+
+            AssertSame(Measured(new ParagraphNode(next), ParagraphChunking.Never), chunked, expectChunks: true, everyPosition: false);
+            resized.Add(seam);
+        }
+
+        // How many chunk starts land exactly on an image depends on the platform's font metrics:
+        // three on Windows, one on Linux CI. One is all the regression needs - but none would
+        // prove nothing, so that still fails.
+        Assert.True(resized.Count > 0, "no chunk started at an image");
+    }
+
+    [AvaloniaFact]
+    public void ARightToLeftCompositionStopsChunking()
+    {
+        // Composed text is laid out with the paragraph, so a right-to-left composition makes a
+        // seam inexact as surely as right-to-left text does.
+        var paragraph = Paragraph(Words(3_000));
+        var preedit = new Preedit("\u05e9\u05dc\u05d5\u05dd 12", 1_500);
+        var plain = Measured(paragraph, ParagraphChunking.Never);
+        var chunked = Measured(paragraph, Small);
+
+        Assert.NotNull(chunked.Chunks);
+
+        plain.SetPreedit(preedit);
+        chunked.SetPreedit(preedit);
+        plain.Measure(Width);
+        chunked.Measure(Width);
+
+        AssertSame(plain, chunked, expectChunks: false, everyPosition: false);
+    }
+
     private static TextStyleResolver Styles() => new(new Typeface("Segoe UI"), 14, Brushes.Black);
 
     private static ParagraphNode Paragraph(string text) => ParagraphNode.FromText(text);
@@ -644,13 +713,13 @@ public class ParagraphChunkingTests
 
         foreach (var p in positions)
         {
-            Assert.True(plain.GetCaretRect(p) == chunked.GetCaretRect(p), $"caret at {p}: {plain.GetCaretRect(p)} vs {chunked.GetCaretRect(p)}");
+            Assert.True(Same(plain.GetCaretRect(p), chunked.GetCaretRect(p)), $"caret at {p}: {plain.GetCaretRect(p)} vs {chunked.GetCaretRect(p)}");
             Assert.True(plain.NextCaretPosition(p) == chunked.NextCaretPosition(p), $"next from {p}");
             Assert.True(plain.PreviousCaretPosition(p) == chunked.PreviousCaretPosition(p), $"previous from {p}");
             Assert.True(plain.BackspacePosition(p) == chunked.BackspacePosition(p), $"backspace from {p}");
             Assert.True(plain.LineIndexAt(p, true) == chunked.LineIndexAt(p, true), $"line forward at {p}");
             Assert.True(plain.LineIndexAt(p, false) == chunked.LineIndexAt(p, false), $"line backward at {p}");
-            Assert.True(plain.GetImageRect(p) == chunked.GetImageRect(p), $"image at {p}");
+            Assert.True(Same(plain.GetImageRect(p), chunked.GetImageRect(p)), $"image at {p}: {plain.GetImageRect(p)} vs {chunked.GetImageRect(p)}");
         }
 
         var height = plain.Size.Height;
@@ -670,11 +739,28 @@ public class ParagraphChunkingTests
             var expected = plain.GetSelectionRects(from, to);
             var actual = chunked.GetSelectionRects(from, to);
 
-            Assert.True(expected.SequenceEqual(actual), $"selection {from}..{to}: {expected.Count} vs {actual.Count} rectangles");
+            Assert.True(expected.Count == actual.Count && expected.Zip(actual).All(r => Same(r.First, r.Second)), $"selection {from}..{to}: {expected.Count} vs {actual.Count} rectangles");
         }
 
         Assert.Equal(Pixels(plain), Pixels(chunked));
     }
+
+    /// <summary>
+    /// Whether two rectangles are the same to well below anything that can be drawn.
+    /// </summary>
+    /// <remarks>
+    /// A chunk adds its own offset to x and y, so the same edge can come out of a different sum:
+    /// on macOS a caret was 14.000000000000004 one way and 14.000000000000002 the other. A
+    /// billionth of a DIP is not a layout difference; anything that is one still fails here, and
+    /// the pixels are compared exactly.
+    /// </remarks>
+    private static bool Same(Rect? a, Rect? b) =>
+        a is not { } x || b is not { } y
+            ? a is null && b is null
+            : Math.Abs(x.X - y.X) < 1e-9
+                && Math.Abs(x.Y - y.Y) < 1e-9
+                && Math.Abs(x.Width - y.Width) < 1e-9
+                && Math.Abs(x.Height - y.Height) < 1e-9;
 
     /// <summary>Positions on and around every seam.</summary>
     private static IEnumerable<int> Near(ParagraphView view)
@@ -740,15 +826,7 @@ public class ParagraphChunkingTests
             view.Render(context, new Point(30, 0));
         }
 
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(new PixelRect(size), (nint)buffer, pixels.Length * sizeof(uint), size.Width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         Assert.Contains(pixels, p => p != 0);
 

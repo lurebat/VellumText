@@ -25,7 +25,7 @@ public class MarkdownBlockImageTests
         Assert.Equal($"x\n\n![pic]({Png})\n\ny\n", exported.Text);
         Assert.Empty(exported.Diagnostics);
 
-        var back = (await MarkdownImporter.ImportAsync(exported.Text)).Doc;
+        var back = (await MarkdownImporter.ImportAsync(exported.Text, cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Equal(3, back.Blocks.Length);
         Assert.Equal(image, Assert.IsType<BlockImageNode>(back.Blocks[1]).Image);
@@ -41,7 +41,7 @@ public class MarkdownBlockImageTests
                 ListKind.Unordered),
         ]);
 
-        var back = (await MarkdownImporter.ImportAsync(MarkdownExporter.Instance.Export(doc))).Doc;
+        var back = (await MarkdownImporter.ImportAsync(MarkdownExporter.Instance.Export(doc), cancellationToken: TestContext.Current.CancellationToken)).Doc;
         var item = Assert.Single(Assert.IsType<ListNode>(Assert.Single(back.Blocks)).Items);
 
         Assert.Equal(image, Assert.IsType<BlockImageNode>(item.Blocks[1]).Image);
@@ -64,14 +64,14 @@ public class MarkdownBlockImageTests
 
         Assert.Equal(DiagnosticSeverity.Downgraded, diagnostic.Severity);
         Assert.Equal("image-paragraph", diagnostic.Context);
-        Assert.IsType<BlockImageNode>(Assert.Single((await MarkdownImporter.ImportAsync(exported.Text)).Doc.Blocks));
+        Assert.IsType<BlockImageNode>(Assert.Single((await MarkdownImporter.ImportAsync(exported.Text, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
     }
 
     /// <summary>A badge — an image inside a link — is inline, and stays a paragraph.</summary>
     [Fact]
     public async Task A_linked_image_alone_in_a_paragraph_stays_inline()
     {
-        var back = (await MarkdownImporter.ImportAsync($"[![b]({Png})](https://e.test/)")).Doc;
+        var back = (await MarkdownImporter.ImportAsync($"[![b]({Png})](https://e.test/)", cancellationToken: TestContext.Current.CancellationToken)).Doc;
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(back.Blocks));
 
         Assert.Equal("https://e.test/", paragraph.Content.MarkAt(0).Link?.Href);
@@ -81,7 +81,7 @@ public class MarkdownBlockImageTests
     public async Task An_image_beside_text_stays_inline()
     {
         Assert.IsType<ParagraphNode>(
-            Assert.Single((await MarkdownImporter.ImportAsync($"see ![b]({Png})")).Doc.Blocks));
+            Assert.Single((await MarkdownImporter.ImportAsync($"see ![b]({Png})", cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
     }
 
     [Fact]

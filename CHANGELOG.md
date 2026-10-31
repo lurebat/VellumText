@@ -627,6 +627,18 @@ awaits `PasteAsync`.
 
 ### Changed
 
+- **HtmlSanitizer 9.2.1039 and AngleSharp 1.8.5** (were 9.1.982 and 1.8.3). The
+  sanitizer tightens URI-list attributes, `srcdoc`, `cite`/`longdesc`,
+  `<style type="">`, `@font-face` and `@import`. AngleSharp 1.8.6, which fixes a
+  mutation-XSS in attribute serialisation and stack overflows in `Clone`/`Import`,
+  is not yet on the package feed this was built from; VellumText reserialises no
+  AngleSharp DOM and calls neither, so it is defence in depth to take when it is.
+- **Built on Avalonia 12.1.4** (was 12.1.1), so a host must reference Avalonia
+  12.1.4 or later. The patch releases between them fix, among others, an infinite
+  loop shaping a text run that produces no glyphs (reachable from pasted text),
+  clipboard exceptions in `TextBox`, focus left on detached or removed controls,
+  and races in headless session startup and disposal. SkiaSharp (3.119.4) and
+  HarfBuzzSharp (8.3.1.3) are unchanged.
 - **RTF is read by OfficeIMO instead of RtfPipe** (`OfficeIMO.Rtf` and
   `OfficeIMO.Html.Rtf`, pinned to one exact version). RtfPipe had no release
   since 2021 and stalled on small hostile inputs; the replacement was chosen

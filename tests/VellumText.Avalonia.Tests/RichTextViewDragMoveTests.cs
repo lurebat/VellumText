@@ -483,7 +483,10 @@ public class RichTextViewDragMoveTests
         Assert.True(view.SelectImage(view.Slots[0].Start));
 
         var box = view.ImageRect(view.SelectedImage!.Value)!.Value;
-        var target = Middle(view, 1, 60);
+
+        // Exactly between "after the pi" and "cture", from the laid-out text: a fixed x falls
+        // between different letters in a different font, and the split asserted below moves.
+        var target = view.BlockOrigin(1) + view.Blocks[1].GetCaretRect("after the pi".Length).Center;
 
         window.MouseDown(box.Center, MouseButton.Left);
         window.MouseMove(target);

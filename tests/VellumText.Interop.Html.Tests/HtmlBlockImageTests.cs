@@ -33,7 +33,7 @@ public class HtmlBlockImageTests
 
         Assert.Contains("<figure", html, StringComparison.Ordinal);
 
-        var back = (await HtmlImporter.ImportAsync(html)).Doc;
+        var back = (await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Equal(3, back.Blocks.Length);
 
@@ -53,7 +53,7 @@ public class HtmlBlockImageTests
         var html = HtmlExporter.Instance.Export(doc);
 
         Assert.DoesNotContain("<figure", html, StringComparison.Ordinal);
-        Assert.IsType<ParagraphNode>(Assert.Single((await HtmlImporter.ImportAsync(html)).Doc.Blocks));
+        Assert.IsType<ParagraphNode>(Assert.Single((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
     }
 
     /// <summary>
@@ -64,7 +64,7 @@ public class HtmlBlockImageTests
     public async Task A_figure_with_a_caption_is_not_a_block_image()
     {
         var back = (await HtmlImporter.ImportAsync(
-            $"<figure><img src=\"{Png}\"><figcaption>cap</figcaption></figure>")).Doc;
+            $"<figure><img src=\"{Png}\"><figcaption>cap</figcaption></figure>", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.DoesNotContain(back.Blocks, b => b is BlockImageNode);
         Assert.Contains("cap", DocumentText.Of(back), StringComparison.Ordinal);
@@ -78,7 +78,7 @@ public class HtmlBlockImageTests
     public async Task A_linked_figure_keeps_its_link()
     {
         var back = (await HtmlImporter.ImportAsync(
-            $"<a href=\"https://e.test/\"><figure><img src=\"{Png}\"></figure></a>")).Doc;
+            $"<a href=\"https://e.test/\"><figure><img src=\"{Png}\"></figure></a>", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         var paragraph = Assert.IsType<ParagraphNode>(Assert.Single(back.Blocks));
 
@@ -88,7 +88,7 @@ public class HtmlBlockImageTests
     [Fact]
     public async Task A_figure_whose_image_was_refused_leaves_no_block_image()
     {
-        var back = (await HtmlImporter.ImportAsync("<figure><img src=\"https://remote.invalid/a.png\"></figure>")).Doc;
+        var back = (await HtmlImporter.ImportAsync("<figure><img src=\"https://remote.invalid/a.png\"></figure>", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.DoesNotContain(back.Blocks, b => b is BlockImageNode);
     }

@@ -8,6 +8,7 @@ namespace VellumText.Interop.Html.Tests;
 /// <summary>
 /// Table spans multiply; the importer bounds the area its tables may cover.
 /// </summary>
+[Collection(VellumText.Tests.Interop.Html.ProcessWideAllocation.Name)]
 public sealed class TableSlotBudgetTests
 {
     private static async Task<(ImportResult Result, long Ms, long AllocatedMb)> Measure(string html, HtmlImportOptions? options = null)
@@ -97,8 +98,8 @@ public sealed class TableSlotBudgetTests
     {
         const string html = "<table><tr><td rowspan=2>a<td>b<td>c<tr><td>d<td>e</table>";
 
-        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 6 })).Doc.Blocks));
-        Assert.DoesNotContain((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 5 })).Doc.Blocks, b => b is TableNode);
+        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 6 }, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
+        Assert.DoesNotContain((await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 5 }, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks, b => b is TableNode);
     }
 
     [Fact]
@@ -106,9 +107,9 @@ public sealed class TableSlotBudgetTests
     {
         const string html = "<table><tr><td>a<td>b<tr><td>c<td>d</table>";
 
-        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html)).Doc.Blocks));
+        Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
 
-        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 3 });
+        var limited = await HtmlImporter.ImportAsync(html, HtmlImportOptions.Default with { MaxTableSlots = 3 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(limited.Doc.Blocks, b => b is TableNode);
         Assert.Equal("a\nb\nc\nd", DocumentText.Of(limited.Doc));
@@ -119,7 +120,7 @@ public sealed class TableSlotBudgetTests
     {
         const string table = "<table><tr><td>a<td>b<tr><td>c<td>d</table>";
 
-        var result = await HtmlImporter.ImportAsync(table + table, HtmlImportOptions.Default with { MaxTableSlots = 6 });
+        var result = await HtmlImporter.ImportAsync(table + table, HtmlImportOptions.Default with { MaxTableSlots = 6 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(result.Doc.Blocks.OfType<TableNode>());
         Assert.IsType<TableNode>(result.Doc.Blocks[0]);

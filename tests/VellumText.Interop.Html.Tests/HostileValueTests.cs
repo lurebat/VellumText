@@ -31,7 +31,7 @@ public sealed class HostileValueTests
         // content that already passed through a rich text model carries. Treating it as content
         // makes the placeholder count disagree with the embed count, which the model rejects —
         // and the whole import used to be discarded because of one character.
-        var result = await HtmlImporter.ImportAsync("<p>before\uFFFCafter</p>");
+        var result = await HtmlImporter.ImportAsync("<p>before\uFFFCafter</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsEmpty);
         Assert.Equal("beforeafter", TextOf(result.Doc));
@@ -41,7 +41,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task A_smuggled_placeholder_does_not_disturb_a_real_embed_beside_it()
     {
-        var result = await HtmlImporter.ImportAsync($"<p>a\uFFFCb<img src='{RealPng}'></p>");
+        var result = await HtmlImporter.ImportAsync($"<p>a\uFFFCb<img src='{RealPng}'></p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.False(result.IsEmpty);
         Assert.Equal(1, EmbedsOf(result.Doc));
@@ -53,7 +53,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task A_paragraph_that_is_nothing_but_placeholders_survives_as_an_empty_one()
     {
-        var result = await HtmlImporter.ImportAsync("<p>\uFFFC\uFFFC\uFFFC</p><p>kept</p>");
+        var result = await HtmlImporter.ImportAsync("<p>\uFFFC\uFFFC\uFFFC</p><p>kept</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("kept", TextOf(result.Doc));
         Assert.DoesNotContain(InlineContent.Placeholder, TextOf(result.Doc));
@@ -67,7 +67,7 @@ public sealed class HostileValueTests
     [InlineData("=")]
     public async Task An_inline_image_whose_data_does_not_decode_is_dropped(string payload)
     {
-        var result = await HtmlImporter.ImportAsync($"<img src='data:image/png;base64,{payload}'>");
+        var result = await HtmlImporter.ImportAsync($"<img src='data:image/png;base64,{payload}'>", cancellationToken: TestContext.Current.CancellationToken);
 
         // Left in, it would reach the document as an embed and fail at draw time instead, far from
         // anything that could explain it.
@@ -78,7 +78,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task An_inline_image_whose_data_does_decode_is_kept()
     {
-        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}'>");
+        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}'>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, EmbedsOf(result.Doc));
     }
@@ -94,7 +94,7 @@ public sealed class HostileValueTests
         Assert.True(url.Length > 100, "the URL has to be longer than the limit for this to mean anything");
 
         var options = new HtmlImportOptions { MaxDataImageBytes = 100 };
-        var result = await HtmlImporter.ImportAsync($"<img src='{url}'>", options);
+        var result = await HtmlImporter.ImportAsync($"<img src='{url}'>", options, cancellationToken: TestContext.Current.CancellationToken);
 
         // Judged by URL length it is over the limit; judged by the limit's own name it is under.
         Assert.Equal(1, EmbedsOf(result.Doc));
@@ -107,7 +107,7 @@ public sealed class HostileValueTests
         Random.Shared.NextBytes(bytes);
         var url = "data:image/png;base64," + Convert.ToBase64String(bytes);
 
-        var result = await HtmlImporter.ImportAsync($"<img src='{url}'>", new HtmlImportOptions { MaxDataImageBytes = 100 });
+        var result = await HtmlImporter.ImportAsync($"<img src='{url}'>", new HtmlImportOptions { MaxDataImageBytes = 100 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(0, EmbedsOf(result.Doc));
         Assert.Contains(result.Diagnostics, d => d.Message.Contains("larger than", StringComparison.Ordinal));
@@ -132,15 +132,15 @@ public sealed class HostileValueTests
         // Parsing four megabytes of HTML allocates far more than the buffer does, but it allocates
         // the same amount both times and cancels. The warm-up keeps first-call JIT out of the
         // measurements, where it would otherwise land entirely on whichever ran first.
-        await HtmlImporter.ImportAsync(html, refusedOutright);
-        await HtmlImporter.ImportAsync(html, refusedForSize);
+        await HtmlImporter.ImportAsync(html, refusedOutright, cancellationToken: TestContext.Current.CancellationToken);
+        await HtmlImporter.ImportAsync(html, refusedForSize, cancellationToken: TestContext.Current.CancellationToken);
 
         // Measured on this thread, through the import stage itself: the public entry point parses
         // on a thread of its own, where a per-thread allocation counter sees none of it.
         var baseline = Allocated(() => HtmlImporter.ImportOnCurrentStack(html, refusedOutright));
         var measured = Allocated(() => HtmlImporter.ImportOnCurrentStack(html, refusedForSize));
 
-        Assert.Equal(0, EmbedsOf((await HtmlImporter.ImportAsync(html, refusedForSize)).Doc));
+        Assert.Equal(0, EmbedsOf((await HtmlImporter.ImportAsync(html, refusedForSize, cancellationToken: TestContext.Current.CancellationToken)).Doc));
         Assert.True(
             measured - baseline < DecodedBytes / 2,
             $"deciding the payload was too large cost {measured - baseline} bytes more than "
@@ -166,7 +166,7 @@ public sealed class HostileValueTests
     [InlineData("100000px")]
     public async Task An_absurd_font_size_is_ignored_rather_than_believed(string size)
     {
-        var result = await HtmlImporter.ImportAsync($"<p><span style='font-size:{size}'>x</span></p>");
+        var result = await HtmlImporter.ImportAsync($"<p><span style='font-size:{size}'>x</span></p>", cancellationToken: TestContext.Current.CancellationToken);
 
         // Finite and positive is not a bound. The model would accept nine trillion pixels and text
         // layout would then be asked to shape it.
@@ -180,7 +180,7 @@ public sealed class HostileValueTests
     [InlineData("4096px", 4096.0)]
     public async Task A_font_size_a_document_could_really_contain_is_kept(string size, double expected)
     {
-        var result = await HtmlImporter.ImportAsync($"<p><span style='font-size:{size}'>x</span></p>");
+        var result = await HtmlImporter.ImportAsync($"<p><span style='font-size:{size}'>x</span></p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(SizesOf(result.Doc), s => Assert.Equal(expected, s!.Value, 3));
     }
@@ -191,7 +191,7 @@ public sealed class HostileValueTests
     [InlineData("style='width:1e300px'")]
     public async Task An_absurd_image_dimension_falls_back_to_the_intrinsic_size(string attribute)
     {
-        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}' {attribute}>");
+        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}' {attribute}>", cancellationToken: TestContext.Current.CancellationToken);
 
         var embed = Assert.Single(result.Doc.Blocks.OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds));
         Assert.Null(Assert.IsType<ImageEmbed>(embed).Width);
@@ -200,7 +200,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task An_image_dimension_a_document_could_really_contain_is_kept()
     {
-        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}' width='640' height='480'>");
+        var result = await HtmlImporter.ImportAsync($"<img src='{RealPng}' width='640' height='480'>", cancellationToken: TestContext.Current.CancellationToken);
 
         var embed = Assert.Single(result.Doc.Blocks.OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds));
         var image = Assert.IsType<ImageEmbed>(embed);
@@ -228,7 +228,7 @@ public sealed class HostileValueTests
         // The model refuses text that is not well-formed UTF-16, and the refusal used to discard
         // the whole paste. Half a character is now the one thing lost. (The code unit is passed as
         // a number because a lone surrogate does not survive test-case serialization.)
-        var result = await HtmlImporter.ImportAsync($"<p>{before}{(char)unit}{after}</p><p>keep</p>");
+        var result = await HtmlImporter.ImportAsync($"<p>{before}{(char)unit}{after}</p><p>keep</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         AssertDowngradedNotLost(result, "unpaired-surrogate");
         Assert.Equal(
@@ -239,7 +239,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task A_low_surrogate_before_a_high_one_is_two_halves_not_a_pair()
     {
-        var result = await HtmlImporter.ImportAsync("<p>\uDC00\uD800</p><p>keep</p>");
+        var result = await HtmlImporter.ImportAsync("<p>\uDC00\uD800</p><p>keep</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         AssertDowngradedNotLost(result, "unpaired-surrogate");
         Assert.Equal("\uFFFD\uFFFD", Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]).Content.Text);
@@ -248,7 +248,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task A_whole_surrogate_pair_is_left_alone()
     {
-        var result = await HtmlImporter.ImportAsync("<p>a\uD83D\uDE00b</p>");
+        var result = await HtmlImporter.ImportAsync("<p>a\uD83D\uDE00b</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Empty(result.Diagnostics);
         Assert.Equal("a\uD83D\uDE00b", Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks)).Content.Text);
@@ -257,7 +257,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task Formatting_that_starts_inside_a_character_is_moved_to_its_start()
     {
-        var result = await HtmlImporter.ImportAsync("<p>x\uD83D<b>\uDE00</b>y</p><p>keep</p>");
+        var result = await HtmlImporter.ImportAsync("<p>x\uD83D<b>\uDE00</b>y</p><p>keep</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         AssertDowngradedNotLost(result, "split-character");
         var p = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
@@ -270,7 +270,7 @@ public sealed class HostileValueTests
     [Fact]
     public async Task Formatting_that_ends_inside_a_character_stops_before_it()
     {
-        var result = await HtmlImporter.ImportAsync("<p><b>x\uD83D</b>\uDE00y</p><p>keep</p>");
+        var result = await HtmlImporter.ImportAsync("<p><b>x\uD83D</b>\uDE00y</p><p>keep</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         AssertDowngradedNotLost(result, "split-character");
         var p = Assert.IsType<ParagraphNode>(result.Doc.Blocks[0]);
@@ -290,7 +290,7 @@ public sealed class HostileValueTests
         // saturated at int.MaxValue and adding the enclosing level wrapped it negative. A
         // paragraph refuses a negative indent, and the refusal discarded everything.
         var result = await HtmlImporter.ImportAsync(
-            $"<div style='{outer}'><p style='{inner}'>Important text</p></div><p>more</p>");
+            $"<div style='{outer}'><p style='{inner}'>Important text</p></div><p>more</p>", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
         Assert.Equal(2, result.Doc.Blocks.Length);

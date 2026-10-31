@@ -60,7 +60,7 @@ public class RtfReaderTests
         // RtfPipe wrote no colour for black, so text coloured explicitly black followed the theme
         // (the known limitation this reader removes).
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi{\colortbl;\red0\green0\blue0;}\pard\cf1 black text\par}");
+            @"{\rtf1\ansi{\colortbl;\red0\green0\blue0;}\pard\cf1 black text\par}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("black text", PlainText(result), StringComparison.Ordinal);
         Assert.Contains(Marks(result), m => m.Foreground == new Rgba(0, 0, 0, 255));
@@ -74,7 +74,7 @@ public class RtfReaderTests
     [Fact]
     public async Task A_huge_unicode_skip_count_skips_to_the_end_of_its_group_and_says_so()
     {
-        var result = await RtfImporter.ImportAsync(@"{\rtf1\ansi {\uc2147483647\u65 skipped}after\par}");
+        var result = await RtfImporter.ImportAsync(@"{\rtf1\ansi {\uc2147483647\u65 skipped}after\par}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.StartsWith("A", PlainText(result), StringComparison.Ordinal);
         Assert.DoesNotContain("skipped", PlainText(result), StringComparison.Ordinal);
@@ -90,7 +90,7 @@ public class RtfReaderTests
     {
         // The empty group ends the control word, so that a count of 0 does not eat the space as
         // the escape's delimiter.
-        var result = await RtfImporter.ImportAsync($@"{{\rtf1\ansi\uc{count} caf\u233{new string('?', count)}{{}} au lait\par}}");
+        var result = await RtfImporter.ImportAsync($@"{{\rtf1\ansi\uc{count} caf\u233{new string('?', count)}{{}} au lait\par}}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("café au lait", PlainText(result).Trim());
         Assert.DoesNotContain(result.Diagnostics, d => d.Context == "uc");
@@ -104,7 +104,7 @@ public class RtfReaderTests
     [Fact]
     public async Task A_picture_word_stored_as_a_shape_is_reported_as_dropped()
     {
-        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
         var text = PlainText(result);
 
         Assert.Single(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Dropped && d.Context == "shppict");
@@ -118,7 +118,7 @@ public class RtfReaderTests
     public async Task A_standalone_picture_is_kept()
     {
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi before{\pict\pngblip\picw1\pich1 " + Png + @"}after\par}");
+            @"{\rtf1\ansi before{\pict\pngblip\picw1\pich1 " + Png + @"}after\par}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(All(result.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>());
         Assert.DoesNotContain(result.Diagnostics, d => d.Context == "shppict");
@@ -198,7 +198,7 @@ public class RtfReaderTests
         var pict = @"{\pict\" + blip + @"\picw2\pich3 " + Convert.ToHexString(bytes) + "}";
         var rtf = @"{\rtf1\ansi a" + pict + "b" + pict + @"c\par\trowd\cellx2000 " + pict + @"\cell\row}";
 
-        var result = await RtfImporter.ImportAsync(rtf);
+        var result = await RtfImporter.ImportAsync(rtf, cancellationToken: TestContext.Current.CancellationToken);
         var images = All(result.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>().ToArray();
 
         Assert.Equal(3, images.Length);
@@ -216,8 +216,8 @@ public class RtfReaderTests
         var rtf = @"{\rtf1\ansi before{\pict\pngblip\picw1\pich1 " + Png + @"}after\par}";
         var size = Png.Length / 2;
 
-        var at = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size });
-        var past = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size - 1 });
+        var at = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size }, cancellationToken: TestContext.Current.CancellationToken);
+        var past = await RtfImporter.ImportAsync(rtf, new RtfImportOptions { MaxDataImageBytes = size - 1 }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Single(All(at.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>());
         Assert.DoesNotContain(at.Diagnostics, d => d.Context == "data:");
@@ -238,7 +238,7 @@ public class RtfReaderTests
     [Fact]
     public async Task A_list_before_a_table_does_not_leak_into_its_cells()
     {
-        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
 
         var table = Assert.Single(All(result.Doc).OfType<TableNode>());
 
@@ -262,7 +262,8 @@ public class RtfReaderTests
         var result = await RtfImporter.ImportAsync(
             @"{\rtf1\ansi" + lists + @"\pard" + bullet + @"{item\par }" +
             @"\trowd\cellx2000\cellx4000\pard\plain\intbl leaked\cell \pard\intbl" + bullet + @"listed\cell\row " +
-            @"\pard\plain after\par}");
+            @"\pard\plain after\par}",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         var table = Assert.Single(All(result.Doc).OfType<TableNode>());
         var cells = table.Rows[0].Cells;
@@ -286,7 +287,7 @@ public class RtfReaderTests
             @"{\*\listtable{\list\listtemplateid1{\listlevel\levelnfc23{\leveltext\'01\'B7;}{\levelnumbers;}}\listid7}}" +
             @"{\*\listoverridetable{\listoverride\listid7\listoverridecount0\ls1}}";
 
-        var result = await RtfImporter.ImportAsync(@"{\rtf1\ansi" + lists + body + "}");
+        var result = await RtfImporter.ImportAsync(@"{\rtf1\ansi" + lists + body + "}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(result.Doc.Blocks, b => Assert.IsType<ListNode>(b));
         Assert.Contains("legacy", PlainText(result), StringComparison.Ordinal);
@@ -301,7 +302,7 @@ public class RtfReaderTests
     [Fact]
     public async Task The_readers_private_styles_are_removed_without_a_diagnostic()
     {
-        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
+        var result = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Context?.StartsWith("--officeimo", StringComparison.OrdinalIgnoreCase) == true);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded && d.Context == "line-height");
@@ -309,8 +310,8 @@ public class RtfReaderTests
     [Fact]
     public async Task Merged_cells_arrive_merged()
     {
-        var word = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"));
-        var excel = await RtfImporter.ImportAsync(Fixture("excel-range-A1D6", "17-Rich_Text_Format.bin"));
+        var word = await RtfImporter.ImportAsync(Fixture("word-docx-all", "02-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
+        var excel = await RtfImporter.ImportAsync(Fixture("excel-range-A1D6", "17-Rich_Text_Format.bin"), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(All(word.Doc), n => n is TableCellNode { RowSpan: > 1 });
         Assert.Contains(All(excel.Doc), n => n is TableCellNode { ColumnSpan: 2 });
@@ -336,7 +337,7 @@ public class RtfReaderTests
     public async Task Content_nested_below_the_depth_limit_is_dropped_and_reported()
     {
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi " + new string('{', 1_000) + "deep" + new string('}', 1_000) + @" after\par}");
+            @"{\rtf1\ansi " + new string('{', 1_000) + "deep" + new string('}', 1_000) + @" after\par}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("after", PlainText(result), StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Downgraded);
@@ -351,7 +352,7 @@ public class RtfReaderTests
     {
         var rtf = @"{\rtf1\ansi " + string.Concat(Enumerable.Range(0, 120_000).Select(i => $@"p{i}\par ")) + "}";
 
-        var result = await RtfImporter.ImportAsync(rtf);
+        var result = await RtfImporter.ImportAsync(rtf, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
         Assert.Contains("p119999", PlainText(result), StringComparison.Ordinal);
@@ -364,7 +365,7 @@ public class RtfReaderTests
         var picture = @"{\pict\pngblip\picw1\pich1 " + Png + "}";
         var rtf = @"{\rtf1\ansi " + string.Concat(Enumerable.Repeat(picture + @" x\par ", 300)) + "}";
 
-        var result = await RtfImporter.ImportAsync(rtf);
+        var result = await RtfImporter.ImportAsync(rtf, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(300, All(result.Doc).OfType<ParagraphNode>().SelectMany(p => p.Content.Embeds).OfType<ImageEmbed>().Count());
     }

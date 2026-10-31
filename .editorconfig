@@ -71,3 +71,13 @@ dotnet_diagnostic.CS1591.severity = error
 # A test asserting on a magic number is clearer than one asserting on a constant
 # defined in the code it is testing, which can be wrong in both places at once.
 dotnet_diagnostic.CA1707.severity = none
+
+[src/**/*.cs]
+# The public-API analyzer (see Directory.Build.props) also ships two API-design rules, RS0026 and
+# RS0027, about optional parameters on overloads. They flag the ImportAsync(Stream) and
+# ImportAsync(string) pair that IDocumentImporter declares and every format implements - a
+# deliberate shape, not an accident. Whether to keep it is a 1.0 API decision (see
+# docs/plans/2026-10-28-public-api-review.md). The rules that catch an accidental API change -
+# RS0016, RS0017, RS0036, RS0037 and the rest - stay errors.
+dotnet_diagnostic.RS0026.severity = none
+dotnet_diagnostic.RS0027.severity = none

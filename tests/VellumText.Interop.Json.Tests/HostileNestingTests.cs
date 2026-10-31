@@ -70,7 +70,7 @@ public sealed class HostileNestingTests
                      (tables, Payload(TableOpen, TableClose, 3)),
                  })
         {
-            var result = await JsonFormat.Instance.ImportAsync(payload);
+            var result = await JsonFormat.Instance.ImportAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Empty(result.Diagnostics);
             Assert.Equal(doc, result.Doc);

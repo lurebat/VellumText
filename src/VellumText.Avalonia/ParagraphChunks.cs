@@ -273,8 +273,6 @@ internal sealed class ParagraphChunks
     }
 
     /// <summary>The index of the chunk holding a layout position; the last for the end.</summary>
-    public int ChunkIndexAt(int position) => ChunkAt(_chunks, position);
-
     private static int ChunkAt(Chunk[] chunks, int position)
     {
         var low = 0;

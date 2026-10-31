@@ -6,16 +6,21 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
 
+    <!-- xunit.v3 runs each test assembly as its own process, so the project is an executable. -->
+    <OutputType>Exe</OutputType>
+
     <!-- A test's name is its documentation; CS1591 on every [Fact] is pure noise. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="FsCheck.Xunit" Version="3.3.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <!-- 3.4.0 and later need xunit.v3 4.x, which Avalonia.Headless.XUnit 12.1 cannot run on.
+         3.3.4 is the newest that runs on xunit.v3 3.x, and keeps FsCheck at 3.3.4. -->
+    <PackageReference Include="FsCheck.Xunit.v3" Version="3.3.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 
   <ItemGroup>

@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
 
     <!--
-      Avalonia.Headless.XUnit 12.1.1 depends on xunit.v3, which runs each test assembly as its
+      Avalonia.Headless.XUnit 12.1 depends on xunit.v3, which runs each test assembly as its
       own process. That makes the project an executable; without this the runner reports
       "Could not find app host executable" and discovers no tests at all.
     -->
@@ -15,21 +15,18 @@
 
     <!-- A test's name is its documentation; CS1591 on every [Fact] is pure noise. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-
-    <!-- Reading back rendered pixels to prove something was actually drawn needs a pinned buffer. -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.1" />
-    <PackageReference Include="Avalonia.Skia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
 
     <!-- Only the theme tests use it, and they need it: without a base theme a Window has no
          template, so it has no overlay layer, so a flyout cannot open at all. -->
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -48,6 +45,9 @@
     <ProjectReference Include="..\..\src\VellumText.Interop.Html\VellumText.Interop.Html.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Rtf\VellumText.Interop.Rtf.csproj" />
     <ProjectReference Include="..\..\src\VellumText.Interop.Json\VellumText.Interop.Json.csproj" />
+    <ProjectReference Include="..\..\src\VellumText.Interop.Markdown\VellumText.Interop.Markdown.csproj" />
+    <!-- For the demo smoke test: the sample is what a newcomer runs first, so it is held to the same build. -->
+    <ProjectReference Include="..\..\samples\VellumText.Demo\VellumText.Demo.csproj" />
 
     <!-- Lays out long nested tables in a child process, so a runaway layout fails a test honestly. -->
     <ProjectReference Include="..\VellumText.LayoutProbe\VellumText.LayoutProbe.csproj" />

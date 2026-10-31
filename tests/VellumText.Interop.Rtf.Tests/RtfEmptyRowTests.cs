@@ -27,7 +27,7 @@ public class RtfEmptyRowTests
             ]),
         ]);
 
-        var back = await RtfFormat.Instance.ImportAsync(RtfFormat.Instance.Export(doc));
+        var back = await RtfFormat.Instance.ImportAsync(RtfFormat.Instance.Export(doc), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains(back.Doc.Blocks, block => block is TableNode);
         Assert.Contains("merged", DocumentText.Of(back.Doc), StringComparison.Ordinal);

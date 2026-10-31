@@ -279,6 +279,13 @@ public class BlockHeightIndexTests
     /// afresh — four arrays the length of the document, about a megabyte at 50,000 blocks, on
     /// every paragraph written. The arrays keep spare room now and are shifted in place, so only
     /// growing past that room allocates, and it doubles when it does.
+    /// <para>
+    /// The quietest of a few measurements is the one asserted on. The index allocates nothing here,
+    /// but the runtime occasionally charges about 8 KB to this thread while it tiers up a method it
+    /// is running - measured: 4 rounds in 400 with tiered compilation on, none with it off, and no
+    /// garbage collection in any of them. A real reallocation is a megabyte on every round, so the
+    /// minimum still sees it; a tier-up does not happen on every round, so the minimum does not.
+    /// </para>
     /// </remarks>
     [Fact]
     public void InsertingAndRemovingABlockDoesNotReallocateTheIndex()
@@ -291,15 +298,20 @@ public class BlockHeightIndexTests
         index.Insert(25_000, 1);
         index.Remove(25_000, 1);
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var allocated = long.MaxValue;
 
-        for (var i = 0; i < 10; i++)
+        for (var attempt = 0; attempt < 5; attempt++)
         {
-            index.Insert(25_000, 1);
-            index.Remove(25_000 + (i % 2), 1);
-        }
+            var before = GC.GetAllocatedBytesForCurrentThread();
 
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            for (var i = 0; i < 10; i++)
+            {
+                index.Insert(25_000, 1);
+                index.Remove(25_000 + (i % 2), 1);
+            }
+
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
         Assert.True(allocated < 1024, $"ten inserts and removes allocated {allocated:N0} bytes");
         Assert.Equal(50_000, index.Count);

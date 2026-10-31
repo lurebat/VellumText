@@ -92,7 +92,7 @@ public class RtfFieldEscapingTests
     {
         const string Rtf = @"{\rtf1\ansi\deff0{\fonttbl{\f0\fnil Segoe UI;}{\f1\fnil ACME, Inc.;}}\f1 x\par}";
 
-        var doc = (await RtfImporter.ImportAsync(Rtf)).Doc;
+        var doc = (await RtfImporter.ImportAsync(Rtf, cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Contains(@"\fnil ACME, Inc.;}", RtfExporter.Instance.Export(doc), StringComparison.Ordinal);
         Assert.Equal(MarkOfFirst(doc).FontFamily, MarkOfFirst(await Trip(doc)).FontFamily);

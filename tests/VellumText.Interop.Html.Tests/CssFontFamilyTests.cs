@@ -45,7 +45,7 @@ public class CssFontFamilyTests
         const string Css =
             "font-family:&quot;x\\&quot; ;background-image:url(http://tracker.invalid/p.png);&quot;";
 
-        var imported = (await HtmlImporter.ImportAsync($"<p><span style=\"{Css}\">t</span></p>")).Doc;
+        var imported = (await HtmlImporter.ImportAsync($"<p><span style=\"{Css}\">t</span></p>", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         // What the CSS actually says the family is: the escapes resolved, nothing else.
         Assert.Equal("x\" ;background-image:url(http://tracker.invalid/p.png);", FamilyOf(imported));
@@ -56,7 +56,7 @@ public class CssFontFamilyTests
         Assert.True(
             string.IsNullOrEmpty(style.GetPropertyValue("background-image")),
             $"recipient read background-image from: {html}");
-        Assert.Equal(FamilyOf(imported), FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(FamilyOf(imported), FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
     }
 
     [Theory]
@@ -71,7 +71,7 @@ public class CssFontFamilyTests
     {
         var html = HtmlExporter.Instance.Export(WithFamily(family));
 
-        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
         Assert.Single(RecipientStyle(html), p => p.Name == "font-family");
     }
 
@@ -107,7 +107,7 @@ public class CssFontFamilyTests
         Assert.Equal(["ACME, Inc.", "Arial"], RecipientFamilies(html));
 
         // Stored quoted, because the name holds a comma: the one family ACME, Inc.
-        Assert.Equal("\"ACME, Inc.\"", FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal("\"ACME, Inc.\"", FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
     }
 
     /// <summary>An escaped quote does not close the name it is in, so the comma after it does not split.</summary>
@@ -148,12 +148,12 @@ public class CssFontFamilyTests
         string html,
         string name)
     {
-        var imported = (await HtmlImporter.ImportAsync(html)).Doc;
+        var imported = (await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc;
         var exported = HtmlExporter.Instance.Export(imported);
 
         Assert.Equal([name], RecipientFamilies(exported));
 
-        var reimported = (await HtmlImporter.ImportAsync(exported)).Doc;
+        var reimported = (await HtmlImporter.ImportAsync(exported, cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Equal(FamilyOf(imported), FamilyOf(reimported));
         Assert.Equal([name], RecipientFamilies(HtmlExporter.Instance.Export(reimported)));
@@ -169,7 +169,7 @@ public class CssFontFamilyTests
     {
         var html = $"<span style='{css.Replace("'", "&#39;", StringComparison.Ordinal)}'>x</span>";
 
-        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
     }
 
     /// <summary>
@@ -181,7 +181,7 @@ public class CssFontFamilyTests
     [InlineData("<span style='font-family:\"A\\\"B&#39;, C\"'>x</span>", "A\"B', C")]
     [InlineData("<span style='font-family:\"ACME, Inc.\\\\\"'>x</span>", "ACME, Inc.\\")]
     public async Task A_comma_name_no_quote_can_hold_is_stored_bare(string html, string family) =>
-        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html)).Doc));
+        Assert.Equal(family, FamilyOf((await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken)).Doc));
 
     /// <summary>The family names a recipient reads out of the exported span's style, in order.</summary>
     private static string[] RecipientFamilies(string html)

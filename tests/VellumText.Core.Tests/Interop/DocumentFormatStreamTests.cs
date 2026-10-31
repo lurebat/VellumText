@@ -30,7 +30,7 @@ public class DocumentFormatStreamTests
 
         using var read = new MemoryStream(written.ToArray(), writable: false);
 
-        Assert.Equal("intact", DocumentText.Of((await format.ImportAsync(read)).Doc).Trim());
+        Assert.Equal("intact", DocumentText.Of((await format.ImportAsync(read, cancellationToken: TestContext.Current.CancellationToken)).Doc).Trim());
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public class DocumentFormatStreamTests
     {
         IDocumentImporter format = new Opaque();
 
-        var result = await format.ImportAsync("not that it could mean anything");
+        var result = await format.ImportAsync("not that it could mean anything", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsEmpty);
         Assert.Equal(DiagnosticSeverity.Malformed, Assert.Single(result.Diagnostics).Severity);
@@ -81,7 +81,7 @@ public class DocumentFormatStreamTests
         IDocumentExporter exporter = new StreamsOnly();
 
         Assert.Equal("hello", exporter.Export(DocumentNode.FromParagraphs("hello")).Trim());
-        Assert.Equal("hello", DocumentText.Of((await importer.ImportAsync("hello")).Doc).Trim());
+        Assert.Equal("hello", DocumentText.Of((await importer.ImportAsync("hello", cancellationToken: TestContext.Current.CancellationToken)).Doc).Trim());
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class DocumentFormatStreamTests
         IDocumentImporter importer = new StreamsOnly();
         IDocumentExporter exporter = new StreamsOnly();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => importer.ImportAsync((string)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => importer.ImportAsync((string)null!, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Throws<ArgumentNullException>(() => exporter.Export((DocumentNode)null!));
     }
 
@@ -114,7 +114,7 @@ public class DocumentFormatStreamTests
         // that could ever read from a transfer carrying more than one.
         using var buffer = new MemoryStream(Encoding.UTF8.GetBytes("first"));
 
-        Assert.Equal("first", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.UTF8));
+        Assert.Equal("first", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.UTF8, cancellationToken: TestContext.Current.CancellationToken));
         Assert.True(buffer.CanRead);
     }
 
@@ -125,7 +125,7 @@ public class DocumentFormatStreamTests
         // one anyway puts three stray characters at the front of the document.
         using var buffer = new MemoryStream([.. Encoding.UTF8.GetPreamble(), .. "hi"u8.ToArray()]);
 
-        Assert.Equal("hi", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.Latin1));
+        Assert.Equal("hi", await DocumentPayload.ReadAllTextAsync(buffer, Encoding.Latin1, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -133,8 +133,8 @@ public class DocumentFormatStreamTests
     {
         using var buffer = new MemoryStream();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(null!, Encoding.UTF8));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(buffer, null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(null!, Encoding.UTF8, cancellationToken: TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => DocumentPayload.ReadAllTextAsync(buffer, null!, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Throws<ArgumentNullException>(
             () => DocumentPayload.WriteAllText(null!, Encoding.UTF8, "x"));
         Assert.Throws<ArgumentNullException>(() => DocumentPayload.WriteAllText(buffer, null!, "x"));

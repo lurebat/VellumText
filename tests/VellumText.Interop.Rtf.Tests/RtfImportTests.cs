@@ -89,11 +89,11 @@ public class RtfImportTests
     [Fact]
     public async Task Interior_spaces_survive_and_a_tab_does_not()
     {
-        var spaced = (await RtfImporter.ImportAsync(@"{\rtf1\ansi a    b}")).Doc;
+        var spaced = (await RtfImporter.ImportAsync(@"{\rtf1\ansi a    b}", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Equal("a \u00A0\u00A0\u00A0b", ((ParagraphNode)spaced.Blocks[0]).Content.Text);
 
-        var tabbed = (await RtfImporter.ImportAsync(@"{\rtf1\ansi tab\tab here}")).Doc;
+        var tabbed = (await RtfImporter.ImportAsync(@"{\rtf1\ansi tab\tab here}", cancellationToken: TestContext.Current.CancellationToken)).Doc;
 
         Assert.Equal("tabhere", ((ParagraphNode)tabbed.Blocks[0]).Content.Text);
     }
@@ -216,7 +216,7 @@ public class RtfImportTests
     {
         // A clipboard manager offers whatever it has to whichever reader might take it, so being
         // handed the wrong format is routine rather than exceptional.
-        var result = await RtfImporter.ImportAsync(input);
+        var result = await RtfImporter.ImportAsync(input, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(result.IsEmpty);
         Assert.Contains(result.Diagnostics, d => d.Severity == DiagnosticSeverity.Malformed);
@@ -232,7 +232,7 @@ public class RtfImportTests
     [InlineData(@"{\rtf1\ansi {\fonttbl}{\colortbl}\par}")]
     public async Task Damaged_rtf_produces_a_result_rather_than_an_exception(string input)
     {
-        var result = await RtfImporter.ImportAsync(input);
+        var result = await RtfImporter.ImportAsync(input, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(DocumentSchema.IsValid(result.Doc));
     }
@@ -240,7 +240,7 @@ public class RtfImportTests
     [Fact]
     public async Task Nothing_at_all_is_the_callers_mistake_and_is_reported_as_one()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => RtfImporter.ImportAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => RtfImporter.ImportAsync(null!, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     // ---- what must not come through ---------------------------------------------------------
@@ -252,7 +252,7 @@ public class RtfImportTests
         // reader renders it as (RtfPipe said "windows/metafile"), and the importer must not take it
         // on faith.
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}after}");
+            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}after}", cancellationToken: TestContext.Current.CancellationToken);
 
         // The surrounding words prove the document was read at all, so that the absence of an
         // embed below is a decision rather than an empty result.
@@ -267,7 +267,7 @@ public class RtfImportTests
         // Rubber-duck review finding 9.6: the converter's own reasons for dropping a picture were
         // thrown away, and a metafile vanished without a word.
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}");
+            @"{\rtf1\ansi before{\pict\wmetafile8\picw100\pich100 0102030405}mid{\pict\wmetafile8\picw100\pich100 0607}after}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("beforemidafter", PlainText(result));
         Assert.True(result.AnythingDropped);
@@ -317,7 +317,7 @@ public class RtfImportTests
         // Going through the HTML importer is what makes this true; a second RTF-specific idea of
         // which URLs are safe would be a second one to get wrong.
         var result = await RtfImporter.ImportAsync(
-            @"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK ""javascript:alert(1)""}}{\fldrslt{click}}}}");
+            @"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK ""javascript:alert(1)""}}{\fldrslt{click}}}}", cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("click", PlainText(result), StringComparison.Ordinal);
         Assert.False(AnyRunHas(result, m => m.Link is not null));
@@ -357,10 +357,10 @@ public class RtfImportTests
 
         var withBase = await RtfImporter.ImportAsync(
             rtf,
-            new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") });
+            new RtfImportOptions { BaseUri = new Uri("https://example.com/dir/page") }, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(AnyRunHas(withBase, m => m.Link?.Href == "https://example.com/relative"));
-        Assert.False(AnyRunHas(await RtfImporter.ImportAsync(rtf), m => m.Link is not null));
+        Assert.False(AnyRunHas(await RtfImporter.ImportAsync(rtf, cancellationToken: TestContext.Current.CancellationToken), m => m.Link is not null));
     }
 
     [Theory]

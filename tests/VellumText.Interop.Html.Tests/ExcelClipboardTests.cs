@@ -85,7 +85,7 @@ public class ExcelClipboardTests
             + "<!--StartFragment--><tr><td>in</td><td>too</td></tr><!--EndFragment-->"
             + "<tr><td>after</td></tr></table><img src='https://example.com/a.png'></body></html>";
 
-        var result = await HtmlImporter.ImportClipboardAsync(payload);
+        var result = await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken);
         var table = Assert.IsType<TableNode>(Assert.Single(result.Doc.Blocks));
 
         Assert.Equal([["in", "too"]], Grid(table));
@@ -101,7 +101,7 @@ public class ExcelClipboardTests
             + "<html><body><p>before</p><table><tr><td>out</td></tr>"
             + "<!--StartFragment--><tr><td>in</td></tr></table><p>tail</p></body></html>";
 
-        var blocks = (await HtmlImporter.ImportClipboardAsync(payload)).Doc.Blocks;
+        var blocks = (await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks;
 
         Assert.Equal(2, blocks.Length);
         Assert.Equal([["in"]], Grid(Assert.IsType<TableNode>(blocks[0])));
@@ -125,7 +125,8 @@ public class ExcelClipboardTests
         // An attribute limit the page before the fragment breaks, which is not the paste's to report.
         var result = await HtmlImporter.ImportClipboardAsync(
             Header() + "<html><body>" + body + "</body></html>",
-            HtmlImportOptions.Default with { MaxAttributesPerElement = 2 });
+            HtmlImportOptions.Default with { MaxAttributesPerElement = 2 },
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("OUTSIDE", DocumentText.Of(result.Doc), StringComparison.Ordinal);
         Assert.Equal("copied", Assert.IsType<ParagraphNode>(Assert.Single(result.Doc.Blocks)).Content.Text);
@@ -139,7 +140,7 @@ public class ExcelClipboardTests
             + "<html><body><p>OUTSIDE-before</p><table><!--StartFragment--><tr><td>copied</td></tr>"
             + "<!--EndFragment--></table><p>OUTSIDE-after</p></body></html>";
 
-        var table = Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportClipboardAsync(payload)).Doc.Blocks));
+        var table = Assert.IsType<TableNode>(Assert.Single((await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
 
         Assert.Equal([["copied"]], Grid(table));
     }
@@ -152,7 +153,7 @@ public class ExcelClipboardTests
             + "<!--StartFragment--><p>copied</p><!--EndFragment--></body></html>";
 
         var paragraph = Assert.IsType<ParagraphNode>(
-            Assert.Single((await HtmlImporter.ImportClipboardAsync(payload)).Doc.Blocks));
+            Assert.Single((await HtmlImporter.ImportClipboardAsync(payload, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks));
 
         Assert.Equal("copied", paragraph.Content.Text);
     }

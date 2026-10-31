@@ -605,6 +605,66 @@ public class ParagraphViewTests
         Assert.True(LeftmostInkedColumn(indented) > LeftmostInkedColumn(plain));
     }
 
+    [AvaloniaFact]
+    public void ACodeBlocksFillLeavesTheSpaceAboveAndBelowItClear()
+    {
+        // The fill is the block's content box. SpaceBefore and SpaceAfter sit outside it, or two
+        // code blocks in a row would close the gap between them and read as one.
+        var view = new ParagraphView(
+            ParagraphNode.FromText("code").WithKind(ParagraphKind.Code),
+            Styles(),
+            kinds: new ParagraphStyleResolver(codeBackground: Brushes.Red, spacing: 10));
+
+        view.Measure(200);
+
+        var height = (int)Math.Ceiling(view.Size.Height);
+
+        using var bitmap = new RenderTargetBitmap(new PixelSize(200, height + 10));
+
+        using (var context = bitmap.CreateDrawingContext())
+        {
+            view.Render(context, new Point(0, 0));
+        }
+
+        var (pixels, width, _) = Read(bitmap);
+
+        // Down a column the text never reaches, clear of the rounded corners.
+        bool Filled(int y) => pixels[(y * width) + 190] == 0xFFFF0000;
+
+        Assert.All(Enumerable.Range(0, 9), y => Assert.False(Filled(y), $"row {y}, above the block, is filled"));
+        Assert.All(Enumerable.Range(12, height - 24), y => Assert.True(Filled(y), $"row {y}, inside the block, is not filled"));
+        Assert.All(Enumerable.Range(height - 9, 9), y => Assert.False(Filled(y), $"row {y}, below the block, is filled"));
+    }
+
+    [AvaloniaFact]
+    public void AListMarkerEndsAGapShortOfTheText()
+    {
+        // Right-aligned into the gutter the depth opens up: a number of any width ends MarkerGap
+        // before the text begins, rather than starting there and running into it.
+        var view = View(ParagraphNode.Empty);
+
+        view.SetLead(2, new ListMarker(ListKind.Ordered, 12));
+        view.Measure(400);
+
+        using var bitmap = new RenderTargetBitmap(new PixelSize(400, 60));
+
+        using (var context = bitmap.CreateDrawingContext())
+        {
+            view.Render(context, new Point(0, 0));
+        }
+
+        var (pixels, width, height) = Read(bitmap);
+
+        // An empty paragraph draws nothing of its own, so every inked column is the marker's.
+        var inked = Enumerable.Range(0, width)
+            .Where(x => Enumerable.Range(0, height).Any(y => pixels[(y * width) + x] != 0))
+            .ToArray();
+        var gap = view.Indent - ParagraphView.MarkerGap;
+
+        Assert.NotEmpty(inked);
+        Assert.True(inked[^1] < gap, $"the marker is inked out to x={inked[^1]}, past the gap at {gap}");
+    }
+
     private static TextRunCache RunCacheOf(ParagraphView view)
     {
         var field = typeof(ParagraphView).GetField(
@@ -656,19 +716,7 @@ public class ParagraphViewTests
     private static (uint[] Pixels, int Width, int Height) Read(RenderTargetBitmap bitmap)
     {
         var size = bitmap.PixelSize;
-        var pixels = new uint[size.Width * size.Height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(
-                    new PixelRect(size),
-                    (nint)buffer,
-                    pixels.Length * sizeof(uint),
-                    size.Width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         return (pixels, size.Width, size.Height);
     }

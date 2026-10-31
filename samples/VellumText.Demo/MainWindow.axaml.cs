@@ -10,6 +10,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using VellumText.Avalonia;
 using VellumText.Interop.Html;
+using VellumText.Interop.Markdown;
 using VellumText.Interop.Rtf;
 
 namespace VellumText.Demo;
@@ -61,6 +62,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // What Ctrl+C writes and Ctrl+V reads beyond plain text. Without these the editor's own
+        // clipboard carries only text and images, and the rich paste this app exists to show
+        // happens only through the Paste button. Order does not matter: a paste tries them in the
+        // clipboard's preference order (RichTextClipboard.Preference).
+        Editor.Formats.Add(HtmlFormat.Instance);
+        Editor.Formats.Add(RtfFormat.Instance);
+        Editor.Formats.Add(MarkdownFormat.Instance);
 
         HistoryList.ItemsSource = _history;
         HistoryList.SelectionChanged += OnHistorySelected;

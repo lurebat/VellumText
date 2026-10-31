@@ -451,6 +451,60 @@ public class TableBlockViewTests
         Assert.Equal(Painted(stated, null), Painted(stated, Brushes.Red));
     }
 
+    [AvaloniaFact]
+    public void TextInACellWrapsInsideTheCellsPadding()
+    {
+        // A run with no break opportunity in it wraps glyph by glyph, so its lines reach to within
+        // a narrow glyph of the width they were given: both paddings have to come off that width,
+        // or the lines run into the right one.
+        var text = new string('i', 400);
+        var table = new TableNode([new TableRowNode([TableCellNode.FromText(text)])]);
+        var view = Measured(table);
+        var at = StartOf(table, text);
+        var padding = view.ParagraphAt(at)!.Value.Origin.X;
+        var rects = view.GetSelectionRects(at, at + text.Length);
+
+        Assert.True(rects.Count > 2, $"the text wrapped onto {rects.Count} lines");
+        Assert.All(rects, rect => Assert.True(
+            rect.Right <= view.Size.Width - padding,
+            $"a line reaches x={rect.Right}, past the cell's padding at {view.Size.Width - padding}"));
+    }
+
+    [AvaloniaFact]
+    public void AClickOnTheLineBetweenTwoCellsLandsInTheFirstOfThem()
+    {
+        // A point on a shared edge is inside both cells' boxes. The first cell in reading order
+        // takes it, which is what a scan of every cell would answer.
+        var table = Grid();
+        var view = Measured(table);
+        var column = view.Size.Width / 2;
+        var row = view.Size.Height / 2;
+
+        foreach (var point in new[] { new Point(column, row / 2), new Point(column / 2, row), new Point(column, row) })
+        {
+            Assert.Equal("a1", view.ParagraphAt(view.HitTest(point))!.Value.View.Paragraph.Content.Text);
+        }
+    }
+
+    [AvaloniaFact]
+    public void AClickOnEachParagraphOfACellLandsInThatParagraph()
+    {
+        string[] texts = ["one", "two", "three"];
+        var table = new TableNode([new TableRowNode([
+            new TableCellNode(texts.Select(text => (BlockNode)ParagraphNode.FromText(text))),
+            TableCellNode.FromText("beside"),
+        ])]);
+        var view = Measured(table);
+
+        foreach (var text in texts)
+        {
+            var caret = view.GetCaretRect(StartOf(table, text));
+            var hit = view.HitTest(new Point(caret.X + 1, caret.Y + (caret.Height / 2)));
+
+            Assert.Equal(text, view.ParagraphAt(hit)!.Value.View.Paragraph.Content.Text);
+        }
+    }
+
     private static byte[] Painted(TableNode table, IBrush? header)
     {
         var view = new RichTextView

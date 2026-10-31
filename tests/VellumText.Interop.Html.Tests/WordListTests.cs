@@ -32,7 +32,7 @@ public class WordListTests
 
         using var stream = File.OpenRead(path);
 
-        var blocks = (await HtmlFormat.Instance.ImportAsync(stream)).Doc.Blocks;
+        var blocks = (await HtmlFormat.Instance.ImportAsync(stream, cancellationToken: TestContext.Current.CancellationToken)).Doc.Blocks;
         var list = Assert.IsType<ListNode>(Assert.Single(blocks, block => block is ListNode));
 
         Assert.Equal(ListKind.Unordered, list.Kind);

@@ -648,7 +648,7 @@ public class HtmlImportTests
     {
         foreach (var html in new[] { "", "   ", "\n" })
         {
-            var result = await HtmlImporter.ImportAsync(html);
+            var result = await HtmlImporter.ImportAsync(html, cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.True(result.IsEmpty);
         }
