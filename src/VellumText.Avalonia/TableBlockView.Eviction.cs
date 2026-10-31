@@ -69,6 +69,13 @@ internal sealed partial class TableBlockView
     private bool _inCell;
 
     /// <summary>
+    /// Whether <see cref="LetGoEverything"/> let go of what it could here, and nothing has been laid
+    /// out in this table since: anything laid out here or in a table inside goes through
+    /// <see cref="EnsureBand"/> here, whether a window or a question reaches it.
+    /// </summary>
+    private bool _drained;
+
+    /// <summary>
     /// Where this table's first inner position is in the document, as of the last time the block
     /// or table holding it said; what the pinned positions are compared with.
     /// </summary>
@@ -244,10 +251,15 @@ internal sealed partial class TableBlockView
     /// <param name="limit">How tall a band holding tables may be to be let go whole.</param>
     private void LetGoEverything(double limit)
     {
-        if (double.IsNaN(_width))
+        // Let go already, with nothing laid out here or in a table inside since: walked again on
+        // every pass, the tables of every band kept far behind were visited again and again —
+        // 1,150 of them for ten small scrolls (rubber-duck review of the fixes to scope (b)).
+        if (double.IsNaN(_width) || _drained)
         {
             return;
         }
+
+        WorkCounters.NestedTablesDrained++;
 
         foreach (var start in _live.Select(row => _bandStart[row]).Distinct().ToList())
         {
@@ -270,6 +282,7 @@ internal sealed partial class TableBlockView
         // for that window nor finds them gone. And asked for the same window again, it walks it.
         _visited.Clear();
         _measured = null;
+        _drained = true;
     }
 
     /// <summary>

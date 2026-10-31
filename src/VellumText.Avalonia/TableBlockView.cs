@@ -995,6 +995,8 @@ internal sealed partial class TableBlockView : BlockView
     /// <param name="row">A row of the band.</param>
     private void EnsureBand(int row)
     {
+        _drained = false;
+
         var start = _bandStart[row];
         var end = _bandEnd[row];
         var stale = false;

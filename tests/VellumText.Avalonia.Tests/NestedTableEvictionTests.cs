@@ -515,6 +515,29 @@ public class NestedTableEvictionTests
 
         Assert.Contains(Deepest(), deep => deep.RealizedRows > 0 && deep.RealizedRows < deep.RowCount);
         AssertKnownTruly(view, truth, "back up");
+
+        // Small scrolls on the same screen: the tables far away were let go already, with nothing
+        // laid out in them since, and are not walked again for each pass (rubber-duck review of the
+        // fixes to scope (b), finding 1).
+        var drained = WorkCounters.NestedTablesDrained;
+
+        for (var nudge = 0; nudge < 10; nudge++)
+        {
+            view.Offset += new Vector(0, nudge % 2 == 0 ? 30 : -30);
+            Layout(window);
+        }
+
+        Assert.True(WorkCounters.NestedTablesDrained - drained <= 10, $"ten small scrolls walked {WorkCounters.NestedTablesDrained - drained} tables to let their rows go");
+
+        // Back at the end: what was laid out again on the way up is let go again once far behind
+        // — a table let go once is walked again once anything in it has been laid out since — so
+        // the deepest tables keep no more than they did at the end the first time.
+        view.Offset = new Vector(0, view.Extent.Height);
+        Layout(window);
+
+        var again = Deepest().Sum(deep => deep.RealizedRows);
+
+        Assert.True(again <= kept, $"back at the end, the deepest tables keep {again} rows, more than the {kept} they kept the first time");
         AssertNoRepairs();
     }
 
