@@ -652,6 +652,37 @@ public partial class RichTextView : DocumentPresenter
         _state.Selection.Head == Selection.AtEnd(_state.Doc).Head;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The caret, which typing and the input method keep coming back to; the composition, drawn at
+    /// the start of the selection, which a row let go would take with it; the selected picture,
+    /// whose handles are drawn; and the drop target of a move being dragged. The other end of a
+    /// selection is not kept: when it is far from the viewport it is laid out again, for the frame
+    /// that asks about it, by the preparation that follows every layout pass.
+    /// </remarks>
+    private protected override int[] PinnedPositions()
+    {
+        var selection = _state.Selection;
+        var pins = new List<int>(4) { selection.Head };
+
+        if (IsComposing)
+        {
+            pins.Add(selection.From);
+        }
+
+        if (SelectedImage is { } image)
+        {
+            pins.Add(image);
+        }
+
+        if (_moving)
+        {
+            pins.Add(_moveTarget);
+        }
+
+        return [.. pins];
+    }
+
+    /// <inheritdoc/>
     /// <summary>
     /// Scrolls until the caret is inside the viewport.
     /// </summary>
