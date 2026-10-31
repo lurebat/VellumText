@@ -3,6 +3,9 @@ using Avalonia.Headless;
 using VellumText.Tests.Avalonia;
 
 [assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]
+// One application and dispatcher for the whole assembly, so windows a test leaves open can be closed
+// by a later one (TestWindows); with one per test they could not be, and the process reached 8.9 GB.
+[assembly: AvaloniaTestIsolation(AvaloniaTestIsolationLevel.PerAssembly)]
 
 namespace VellumText.Tests.Avalonia;
 
@@ -23,5 +26,6 @@ public static class TestAppBuilder
     public static AppBuilder BuildAvaloniaApp() => AppBuilder
         .Configure<Application>()
         .UseSkia()
-        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+        .AfterSetup(_ => TestWindows.Track());
 }
