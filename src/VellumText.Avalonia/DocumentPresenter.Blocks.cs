@@ -1373,7 +1373,7 @@ public abstract partial class DocumentPresenter
 
             var measured = _views[i].Measure(_width);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
         }
 
@@ -1409,7 +1409,7 @@ public abstract partial class DocumentPresenter
 
                 var measured = _views[i].Measure(_width);
 
-                _heights.SetHeight(i, measured.Height);
+                _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
                 width = Math.Max(width, measured.Width);
             }
 
@@ -1433,7 +1433,7 @@ public abstract partial class DocumentPresenter
 
         var size = MeasureBlock(index);
 
-        _heights.SetHeight(index, size.Height);
+        _heights.SetHeight(index, size.Height, Known(index, size.Height));
         width = size.Width;
 
         var point = PointOf(index, local);
@@ -1446,7 +1446,7 @@ public abstract partial class DocumentPresenter
 
             var measured = MeasureBlock(i);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
             reach += measured.Height;
             last = i;
@@ -1463,7 +1463,7 @@ public abstract partial class DocumentPresenter
 
             var measured = MeasureBlock(i);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
             reach += measured.Height;
             first = i;
@@ -1504,6 +1504,12 @@ public abstract partial class DocumentPresenter
         return _views[index];
     }
 
+    /// <summary>
+    /// How much of a block's height is known: all of it, except for a table, which is as tall as its
+    /// own estimate says of the rows it has not laid out (<see cref="BlockHeightIndex.SetHeight(int, double, double)"/>).
+    /// </summary>
+    private double Known(int index, double height) =>
+        _views[index] is TableBlockView table ? Math.Min(height, table.ExactHeight) : height;
     /// <summary>Records the height a block has now in the height index and the extent.</summary>
     /// <remarks>
     /// Also wanted after a geometry question has been answered, not only after a measure: a long
@@ -1520,7 +1526,7 @@ public abstract partial class DocumentPresenter
         if (!_heights.Measured(index) || Math.Abs(_heights.HeightOf(index) - height) > 0.01)
         {
             LayoutGuard.Changing("a block's recorded height");
-            _heights.SetHeight(index, height);
+            _heights.SetHeight(index, height, Known(index, height));
             SetExtent(_extent.WithHeight(_heights.TotalHeight));
         }
     }
