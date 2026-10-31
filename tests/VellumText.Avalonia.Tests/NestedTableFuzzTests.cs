@@ -133,7 +133,7 @@ public class NestedTableFuzzTests
         Reset();
 
         var (window, view) = Shown(doc);
-        var twin = new Twin();
+        var twin = new Twin(fresh: farScrolls);
 
         Check(view, $"seed {seed}, shown");
 
@@ -745,7 +745,13 @@ public class NestedTableFuzzTests
     /// document and width asked for, so a question is compared with it without laying the whole
     /// document out from nothing each time.
     /// </summary>
-    private sealed class Twin
+    /// <param name="fresh">
+    /// Whether a changed document is laid out afresh, the old copy collected first, rather than
+    /// updated: for documents of long tables, whose copy is hundreds of megabytes and two at once
+    /// doubled what a run peaked at. Not for the others: laying out afresh at every step made the
+    /// recorded seeds three times slower (466 s against 157 s).
+    /// </param>
+    private sealed class Twin(bool fresh)
     {
         private RichTextView? _view;
 
@@ -756,11 +762,12 @@ public class NestedTableFuzzTests
                 return _view = GeometryTransactionTests.FullyLaidOut(doc, width);
             }
 
-            if (!ReferenceEquals(_view.State.Doc, doc))
+            if (!ReferenceEquals(_view.State.Doc, doc) && !fresh)
             {
-                // Laid out afresh rather than updated, and the old copy collected first: a copy
-                // of a document of long tables is hundreds of megabytes, and two at once doubled
-                // what a run peaked at.
+                _view.State = EditorState.Create(doc);
+            }
+            else if (!ReferenceEquals(_view.State.Doc, doc))
+            {
                 _view = null;
                 GC.Collect();
                 GC.WaitForPendingFinalizers();

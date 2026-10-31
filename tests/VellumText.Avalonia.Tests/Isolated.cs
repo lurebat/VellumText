@@ -130,10 +130,15 @@ internal static class Isolated
 }
 
 /// <summary>
-/// The tests that start child processes, run one at a time and alone, so no two children of a few
-/// gigabytes each run at once on a shared machine.
+/// The tests that start child processes, run one at a time, so no two children of a few gigabytes
+/// each run at once on a shared machine.
 /// </summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
+/// <remarks>
+/// One at a time because they are one collection; they still run beside the other collections.
+/// Run alone as well, after everything else, the nested-table fuzz added five minutes and more to
+/// the suite, for the 2 GB the test process otherwise takes beside them.
+/// </remarks>
+[CollectionDefinition(Name)]
 public sealed class ChildProcessCollection
 {
     /// <summary>The collection's name.</summary>
