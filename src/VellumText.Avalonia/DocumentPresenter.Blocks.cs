@@ -595,6 +595,12 @@ public abstract partial class DocumentPresenter
         _heldAnchor = null;
         _realizing = true;
 
+        // Taken whatever happens below, so a request that finds nothing to scroll does not linger
+        // and fire on some later pass.
+        var toEnd = _endRequested;
+
+        _endRequested = false;
+
         try
         {
             Reconcile();
@@ -625,6 +631,14 @@ public abstract partial class DocumentPresenter
             using (TableBlockView.LettingGo(PinnedPositions()))
             {
                 size = Settle(Resolve(held, mapping));
+
+                // An explicit request for the end (RichTextView.ScrollToEnd, the scroll bar taken to
+                // its end) is settled from the end up, as Ctrl+End is below, and for the same reason:
+                // an offset at the end of a range built from estimates stops wherever they stop.
+                if (toEnd)
+                {
+                    size = SettleAtEnd();
+                }
 
                 if (_pendingAnchor)
                 {
