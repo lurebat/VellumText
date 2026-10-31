@@ -35,6 +35,22 @@ Execution rules (codebase-audit Phase 6): per unit — write the test → watch 
 - **Q-1 — Scope of "remove the sync importer API": the static entry points go too.** `HtmlImporter.Import/ImportClipboard`, `MarkdownImporter.Import` and `RtfImporter.Import` become async-only alongside `IDocumentImporter`, the format classes and `RichTextClipboard.Read`/`Decode`. The library has one import shape.
 - **Q-2 — Release: a single 0.8.0.** No 0.7.1 split; Phases 1–10 ship together in 0.8.0.
 
+### Owner confirmations of calls made without asking (2026-10-31)
+Behaviour that was decided during the work, without stopping to ask, and that the owner has since
+confirmed. Recorded so the choices read as decisions, not as accidents to be "fixed".
+- **The block keys.** Enter at the end of a heading starts body text. Enter on an empty quote line
+  leaves the quote. Backspace at the start of a quote takes the quote off before it joins anything.
+  Backspace at the start of a heading or quote that is the first block turns it into body text.
+  Pinned by `RichTextViewHeadingAndQuoteKeyTests` (for example
+  `Enter_at_the_end_of_a_heading_starts_a_body_paragraph`,
+  `Enter_on_an_empty_quote_line_leaves_the_quote`,
+  `Backspace_at_the_start_of_a_quote_takes_the_quote_off_first` and
+  `Backspace_at_the_start_of_a_heading_that_is_the_first_block_makes_it_body_text`).
+- **The toolbar.** The Link button raises `RichTextView.LinkRequested`, as Ctrl+K does, so the host
+  asks for the address (`ToolbarOutcomeTests.TheLinkButtonAsksForTheAddressAndLinksExactlyTheSelection`).
+  After a pick, or Enter, in the font or size box, the keyboard goes back to the editor
+  (`ToolbarOutcomeTests.AfterAPickOrEnterInABoxTheNextKeystrokeLandsInTheDocument`).
+
 ## Settled decisions respected
 - JSON is deliberately unsanitized and trusted (0282015): F-17 changes only its depth handling.
 - Transactions are best-effort; one transaction = one undo entry; typing coalesces at 500 ms. F-12 changes how a coalesced entry is replayed, not what is grouped.
@@ -210,6 +226,15 @@ rather than rediscovered.
   specific to code. Re-measure all three against the Phase 8 reader before doing any work here; if
   they persist, the likely fix is marking code on export (a monospace style or a named paragraph
   style) and reading it back in the importer, with whitespace carried as written.
+- **A data image pasted as HTML is still parsed as text.** Deferred past 1.0 by owner decision
+  (2026-10-31). Pictures from RTF no longer pay this: since `ae5f2a9` a kept RTF picture crosses to
+  the HTML stage as its bytes rather than as a data URL, so a 4 MiB picture costs about 40 MB, held
+  under 4 times the RTF by `RtfReaderTests.A_kept_picture_costs_a_bounded_multiple_of_the_rtf`.
+  It cost about 205 MiB before. An inline `data:` image in pasted HTML still goes through the input
+  guard and AngleSharp as part of the markup. That cost is bounded at under 15 times the HTML by
+  `DataImageCostTests`. Measured, a 4 MiB picture (10.7 MiB of HTML as a string) allocates
+  about 133 MB, about 12 times the HTML. The deferred cut would set those data URLs aside before
+  the guard and the AngleSharp parse, as the RTF path already does.
 
 ### To fix before 1.0
 Deferred from the nested-table virtualization series (10.4) by the owner (2026-10-30), to be done
