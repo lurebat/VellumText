@@ -141,6 +141,7 @@ internal sealed partial class TableBlockView
             }
         }
 
+        Measured();
         CheckWindow();
     }
 
@@ -164,6 +165,8 @@ internal sealed partial class TableBlockView
     private void WindowNested(int row, Cell cell, Child child, TableBlockView nested)
     {
         var exact = _exact.GetValueOrDefault(nested);
+
+        Adopt(nested, _rowStarts[row] + child.Start);
 
         if (exact.Kind == Coverage.Full || double.IsPositiveInfinity(_windowBelow))
         {
@@ -925,7 +928,7 @@ internal sealed partial class TableBlockView
         for (var start = 0; start < before && start < _rows.Length; start = _bandEnd[start])
         {
             Invariant.That(
-                IsLaidOut(start) && NestedInBand(start).All(nested => nested.IsComplete()),
+                _rows[start].Kept || (IsLaidOut(start) && NestedInBand(start).All(nested => nested.IsComplete())),
                 "the bands a table found complete, with no row anywhere unlaid since, are complete");
         }
     }
@@ -933,6 +936,12 @@ internal sealed partial class TableBlockView
     private bool BandComplete(int start)
     {
         WorkCounters.NestedBoundBands++;
+
+        // Let go wholly laid out: its heights are what they were, exactly.
+        if (_rows[start].Kept)
+        {
+            return true;
+        }
 
         if (!IsLaidOut(start))
         {

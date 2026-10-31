@@ -976,9 +976,25 @@ internal sealed class ParagraphView : BlockView
 >   Measured with `tests/VellumText.LayoutProbe` (Release, 10,000 × 3, nested in one-row tables),
 >   before → after: first layout 134.9 MB / 1.5 s → 5.2 MB / 33 ms, kept 115 MB → 1.6 MB, a resize
 >   26.3 MB / 142 ms → 54 KB / 2 ms, at depths 1–3 within 1% of the same table at the top level;
->   a page-by-page traversal at depth 3 takes 1.7 s against 1.6 s and keeps the same 115 MB, since
->   rows once laid out stay laid out at every level, as at the top. `NestedTableLayoutProbeTests`
->   runs the probe in a child process and asserts exit code, time and peak working set;
+>   a page-by-page traversal at depth 3 takes 1.6 s, as at the top. A table in a cell lets go of the
+>   views of rows far outside its window at the end of the layout pass that lays the viewport out
+>   (`TableBlockView.Eviction.cs`; owner decision: tables in cells only, the caret's and the
+>   composition's rows kept, heights kept): bands further than a window's height from the window,
+>   once a table holds more than `max(64, 4 × the rows its window reached)`, and only bands that can
+>   come back exactly as they are — bands of text, and bands whose tables are wholly laid out and
+>   no taller than twice the window, which come back with those tables laid out whole; a far band
+>   that cannot keeps its views, and the tables in it let go of their rows instead, at any depth and
+>   in a table of any length — so letting go never moves anything, never changes the extent, and
+>   leaves what is known
+>   (`ExactHeight`, the bands found complete) true. A traversal of the 10,000-row table keeps
+>   3.4 MB at depths 1 and 3 (115.6 MB before), 5.0 MB three deep beside a line of text (562 MB),
+>   and 3.7 MB with every row holding a table of its own (311 MB), where the same table at the top
+>   keeps its 115.9 MB. `NestedTableLayoutProbeTests` runs the probe in a child process and asserts
+>   exit code and peak working set, and that a traversal keeps about what the first layout
+>   does, flat over 2,500 to 10,000 rows. Every test that scrolls through, fuzzes or lets rows go
+>   runs in a child process of the test assembly with a memory cap and a time limit (`Isolated`):
+>   run in the test process, the fuzz's fully laid-out copies, up to 3.3 GB for a seed, grew it to
+>   40 GB;
 >   `NestedTableFuzzTests` puts random documents with tables nested up to three deep, merged cells
 >   and lists through random scrolls, jumps, resizes, far edits, structural edits with undo and
 >   redo, compositions and far questions, checking after each that the extent is the sum of the
