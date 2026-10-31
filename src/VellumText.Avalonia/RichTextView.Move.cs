@@ -148,8 +148,10 @@ public partial class RichTextView
             }
 
             _moving = true;
+            Cursor = MovingCursor;
         }
 
+        _hoverAt = point;
         _moveTarget = NearestTextPosition(PositionAt(point), forward: true);
 
         // The target the drop caret is drawn at, which the point only led to: laid out now, since
@@ -196,6 +198,12 @@ public partial class RichTextView
         if (dropped && StillAt(pickup.Origin))
         {
             MoveSelectionTo(_moveTarget);
+        }
+
+        // The pointer the drag left behind is the drag's, and the pointer has not moved since.
+        if (_hoverAt is { } at)
+        {
+            UpdateHoverCursor(at, control: false);
         }
     }
 
@@ -302,9 +310,15 @@ public partial class RichTextView
             : TextSelection.Create(doc, at, at + slice.Size);
 
     /// <summary>Draws the caret at the position a drop would land on.</summary>
+    /// <remarks>
+    /// For a move inside the document and for a drag from another application alike: both end in
+    /// content landing at a position, and both need that position shown before the button comes up.
+    /// </remarks>
     private void RenderDropCaret(DrawingContext context)
     {
-        if (!_moving || !PaintReady(_moveTarget) || PositionRect(_moveTarget) is not { } rect)
+        var target = _moving ? _moveTarget : _externalDropTarget;
+
+        if (target is not { } at || !PaintReady(at) || PositionRect(at) is not { } rect)
         {
             return;
         }

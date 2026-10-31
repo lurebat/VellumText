@@ -97,6 +97,7 @@ public sealed partial class RichTextView : DocumentPresenter
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
         AddHandler(DragDrop.DropEvent, OnDrop);
+        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
 
         _inputMethod = new RichTextInputMethodClient(this);
 
@@ -532,7 +533,7 @@ public sealed partial class RichTextView : DocumentPresenter
     /// <inheritdoc/>
     /// <remarks>
     /// The caret and the composition, both ends of the selection for the touch handles, the
-    /// selected picture for its handles, and the drop target of a move being dragged.
+    /// selected picture for its handles, and the drop target of a move or of a drag from outside.
     /// </remarks>
     private protected override void PreparePaintDependencies()
     {
@@ -550,6 +551,11 @@ public sealed partial class RichTextView : DocumentPresenter
         if (_moving)
         {
             PreparePosition(_moveTarget);
+        }
+
+        if (_externalDropTarget is { } dropAt)
+        {
+            PreparePosition(dropAt);
         }
     }
 

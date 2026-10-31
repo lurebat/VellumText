@@ -409,20 +409,8 @@ public partial class RichTextView
 
         if (!_dragging)
         {
-            UpdateLinkAffordance(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
-
-            // An I-beam everywhere says every part of the control is text, which is wrong for
-            // the space below the last block and to the right of a short line. Only recomputed
-            // when it changes: assigning Cursor raises a property change and re-reads the
-            // pointer on every move otherwise.
-            var wanted = ResizeCursor(point)
-                ?? ColumnResizeCursor(point)
-                ?? (_linkCursor ? HandCursor : IsOverContent(point) ? TextCursor : ArrowCursor);
-
-            if (!ReferenceEquals(Cursor, wanted))
-            {
-                Cursor = wanted;
-            }
+            _hoverAt = point;
+            UpdateHoverCursor(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
 
             return;
         }
@@ -570,6 +558,11 @@ public partial class RichTextView
         ArgumentNullException.ThrowIfNull(e);
 
         base.OnKeyDown(e);
+
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl)
+        {
+            RefreshHoverCursor(control: true);
+        }
 
         if (e.Handled)
         {
