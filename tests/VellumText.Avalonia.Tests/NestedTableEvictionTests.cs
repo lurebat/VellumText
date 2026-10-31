@@ -397,6 +397,155 @@ public class NestedTableEvictionTests
     }
 
     /// <summary>
+    /// A table in a cell whose rows each hold a table too tall to lay out whole again on the way
+    /// back — twelve rows, about three times the window — and too short to let its own rows go,
+    /// scrolled through to its end: the rows of those tables far behind are let go all the same, so
+    /// what the traversal keeps does not grow with the number of rows passed. Nothing moved for it:
+    /// every row of the table of tables is where it was, it is as tall, and coming back up, every
+    /// row on screen is laid out where a fully laid-out copy has it.
+    /// </summary>
+    /// <remarks>
+    /// Rubber-duck review of scope (b), finding 1: such a band was never let go, being too tall, and
+    /// the tables in it never let their rows go, being short and no longer measured, so every one of
+    /// them stayed laid out.
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void TallRowsLeftBehindLetTheirTablesRowsGo(int depth) =>
+        Isolated.Run(typeof(NestedTableEvictionTests), nameof(TallRowsLeftBehindLetTheirTablesRowsGoHere), depth);
+
+    /// <summary>The body of <see cref="TallRowsLeftBehindLetTheirTablesRowsGo"/>, run in a child process.</summary>
+    internal static void TallRowsLeftBehindLetTheirTablesRowsGoHere(int depth)
+    {
+        var (window, view) = Shown(NestedTableVirtualizationTests.Nested(depth, Hosts(100, inner: 12)));
+        var hosts = Innermost(view, depth);
+        var steps = 0;
+
+        while (view.Offset.Y < view.Extent.Height - Height - 1 && steps++ < 2_000)
+        {
+            view.Offset += new Vector(0, 600);
+            Layout(window);
+        }
+
+        Assert.True(hosts.IsComplete(), "scrolled through to the end, the table of tables is not wholly known");
+
+        var tall = hosts.RealizedNested().Count(nested => nested.Table.Size.Height > 2 * Height);
+        var kept = hosts.RealizedNested().Sum(nested => nested.Table.RealizedRows);
+
+        Assert.True(tall >= 50, $"only {tall} of the tables in the table of tables are taller than twice the window");
+        Assert.True(kept <= 100, $"the tables in the table of tables keep {kept} rows after a traversal of {hosts.RowCount * 12}");
+
+        var tops = Enumerable.Range(0, hosts.RowCount + 1).Select(hosts.RowTopOf).ToArray();
+        var height = hosts.Size.Height;
+        var truth = GeometryTransactionTests.FullyLaidOut(view.State.Doc);
+
+        AssertKnownTruly(view, truth, "at the end");
+
+        for (var page = 0; page < 40; page++)
+        {
+            view.Offset -= new Vector(0, 600);
+            Layout(window);
+            NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, truth);
+        }
+
+        for (var r = 0; r <= hosts.RowCount; r++)
+        {
+            Assert.True(hosts.RowTopOf(r).Equals(tops[r]), $"row {r} of the table of tables moved from {tops[r]:F1} to {hosts.RowTopOf(r):F1}");
+        }
+
+        Assert.Equal(height, hosts.Size.Height);
+        AssertKnownTruly(view, truth, "back up");
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// The same three tables deep: rows each holding a table of two rows, each of those holding a
+    /// table of twenty, every level taller than twice the window. After a traversal the deepest
+    /// tables keep few rows; coming back, nothing has moved, and a deepest table on screen lays out
+    /// only what the window reaches of it — let go row by row, not laid out whole again on the way
+    /// back.
+    /// </summary>
+    [Fact]
+    public void TallRowsOfTallRowsLetTheDeepestRowsGo() =>
+        Isolated.Run(typeof(NestedTableEvictionTests), nameof(TallRowsOfTallRowsLetTheDeepestRowsGoHere));
+
+    /// <summary>The body of <see cref="TallRowsOfTallRowsLetTheDeepestRowsGo"/>, run in a child process.</summary>
+    internal static void TallRowsOfTallRowsLetTheDeepestRowsGoHere()
+    {
+        var doc = NestedTableVirtualizationTests.Nested(1, new TableNode(Enumerable.Range(0, 40).Select(r => new TableRowNode([
+            new TableCellNode([new TableNode(Enumerable.Range(0, 2).Select(m => new TableRowNode([
+                new TableCellNode([NestedTableVirtualizationTests.Irregular(20, $"h{r}-{m}-")]),
+                TableCellNode.FromText($"middle {r}-{m}"),
+            ])))]),
+            TableCellNode.FromText($"host {r}"),
+        ]))));
+        var (window, view) = Shown(doc);
+        var hosts = Innermost(view, 1);
+        var steps = 0;
+
+        while (view.Offset.Y < view.Extent.Height - Height - 1 && steps++ < 2_000)
+        {
+            view.Offset += new Vector(0, 600);
+            Layout(window);
+        }
+
+        IEnumerable<TableBlockView> Deepest() =>
+            hosts.RealizedNested().SelectMany(middle => middle.Table.RealizedNested()).Select(deep => deep.Table);
+
+        var kept = Deepest().Sum(deep => deep.RealizedRows);
+
+        Assert.True(Deepest().Count() >= 40, $"only {Deepest().Count()} of the deepest tables are still there");
+        Assert.True(kept <= 150, $"the deepest tables keep {kept} rows after a traversal of {40 * 2 * 20}");
+
+        var tops = Enumerable.Range(0, hosts.RowCount + 1).Select(hosts.RowTopOf).ToArray();
+        var truth = GeometryTransactionTests.FullyLaidOut(view.State.Doc);
+
+        for (var page = 0; page < 30; page++)
+        {
+            view.Offset -= new Vector(0, 600);
+            Layout(window);
+            NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, truth);
+        }
+
+        for (var r = 0; r <= hosts.RowCount; r++)
+        {
+            Assert.True(hosts.RowTopOf(r).Equals(tops[r]), $"row {r} of the table of tables moved from {tops[r]:F1} to {hosts.RowTopOf(r):F1}");
+        }
+
+        Assert.Contains(Deepest(), deep => deep.RealizedRows > 0 && deep.RealizedRows < deep.RowCount);
+        AssertKnownTruly(view, truth, "back up");
+        AssertNoRepairs();
+    }
+
+    /// <summary>
+    /// A table in a cell of sixty rows, a few screens tall, scrolled through: none of its rows is
+    /// let go, so a short table is not laid out again and again as its window moves over it.
+    /// </summary>
+    [Fact]
+    public void AShortTableInACellLetsNoRowGo() =>
+        Isolated.Run(typeof(NestedTableEvictionTests), nameof(AShortTableInACellLetsNoRowGoHere));
+
+    /// <summary>The body of <see cref="AShortTableInACellLetsNoRowGo"/>, run in a child process.</summary>
+    internal static void AShortTableInACellLetsNoRowGoHere()
+    {
+        var (window, view) = Shown(NestedTableVirtualizationTests.Nested(1, NestedTableVirtualizationTests.Irregular(60)));
+        var inner = Innermost(view, 1);
+
+        WorkCounters.TableRowsLetGo = 0;
+
+        for (var page = 0; page < 40 && view.Offset.Y < view.Extent.Height - Height - 1; page++)
+        {
+            view.Offset += new Vector(0, Height);
+            Layout(window);
+        }
+
+        Assert.True(inner.Size.Height > 6 * Height, $"the table is only {inner.Size.Height:F0} tall");
+        Assert.Equal(60, inner.RealizedRows);
+        Assert.Equal(0, WorkCounters.TableRowsLetGo);
+    }
+
+    /// <summary>
     /// A question about a position in a row let go far above — a picture's rectangle, which lays
     /// the row out to answer — moves nothing: the row comes back with its table laid out whole,
     /// exactly the height it kept, so every row of the table of tables is where it was, the table is

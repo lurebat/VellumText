@@ -933,13 +933,15 @@ internal sealed class ParagraphView : BlockView
 >   composition's rows kept, heights kept): bands further than a window's height from the window,
 >   once a table holds more than `max(64, 4 × the rows its window reached)`, and only bands that can
 >   come back exactly as they are — bands of text, and bands whose tables are wholly laid out and
->   no taller than twice the window, which come back with those tables laid out whole — so letting
->   go never moves anything, never changes the extent, and leaves what is known
+>   no taller than twice the window, which come back with those tables laid out whole; a far band
+>   that cannot keeps its views, and the tables in it let go of their rows instead, at any depth and
+>   in a table of any length — so letting go never moves anything, never changes the extent, and
+>   leaves what is known
 >   (`ExactHeight`, the bands found complete) true. A traversal of the 10,000-row table keeps
 >   3.4 MB at depths 1 and 3 (115.6 MB before), 5.0 MB three deep beside a line of text (562 MB),
 >   and 3.7 MB with every row holding a table of its own (311 MB), where the same table at the top
 >   keeps its 115.9 MB. `NestedTableLayoutProbeTests` runs the probe in a child process and asserts
->   exit code, time and peak working set, and that a traversal keeps about what the first layout
+>   exit code and peak working set, and that a traversal keeps about what the first layout
 >   does, flat over 2,500 to 10,000 rows. Every test that scrolls through, fuzzes or lets rows go
 >   runs in a child process of the test assembly with a memory cap and a time limit (`Isolated`):
 >   run in the test process, the fuzz's fully laid-out copies, up to 3.3 GB for a seed, grew it to

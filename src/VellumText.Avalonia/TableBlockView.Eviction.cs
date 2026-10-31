@@ -13,7 +13,7 @@ namespace VellumText.Avalonia;
 /// <para>
 /// <b>When.</b> Once, at the end of the part of the presenter's layout pass that lays the viewport
 /// out (<see cref="LettingGo"/>), against the windows the pass settled on — before it lays out what
-/// painting will ask about — and only in a table holding more rows realized than
+/// painting will ask about — bands let go whole only in a table holding more rows realized than
 /// <c>max(64, 4 × the rows its window reached)</c>. Questions about far points and positions lay
 /// out what they need between passes and are answered before the next one, so nothing they
 /// prepared is let go under them.
@@ -25,7 +25,9 @@ namespace VellumText.Avalonia;
 /// <c>PinnedPositions</c>), and that can come back exactly as they are
 /// (<see cref="CanComeBackAsItWas"/>): bands of text, and bands whose tables are wholly laid out
 /// and no taller than twice the window. Letting a band go drops its rows' views, and with them
-/// every table in its cells; its heights stay, so nothing moves and the extent is unchanged.
+/// every table in its cells; its heights stay, so nothing moves and the extent is unchanged. A far
+/// band that cannot come back as it is keeps its views, and the tables in it let go of their rows
+/// instead, at every depth, keeping the tables and their heights.
 /// </para>
 /// <para>
 /// <b>Coming back.</b> A band let go is realized and laid out again when a window or a question
@@ -34,7 +36,10 @@ namespace VellumText.Avalonia;
 /// never moves anything. (Owner decision Q2 accepted that a row holding a table could come back
 /// another height; laid out only as far as the window reached, it did, and that moved text hanging
 /// from the row's top in a cell beside the one the viewport was held in, and made a window held by
-/// a share of the row chase it — found by the fuzz, so it is not allowed to happen.)
+/// a share of the row chase it — found by the fuzz, so it is not allowed to happen.) Exactly as
+/// it was assumes content measures the same each time: a picture whose source the host gave new
+/// content (<see cref="BitmapEmbedRenderer.Invalidate"/>) comes back at its new size, measured and
+/// settled as any row that changes height is (Q2) — as everything laid out again after that call is.
 /// </para>
 /// <para>
 /// <b>What is known.</b> A band let go keeps what it taught the estimate and
@@ -152,10 +157,11 @@ internal sealed partial class TableBlockView
             reached += _bandEnd[start] - start;
         }
 
-        if (_live.Count <= Math.Max(64, 4 * reached))
-        {
-            return;
-        }
+        // Bands are let go whole only in a table holding more rows than its window warrants, so a
+        // short table is not laid out again and again as its window moves. The tables in far bands
+        // that keep their views let their rows go in any table: a few rows each holding tables
+        // several screens tall kept every row of every one of them.
+        var many = _live.Count > Math.Max(64, 4 * reached);
 
         // The window and its height again either side: scrolling a screenful back finds its rows
         // still there.
@@ -177,6 +183,7 @@ internal sealed partial class TableBlockView
         }
 
         var far = new HashSet<int>();
+        var kept = new HashSet<int>();
 
         foreach (var row in _live)
         {
@@ -185,10 +192,19 @@ internal sealed partial class TableBlockView
             if ((start < keepFrom || start >= keepTo)
                 && !_visited.Contains(start)
                 && !pinned.Contains(start)
-                && !far.Contains(start)
-                && CanComeBackAsItWas(start, 2 * span))
+                && !far.Contains(start))
             {
-                far.Add(start);
+                if (CanComeBackAsItWas(start, 2 * span))
+                {
+                    if (many)
+                    {
+                        far.Add(start);
+                    }
+                }
+                else
+                {
+                    kept.Add(start);
+                }
             }
         }
 
@@ -199,7 +215,61 @@ internal sealed partial class TableBlockView
             LetGo(start);
         }
 
+        foreach (var start in kept)
+        {
+            foreach (var nested in NestedInBand(start))
+            {
+                nested.LetGoEverything(2 * span);
+            }
+        }
+
         CheckLetGo(pinnedLive);
+    }
+
+    /// <summary>
+    /// Lets go of every band of this table that can come back as it was, and of the rows of the
+    /// tables in the rest: it is in a band far outside the window of the table holding it that
+    /// keeps its views, being too tall to lay out whole again or holding a table only partly laid
+    /// out.
+    /// </summary>
+    /// <remarks>
+    /// Such a band is never let go itself, and the tables in it, no longer measured, never let
+    /// their own far rows go: a table of tables each a few screens tall kept every row of every one
+    /// of them (rubber-duck review of scope (b), finding 1). Each band let go here keeps its height,
+    /// and the table keeps the heights it had and the estimate for the rest, so it stays its
+    /// height and the row holding it does not move; the table itself is kept, so a table partly
+    /// laid out comes back the very table it was. Pins need no check: a pinned position anywhere
+    /// in the band holding this table keeps the whole band, so none is in here.
+    /// </remarks>
+    /// <param name="limit">How tall a band holding tables may be to be let go whole.</param>
+    private void LetGoEverything(double limit)
+    {
+        if (double.IsNaN(_width))
+        {
+            return;
+        }
+
+        foreach (var start in _live.Select(row => _bandStart[row]).Distinct().ToList())
+        {
+            if (CanComeBackAsItWas(start, limit))
+            {
+                LetGo(start);
+            }
+            else
+            {
+                foreach (var nested in NestedInBand(start))
+                {
+                    nested.LetGoEverything(limit);
+                }
+            }
+        }
+
+        // What its window reached when it was last measured is let go too: forgotten, so that if it
+        // was measured earlier in this pass — the windows of the tables holding it move between
+        // the passes of one measure — letting its own rows go at the end of it neither keeps them
+        // for that window nor finds them gone. And asked for the same window again, it walks it.
+        _visited.Clear();
+        _measured = null;
     }
 
     /// <summary>
@@ -213,7 +283,8 @@ internal sealed partial class TableBlockView
     /// the one the viewport was held in, and a window anchored by a share of such a row chased the
     /// share from pass to pass. A band holding a table only partly laid out keeps its views — the
     /// table in it lets its own far rows go — and so does one whose tables are taller than
-    /// <paramref name="limit"/>, whose laying out again whole would cost more than a few screens.
+    /// <paramref name="limit"/>, whose laying out again whole would cost more than a few screens;
+    /// the tables in either let their rows go instead (<see cref="LetGoEverything"/>).
     /// </remarks>
     private bool CanComeBackAsItWas(int start, double limit) =>
         !BandHostsTables(start)
