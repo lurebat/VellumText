@@ -52,6 +52,13 @@ internal static class Program
         ("a-mdspaces", AuditScenarios.MarkdownSpaces),
         ("a-htmlstages", AuditScenarios.HtmlStages),
         ("a-preview", AuditScenarios.Preview),
+
+        // The table-edit scaling research (docs/plans/2026-10-28-table-edit-scaling-research.md).
+        ("r-table", ResearchScenarios.Table),
+        ("r-tablestruct", ResearchScenarios.TableStructure),
+        ("r-paths", ResearchScenarios.Paths),
+        ("r-heavy", ResearchScenarios.Heavy),
+        ("r-paste", ResearchScenarios.PasteAndLong),
     ];
 
     private static int Main(string[] args)
