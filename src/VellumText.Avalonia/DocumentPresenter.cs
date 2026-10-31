@@ -422,6 +422,11 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
         OnContrastPropertyChanged(change);
 
+        if (change.Property == SelectionCornerRadiusProperty)
+        {
+            InvalidateVisual();
+        }
+
         // A derived resolver is only as current as the properties it was derived from, so a
         // font change has to invalidate it. An explicitly set one is the caller's to manage.
         if (_derivedStyles && TextProperties.Contains(change.Property))

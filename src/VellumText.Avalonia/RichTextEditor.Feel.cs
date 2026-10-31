@@ -33,6 +33,18 @@ public sealed partial class RichTextEditor
         set => SetValue(IsContrastAdaptationEnabledProperty, value);
     }
 
+    /// <summary>Defines the <see cref="SelectionCornerRadius"/> property.</summary>
+    public static readonly StyledProperty<double> SelectionCornerRadiusProperty =
+        DocumentPresenter.SelectionCornerRadiusProperty.AddOwner<RichTextEditor>();
+
+    /// <summary>How far the outer corners of a selection highlight are rounded, in pixels.</summary>
+    /// <remarks>Forwarded to <see cref="DocumentPresenter.SelectionCornerRadius"/>, which documents it.</remarks>
+    public double SelectionCornerRadius
+    {
+        get => GetValue(SelectionCornerRadiusProperty);
+        set => SetValue(SelectionCornerRadiusProperty, value);
+    }
+
     /// <summary>How much the control animates.</summary>
     /// <remarks>Forwarded to <see cref="DocumentPresenter.Motion"/>, which documents it.</remarks>
     public MotionPreference Motion
@@ -61,7 +73,8 @@ public sealed partial class RichTextEditor
         property == MotionProperty
         || property == SmoothCaretProperty
         || property == CaretBlinkProperty
-        || property == IsContrastAdaptationEnabledProperty;
+        || property == IsContrastAdaptationEnabledProperty
+        || property == SelectionCornerRadiusProperty;
 
     private void PushFeel(RichTextView view)
     {
@@ -69,5 +82,6 @@ public sealed partial class RichTextEditor
         view.SmoothCaret = SmoothCaret;
         view.CaretBlink = CaretBlink;
         view.IsContrastAdaptationEnabled = IsContrastAdaptationEnabled;
+        view.SelectionCornerRadius = SelectionCornerRadius;
     }
 }

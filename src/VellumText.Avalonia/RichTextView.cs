@@ -752,6 +752,12 @@ public sealed partial class RichTextView : DocumentPresenter
         return bounds;
     }
 
+    /// <inheritdoc/>
+    private protected override (int From, int To)? HighlightedRange =>
+        _state.Selection.IsEmpty || _state.Selection is CellSelection
+            ? null
+            : (_state.Selection.From, _state.Selection.To);
+
     private void RenderSelection(DrawingContext context)
     {
         if (SelectionBrush is not { } brush)
@@ -759,7 +765,17 @@ public sealed partial class RichTextView : DocumentPresenter
             return;
         }
 
-        EnumerateSelection(rect => context.FillRectangle(brush, rect));
+        if (_state.Selection is CellSelection)
+        {
+            EnumerateSelection(rect => context.FillRectangle(brush, rect));
+
+            return;
+        }
+
+        if (!_state.Selection.IsEmpty)
+        {
+            FillRange(context, brush, _state.Selection.From, _state.Selection.To);
+        }
     }
 
     /// <summary>Walks the rectangles the current selection covers, in view coordinates.</summary>

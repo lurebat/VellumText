@@ -53,6 +53,7 @@ public class MotionPreferenceTests
             SmoothCaret = true,
             CaretBlink = CaretBlinkStyle.Solid,
             IsContrastAdaptationEnabled = false,
+            SelectionCornerRadius = 4,
         };
 
         var view = editor.EnsureView();
@@ -61,16 +62,19 @@ public class MotionPreferenceTests
         Assert.True(view.SmoothCaret);
         Assert.Equal(CaretBlinkStyle.Solid, view.CaretBlink);
         Assert.False(view.IsContrastAdaptationEnabled);
+        Assert.Equal(4, view.SelectionCornerRadius);
 
         editor.Motion = MotionPreference.Full;
         editor.SmoothCaret = false;
         editor.CaretBlink = CaretBlinkStyle.Smooth;
         editor.IsContrastAdaptationEnabled = true;
+        editor.SelectionCornerRadius = 0;
 
         Assert.Equal(MotionPreference.Full, view.Motion);
         Assert.False(view.SmoothCaret);
         Assert.Equal(CaretBlinkStyle.Smooth, view.CaretBlink);
         Assert.True(view.IsContrastAdaptationEnabled);
+        Assert.Equal(0, view.SelectionCornerRadius);
     }
 
     [AvaloniaFact]

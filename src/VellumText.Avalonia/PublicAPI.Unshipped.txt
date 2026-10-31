@@ -29,6 +29,7 @@ static readonly VellumText.Avalonia.DocumentPresenter.FontWeightProperty -> Aval
 static readonly VellumText.Avalonia.DocumentPresenter.ForegroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.DocumentPresenter.IsContrastAdaptationEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.DocumentPresenter.MotionProperty -> Avalonia.StyledProperty<VellumText.Avalonia.MotionPreference>!
+static readonly VellumText.Avalonia.DocumentPresenter.SelectionCornerRadiusProperty -> Avalonia.StyledProperty<double>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableBorderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush!>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableHeaderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.RichTextEditor.AcceptsReturnProperty -> Avalonia.StyledProperty<bool>!
@@ -43,6 +44,7 @@ static readonly VellumText.Avalonia.RichTextEditor.IsReadOnlyProperty -> Avaloni
 static readonly VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.MatchCountProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
 static readonly VellumText.Avalonia.RichTextEditor.MotionProperty -> Avalonia.StyledProperty<VellumText.Avalonia.MotionPreference>!
+static readonly VellumText.Avalonia.RichTextEditor.SelectionCornerRadiusProperty -> Avalonia.StyledProperty<double>!
 static readonly VellumText.Avalonia.RichTextEditor.SelectionProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.Selection!>!
 static readonly VellumText.Avalonia.RichTextEditor.SmoothCaretProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.StateProperty -> Avalonia.StyledProperty<VellumText.EditorState!>!
@@ -185,6 +187,8 @@ VellumText.Avalonia.DocumentPresenter.Offset.set -> void
 VellumText.Avalonia.DocumentPresenter.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
 VellumText.Avalonia.DocumentPresenter.ParagraphStyles.set -> void
 VellumText.Avalonia.DocumentPresenter.PositionAt(Avalonia.Point point) -> int
+VellumText.Avalonia.DocumentPresenter.SelectionCornerRadius.get -> double
+VellumText.Avalonia.DocumentPresenter.SelectionCornerRadius.set -> void
 VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.get -> VellumText.ISyntaxHighlighter?
 VellumText.Avalonia.DocumentPresenter.SyntaxHighlighter.set -> void
 VellumText.Avalonia.DocumentPresenter.SyntaxTheme.get -> VellumText.Avalonia.ISyntaxTheme!
@@ -303,6 +307,8 @@ VellumText.Avalonia.RichTextEditor.ReplaceCurrent(string! replacement) -> bool
 VellumText.Avalonia.RichTextEditor.RichTextEditor() -> void
 VellumText.Avalonia.RichTextEditor.Selection.get -> VellumText.Selection!
 VellumText.Avalonia.RichTextEditor.SelectionChanged -> System.EventHandler?
+VellumText.Avalonia.RichTextEditor.SelectionCornerRadius.get -> double
+VellumText.Avalonia.RichTextEditor.SelectionCornerRadius.set -> void
 VellumText.Avalonia.RichTextEditor.SelectionToolbar.get -> VellumText.Avalonia.RichTextToolbar?
 VellumText.Avalonia.RichTextEditor.SelectionToolbarPlacement.get -> Avalonia.Point
 VellumText.Avalonia.RichTextEditor.SmoothCaret.get -> bool
