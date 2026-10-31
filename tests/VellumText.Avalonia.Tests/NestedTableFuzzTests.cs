@@ -28,13 +28,25 @@ namespace VellumText.Tests.Avalonia;
 /// more from a fixed base, for an exploratory run.
 /// </para>
 /// </remarks>
+[Collection(ChildProcessCollection.Name)]
 public class NestedTableFuzzTests
 {
     private const double Width = 500;
     private const double Height = 400;
 
-    /// <summary>The recorded seeds, replayed on every run.</summary>
-    [AvaloniaTheory]
+    /// <summary>How long one seed may run in its child process.</summary>
+    private static readonly TimeSpan SeedTimeout = TimeSpan.FromSeconds(180);
+
+    /// <summary>
+    /// The working set one seed is killed at. The fully laid-out copy each step is compared with is
+    /// a whole document's layout: seeds 5, 6, 10 and 10,061 peak at about 2.5 GB with the view beside
+    /// it, the same with letting rows go turned off, and seed 10 runs out of a 2.25 GB heap. Children
+    /// run one at a time (<see cref="ChildProcessCollection"/>).
+    /// </summary>
+    private const long SeedMemory = 4L << 30;
+
+    /// <summary>The recorded seeds, replayed on every run, each in a child process (<see cref="Isolated"/>).</summary>
+    [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
@@ -56,10 +68,33 @@ public class NestedTableFuzzTests
     [InlineData(10_043)]
     [InlineData(10_087)]
     [InlineData(10_088)]
-    public void RandomOperationsKeepTheInvariants(int seed) => Run(seed, steps: 30);
+    public void RandomOperationsKeepTheInvariants(int seed) =>
+        Isolated.Run(SeedTimeout, SeedMemory, typeof(NestedTableFuzzTests), nameof(Seed), seed, 30, false);
 
-    /// <summary>More seeds, as many as <c>VELLUM_FUZZ_RUNS</c> asks for (none by default).</summary>
-    [AvaloniaFact]
+    /// <summary>
+    /// The recorded seeds of runs that also scroll many pages away and back, through documents
+    /// whose tables in cells can be several hundred rows long, so rows are let go and laid out again
+    /// (rubber-duck review finding 10.4, scope (b)).
+    /// </summary>
+    [Theory]
+    [InlineData(20_001)]
+    [InlineData(20_002)]
+    [InlineData(20_003)]
+    [InlineData(20_004)]
+    [InlineData(20_005)]
+    [InlineData(20_006)]
+    [InlineData(20_007)]
+    [InlineData(20_008)]
+    [InlineData(20_009)]
+    [InlineData(20_010)]
+    public void FarScrollsThatLetRowsGoKeepTheInvariants(int seed) =>
+        Isolated.Run(SeedTimeout, SeedMemory, typeof(NestedTableFuzzTests), nameof(Seed), seed, 30, true);
+
+    /// <summary>
+    /// More seeds, as many as <c>VELLUM_FUZZ_RUNS</c> asks for (none by default), with and without
+    /// far scrolls, each in a child process.
+    /// </summary>
+    [Fact]
     public void ExploratoryRun()
     {
         var runs = int.TryParse(Environment.GetEnvironmentVariable("VELLUM_FUZZ_RUNS"), out var n) ? n : 0;
@@ -67,23 +102,31 @@ public class NestedTableFuzzTests
 
         for (var seed = 10_000; seed < 10_000 + runs; seed++)
         {
-            try
+            foreach (var far in new[] { false, true })
             {
-                Run(seed, steps: 40);
-            }
-            catch (Exception e) when (e is not OutOfMemoryException)
-            {
-                failures.Add($"seed {seed}: {e.Message.Split('\n')[0]}");
+                var replayed = far ? seed + 10_000 : seed;
+
+                try
+                {
+                    Isolated.Run(SeedTimeout, SeedMemory, typeof(NestedTableFuzzTests), nameof(Seed), replayed, 40, far);
+                }
+                catch (Exception e) when (e is not OutOfMemoryException)
+                {
+                    failures.Add($"seed {replayed}{(far ? " (far scrolls)" : "")}: {e.Message.Split('\n')[0]}");
+                }
             }
         }
 
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
-    internal static void Run(int seed, int steps, Action<int, RichTextView>? before = null)
+    /// <summary>One seed, as a child process runs it.</summary>
+    internal static void Seed(int seed, int steps, bool farScrolls) => Run(seed, steps, farScrolls: farScrolls);
+
+    internal static void Run(int seed, int steps, Action<int, RichTextView>? before = null, bool farScrolls = false)
     {
         var random = new Random(seed);
-        var doc = new Generator(random).Document();
+        var doc = new Generator(random) { LongTables = farScrolls }.Document();
 
         // Before the document is shown, so what its first layout repairs is counted, and nothing an
         // earlier test on this thread counted is.
@@ -98,7 +141,7 @@ public class NestedTableFuzzTests
         {
             before?.Invoke(step, view);
 
-            var operation = random.Next(9);
+            var operation = random.Next(farScrolls ? 10 : 9);
             var what = $"seed {seed}, step {step}";
 
             switch (operation)
@@ -121,6 +164,9 @@ public class NestedTableFuzzTests
                     break;
                 case 6:
                     what += Compose(window, view, random);
+                    break;
+                case 9:
+                    what += Sweep(window, view, random, what, twin);
                     break;
                 default:
                     what += AskFar(window, view, random, what, twin);
@@ -146,6 +192,7 @@ public class NestedTableFuzzTests
         Check(view, $"seed {seed}, end");
 
         NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, twin.Of(view.State.Doc, Width));
+        window.Close();
     }
 
     private static string Jump(Window window, RichTextView view, Random random)
@@ -187,6 +234,41 @@ public class NestedTableFuzzTests
         }
 
         return $": step {delta}";
+    }
+
+    /// <summary>
+    /// Scrolls a page at a time many pages one way, letting the rows left behind go, and back the
+    /// same way, every row on screen laid out at each page; then what is on screen is a fully
+    /// laid-out copy's. Where the text is after coming back is not held: a row holding a table is
+    /// laid out afresh, and can come back another height (owner decision Q2).
+    /// </summary>
+    private static string Sweep(Window window, RichTextView view, Random random, string what, Twin twin)
+    {
+        var pages = random.Next(3, 30);
+        var sign = random.Next(2) == 0 ? -1 : 1;
+        var moved = 0;
+
+        foreach (var direction in new[] { sign, -sign })
+        {
+            for (var page = 0; page < pages; page++)
+            {
+                var target = Math.Clamp(view.Offset.Y + (direction * Height), 0, Math.Max(0, view.Extent.Height - Height));
+
+                if (target.Equals(view.Offset.Y))
+                {
+                    break;
+                }
+
+                view.Offset = new Vector(0, target);
+                Layout(window);
+                Check(view, $"{what}: sweep, page {page} {(direction > 0 ? "down" : "up")}");
+                moved++;
+            }
+        }
+
+        NestedTableVirtualizationTests.AssertTruthOnScreenIsLaidOut(view, twin.Of(view.State.Doc, window.Width));
+
+        return $": sweep {pages} pages {(sign > 0 ? "down" : "up")} and back ({moved} moves)";
     }
 
     private static string Resize(Window window, RichTextView view, Random random, string what)
@@ -240,9 +322,11 @@ public class NestedTableFuzzTests
         var (table, start) = tables[random.Next(tables.Count)];
 
         // The line held at the top, followed through the edit by its mapping, and back through
-        // the undo: it stays where it is unless the edit deleted it. Only with the caret on
-        // screen: an edit scrolls a caret off screen into view, which moves everything.
-        var held = Place(window, view) ? view.HeldLine : null;
+        // the undo: it stays where it is unless the edit deleted it. With the caret on that line:
+        // an edit scrolls a caret off screen into view, which moves everything, and a caret
+        // anywhere else on screen can be moved off it by the edit — beside the held cell, text
+        // hangs from the row's top, which moves when the held cell grows above the held line.
+        var held = PlaceOnHeldLine(window, view) ? view.HeldLine : null;
         var y = held is { } line ? ScreenTop(view, line) : double.NaN;
         Transaction tr;
         string done;
@@ -614,6 +698,23 @@ public class NestedTableFuzzTests
         return true;
     }
 
+    /// <summary>
+    /// Puts the caret on the line held at the top of the viewport, or, with none held, on a line
+    /// on screen (<see cref="Place"/>).
+    /// </summary>
+    private static bool PlaceOnHeldLine(Window window, RichTextView view)
+    {
+        if (view.HeldLine is not { } line)
+        {
+            return Place(window, view);
+        }
+
+        view.MoveTo(line, extend: false);
+        Layout(window);
+
+        return true;
+    }
+
     private static (Window Window, RichTextView View) Shown(DocumentNode doc)
     {
         var view = new RichTextView { State = EditorState.Create(doc) };
@@ -657,7 +758,14 @@ public class NestedTableFuzzTests
 
             if (!ReferenceEquals(_view.State.Doc, doc))
             {
-                _view.State = EditorState.Create(doc);
+                // Laid out afresh rather than updated, and the old copy collected first: a copy
+                // of a document of long tables is hundreds of megabytes, and two at once doubled
+                // what a run peaked at.
+                _view = null;
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                return _view = GeometryTransactionTests.FullyLaidOut(doc, width);
             }
 
             _view.Measure(new Size(width, double.PositiveInfinity));
@@ -671,6 +779,9 @@ public class NestedTableFuzzTests
     internal sealed class Generator(Random random)
     {
         private int _text;
+
+        /// <summary>Whether a table in a cell is now and then a thousand rows long.</summary>
+        public bool LongTables { get; init; }
 
         public DocumentNode Document()
         {
@@ -729,8 +840,13 @@ public class NestedTableFuzzTests
 
         private TableNode Nested(int depth)
         {
+            // Long tables are of short cells: the fully laid-out copy every step is compared with
+            // lays the whole document out, and long tables of the usual cells made that copy
+            // gigabytes.
+            var isLong = depth == 1 && LongTables && random.Next(3) == 0;
             var rows = depth switch
             {
+                _ when isLong => random.Next(300, 900),
                 1 => random.Next(30, 300),
                 2 => random.Next(10, 120),
                 _ => random.Next(5, 60),
@@ -743,6 +859,8 @@ public class NestedTableFuzzTests
 
                 return pick switch
                 {
+                    < 4 when isLong => new TableCellNode(Paragraphs(random.Next(2, 5))),
+                    _ when isLong => new TableCellNode([Paragraph(wraps: false)]),
                     < 2 when depth < 3 => Cell(depth + 1),
                     < 10 => new TableCellNode(Paragraphs(random.Next(3, 9))),
                     _ => new TableCellNode([Paragraph(wraps: false)]),

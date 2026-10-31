@@ -240,15 +240,21 @@ internal sealed partial class TableBlockView : BlockView
                 for (var r = start; r < _bandEnd[start]; r++)
                 {
                     var was = Was(r);
-                    var cells = old.Rows[was].Cells!;
-                    var moved = new Cell[cells.Length];
 
-                    for (var c = 0; c < cells.Length; c++)
+                    // A band a table in a cell let go keeps its heights and stays without views.
+                    if (old.Rows[was].Cells is { } cells)
                     {
-                        moved[c] = new Cell(rows[r].Node.Cells[c], placements[firstCell[r] + c], cells[c].Start, cells[c].Blocks, _header);
+                        var moved = new Cell[cells.Length];
+
+                        for (var c = 0; c < cells.Length; c++)
+                        {
+                            moved[c] = new Cell(rows[r].Node.Cells[c], placements[firstCell[r] + c], cells[c].Start, cells[c].Blocks, _header);
+                        }
+
+                        rows[r].Cells = moved;
                     }
 
-                    rows[r].Cells = moved;
+                    rows[r].Kept = old.Rows[was].Kept;
                     SetRowHeight(r, old.Heights[was], old.Samples[was]);
                 }
 
@@ -281,11 +287,14 @@ internal sealed partial class TableBlockView : BlockView
                 }
             }
         }
+
+        Recount();
     }
 
     /// <summary>
     /// Whether the band starting at <paramref name="start"/> is a band of the old layout, row for
-    /// row, measured and unedited.
+    /// row, measured and unedited — with its views, or let go by a table in a cell with its heights
+    /// kept.
     /// </summary>
     /// <remarks>
     /// The placements need no comparing: a cell's spans are on the cell, the rows hold the very
@@ -306,8 +315,8 @@ internal sealed partial class TableBlockView : BlockView
         {
             var row = old.Rows[from + r - start];
 
+            // A row nobody realized has no height; one with a height and no views was let go.
             if (was(r) != from + r - start
-                || row.Cells is null
                 || row.Dirty
                 || double.IsNaN(old.Heights[from + r - start]))
             {
@@ -432,6 +441,17 @@ internal sealed partial class TableBlockView : BlockView
 
                 row.Cells = cells;
                 row.Dirty = true;
+                Unkeep(r);
+                ForgetKnown(r);
+                RowsUnlaid();
+                _changes++;
+            }
+            else if (!double.IsNaN(_rowHeights[r]))
+            {
+                // Let go by a table in a cell, with its height kept: it stays where it was until it
+                // is laid out again, and what it taught is no longer true of it.
+                row.Dirty = true;
+                Unkeep(r);
                 ForgetKnown(r);
                 RowsUnlaid();
                 _changes++;
@@ -534,6 +554,7 @@ internal sealed partial class TableBlockView : BlockView
 
         target.Cells = cells;
         target.Dirty = true;
+        _live.Add(row);
         _changes++;
 
         return cells;
@@ -724,11 +745,32 @@ internal sealed partial class TableBlockView : BlockView
         _rows.SelectMany(row => row.Cells ?? []).SelectMany(cell => cell.Blocks)
             .Select(child => child.View).OfType<TableBlockView>();
 
+    /// <summary>The tables inside the cells of the rows realized so far, each with where it starts, for tests.</summary>
+    internal IEnumerable<(int Start, TableBlockView Table)> RealizedNested()
+    {
+        for (var r = 0; r < _rows.Length; r++)
+        {
+            foreach (var cell in _rows[r].Cells ?? [])
+            {
+                foreach (var child in cell.Blocks)
+                {
+                    if (child.View is TableBlockView nested)
+                    {
+                        yield return (_rowStarts[r] + child.Start, nested);
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>Where a row's top is now, measured or priced at the estimate, for tests.</summary>
     internal double RowTopOf(int row) => RowTop(row);
 
     /// <summary>Whether a row's height is a measurement of its cells as they are, for tests.</summary>
     internal bool IsRowMeasured(int row) => !double.IsNaN(_rowHeights[row]) && !_rows[row].Dirty;
+
+    /// <summary>Whether a row has views, for tests.</summary>
+    internal bool IsRowRealized(int row) => _rows[row].Cells is not null;
 
     /// <summary>How many rows the table has, for tests.</summary>
     internal int RowCount => _rows.Length;
@@ -930,6 +972,11 @@ internal sealed partial class TableBlockView : BlockView
             _unmeasuredBands++;
         }
 
+        foreach (var row in _rows)
+        {
+            row.Kept = false;
+        }
+
         RowsUnlaid();
         _changes++;
         _estimate.Restart();
@@ -951,6 +998,12 @@ internal sealed partial class TableBlockView : BlockView
         var start = _bandStart[row];
         var end = _bandEnd[row];
         var stale = false;
+
+        // Let go wholly laid out, so its heights are exact (Row.Kept): the tables in it are laid
+        // out whole again, and the band comes back exactly the height it kept. Laid out only as far
+        // as the window reaches, a row holding a table came back another height, and what hangs
+        // from that row's top in a cell beside the one the viewport is held in moved on screen.
+        var whole = _rows[start].Kept;
 
         for (var r = start; r < end; r++)
         {
@@ -994,6 +1047,11 @@ internal sealed partial class TableBlockView : BlockView
                     if (child.View is TableBlockView nested)
                     {
                         WindowNested(r, cell, child, nested);
+
+                        if (whole)
+                        {
+                            nested.SetWindow(0, 0, double.PositiveInfinity);
+                        }
                     }
 
                     child.Height = child.View.Measure(Math.Max(1, inner)).Height;
@@ -1008,6 +1066,9 @@ internal sealed partial class TableBlockView : BlockView
         {
             _rows[r].Dirty = false;
         }
+
+        // Wholly laid out again, and known by what it is laid out as from here on.
+        Unkeep(start);
     }
 
     /// <summary>
@@ -2202,6 +2263,7 @@ internal sealed partial class TableBlockView : BlockView
                         || child.View.ParagraphChanged(paragraph, localPosition - rowStart - child.Start))
                     {
                         _rows[r].Dirty = true;
+                        Unkeep(r);
                         ForgetKnown(r);
                         RowsUnlaid();
                         _changes++;
@@ -2682,12 +2744,19 @@ internal sealed partial class TableBlockView : BlockView
 
         /// <summary>
         /// The cells the row's node holds, in order — which includes any spanning down — or null
-        /// until something has needed them.
+        /// until something has needed them, and again once a table in a cell has let them go.
         /// </summary>
         public Cell[]? Cells { get; set; }
 
         /// <summary>Whether the cells changed since the row was last measured.</summary>
         public bool Dirty { get; set; }
+
+        /// <summary>
+        /// Whether the row's band was wholly laid out — every table in it too — when its views were
+        /// let go: its heights are exact until it is laid out again or edited. Set for every row of
+        /// the band alike.
+        /// </summary>
+        public bool Kept { get; set; }
     }
 
     /// <summary>One cell, its place in the grid, and the views of the blocks inside it.</summary>

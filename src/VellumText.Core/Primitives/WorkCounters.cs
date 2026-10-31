@@ -117,6 +117,13 @@ internal static class WorkCounters
     internal static long NestedBoundBands;
 
     /// <summary>
+    /// Rows of tables in cells whose views were let go, far outside the window, at the end of a
+    /// layout pass.
+    /// </summary>
+    [ThreadStatic]
+    internal static long TableRowsLetGo;
+
+    /// <summary>
     /// Embeds inside containers whose fallback text <see cref="DocumentPreview"/> has counted.
     /// </summary>
     [ThreadStatic]

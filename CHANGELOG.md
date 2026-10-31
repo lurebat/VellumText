@@ -383,9 +383,13 @@ awaits `PasteAsync`.
   a cell, 115 MB kept, and 26 MB for every resize. Each table now hands the
   tables in its cells the part of its window that falls in them, so a table
   nested one, two or three deep costs what it does at the top of the document
-  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows once laid out stay laid
-  out, as at the top level, so scrolling through a whole long table keeps what
-  it kept before. What the viewport shows stays where it is while estimates are
+  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows of a table in a cell
+  that scrolling has left far behind give up their views and keep their heights,
+  so scrolling through a whole 10,000-row table in a cell keeps 3.4 MB rather
+  than 116 MB (5 MB rather than 562 MB three deep beside a line of text); the
+  caret's row and a composition are kept wherever they are, and a row comes back
+  exactly as tall as it was, so letting rows go never moves anything on screen.
+  A table at the top of the document keeps the rows it has laid out, as before. What the viewport shows stays where it is while estimates are
   replaced — the text line at the top of the viewport is what is held, through
   scrolling, resizing, edits far away, undo and redo, and composition (including
   a line where composed text runs into the paragraph's own text, which is held

@@ -617,30 +617,38 @@ public abstract partial class DocumentPresenter
                 _heights.Reset(_views.Count);
             }
 
-            var size = Settle(Resolve(held, mapping));
+            Size size;
 
-            if (_pendingAnchor)
+            // Tables in cells let go of rows far outside their windows while the window is laid
+            // out, keeping the rows of what the view must keep laid out; not once painting's
+            // positions are being prepared, or after, which would let go of what was prepared.
+            using (TableBlockView.LettingGo(PinnedPositions()))
             {
-                _pendingAnchor = false;
+                size = Settle(Resolve(held, mapping));
 
-                // The caret sent to the document's end — Ctrl+End — means the end: laid out from
-                // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
-                // position instead, it is wherever the estimates above it put it, and when the rows
-                // nobody has seen hold most of the document that can be screens short of the end,
-                // with the offset clamped at an extent that is too small to reach it. The caret is
-                // then brought into view as ever: the last place it can sit is not always at the
-                // bottom — beside a long table in the last row it is at the row's top.
-                if (IsAnchorAtDocumentEnd)
+                if (_pendingAnchor)
                 {
-                    size = SettleAtEnd();
-                }
+                    _pendingAnchor = false;
 
-                // Laying out a screenful replaces estimates with real heights, which moves the
-                // caret, which can put it back off the screen it was just scrolled onto. The bound
-                // is there because a loop waiting on an estimate to converge must be allowed not to.
-                for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
-                {
-                    size = Settle(null);
+                    // The caret sent to the document's end — Ctrl+End — means the end: laid out from
+                    // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
+                    // position instead, it is wherever the estimates above it put it, and when the rows
+                    // nobody has seen hold most of the document that can be screens short of the end,
+                    // with the offset clamped at an extent that is too small to reach it. The caret is
+                    // then brought into view as ever: the last place it can sit is not always at the
+                    // bottom — beside a long table in the last row it is at the row's top.
+                    if (IsAnchorAtDocumentEnd)
+                    {
+                        size = SettleAtEnd();
+                    }
+
+                    // Laying out a screenful replaces estimates with real heights, which moves the
+                    // caret, which can put it back off the screen it was just scrolled onto. The bound
+                    // is there because a loop waiting on an estimate to converge must be allowed not to.
+                    for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+                    {
+                        size = Settle(null);
+                    }
                 }
             }
 
@@ -725,7 +733,7 @@ public abstract partial class DocumentPresenter
 
         Transact(() =>
         {
-            _views[index].Measure(_width);
+            MeasureBlock(index);
             _views[index].PrepareAt(local);
             RecordHeight(index);
         });
@@ -1206,6 +1214,27 @@ public abstract partial class DocumentPresenter
     /// <summary>Whether what the view keeps in view — the caret — is at the very end of the document.</summary>
     private protected virtual bool IsAnchorAtDocumentEnd => false;
 
+    /// <summary>
+    /// The document positions whose rows a table in a cell must keep laid out however far the
+    /// viewport is from them: what painting and input keep coming back to. The default keeps none.
+    /// </summary>
+    private protected virtual int[] PinnedPositions() => [];
+
+    /// <summary>Measures a block, telling a table where it starts in the document first.</summary>
+    /// <remarks>
+    /// A table passes that on to the tables in its cells, which compare it with
+    /// <see cref="PinnedPositions"/> when they let rows go.
+    /// </remarks>
+    private Size MeasureBlock(int index)
+    {
+        if (_views[index] is TableBlockView table)
+        {
+            table.DocumentStart = _slots[index].Start;
+        }
+
+        return _views[index].Measure(_width);
+    }
+
     /// <summary>Called at the end of every layout pass, for tests that break what a pass left.</summary>
     internal Action? AfterSettle { get; set; }
 
@@ -1388,7 +1417,7 @@ public abstract partial class DocumentPresenter
             anchor.SetWindow(Math.Max(0, local.Dy), above, below);
         }
 
-        var size = anchor.Measure(_width);
+        var size = MeasureBlock(index);
 
         _heights.SetHeight(index, size.Height);
         width = size.Width;
@@ -1401,7 +1430,7 @@ public abstract partial class DocumentPresenter
         {
             _views[i].SetWindow(0, 0, below - reach);
 
-            var measured = _views[i].Measure(_width);
+            var measured = MeasureBlock(i);
 
             _heights.SetHeight(i, measured.Height);
             width = Math.Max(width, measured.Width);
@@ -1418,7 +1447,7 @@ public abstract partial class DocumentPresenter
             // From its bottom, which is the edge facing the anchor.
             _views[i].SetWindow(_views[i].Size.Height, above - reach, 0);
 
-            var measured = _views[i].Measure(_width);
+            var measured = MeasureBlock(i);
 
             _heights.SetHeight(i, measured.Height);
             width = Math.Max(width, measured.Width);
@@ -1455,7 +1484,7 @@ public abstract partial class DocumentPresenter
     /// <param name="index">The block's index.</param>
     private protected BlockView EnsureMeasured(int index)
     {
-        _views[index].Measure(_width);
+        MeasureBlock(index);
         RecordHeight(index);
 
         return _views[index];
