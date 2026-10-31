@@ -24,6 +24,34 @@ public class BlockHeightIndexTests
         Assert.Equal(30, index.OffsetOf(3));
     }
 
+    /// <summary>
+    /// A block that is partly an estimate itself — a table at the top of the document, laid out only
+    /// as far as the window reached — is placed at its height and teaches the estimate only what is
+    /// known of it: priced at its whole height, every block nobody measured was priced like the
+    /// table's own estimate, and the document came out 99 times its height (fuzz seed 10,045).
+    /// </summary>
+    [Fact]
+    public void ABlockTeachesTheEstimateWhatIsKnownOfIt()
+    {
+        var index = Of(4, estimate: 10);
+
+        index.SetHeight(0, 1_000_000, sample: 20);
+        index.SetHeight(1, 20);
+
+        Assert.Equal(20, index.Estimate);
+        Assert.Equal(1_000_000, index.HeightOf(0));
+        Assert.Equal(1_000_020, index.OffsetOf(2));
+        Assert.Equal(1_000_060, index.TotalHeight);
+
+        index.SetHeight(0, 2_000_000, sample: 40);
+
+        Assert.Equal(30, index.Estimate);
+
+        index.Remove(0, 1);
+
+        Assert.Equal(20, index.Estimate);
+        Assert.Equal(60, index.TotalHeight);
+    }
     [Fact]
     public void OffsetsAreThePrefixSumsOfTheHeights()
     {

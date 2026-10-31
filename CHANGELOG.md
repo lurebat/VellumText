@@ -497,9 +497,13 @@ and the static importer and exporter types), public positional records,
   a cell, 115 MB kept, and 26 MB for every resize. Each table now hands the
   tables in its cells the part of its window that falls in them, so a table
   nested one, two or three deep costs what it does at the top of the document
-  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows once laid out stay laid
-  out, as at the top level, so scrolling through a whole long table keeps what
-  it kept before. What the viewport shows stays where it is while estimates are
+  (5.2 MB and 33 ms, 1.6 MB kept, 54 KB a resize). Rows of a table in a cell
+  that scrolling has left far behind give up their views and keep their heights,
+  so scrolling through a whole 10,000-row table in a cell keeps 3.4 MB rather
+  than 116 MB (5 MB rather than 562 MB three deep beside a line of text); the
+  caret's row and a composition are kept wherever they are, and a row comes back
+  exactly as tall as it was, so letting rows go never moves anything on screen.
+  A table at the top of the document keeps the rows it has laid out, as before. What the viewport shows stays where it is while estimates are
   replaced — the text line at the top of the viewport is what is held, through
   scrolling, resizing, edits far away, undo and redo, and composition (including
   a line where composed text runs into the paragraph's own text, which is held
@@ -515,13 +519,17 @@ and the static importer and exporter types), public positional records,
   laid out teaches the estimate for the rows nobody measured only what is known
   of that table, not that table's own estimate, which had made the extent grow
   as the product of the row counts along the path (34.6 billion pixels for a
-  document 5.8 million tall, after a resize).
+  document 5.8 million tall, after a resize). The document learns the same way
+  from a table at its top level: priced at that table's whole height, estimate
+  and all, the blocks nobody measured had made a document 99 times its height.
 - **Ctrl+End reaches the end of a document whose unseen rows hold most of it.**
   The caret was aimed at where the estimates for the rows above put it, and
   with an extent far too small the offset was clamped short of it: the document
   ended 8,389 pixels below the viewport, caret and all. Sending the caret to the
   document's last position now lays the window out from the end up, with the end
-  at the bottom of the viewport, before the caret is brought into view.
+  at the bottom of the viewport, before the caret is brought into view. So does
+  a scroll whose offset ends up clamped at the end while laying out the end keeps
+  moving it: the last rows of a long table there were left unlaid and repaired.
 - **The text at the top of the viewport is held through the spacing around its
   lines, a jump to rows nobody had laid out, and questions about far points.**
   Scrolling a long table moved its text by up to 5.6 DIP more or less than the
