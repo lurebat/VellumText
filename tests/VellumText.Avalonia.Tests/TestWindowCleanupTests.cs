@@ -39,6 +39,25 @@ public class TestWindowCleanupTests
         Assert.Equal(1, TestWindows.OpenCount);
     }
 
+    /// <summary>
+    /// A test starting meanwhile on another thread — one that only starts a child process, run
+    /// beside this one — does not make this test's windows look left behind: the next window this
+    /// test opens leaves the first open.
+    /// </summary>
+    /// <remarks>Rubber-duck review of scope (b), finding 2.</remarks>
+    [AvaloniaFact]
+    public void ATestStartingOnAnotherThreadClosesNothingOfThisOnes()
+    {
+        var first = Shown();
+
+        Task.Run(() => new MarkEachTestForWindowCleanupAttribute().Before(null!, null!)).Wait(TestContext.Current.CancellationToken);
+
+        var second = Shown();
+
+        Assert.True(first.IsVisible);
+        Assert.True(second.IsVisible);
+    }
+
     private static Window Shown()
     {
         var window = new Window { Width = 200, Height = 100 };
