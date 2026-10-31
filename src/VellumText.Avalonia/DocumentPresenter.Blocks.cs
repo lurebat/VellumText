@@ -614,38 +614,46 @@ public abstract partial class DocumentPresenter
                 _heights.Reset(_views.Count);
             }
 
-            var size = Settle(Resolve(held, mapping));
+            Size size;
 
-            // An explicit request for the end (RichTextView.ScrollToEnd, the scroll bar taken to
-            // its end) is settled from the end up, as Ctrl+End is below, and for the same reason:
-            // an offset at the end of a range built from estimates stops wherever they stop.
-            if (toEnd)
+            // Tables in cells let go of rows far outside their windows while the window is laid
+            // out, keeping the rows of what the view must keep laid out; not once painting's
+            // positions are being prepared, or after, which would let go of what was prepared.
+            using (TableBlockView.LettingGo(PinnedPositions()))
             {
-                size = SettleAtEnd();
-            }
+                size = Settle(Resolve(held, mapping));
 
-            if (_pendingAnchor)
-            {
-                _pendingAnchor = false;
-
-                // The caret sent to the document's end — Ctrl+End — means the end: laid out from
-                // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
-                // position instead, it is wherever the estimates above it put it, and when the rows
-                // nobody has seen hold most of the document that can be screens short of the end,
-                // with the offset clamped at an extent that is too small to reach it. The caret is
-                // then brought into view as ever: the last place it can sit is not always at the
-                // bottom — beside a long table in the last row it is at the row's top.
-                if (IsAnchorAtDocumentEnd)
+                // An explicit request for the end (RichTextView.ScrollToEnd, the scroll bar taken to
+                // its end) is settled from the end up, as Ctrl+End is below, and for the same reason:
+                // an offset at the end of a range built from estimates stops wherever they stop.
+                if (toEnd)
                 {
                     size = SettleAtEnd();
                 }
 
-                // Laying out a screenful replaces estimates with real heights, which moves the
-                // caret, which can put it back off the screen it was just scrolled onto. The bound
-                // is there because a loop waiting on an estimate to converge must be allowed not to.
-                for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+                if (_pendingAnchor)
                 {
-                    size = Settle(null);
+                    _pendingAnchor = false;
+
+                    // The caret sent to the document's end — Ctrl+End — means the end: laid out from
+                    // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
+                    // position instead, it is wherever the estimates above it put it, and when the rows
+                    // nobody has seen hold most of the document that can be screens short of the end,
+                    // with the offset clamped at an extent that is too small to reach it. The caret is
+                    // then brought into view as ever: the last place it can sit is not always at the
+                    // bottom — beside a long table in the last row it is at the row's top.
+                    if (IsAnchorAtDocumentEnd)
+                    {
+                        size = SettleAtEnd();
+                    }
+
+                    // Laying out a screenful replaces estimates with real heights, which moves the
+                    // caret, which can put it back off the screen it was just scrolled onto. The bound
+                    // is there because a loop waiting on an estimate to converge must be allowed not to.
+                    for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+                    {
+                        size = Settle(null);
+                    }
                 }
             }
 
@@ -730,7 +738,7 @@ public abstract partial class DocumentPresenter
 
         Transact(() =>
         {
-            _views[index].Measure(_width);
+            MeasureBlock(index);
             _views[index].PrepareAt(local);
             RecordHeight(index);
         });
@@ -1149,6 +1157,19 @@ public abstract partial class DocumentPresenter
             }
         }
 
+        // Clamped at the end, with the window still behind it: each attempt laid out more of the
+        // end, the estimates it replaced moved the end, and the clamp moved with it — fuzz seed
+        // 10,042, a jump near the end of a document ending in a table, left the table's last rows
+        // unlaid and the window was repaired. The viewport shows the end, so it is laid out from
+        // the end up, as Ctrl+End is, whatever the estimates above it say.
+        if (top < 0 && !IsWindowCovered())
+        {
+            size = SettleAtEnd();
+            AfterSettle?.Invoke();
+
+            return size;
+        }
+
         // A share of a row nobody had laid out names no content. The row is laid out now, so what
         // is held from here on is the text the reader is shown at the top (owner decision Q3):
         // a resize keeps that line still, not a share of a row that changed height.
@@ -1210,6 +1231,27 @@ public abstract partial class DocumentPresenter
 
     /// <summary>Whether what the view keeps in view — the caret — is at the very end of the document.</summary>
     private protected virtual bool IsAnchorAtDocumentEnd => false;
+
+    /// <summary>
+    /// The document positions whose rows a table in a cell must keep laid out however far the
+    /// viewport is from them: what painting and input keep coming back to. The default keeps none.
+    /// </summary>
+    private protected virtual int[] PinnedPositions() => [];
+
+    /// <summary>Measures a block, telling a table where it starts in the document first.</summary>
+    /// <remarks>
+    /// A table passes that on to the tables in its cells, which compare it with
+    /// <see cref="PinnedPositions"/> when they let rows go.
+    /// </remarks>
+    private Size MeasureBlock(int index)
+    {
+        if (_views[index] is TableBlockView table)
+        {
+            table.DocumentStart = _slots[index].Start;
+        }
+
+        return _views[index].Measure(_width);
+    }
 
     /// <summary>Called at the end of every layout pass, for tests that break what a pass left.</summary>
     internal Action? AfterSettle { get; set; }
@@ -1335,7 +1377,7 @@ public abstract partial class DocumentPresenter
 
             var measured = _views[i].Measure(_width);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
         }
 
@@ -1371,7 +1413,7 @@ public abstract partial class DocumentPresenter
 
                 var measured = _views[i].Measure(_width);
 
-                _heights.SetHeight(i, measured.Height);
+                _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
                 width = Math.Max(width, measured.Width);
             }
 
@@ -1393,9 +1435,9 @@ public abstract partial class DocumentPresenter
             anchor.SetWindow(Math.Max(0, local.Dy), above, below);
         }
 
-        var size = anchor.Measure(_width);
+        var size = MeasureBlock(index);
 
-        _heights.SetHeight(index, size.Height);
+        _heights.SetHeight(index, size.Height, Known(index, size.Height));
         width = size.Width;
 
         var point = PointOf(index, local);
@@ -1406,9 +1448,9 @@ public abstract partial class DocumentPresenter
         {
             _views[i].SetWindow(0, 0, below - reach);
 
-            var measured = _views[i].Measure(_width);
+            var measured = MeasureBlock(i);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
             reach += measured.Height;
             last = i;
@@ -1423,9 +1465,9 @@ public abstract partial class DocumentPresenter
             // From its bottom, which is the edge facing the anchor.
             _views[i].SetWindow(_views[i].Size.Height, above - reach, 0);
 
-            var measured = _views[i].Measure(_width);
+            var measured = MeasureBlock(i);
 
-            _heights.SetHeight(i, measured.Height);
+            _heights.SetHeight(i, measured.Height, Known(i, measured.Height));
             width = Math.Max(width, measured.Width);
             reach += measured.Height;
             first = i;
@@ -1460,12 +1502,18 @@ public abstract partial class DocumentPresenter
     /// <param name="index">The block's index.</param>
     private protected BlockView EnsureMeasured(int index)
     {
-        _views[index].Measure(_width);
+        MeasureBlock(index);
         RecordHeight(index);
 
         return _views[index];
     }
 
+    /// <summary>
+    /// How much of a block's height is known: all of it, except for a table, which is as tall as its
+    /// own estimate says of the rows it has not laid out (<see cref="BlockHeightIndex.SetHeight(int, double, double)"/>).
+    /// </summary>
+    private double Known(int index, double height) =>
+        _views[index] is TableBlockView table ? Math.Min(height, table.ExactHeight) : height;
     /// <summary>Records the height a block has now in the height index and the extent.</summary>
     /// <remarks>
     /// Also wanted after a geometry question has been answered, not only after a measure: a long
@@ -1482,7 +1530,7 @@ public abstract partial class DocumentPresenter
         if (!_heights.Measured(index) || Math.Abs(_heights.HeightOf(index) - height) > 0.01)
         {
             LayoutGuard.Changing("a block's recorded height");
-            _heights.SetHeight(index, height);
+            _heights.SetHeight(index, height, Known(index, height));
             SetExtent(_extent.WithHeight(_heights.TotalHeight));
         }
     }

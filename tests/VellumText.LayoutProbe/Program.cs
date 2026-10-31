@@ -10,11 +10,12 @@ namespace VellumText.LayoutProbe;
 /// <summary>Lays out a long table — at the top level or nested in cells — and reports what it cost.</summary>
 /// <remarks>
 /// <para>
-/// Usage: <c>VellumText.LayoutProbe &lt;depth&gt; &lt;rows&gt; [scenario] [side]</c>. Depth 0 is a
-/// table of <c>rows</c> × 3 at the top of the document; depth <c>d</c> puts that table in the only
-/// cell of a one-row table, <c>d</c> times over — or, with <c>side</c>, in the first of two cells,
-/// the second holding a line of text. Output is <c>key=value</c> lines; the exit code is 0 when
-/// everything returned.
+/// Usage: <c>VellumText.LayoutProbe &lt;depth&gt; &lt;rows&gt; [scenario] [side|hosts]</c>. Depth 0 is
+/// a table of <c>rows</c> × 3 at the top of the document; depth <c>d</c> puts that table in the
+/// only cell of a one-row table, <c>d</c> times over — or, with <c>side</c>, in the first of two
+/// cells, the second holding a line of text. With <c>hosts</c>, the first cell of every row of the
+/// long table holds a table of two rows of its own instead of text. Output is <c>key=value</c>
+/// lines; the exit code is 0 when everything returned.
 /// </para>
 /// <para>
 /// Scenarios: <c>profile</c> (the default) times and weighs a first layout, a resize, a keystroke
@@ -29,6 +30,8 @@ public static class Program
 
     private static bool side;
 
+    private static bool hosts;
+
     /// <summary>Entry point.</summary>
     /// <param name="args">Depth, rows, and optionally the scenario.</param>
     /// <returns>0 when the scenario returned; 2 for bad arguments.</returns>
@@ -36,7 +39,7 @@ public static class Program
     {
         if (args.Length < 2 || !int.TryParse(args[0], out var depth) || !int.TryParse(args[1], out var rows))
         {
-            Console.Error.WriteLine("usage: VellumText.LayoutProbe <depth> <rows> [profile|traverse] [side]");
+            Console.Error.WriteLine("usage: VellumText.LayoutProbe <depth> <rows> [profile|traverse] [side|hosts]");
 
             return 2;
         }
@@ -44,6 +47,7 @@ public static class Program
         var scenario = args.Length > 2 ? args[2] : "profile";
 
         side = args.Length > 3 && args[3] == "side";
+        hosts = args.Length > 3 && args[3] == "hosts";
 
         AppBuilder
             .Configure<Application>()
@@ -177,6 +181,7 @@ public static class Program
         Console.Out.WriteLine($"retainedAfterFirstLayoutBytes={afterFirst}");
         Console.Out.WriteLine($"retainedAfterTraverseBytes={afterTraverse}");
         Console.Out.WriteLine($"pages={pages}");
+        Console.Out.WriteLine($"extentAfterTraverse={(long)view.Extent.Height}");
         Console.Out.WriteLine($"traverseMs={watch.ElapsedMilliseconds}");
 
         GC.KeepAlive(window);
@@ -187,7 +192,12 @@ public static class Program
     private static DocumentNode Document(int depth, int rows)
     {
         BlockNode table = new TableNode(Enumerable.Range(0, rows).Select(r => new TableRowNode(
-            Enumerable.Range(0, 3).Select(c => TableCellNode.FromText($"Row {r} column {c} value {r * c}")))));
+            Enumerable.Range(0, 3).Select(c => hosts && c == 0
+                ? new TableCellNode([new TableNode(Enumerable.Range(0, 2).Select(i => new TableRowNode([
+                    TableCellNode.FromText($"Row {r} inner {i} left"),
+                    TableCellNode.FromText($"Row {r} inner {i} right"),
+                ])))])
+                : TableCellNode.FromText($"Row {r} column {c} value {r * c}")))));
 
         for (var d = 0; d < depth; d++)
         {
