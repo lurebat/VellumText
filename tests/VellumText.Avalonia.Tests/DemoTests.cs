@@ -33,6 +33,21 @@ public class DemoTests
     /// short document was a narrow strip and a click to the right of a line missed the editor
     /// (found in the live window). Stretched, it fills the column up to its 680 cap.
     /// </summary>
+    /// <summary>
+    /// The demo is where a newcomer first sees the control, so it shows the caret's optional motion
+    /// - the glide and the smooth blink - which the control itself leaves off by default.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheDemoShowsTheCaretGlideAndTheSmoothBlink()
+    {
+        var editor = new MainWindow().FindControl<RichTextEditor>("Editor")!;
+
+        Assert.True(editor.SmoothCaret);
+        Assert.Equal(CaretBlinkStyle.Smooth, editor.CaretBlink);
+        Assert.False(new RichTextEditor().SmoothCaret);
+        Assert.Equal(CaretBlinkStyle.System, new RichTextEditor().CaretBlink);
+    }
+
     [AvaloniaFact]
     public void TheDemoPageKeepsItsWidthWhenTheDocumentIsShort()
     {
