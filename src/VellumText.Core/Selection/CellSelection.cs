@@ -31,12 +31,16 @@ public sealed class TableGrid
 
     private TableGrid(
         int tablePos,
+        TableNode table,
+        ImmutableArray<CellPlacement> placements,
         int rows,
         int columns,
         int[,] slots,
         ImmutableDictionary<int, TableSlot> cells)
     {
         TablePos = tablePos;
+        Table = table;
+        Placements = placements;
         Rows = rows;
         Columns = columns;
         _slots = slots;
@@ -45,6 +49,12 @@ public sealed class TableGrid
 
     /// <summary>The position directly before the table.</summary>
     public int TablePos { get; }
+
+    /// <summary>The table this grid lays out, so a caller can tell it is still the one in a document.</summary>
+    internal TableNode Table { get; }
+
+    /// <summary>The placements the grid was built from, in document order.</summary>
+    internal ImmutableArray<CellPlacement> Placements { get; }
 
     /// <summary>How many rows the table has.</summary>
     public int Rows { get; }
@@ -129,6 +139,8 @@ public sealed class TableGrid
     {
         ArgumentNullException.ThrowIfNull(table);
 
+        WorkCounters.TableGridsBuilt++;
+
         var cells = ImmutableDictionary.CreateBuilder<int, TableSlot>();
         var placed = new List<TableSlot>();
 
@@ -182,7 +194,54 @@ public sealed class TableGrid
             }
         }
 
-        return new TableGrid(tablePos, height, width, slots, cells.ToImmutable());
+        return new TableGrid(tablePos, table, placements, height, width, slots, cells.ToImmutable());
+    }
+
+    /// <summary>
+    /// The position before the cell occupying a slot of a table, without building its grid.
+    /// </summary>
+    /// <param name="tablePos">The position directly before the table.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="placements">Its placements, from <see cref="TableGeometry.Place"/>.</param>
+    /// <param name="row">The row.</param>
+    /// <param name="column">The column.</param>
+    /// <returns>What <c>Build(tablePos, table).At(row, column)?.Pos</c> would be.</returns>
+    /// <remarks>
+    /// One pass over the cells and no allocation, for a caller that asks one question of a table
+    /// it will not ask another: a dictionary of 50,000 cells to find one was most of the time a
+    /// row insert into a long table took. The first placement covering the slot is the only one:
+    /// <see cref="TableGeometry.Place"/> never lets two overlap.
+    /// </remarks>
+    internal static int? CellAt(
+        int tablePos, TableNode table, ImmutableArray<CellPlacement> placements, int row, int column)
+    {
+        var height = table.Rows.Length;
+        var rowPos = tablePos + 1;
+        var next = 0;
+
+        for (var r = 0; r < height; r++)
+        {
+            var cellPos = rowPos + 1;
+
+            foreach (var cell in table.Rows[r].Cells)
+            {
+                var placement = placements[next++];
+
+                if (placement.Top <= row
+                    && row < Math.Min(placement.Bottom, height)
+                    && placement.Left <= column
+                    && column < placement.Right)
+                {
+                    return cellPos;
+                }
+
+                cellPos += cell.NodeSize;
+            }
+
+            rowPos += table.Rows[r].NodeSize;
+        }
+
+        return null;
     }
 
     /// <summary>The cell occupying a slot, or null if the table is ragged and it is empty.</summary>

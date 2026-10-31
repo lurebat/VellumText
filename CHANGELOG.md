@@ -386,9 +386,33 @@ awaits `PasteAsync`.
   measured, including rows taller than the estimate, and through inserting or
   deleting a row, which keeps the heights of the rows it did not touch;
   painting a selection of the whole table realizes only the rows on screen.
-  Typing into a cell of a very long table still allocates about 6 MB a
-  keystroke in the document model, which validates the whole edited table after
-  each step.
+- **Typing into a cell of a long table no longer re-validates the whole table.**
+  Each step re-placed every cell of the edited table to prove it still tiled its
+  grid: about 6 MB a keystroke at 10,000 rows. A table already known to tile,
+  edited without changing its row count, any cell's spans or the number of
+  column widths, is now known to still tile; anything else is validated in full
+  as before, and a table that never passed validation is still refused.
+- **Placing a table's cells costs the placements, not a set of every slot.**
+  `TableGeometry.Place` — used to draw a table, select cells, export RTF and
+  Markdown, edit rows and columns, and validate — kept a hash set of every
+  occupied (row, column) slot: 5.8 MB for a 10,000 × 5 table. It now keeps, per
+  column, the row a span above keeps it busy until (about 0.8 MB, the placements
+  themselves). The placements are unchanged; a test compares them with the old
+  algorithm on 3,000 random tables, malformed ones included.
+- **Inserting or deleting a row or column in a long table, and undoing it, no
+  longer collects every node of the table.** Mapping positions through the edit
+  first asked whether the two versions shared any node by building a set of all
+  of them — 14 MB at 10,000 × 5, on the edit and again on its undo. The cells of
+  the first or last row now answer it; the full search remains for tables that
+  share nothing there.
+- **A row or column command on a long table works its grid out once.** The
+  command built the table's grid (every cell's placement plus a dictionary of
+  them) for the selection, again inside the edit, and again to find the cell to
+  put the caret in, and placed the cells twice more. It now reuses the grid it
+  started from — only while it is still the grid of that very table at that
+  position — and finds the caret's cell from the new table's placements. With
+  the placement and sharing changes above, inserting a row into a 10,000 × 5
+  table allocates under a third of what it did (77 MB before).
 - **A long table inside a table cell lays out only the rows near the viewport
   too, at any depth.** A table in a cell was laid out whole whenever the row
   holding it was: 135 MB and 1.5 s for the first layout of a 10,000 × 3 table in

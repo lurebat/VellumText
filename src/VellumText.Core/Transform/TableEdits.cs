@@ -41,9 +41,14 @@ public static class TableEdits
     /// added beside, so inserting a row into a header keeps it looking like a header.
     /// </remarks>
     public static TableStructureStep? InsertRows(
-        DocumentNode doc, int anchorCell, int headCell, bool below)
+        DocumentNode doc, int anchorCell, int headCell, bool below) =>
+        InsertRows(doc, anchorCell, headCell, below, known: null);
+
+    /// <inheritdoc cref="InsertRows(DocumentNode, int, int, bool)"/>
+    internal static TableStructureStep? InsertRows(
+        DocumentNode doc, int anchorCell, int headCell, bool below, TableGrid? known)
     {
-        if (Region(doc, anchorCell, headCell) is not { } region)
+        if (Region(doc, anchorCell, headCell, known) is not { } region)
         {
             return null;
         }
@@ -98,9 +103,15 @@ public static class TableEdits
     /// cell when the row it started in goes. Removing every row is refused rather than producing
     /// an empty table, because deleting a table is a different thing from editing one.
     /// </remarks>
-    public static TableStructureStep? DeleteRows(DocumentNode doc, int anchorCell, int headCell)
+    public static TableStructureStep? DeleteRows(
+        DocumentNode doc, int anchorCell, int headCell) =>
+        DeleteRows(doc, anchorCell, headCell, known: null);
+
+    /// <inheritdoc cref="DeleteRows(DocumentNode, int, int)"/>
+    internal static TableStructureStep? DeleteRows(
+        DocumentNode doc, int anchorCell, int headCell, TableGrid? known)
     {
-        if (Region(doc, anchorCell, headCell) is not { } region)
+        if (Region(doc, anchorCell, headCell, known) is not { } region)
         {
             return null;
         }
@@ -136,9 +147,14 @@ public static class TableEdits
     /// <param name="after">Whether the new columns go to the right of the selection.</param>
     /// <returns>The step, or null if there is no table there.</returns>
     public static TableStructureStep? InsertColumns(
-        DocumentNode doc, int anchorCell, int headCell, bool after)
+        DocumentNode doc, int anchorCell, int headCell, bool after) =>
+        InsertColumns(doc, anchorCell, headCell, after, known: null);
+
+    /// <inheritdoc cref="InsertColumns(DocumentNode, int, int, bool)"/>
+    internal static TableStructureStep? InsertColumns(
+        DocumentNode doc, int anchorCell, int headCell, bool after, TableGrid? known)
     {
-        if (Region(doc, anchorCell, headCell) is not { } region)
+        if (Region(doc, anchorCell, headCell, known) is not { } region)
         {
             return null;
         }
@@ -194,9 +210,15 @@ public static class TableEdits
     /// A row whose only cells were in the removed columns is left carrying nothing, which is
     /// legal exactly when the rest of the table covers it — the schema decides that, not this.
     /// </remarks>
-    public static TableStructureStep? DeleteColumns(DocumentNode doc, int anchorCell, int headCell)
+    public static TableStructureStep? DeleteColumns(
+        DocumentNode doc, int anchorCell, int headCell) =>
+        DeleteColumns(doc, anchorCell, headCell, known: null);
+
+    /// <inheritdoc cref="DeleteColumns(DocumentNode, int, int)"/>
+    internal static TableStructureStep? DeleteColumns(
+        DocumentNode doc, int anchorCell, int headCell, TableGrid? known)
     {
-        if (Region(doc, anchorCell, headCell) is not { } region)
+        if (Region(doc, anchorCell, headCell, known) is not { } region)
         {
             return null;
         }
@@ -249,9 +271,15 @@ public static class TableEdits
     /// a selection the merge would have to refuse.
     /// </para>
     /// </remarks>
-    public static TableStructureStep? MergeCells(DocumentNode doc, int anchorCell, int headCell)
+    public static TableStructureStep? MergeCells(
+        DocumentNode doc, int anchorCell, int headCell) =>
+        MergeCells(doc, anchorCell, headCell, known: null);
+
+    /// <inheritdoc cref="MergeCells(DocumentNode, int, int)"/>
+    internal static TableStructureStep? MergeCells(
+        DocumentNode doc, int anchorCell, int headCell, TableGrid? known)
     {
-        if (Region(doc, anchorCell, headCell) is not { } region)
+        if (Region(doc, anchorCell, headCell, known) is not { } region)
         {
             return null;
         }
@@ -315,9 +343,15 @@ public static class TableEdits
     /// empty and inherit the split cell's background and header flag, so splitting a shaded
     /// header cell gives shaded header cells rather than a hole in the shading.
     /// </remarks>
-    public static TableStructureStep? SplitCell(DocumentNode doc, int cellPos)
+    public static TableStructureStep? SplitCell(
+        DocumentNode doc, int cellPos) =>
+        SplitCell(doc, cellPos, known: null);
+
+    /// <inheritdoc cref="SplitCell(DocumentNode, int)"/>
+    internal static TableStructureStep? SplitCell(
+        DocumentNode doc, int cellPos, TableGrid? known)
     {
-        if (Region(doc, cellPos, cellPos) is not { } region)
+        if (Region(doc, cellPos, cellPos, known) is not { } region)
         {
             return null;
         }
@@ -474,11 +508,14 @@ public static class TableEdits
 
         public int Height { get; }
 
-        public static Layout Of(TableNode table)
+        /// <param name="table">The table.</param>
+        /// <param name="placements">
+        /// Its placements, from <see cref="TableGeometry.Place"/> - the same placement the schema
+        /// and the view use, so a command can never disagree with them about where a cell sits.
+        /// </param>
+        /// <param name="width">The width <see cref="TableGeometry.Place"/> reported.</param>
+        public static Layout Of(TableNode table, ImmutableArray<CellPlacement> placements, int width)
         {
-            // The same placement the schema and the view use, so a command can never disagree
-            // with them about where a cell sits.
-            var placements = TableGeometry.Place(table, out var width);
             var cells = new List<Placed>(placements.Length);
             var next = 0;
 
@@ -521,13 +558,26 @@ public static class TableEdits
     }
 
     /// <summary>Resolves a selection into the table it is in and the area it covers.</summary>
+    /// <remarks>
+    /// A grid the caller already built is the one <see cref="TableGrid.ForCell"/> would build
+    /// when the anchor is one of its cells and its table is still the very node at its position:
+    /// a cell position resolves to one table, and a grid is a function of the table and where it
+    /// sits. Anything else - another document, an edited table, a moved one - builds afresh.
+    /// </remarks>
     private static (TableNode Table, int TablePos, Layout Layout, Area Rectangle)? Region(
-        DocumentNode doc, int anchorCell, int headCell)
+        DocumentNode doc, int anchorCell, int headCell, TableGrid? known)
     {
         ArgumentNullException.ThrowIfNull(doc);
 
-        if (TableGrid.ForCell(doc, anchorCell) is not { } grid
-            || doc.Resolve(grid.TablePos).NodeAfter is not TableNode table)
+        var grid = known is not null
+            && known.Cells.ContainsKey(anchorCell)
+            && known.TablePos >= 0
+            && known.TablePos <= doc.ContentSize
+            && ReferenceEquals(doc.Resolve(known.TablePos).NodeAfter, known.Table)
+                ? known
+                : TableGrid.ForCell(doc, anchorCell);
+
+        if (grid is null || doc.Resolve(grid.TablePos).NodeAfter is not TableNode table)
         {
             return null;
         }
@@ -556,7 +606,7 @@ public static class TableEdits
             right = Math.Max(right, slot.Right);
         }
 
-        return (table, grid.TablePos, Layout.Of(table), new Area(top, left, bottom, right));
+        return (table, grid.TablePos, Layout.Of(table, grid.Placements, grid.Columns), new Area(top, left, bottom, right));
     }
 
     /// <summary>Assembles the replacement table and pairs it with the one it replaces.</summary>

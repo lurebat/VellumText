@@ -962,10 +962,20 @@ internal sealed class ParagraphView : BlockView
 >
 > Measured by `ScalingGuardTests`: laying out the top of a 2,500-, 5,000- or 10,000-row table builds
 > and measures 95 cells; scrolling to its middle measures one window; laying out a 10,000-row table
-> allocates 7.8 MB (most of it `TableGeometry.Place`), against 280 MB. **Not fixed here:** typing
-> into a cell of a 10,000-row table still allocates about 6 MB in the *model*, because
-> `ReplaceStep.Apply` validates the edited table and `DocumentSchema.ValidateTable` places every cell
-> to do it; the view's share of that keystroke is 0.4 MB.
+> allocates 7.8 MB (most of it `TableGeometry.Place`), against 280 MB. Typing into a cell of a
+> 10,000-row table used to allocate about 6 MB more in the *model*, because `ReplaceStep.Apply`
+> validates the edited table and `DocumentSchema.ValidateTable` placed every cell to do it. The
+> schema now remembers (weakly, per immutable `TableNode`) which tables it has found to tile, and an
+> edit of such a table that keeps every input `ValidateTable` reads — row count, each cell's spans in
+> order, the number of column widths — inherits the answer instead of re-placing the grid. A table
+> that never passed validation is not remembered, so an edit inside a ragged table is refused exactly
+> as before. Any new rule in `ValidateTable` must widen `SameTilingInputs` to match; the oracle in
+> `TableShapeValidationTests` compares against a full validation over 3,000 generated edits.
+> `TableGeometry.Place` itself tracks, per column, the row a span above keeps it busy until, instead
+> of a set of every occupied slot (0.8 MB rather than 5.8 MB at 10,000 × 5). That is slot occupancy
+> only because cells are placed row by row and every span starts on the row being placed;
+> `TableGeometryEquivalenceTests` keeps the slot-set algorithm as the oracle.
+> The view's share of that keystroke is 0.4 MB.
 
 ### 4.7 The text source
 

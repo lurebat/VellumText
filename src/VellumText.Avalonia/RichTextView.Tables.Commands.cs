@@ -26,7 +26,7 @@ public partial class RichTextView
     public bool InsertRowAbove() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.InsertRows(_state.Doc, region.Anchor, region.Head, below: false),
+            TableEdits.InsertRows(_state.Doc, region.Anchor, region.Head, below: false, region.Grid),
             region.Top,
             region.Left);
 
@@ -36,7 +36,7 @@ public partial class RichTextView
     public bool InsertRowBelow() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.InsertRows(_state.Doc, region.Anchor, region.Head, below: true),
+            TableEdits.InsertRows(_state.Doc, region.Anchor, region.Head, below: true, region.Grid),
             region.Bottom,
             region.Left);
 
@@ -49,7 +49,7 @@ public partial class RichTextView
     public bool DeleteRow() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.DeleteRows(_state.Doc, region.Anchor, region.Head),
+            TableEdits.DeleteRows(_state.Doc, region.Anchor, region.Head, region.Grid),
             region.Top,
             region.Left);
 
@@ -58,7 +58,7 @@ public partial class RichTextView
     public bool InsertColumnLeft() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.InsertColumns(_state.Doc, region.Anchor, region.Head, after: false),
+            TableEdits.InsertColumns(_state.Doc, region.Anchor, region.Head, after: false, region.Grid),
             region.Top,
             region.Left);
 
@@ -67,7 +67,7 @@ public partial class RichTextView
     public bool InsertColumnRight() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.InsertColumns(_state.Doc, region.Anchor, region.Head, after: true),
+            TableEdits.InsertColumns(_state.Doc, region.Anchor, region.Head, after: true, region.Grid),
             region.Top,
             region.Right);
 
@@ -76,7 +76,7 @@ public partial class RichTextView
     public bool DeleteColumn() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.DeleteColumns(_state.Doc, region.Anchor, region.Head),
+            TableEdits.DeleteColumns(_state.Doc, region.Anchor, region.Head, region.Grid),
             region.Top,
             region.Left);
 
@@ -90,7 +90,7 @@ public partial class RichTextView
     public bool MergeCells() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.MergeCells(_state.Doc, region.Anchor, region.Head),
+            TableEdits.MergeCells(_state.Doc, region.Anchor, region.Head, region.Grid),
             region.Top,
             region.Left,
             CellCaret.End);
@@ -105,7 +105,7 @@ public partial class RichTextView
     public bool SplitCell() =>
         TableAt() is { } region
         && Structure(
-            TableEdits.SplitCell(_state.Doc, region.Anchor),
+            TableEdits.SplitCell(_state.Doc, region.Anchor, region.Grid),
             region.Top,
             region.Left,
             CellCaret.Offset,
@@ -179,7 +179,7 @@ public partial class RichTextView
         }
 
         return Structure(
-            TableEdits.InsertRows(_state.Doc, ordered[index], ordered[index], below: true),
+            TableEdits.InsertRows(_state.Doc, ordered[index], ordered[index], below: true, region.Grid),
             region.Grid.Rows,
             0);
     }
@@ -282,14 +282,20 @@ public partial class RichTextView
 
         if (transaction.Doc.Resolve(step.Pos).NodeAfter is TableNode table)
         {
-            var grid = TableGrid.Build(step.Pos, table);
-            var slot = grid.At(
-                Math.Clamp(row, 0, grid.Rows - 1), Math.Clamp(column, 0, grid.Columns - 1));
+            // One cell is wanted from the new table, so its placements are enough; a grid of
+            // every cell was most of what a row insert into a long table cost.
+            var placements = TableGeometry.Place(table, out var columns);
+            var cellPos = TableGrid.CellAt(
+                step.Pos,
+                table,
+                placements,
+                Math.Clamp(row, 0, table.Rows.Length - 1),
+                Math.Clamp(column, 0, columns - 1));
 
-            if (slot is { } cell)
+            if (cellPos is { } cell)
             {
                 transaction.SetSelection(
-                    TextSelection.Cursor(CaretIn(transaction.Doc, cell.Pos, caret, offset)));
+                    TextSelection.Cursor(CaretIn(transaction.Doc, cell, caret, offset)));
             }
         }
 
