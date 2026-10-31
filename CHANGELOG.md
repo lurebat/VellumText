@@ -64,6 +64,12 @@ awaits `PasteAsync`.
     `Auto` follows Windows' "Show animations in Windows" and macOS's "Reduce
     motion". Under reduced motion every animated movement happens at once.
     Remote Desktop sessions usually report animations off.
+  - **`SmoothScrolling`** (default **on**): a wheel notch, Page Up and Page Down
+    ease over 125 ms, and a far jump to the caret — Ctrl+End, find — eases over
+    its last viewport, as VS Code's `editor.smoothScrolling` does. A precision
+    touchpad, an arrow key and typing at the edge still scroll at once. At either
+    end of the document the wheel is left unhandled, so a page the editor sits in
+    scrolls instead.
   - **`SelectionCornerRadius`** (default 0): above zero, a selection is drawn as
     one shape rounded at its outer corners, like VS Code's `roundedSelection`.
   - **`IsContrastAdaptationEnabled`** (default **on**): text the document
@@ -709,6 +715,8 @@ and the static importer and exporter types), public positional records,
   subtree (`RenderTargetBitmap.Render(view)`) instead. **The caret now blinks at
   the operating system's rate** where the platform reports one, instead of a
   fixed 500 ms.
+- **Drag-selecting past an edge scrolls every frame**, at the speed it had (480
+  pixels a second), instead of in 24-pixel steps 20 times a second.
 - **The pointer over the middle of a selected picture** is the four-way move
   pointer, where it was the I-beam.
 

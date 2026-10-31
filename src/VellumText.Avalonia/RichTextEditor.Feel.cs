@@ -45,6 +45,18 @@ public sealed partial class RichTextEditor
         set => SetValue(SelectionCornerRadiusProperty, value);
     }
 
+    /// <summary>Defines the <see cref="SmoothScrolling"/> property.</summary>
+    public static readonly StyledProperty<bool> SmoothScrollingProperty =
+        DocumentPresenter.SmoothScrollingProperty.AddOwner<RichTextEditor>();
+
+    /// <summary>Whether a wheel notch, Page Up or Down and a far jump to the caret ease.</summary>
+    /// <remarks>Forwarded to <see cref="DocumentPresenter.SmoothScrolling"/>, which documents it.</remarks>
+    public bool SmoothScrolling
+    {
+        get => GetValue(SmoothScrollingProperty);
+        set => SetValue(SmoothScrollingProperty, value);
+    }
+
     /// <summary>How much the control animates.</summary>
     /// <remarks>Forwarded to <see cref="DocumentPresenter.Motion"/>, which documents it.</remarks>
     public MotionPreference Motion
@@ -74,7 +86,8 @@ public sealed partial class RichTextEditor
         || property == SmoothCaretProperty
         || property == CaretBlinkProperty
         || property == IsContrastAdaptationEnabledProperty
-        || property == SelectionCornerRadiusProperty;
+        || property == SelectionCornerRadiusProperty
+        || property == SmoothScrollingProperty;
 
     private void PushFeel(RichTextView view)
     {
@@ -83,5 +96,6 @@ public sealed partial class RichTextEditor
         view.CaretBlink = CaretBlink;
         view.IsContrastAdaptationEnabled = IsContrastAdaptationEnabled;
         view.SelectionCornerRadius = SelectionCornerRadius;
+        view.SmoothScrolling = SmoothScrolling;
     }
 }

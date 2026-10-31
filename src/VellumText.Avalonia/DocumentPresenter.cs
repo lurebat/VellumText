@@ -421,6 +421,7 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         base.OnPropertyChanged(change);
 
         OnContrastPropertyChanged(change);
+        OnScrollPropertyChanged(change);
 
         if (change.Property == SelectionCornerRadiusProperty)
         {

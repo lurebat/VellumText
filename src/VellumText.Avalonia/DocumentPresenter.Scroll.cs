@@ -90,6 +90,17 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
         set
         {
             _endRequested = false;
+
+            // The newest instruction wins: an eased scroll still in flight must not drag the view
+            // back from where the scroll bar or the host just put it. The scroll viewer also writes
+            // the offset back to the view when it is told the view moved; that echo of the current
+            // value is not an instruction, and treating it as one stopped every animation after
+            // its first frame.
+            if (value != _offset)
+            {
+                StopScrollAnimation();
+            }
+
             ApplyOffset(value, relayout: true);
         }
     }
@@ -195,6 +206,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
     /// </remarks>
     private protected void RequestEnd()
     {
+        StopScrollAnimation();
         _endRequested = true;
         InvalidateMeasure();
     }
@@ -230,6 +242,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
             return;
         }
 
+        CarryScrollAnimation(clamped.Y - _offset.Y);
         _offset = clamped;
         MarkScrollDirty();
 

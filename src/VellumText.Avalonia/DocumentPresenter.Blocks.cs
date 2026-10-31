@@ -635,6 +635,8 @@ public abstract partial class DocumentPresenter
                 {
                     _pendingAnchor = false;
 
+                    var revealFrom = _offset.Y;
+
                     // The caret sent to the document's end — Ctrl+End — means the end: laid out from
                     // the end up, with the end at the bottom of the viewport. Aimed at by the caret's
                     // position instead, it is wherever the estimates above it put it, and when the rows
@@ -651,6 +653,12 @@ public abstract partial class DocumentPresenter
                     // caret, which can put it back off the screen it was just scrolled onto. The bound
                     // is there because a loop waiting on an estimate to converge must be allowed not to.
                     for (var attempt = 0; attempt < 3 && ScrollAnchorIntoView(); attempt++)
+                    {
+                        size = Settle(null);
+                    }
+
+                    // Where the caret is now known exactly; a far jump eases there from where it was.
+                    if (BeginEasedReveal(revealFrom))
                     {
                         size = Settle(null);
                     }

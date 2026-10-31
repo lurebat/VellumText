@@ -28,8 +28,16 @@ public abstract partial class DocumentPresenter
         set => SetValue(MotionProperty, value);
     }
 
+    /// <summary>What a new control asks the operating system with. Replaced by test assemblies.</summary>
+    /// <remarks>
+    /// A test suite sets this once, so that what it sees does not depend on the motion setting of
+    /// the machine it runs on: a developer over Remote Desktop and a CI runner would otherwise see
+    /// different scrolling from the same test.
+    /// </remarks>
+    internal static Func<bool> DefaultSystemPrefersReducedMotion { get; set; } = SystemMotion.PrefersReducedMotion;
+
     /// <summary>Asks the operating system whether it wants less motion. Replaced by tests.</summary>
-    internal Func<bool> SystemPrefersReducedMotion { get; set; } = SystemMotion.PrefersReducedMotion;
+    internal Func<bool> SystemPrefersReducedMotion { get; set; } = DefaultSystemPrefersReducedMotion;
 
     /// <summary>The clock animations are timed against. Replaced by tests.</summary>
     internal TimeProvider Time { get; set; } = TimeProvider.System;

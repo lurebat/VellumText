@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Headless;
+using VellumText.Avalonia;
 using VellumText.Tests.Avalonia;
 
 [assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]
@@ -27,5 +28,13 @@ public static class TestAppBuilder
         .Configure<Application>()
         .UseSkia()
         .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
-        .AfterSetup(_ => TestWindows.Track());
+        .AfterSetup(_ =>
+        {
+            TestWindows.Track();
+
+            // Motion.Auto reads the machine's animation setting, which differs between a CI runner
+            // and a developer over Remote Desktop. Pinned to reduced, so a scroll or a caret move is
+            // immediate unless a test asks for animation by setting Motion.Full.
+            DocumentPresenter.DefaultSystemPrefersReducedMotion = () => true;
+        });
 }

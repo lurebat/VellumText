@@ -744,8 +744,18 @@ public sealed partial class RichTextView : DocumentPresenter
         return _offset != before;
     }
 
+    /// <inheritdoc/>
+    private protected override bool RevealMayEase => _revealMayEase;
+
+    /// <summary>Whether the latest state moved the selection within the document already laid out.</summary>
+    private bool _revealMayEase;
+
     private void OnStateChanged()
     {
+        // Read before Realize records this state as laid out. An edit snaps, and so does a document
+        // the host has just put in: only a move of the selection in the same document is eased.
+        _revealMayEase = _reconciledState is { } laidOut && ReferenceEquals(laidOut.Doc, _state.Doc);
+
         // Consumed by Realize, not acted on here: where the caret is depends on the heights of
         // every block above it, and those are not settled until the window has been laid out.
         _pendingAnchor = true;

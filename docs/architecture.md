@@ -517,7 +517,7 @@ internal sealed class ParagraphView : BlockView
 >   the measure pass are virtualized, which is what AC12 asks for; reclaiming the memory of a
 >   scrolled-away paragraph needs new `BlockView` surface and was not worth the risk here.
 
-**Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`. The caret is painted by `CaretLayer`, a child visual of the view, so that a hard blink is that layer's opacity and a smooth one a composition animation: neither repaints the blocks. Anything that renders the view by calling its `Render` directly gets no caret; render the subtree instead.
+**Caret and selection** are drawn by `RichTextView`, not by block views — selection can span blocks, and the caret is a single view-level concern with one blink timer. Blocks only supply geometry via `GetCaretRect` / `GetSelectionRects`. The caret is painted by `CaretLayer`, a child visual of the view, so that a hard blink is that layer's opacity and a smooth one a composition animation: neither repaints the blocks. Anything that renders the view by calling its `Render` directly gets no caret; render the subtree instead. Scrolling eases the same way the caret glides: the view, as the scroll viewer's `ILogicalScrollable`, owns the offset and moves it over frames (`DocumentPresenter.SmoothScroll.cs`); the layout's anchoring corrections during an animation are carried into it rather than undone by the next frame.
 
 > **Correction (measured, Increment 2).** The pixel-snapping recipe originally given here,
 > `PixelRect.FromRect(rect, 1).ToRect(1)`, is wrong: `FromRect` rounds outward, so a caret one
