@@ -72,6 +72,7 @@ public class NestedTableFuzzTests
     [InlineData(10_015)]
     [InlineData(10_045)]
     [InlineData(10_046)]
+    [InlineData(10_042)]
     public void RandomOperationsKeepTheInvariants(int seed) =>
         Isolated.Run(SeedTimeout, SeedMemory, typeof(NestedTableFuzzTests), nameof(Seed), seed, 30, false);
 

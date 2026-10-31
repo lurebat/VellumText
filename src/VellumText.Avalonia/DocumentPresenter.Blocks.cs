@@ -1166,6 +1166,19 @@ public abstract partial class DocumentPresenter
             }
         }
 
+        // Clamped at the end, with the window still behind it: each attempt laid out more of the
+        // end, the estimates it replaced moved the end, and the clamp moved with it — fuzz seed
+        // 10,042, a jump near the end of a document ending in a table, left the table's last rows
+        // unlaid and the window was repaired. The viewport shows the end, so it is laid out from
+        // the end up, as Ctrl+End is, whatever the estimates above it say.
+        if (top < 0 && !IsWindowCovered())
+        {
+            size = SettleAtEnd();
+            AfterSettle?.Invoke();
+
+            return size;
+        }
+
         // A share of a row nobody had laid out names no content. The row is laid out now, so what
         // is held from here on is the text the reader is shown at the top (owner decision Q3):
         // a resize keeps that line still, not a share of a row that changed height.
