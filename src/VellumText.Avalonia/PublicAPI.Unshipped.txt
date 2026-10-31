@@ -13,6 +13,7 @@ override VellumText.Avalonia.ClipboardFlavor.GetHashCode() -> int
 override VellumText.Avalonia.ClipboardFlavor.ToString() -> string!
 override VellumText.Avalonia.DocumentPresenter.Render(Avalonia.Media.DrawingContext! context) -> void
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.GetAutomationControlTypeCore() -> Avalonia.Automation.Peers.AutomationControlType
+override VellumText.Avalonia.DocumentPresenterAutomationPeer.GetChildrenCore() -> System.Collections.Generic.IReadOnlyList<Avalonia.Automation.Peers.AutomationPeer!>?
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsContentElementCore() -> bool
 override VellumText.Avalonia.DocumentPresenterAutomationPeer.IsKeyboardFocusableCore() -> bool
 override VellumText.Avalonia.ParagraphStyle.Equals(object? obj) -> bool
@@ -26,18 +27,22 @@ static readonly VellumText.Avalonia.DocumentPresenter.FontStretchProperty -> Ava
 static readonly VellumText.Avalonia.DocumentPresenter.FontStyleProperty -> Avalonia.StyledProperty<Avalonia.Media.FontStyle>!
 static readonly VellumText.Avalonia.DocumentPresenter.FontWeightProperty -> Avalonia.StyledProperty<Avalonia.Media.FontWeight>!
 static readonly VellumText.Avalonia.DocumentPresenter.ForegroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.DocumentPresenter.MotionProperty -> Avalonia.StyledProperty<VellumText.Avalonia.MotionPreference>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableBorderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush!>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableHeaderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.RichTextEditor.AcceptsReturnProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.AcceptsTabProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.CanRedoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, bool>!
 static readonly VellumText.Avalonia.RichTextEditor.CanUndoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, bool>!
+static readonly VellumText.Avalonia.RichTextEditor.CaretBlinkProperty -> Avalonia.StyledProperty<VellumText.Avalonia.CaretBlinkStyle>!
 static readonly VellumText.Avalonia.RichTextEditor.CurrentMatchNumberProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
 static readonly VellumText.Avalonia.RichTextEditor.DocumentProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.DocumentNode!>!
 static readonly VellumText.Avalonia.RichTextEditor.IsReadOnlyProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.MatchCountProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
+static readonly VellumText.Avalonia.RichTextEditor.MotionProperty -> Avalonia.StyledProperty<VellumText.Avalonia.MotionPreference>!
 static readonly VellumText.Avalonia.RichTextEditor.SelectionProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.Selection!>!
+static readonly VellumText.Avalonia.RichTextEditor.SmoothCaretProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.StateProperty -> Avalonia.StyledProperty<VellumText.EditorState!>!
 static readonly VellumText.Avalonia.RichTextEditor.UndoLimitProperty -> Avalonia.StyledProperty<int>!
 static readonly VellumText.Avalonia.RichTextEditor.ViewProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.Avalonia.RichTextView?>!
@@ -64,6 +69,7 @@ static readonly VellumText.Avalonia.RichTextView.AreTouchHandlesVisibleProperty 
 static readonly VellumText.Avalonia.RichTextView.BlinkInterval -> System.TimeSpan
 static readonly VellumText.Avalonia.RichTextView.CanRedoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
 static readonly VellumText.Avalonia.RichTextView.CanUndoProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, bool>!
+static readonly VellumText.Avalonia.RichTextView.CaretBlinkProperty -> Avalonia.StyledProperty<VellumText.Avalonia.CaretBlinkStyle>!
 static readonly VellumText.Avalonia.RichTextView.CaretBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.RichTextView.ColumnBoundaryTolerance -> double
 static readonly VellumText.Avalonia.RichTextView.CurrentFindHighlightBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
@@ -78,6 +84,7 @@ static readonly VellumText.Avalonia.RichTextView.MatchCountProperty -> Avalonia.
 static readonly VellumText.Avalonia.RichTextView.MinimumColumnShare -> double
 static readonly VellumText.Avalonia.RichTextView.SelectionBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.RichTextView.SelectionProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, VellumText.Selection!>!
+static readonly VellumText.Avalonia.RichTextView.SmoothCaretProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextView.StateProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextView!, VellumText.EditorState!>!
 static readonly VellumText.Avalonia.RichTextView.TouchHandleBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
 static readonly VellumText.Avalonia.RichTextView.UndoLimitProperty -> Avalonia.StyledProperty<int>!
@@ -122,6 +129,10 @@ VellumText.Avalonia.BitmapEmbedRenderer.MaximumPixels.init -> void
 VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.get -> int
 VellumText.Avalonia.BitmapEmbedRenderer.MaximumSourceBytes.init -> void
 VellumText.Avalonia.BitmapEmbedRenderer.Measure(VellumText.InlineEmbed! embed, Avalonia.Media.TextFormatting.TextRunProperties! properties) -> Avalonia.Size?
+VellumText.Avalonia.CaretBlinkStyle
+VellumText.Avalonia.CaretBlinkStyle.Smooth = 1 -> VellumText.Avalonia.CaretBlinkStyle
+VellumText.Avalonia.CaretBlinkStyle.Solid = 2 -> VellumText.Avalonia.CaretBlinkStyle
+VellumText.Avalonia.CaretBlinkStyle.System = 0 -> VellumText.Avalonia.CaretBlinkStyle
 VellumText.Avalonia.ClipboardFlavor
 VellumText.Avalonia.ClipboardFlavor.<Clone>$() -> VellumText.Avalonia.ClipboardFlavor!
 VellumText.Avalonia.ClipboardFlavor.ClipboardFlavor(string! Format, Avalonia.Input.DataFormat<byte[]!>! DataFormat) -> void
@@ -163,6 +174,8 @@ VellumText.Avalonia.DocumentPresenter.Foreground.get -> Avalonia.Media.IBrush?
 VellumText.Avalonia.DocumentPresenter.Foreground.set -> void
 VellumText.Avalonia.DocumentPresenter.ImageRect(int position) -> Avalonia.Rect?
 VellumText.Avalonia.DocumentPresenter.IsOverContent(Avalonia.Point point) -> bool
+VellumText.Avalonia.DocumentPresenter.Motion.get -> VellumText.Avalonia.MotionPreference
+VellumText.Avalonia.DocumentPresenter.Motion.set -> void
 VellumText.Avalonia.DocumentPresenter.Offset.get -> Avalonia.Vector
 VellumText.Avalonia.DocumentPresenter.Offset.set -> void
 VellumText.Avalonia.DocumentPresenter.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
@@ -201,6 +214,10 @@ VellumText.Avalonia.ISyntaxTheme.For(VellumText.TokenKind kind) -> VellumText.Ma
 VellumText.Avalonia.ITextStyleResolver
 VellumText.Avalonia.ITextStyleResolver.Default.get -> Avalonia.Media.TextFormatting.TextRunProperties!
 VellumText.Avalonia.ITextStyleResolver.Resolve(VellumText.MarkSet marks) -> Avalonia.Media.TextFormatting.TextRunProperties!
+VellumText.Avalonia.MotionPreference
+VellumText.Avalonia.MotionPreference.Auto = 0 -> VellumText.Avalonia.MotionPreference
+VellumText.Avalonia.MotionPreference.Full = 2 -> VellumText.Avalonia.MotionPreference
+VellumText.Avalonia.MotionPreference.Reduced = 1 -> VellumText.Avalonia.MotionPreference
 VellumText.Avalonia.ParagraphStyle
 VellumText.Avalonia.ParagraphStyle.<Clone>$() -> VellumText.Avalonia.ParagraphStyle!
 VellumText.Avalonia.ParagraphStyle.Background.get -> Avalonia.Media.IBrush?
@@ -244,6 +261,8 @@ VellumText.Avalonia.RichTextEditor.AcceptsTab.get -> bool
 VellumText.Avalonia.RichTextEditor.AcceptsTab.set -> void
 VellumText.Avalonia.RichTextEditor.CanRedo.get -> bool
 VellumText.Avalonia.RichTextEditor.CanUndo.get -> bool
+VellumText.Avalonia.RichTextEditor.CaretBlink.get -> VellumText.Avalonia.CaretBlinkStyle
+VellumText.Avalonia.RichTextEditor.CaretBlink.set -> void
 VellumText.Avalonia.RichTextEditor.ClearFind() -> void
 VellumText.Avalonia.RichTextEditor.ContentImported -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportedEventArgs!>?
 VellumText.Avalonia.RichTextEditor.ContentImporting -> System.EventHandler<VellumText.Avalonia.RichTextView.ContentImportingEventArgs!>?
@@ -268,6 +287,8 @@ VellumText.Avalonia.RichTextEditor.IsReadOnly.set -> void
 VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabled.get -> bool
 VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabled.set -> void
 VellumText.Avalonia.RichTextEditor.MatchCount.get -> int
+VellumText.Avalonia.RichTextEditor.Motion.get -> VellumText.Avalonia.MotionPreference
+VellumText.Avalonia.RichTextEditor.Motion.set -> void
 VellumText.Avalonia.RichTextEditor.ParagraphStyles.get -> VellumText.Avalonia.IParagraphStyleResolver!
 VellumText.Avalonia.RichTextEditor.ParagraphStyles.set -> void
 VellumText.Avalonia.RichTextEditor.Redo() -> bool
@@ -278,6 +299,8 @@ VellumText.Avalonia.RichTextEditor.Selection.get -> VellumText.Selection!
 VellumText.Avalonia.RichTextEditor.SelectionChanged -> System.EventHandler?
 VellumText.Avalonia.RichTextEditor.SelectionToolbar.get -> VellumText.Avalonia.RichTextToolbar?
 VellumText.Avalonia.RichTextEditor.SelectionToolbarPlacement.get -> Avalonia.Point
+VellumText.Avalonia.RichTextEditor.SmoothCaret.get -> bool
+VellumText.Avalonia.RichTextEditor.SmoothCaret.set -> void
 VellumText.Avalonia.RichTextEditor.State.get -> VellumText.EditorState!
 VellumText.Avalonia.RichTextEditor.State.set -> void
 VellumText.Avalonia.RichTextEditor.SyntaxHighlighter.get -> VellumText.ISyntaxHighlighter?
@@ -341,6 +364,8 @@ VellumText.Avalonia.RichTextView.BlockStart.get -> int
 VellumText.Avalonia.RichTextView.CanNestListItem.get -> bool
 VellumText.Avalonia.RichTextView.CanRedo.get -> bool
 VellumText.Avalonia.RichTextView.CanUndo.get -> bool
+VellumText.Avalonia.RichTextView.CaretBlink.get -> VellumText.Avalonia.CaretBlinkStyle
+VellumText.Avalonia.RichTextView.CaretBlink.set -> void
 VellumText.Avalonia.RichTextView.CaretBlockIndex.get -> int
 VellumText.Avalonia.RichTextView.CaretBrush.get -> Avalonia.Media.IBrush?
 VellumText.Avalonia.RichTextView.CaretBrush.set -> void
@@ -462,6 +487,8 @@ VellumText.Avalonia.RichTextView.SetMarks(VellumText.MarkSet value, VellumText.M
 VellumText.Avalonia.RichTextView.SetParagraphKind(VellumText.ParagraphKind kind) -> bool
 VellumText.Avalonia.RichTextView.SetStyle(VellumText.TextStyle style, bool on) -> bool
 VellumText.Avalonia.RichTextView.ShowTouchHandles() -> void
+VellumText.Avalonia.RichTextView.SmoothCaret.get -> bool
+VellumText.Avalonia.RichTextView.SmoothCaret.set -> void
 VellumText.Avalonia.RichTextView.Split() -> bool
 VellumText.Avalonia.RichTextView.SplitCell() -> bool
 VellumText.Avalonia.RichTextView.State.get -> VellumText.EditorState!

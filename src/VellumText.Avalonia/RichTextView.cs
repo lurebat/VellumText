@@ -66,8 +66,12 @@ public sealed partial class RichTextView : DocumentPresenter
     public static readonly StyledProperty<IBrush?> CaretBrushProperty =
         AvaloniaProperty.Register<RichTextView, IBrush?>(nameof(CaretBrush));
 
-    /// <summary>The interval at which the caret changes state.</summary>
-    public static readonly TimeSpan BlinkInterval = TimeSpan.FromMilliseconds(500);
+    /// <summary>The blink interval used where the operating system does not offer one.</summary>
+    /// <remarks>
+    /// Windows reports the user's own rate, and that is what <see cref="CaretBlinkStyle.System"/>
+    /// uses there; this is the rate everywhere else.
+    /// </remarks>
+    public static readonly TimeSpan BlinkInterval = SystemMotion.FallbackBlinkInterval;
 
     private readonly DispatcherTimer _blink;
     private EditorState _state = EditorState.Create(DocumentNode.Empty);
@@ -103,11 +107,10 @@ public sealed partial class RichTextView : DocumentPresenter
             (_, e) => e.Client = _inputMethod);
 
         _blink = new DispatcherTimer { Interval = BlinkInterval };
-        _blink.Tick += (_, _) =>
-        {
-            _caretVisible = !_caretVisible;
-            InvalidateVisual();
-        };
+        _blink.Tick += (_, _) => BlinkTick();
+
+        _caretLayer = new CaretLayer(this);
+        VisualChildren.Add(_caretLayer);
     }
 
     /// <summary>The document and selection being presented.</summary>
@@ -413,9 +416,9 @@ public sealed partial class RichTextView : DocumentPresenter
     /// Order matters and was settled by looking at the result. Found-but-not-current matches go
     /// under the selection, because a match the user has also selected should read as selected.
     /// The current match goes over it, because it is always selected and would otherwise be a
-    /// muddy mixture of the two. Text is above all of them, the image handles, the column
-    /// resize guide and the drop caret above the text they overlap, and the caret above
-    /// everything.
+    /// muddy mixture of the two. Text is above all of them, and the image handles, the column
+    /// resize guide and the drop caret above the text they overlap. The caret is above
+    /// everything, on a layer of its own (<see cref="CaretLayer"/>).
     /// </remarks>
     private protected override void RenderContent(DrawingContext context)
     {
@@ -427,24 +430,6 @@ public sealed partial class RichTextView : DocumentPresenter
         RenderColumnGuide(context);
         RenderDropCaret(context);
         RenderTouchHandles(context);
-        RenderCaret(context);
-    }
-    /// <summary>Restarts the blink so the caret is solid immediately after it moves.</summary>
-    /// <remarks>
-    /// Without this a caret moved just before the timer ticks vanishes on arrival, which reads
-    /// as a dropped keystroke.
-    /// </remarks>
-    internal void ResetCaretBlink()
-    {
-        _caretVisible = IsFocused;
-        _blink.Stop();
-
-        if (IsFocused)
-        {
-            _blink.Start();
-        }
-
-        InvalidateVisual();
     }
 
     /// <inheritdoc/>
@@ -486,6 +471,12 @@ public sealed partial class RichTextView : DocumentPresenter
         if (change.Property == SelectionBrushProperty || change.Property == CaretBrushProperty)
         {
             InvalidateVisual();
+            _caretLayer.InvalidateVisual();
+        }
+
+        if (change.Property == CaretBlinkProperty || change.Property == MotionProperty)
+        {
+            ResetCaretBlink();
         }
 
         if (change.Property == UndoLimitProperty)
@@ -819,37 +810,6 @@ public sealed partial class RichTextView : DocumentPresenter
                 onRect(rect.Translate(origin));
             }
         }
-    }
-
-    /// <summary>Walks the rectangles a document range covers, in view coordinates.</summary>
-    /// <remarks>
-    /// The implementation moved to <see cref="DocumentPresenter.EnumerateRange"/> when the viewer
-    /// gained a selection, since both controls highlight a range with the same geometry.
-    /// </remarks>
-    private void RenderCaret(DrawingContext context)
-    {
-        if (!_caretVisible || _views.Count == 0 || !PaintReady(_state.Selection.Head, _state.Selection.From))
-        {
-            return;
-        }
-
-        // A non-empty selection hides the caret, except while composing: then the caret belongs
-        // to the input method and sits inside text the selection knows nothing about.
-        if (Preedit is null && !_state.Selection.IsEmpty)
-        {
-            return;
-        }
-
-        // Falls back to the colour the text itself is painted in, so the caret follows the
-        // theme rather than a colour chosen when the control was written. See CaretBrushProperty.
-        if ((CaretBrush ?? TextStyles.Resolve(MarkSet.Empty).ForegroundBrush) is not { } brush)
-        {
-            return;
-        }
-
-        var scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
-
-        context.FillRectangle(brush, SnapCaret(CaretRect(), scale));
     }
 
     /// <summary>

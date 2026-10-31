@@ -121,6 +121,13 @@ public class DocumentPresenterAutomationPeer : ControlAutomationPeer, IValueProv
     /// </remarks>
     protected override bool IsKeyboardFocusableCore() => Owner.Focusable && Owner.IsEffectivelyEnabled;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// None. The document is reported as one value, and the only visual inside the control is the
+    /// editor's caret layer, which is drawing, not content.
+    /// </remarks>
+    protected override IReadOnlyList<AutomationPeer>? GetChildrenCore() => null;
+
     /// <summary>
     /// Notices that the document behind <see cref="Value"/> has been replaced.
     /// </summary>

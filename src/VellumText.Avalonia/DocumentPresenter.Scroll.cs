@@ -239,6 +239,7 @@ public abstract partial class DocumentPresenter : ILogicalScrollable
         }
 
         InvalidateVisual();
+        OnOffsetMoved();
     }
 
     /// <summary>Records that the scroll viewer has to be told, and makes sure it will be.</summary>

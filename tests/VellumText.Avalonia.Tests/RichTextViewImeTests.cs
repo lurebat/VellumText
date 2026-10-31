@@ -720,9 +720,9 @@ public class RichTextViewImeTests
         view.Arrange(new Rect(0, 0, 400, 200));
 
         using var bitmap = new RenderTargetBitmap(new PixelSize(400, 200));
-        using var context = bitmap.CreateDrawingContext();
 
-        view.Render(context);
+        // The subtree, so the caret's layer draws too: it is what asks where a composing caret is.
+        bitmap.Render(view);
     }
 
     /// <summary>The document position at the start of the paragraph with some text.</summary>
@@ -822,10 +822,9 @@ public class RichTextViewImeTests
 
         using var bitmap = new RenderTargetBitmap(new PixelSize(width, height));
 
-        using (var context = bitmap.CreateDrawingContext())
-        {
-            view.Render(context);
-        }
+        // The subtree, not the view alone: the caret is drawn by a layer of its own.
+
+        bitmap.Render(view);
 
         var pixels = RenderedPixels.Argb(bitmap);
 

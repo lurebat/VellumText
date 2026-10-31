@@ -279,15 +279,31 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
         var size = base.ArrangeOverride(finalSize);
 
+        OnArranged(finalSize);
         FlushScroll();
 
         return size;
     }
 
+    /// <summary>Called at the end of every arrange, for a subclass's own layers.</summary>
+    private protected virtual void OnArranged(Size finalSize)
+    {
+    }
+
+    /// <summary>Called whenever the scroll offset moves.</summary>
+    private protected virtual void OnOffsetMoved()
+    {
+    }
+
+    /// <summary>How many times the view has drawn its blocks, for tests of what repaints it.</summary>
+    internal long RenderCount { get; private set; }
+
     /// <inheritdoc/>
     public override void Render(DrawingContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        RenderCount++;
 
         if (Background is { } background)
         {
