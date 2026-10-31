@@ -84,10 +84,26 @@ internal sealed partial class TableBlockView
         _exact.Clear();
 
         var settling = 0;
+        var given = _windowAnchor;
+        var edged = false;
 
         for (var pass = 0; ; pass++)
         {
             Walk(_visited);
+
+            // Around the table's edge while what it was given is past it, and around what it was
+            // given again once laying out the tables in its cells has grown the table to reach it.
+            if (EdgePast(given) is (var edge, true))
+            {
+                var wanted = edge ?? (edged ? given : _windowAnchor);
+
+                if (wanted != _windowAnchor)
+                {
+                    _windowAnchor = wanted;
+                    edged = edge is not null;
+                    Walk(_visited);
+                }
+            }
 
             if (!HostsTables(_visited))
             {
@@ -321,6 +337,31 @@ internal sealed partial class TableBlockView
     /// <summary>Where the window's anchor point is now, in this table's coordinates.</summary>
     private double AnchorY() =>
         AnchorPoint(_windowAnchor) is { } y && double.IsFinite(y) ? y : RowTop(WindowRow);
+
+    /// <summary>
+    /// For a window the presenter gave this table: its own edge if the anchor resolves past it,
+    /// or null if the anchor resolves inside it; nothing if the anchor does not resolve, or the
+    /// table is in a cell.
+    /// </summary>
+    /// <remarks>
+    /// The presenter puts a point past a block's edge at the edge (<c>DocumentPresenter.PointOf</c>).
+    /// A point held in space below a cell's last block that an estimate had given the row can end
+    /// up past the table's end once the row is laid out — or, above the first block, before its
+    /// start — and measured around that point, the rows and the tables in the cells beside the edge
+    /// were windowed for a viewport thousands of pixels from the one shown, and left unlaid (fuzz
+    /// seed 10,042 on Linux's metrics). Measured around the edge instead, every part of the table
+    /// windows what the viewport shows. Only the window changes: the presenter goes on holding the
+    /// content it held, and gives the table that anchor again next time, which is measured again
+    /// rather than taken for the edge it measured around — cheap when nothing has changed. Not in a
+    /// table in a cell: the table holding it names points just outside it — the gap above it, the
+    /// space below it — and windows what is there itself.
+    /// </remarks>
+    /// <param name="anchor">The anchor the table was given.</param>
+    private (LocalAnchor? Edge, bool Resolved) EdgePast(LocalAnchor anchor) =>
+        _inCell || _rows.Length == 0 || AnchorPoint(anchor) is not { } y || !double.IsFinite(y) ? (null, false)
+            : y > RowTop(_rows.Length) ? (BottomAnchor, true)
+            : y < 0 ? (new LocalAnchor(_rowStarts[0], 0, AnchorKind.RowShare), true)
+            : (null, true);
 
     /// <summary>
     /// Gives every table in the bands the window reached its part of the window, and settles again
