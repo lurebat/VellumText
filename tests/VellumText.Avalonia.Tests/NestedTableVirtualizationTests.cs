@@ -1853,11 +1853,23 @@ public class NestedTableVirtualizationTests
     /// at the top of the viewport — read from the view's last layout, and asked whether it is laid
     /// out before anything reads its geometry, so the check lays nothing out first.
     /// </summary>
+    /// <remarks>
+    /// Content that ends above the viewport, held by its bottom (<see cref="AnchorKind.BoxBottom"/>),
+    /// is passed over for the first content below it: a table held so is placed by its height, and
+    /// need not have its first row laid out — a table whose bottom is just above the screen lays
+    /// out only its last rows.
+    /// </remarks>
     internal static void AssertTruthOnScreenIsLaidOut(RichTextView view, RichTextView twin)
     {
         var block = Enumerable.Range(view.RealizedBlocks.Start.Value, view.RealizedBlocks.End.Value - view.RealizedBlocks.Start.Value)
             .First(i => view.BlockOrigin(i).Y + view.Blocks[i].Size.Height > 0);
-        var held = view.Blocks[block].CaptureAnchor(-view.BlockOrigin(block).Y);
+        var y = -view.BlockOrigin(block).Y;
+        var held = view.Blocks[block].CaptureAnchor(y);
+
+        for (var down = 1; held.Kind == AnchorKind.BoxBottom && down < Height && y + down < view.Blocks[block].Size.Height; down++)
+        {
+            held = view.Blocks[block].CaptureAnchor(y + down);
+        }
 
         AssertPlacedAsInTwin(view, twin, view.Slots[block].Start + held.Position);
     }

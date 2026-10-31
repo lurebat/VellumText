@@ -35,11 +35,12 @@ public static class TestWindows
     private static readonly Dictionary<Window, int> Open = [];
     private static int generation;
     private static int tracking;
+    private static int uiThread;
 
     /// <summary>How many tracked windows are open now.</summary>
     public static int OpenCount => Open.Count;
 
-    /// <summary>Starts tracking windows. Safe to call more than once.</summary>
+    /// <summary>Starts tracking windows, on the UI thread. Safe to call more than once.</summary>
     /// <remarks>Window events are hooked by static class handlers, so they are added once only.</remarks>
     public static void Track()
     {
@@ -48,6 +49,7 @@ public static class TestWindows
             return;
         }
 
+        Volatile.Write(ref uiThread, Environment.CurrentManagedThreadId);
         Window.WindowOpenedEvent.AddClassHandler<Window>((window, _) =>
         {
             CloseLeftOpen();
@@ -56,8 +58,25 @@ public static class TestWindows
         Window.WindowClosedEvent.AddClassHandler<Window>((window, _) => Open.Remove(window));
     }
 
-    /// <summary>Marks the start of the next test. Touches nothing of Avalonia's, so it is safe on any thread.</summary>
-    public static void NextTest() => Interlocked.Increment(ref generation);
+    /// <summary>
+    /// Marks the start of the next test, if it starts on the UI thread. Touches nothing of
+    /// Avalonia's, so it is safe on any thread.
+    /// </summary>
+    /// <remarks>
+    /// Only tests on the UI thread open windows, and they run there one at a time, so one starting
+    /// there means the last has ended. A test starting on another thread — one that starts a child
+    /// process, run beside the others — can start while a test on the UI thread is running, and
+    /// counted, it made that test's windows look left behind: its next window closed them
+    /// (rubber-duck review of scope (b), finding 2).
+    /// </remarks>
+    public static void NextTest()
+    {
+        if (Environment.CurrentManagedThreadId == Volatile.Read(ref uiThread))
+        {
+            Interlocked.Increment(ref generation);
+        }
+    }
+
     /// <summary>Records a window as opened by the given test (for the tests of this class).</summary>
     internal static void Record(Window window, int generationOpened) => Open[window] = generationOpened;
 
