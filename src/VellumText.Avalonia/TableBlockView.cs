@@ -504,6 +504,7 @@ internal sealed partial class TableBlockView : BlockView
                 if (view is ParagraphView paragraph)
                 {
                     paragraph.SetLead(slot.Depth, slot.Marker);
+                    paragraph.SetBackdrop(cell.Background?.ToAvalonia());
                 }
 
                 blocks.Add(new Child(slot.Node, view, slot.Start));

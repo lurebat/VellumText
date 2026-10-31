@@ -1642,7 +1642,7 @@ public abstract partial class DocumentPresenter
     {
         ParagraphNode paragraph => new ParagraphView(
             Highlight(paragraph),
-            TextStyles,
+            RenderStyles,
             _embeds,
             _paragraphStyles),
         RuleNode => new RuleView(TextStyles.Resolve(MarkSet.Empty).ForegroundBrush ?? global::Avalonia.Media.Brushes.Black),

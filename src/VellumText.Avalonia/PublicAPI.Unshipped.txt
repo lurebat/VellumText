@@ -27,6 +27,7 @@ static readonly VellumText.Avalonia.DocumentPresenter.FontStretchProperty -> Ava
 static readonly VellumText.Avalonia.DocumentPresenter.FontStyleProperty -> Avalonia.StyledProperty<Avalonia.Media.FontStyle>!
 static readonly VellumText.Avalonia.DocumentPresenter.FontWeightProperty -> Avalonia.StyledProperty<Avalonia.Media.FontWeight>!
 static readonly VellumText.Avalonia.DocumentPresenter.ForegroundProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
+static readonly VellumText.Avalonia.DocumentPresenter.IsContrastAdaptationEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.DocumentPresenter.MotionProperty -> Avalonia.StyledProperty<VellumText.Avalonia.MotionPreference>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableBorderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush!>!
 static readonly VellumText.Avalonia.DocumentPresenter.TableHeaderBrushProperty -> Avalonia.StyledProperty<Avalonia.Media.IBrush?>!
@@ -37,6 +38,7 @@ static readonly VellumText.Avalonia.RichTextEditor.CanUndoProperty -> Avalonia.D
 static readonly VellumText.Avalonia.RichTextEditor.CaretBlinkProperty -> Avalonia.StyledProperty<VellumText.Avalonia.CaretBlinkStyle>!
 static readonly VellumText.Avalonia.RichTextEditor.CurrentMatchNumberProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
 static readonly VellumText.Avalonia.RichTextEditor.DocumentProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, VellumText.DocumentNode!>!
+static readonly VellumText.Avalonia.RichTextEditor.IsContrastAdaptationEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.IsReadOnlyProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabledProperty -> Avalonia.StyledProperty<bool>!
 static readonly VellumText.Avalonia.RichTextEditor.MatchCountProperty -> Avalonia.DirectProperty<VellumText.Avalonia.RichTextEditor!, int>!
@@ -173,6 +175,8 @@ VellumText.Avalonia.DocumentPresenter.FontWeight.set -> void
 VellumText.Avalonia.DocumentPresenter.Foreground.get -> Avalonia.Media.IBrush?
 VellumText.Avalonia.DocumentPresenter.Foreground.set -> void
 VellumText.Avalonia.DocumentPresenter.ImageRect(int position) -> Avalonia.Rect?
+VellumText.Avalonia.DocumentPresenter.IsContrastAdaptationEnabled.get -> bool
+VellumText.Avalonia.DocumentPresenter.IsContrastAdaptationEnabled.set -> void
 VellumText.Avalonia.DocumentPresenter.IsOverContent(Avalonia.Point point) -> bool
 VellumText.Avalonia.DocumentPresenter.Motion.get -> VellumText.Avalonia.MotionPreference
 VellumText.Avalonia.DocumentPresenter.Motion.set -> void
@@ -282,6 +286,8 @@ VellumText.Avalonia.RichTextEditor.History.set -> void
 VellumText.Avalonia.RichTextEditor.ImageRefused -> System.EventHandler<VellumText.Avalonia.RichTextView.ImageRefusedEventArgs!>?
 VellumText.Avalonia.RichTextEditor.ImageStore.get -> VellumText.Avalonia.IImageStore!
 VellumText.Avalonia.RichTextEditor.ImageStore.set -> void
+VellumText.Avalonia.RichTextEditor.IsContrastAdaptationEnabled.get -> bool
+VellumText.Avalonia.RichTextEditor.IsContrastAdaptationEnabled.set -> void
 VellumText.Avalonia.RichTextEditor.IsReadOnly.get -> bool
 VellumText.Avalonia.RichTextEditor.IsReadOnly.set -> void
 VellumText.Avalonia.RichTextEditor.IsSelectionToolbarEnabled.get -> bool

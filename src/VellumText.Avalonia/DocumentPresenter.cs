@@ -112,6 +112,10 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
     private protected DocumentPresenter()
     {
+        // Resources follow the theme in the same pass, so the backgrounds they feed are read after it.
+        ActualThemeVariantChanged += (_, _) =>
+            global::Avalonia.Threading.Dispatcher.UIThread.Post(
+                RefreshBackdrop, global::Avalonia.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>The fill behind the whole control.</summary>
@@ -142,6 +146,7 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         {
             _styles = value;
             _derivedStyles = value is null;
+            ResetRenderStyles();
             DropLayout();
             InvalidateMeasure();
         }
@@ -415,11 +420,14 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     {
         base.OnPropertyChanged(change);
 
+        OnContrastPropertyChanged(change);
+
         // A derived resolver is only as current as the properties it was derived from, so a
         // font change has to invalidate it. An explicitly set one is the caller's to manage.
         if (_derivedStyles && TextProperties.Contains(change.Property))
         {
             _styles = null;
+            ResetRenderStyles();
             DropLayout();
             InvalidateMeasure();
         }
