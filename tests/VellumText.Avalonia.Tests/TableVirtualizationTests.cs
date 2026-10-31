@@ -688,8 +688,11 @@ public class TableVirtualizationTests
     public void ARowHeldInOneTableIsNotKeptInAnotherThatAnEditBringsUnderTheViewport()
     {
         // The viewport halfway down the second of two tables, and a third put in above both. The
-        // offset stays where it was and now falls ten rows into the first table, a different table
-        // from the one whose row was held: the row held there names nothing in it.
+        // offset stays where it was and now falls sixteen rows into the first table, a different
+        // table from the one whose row was held: the row held there names nothing in it. Sixteen
+        // since e9a9273: the inserted table nobody has laid out is priced by what is known of the
+        // tables measured, not by their heights estimates and all, so it is shorter than it was
+        // priced before (ten rows).
         var view = new RichTextView
         {
             State = EditorState.Create(new DocumentNode([Uniform(20), Uniform(100), ParagraphNode.FromText("After.")])),
@@ -723,8 +726,10 @@ public class TableVirtualizationTests
 
         var first = (TableBlockView)view.Blocks[1];
 
+        // The top is in the old first table, not in the table whose row 50 was held.
         Assert.Equal(1, view.BlockIndexAt(0));
-        Assert.InRange(first.RowAnchor(-view.BlockOrigin(1).Y).Row, 8, 12);
+        Assert.NotEqual(2, view.BlockIndexAt(0));
+        Assert.InRange(first.RowAnchor(-view.BlockOrigin(1).Y).Row, 14, 18);
     }
 
     [AvaloniaTheory]
