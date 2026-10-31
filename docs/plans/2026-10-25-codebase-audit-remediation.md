@@ -225,8 +225,8 @@ before 1.0 rather than accepted as limitations.
   paint-purity check failed), and host-row size drift at the last bit kept the recomputation
   O(rows) anyway. The attempt is kept outside the repository (`finding4-lazy-edges.diff` in the
   10.4 session files); any new attempt must keep row edges bit-identical to sequential sums.
-- **Dragging the scrollbar to its maximum stops short of the end when the extent is
-  underestimated.** Ctrl+End reaches the true end (it lays the window out from the end up), but an
-  offset set to the scroll range's maximum cannot be told apart from a wheel scroll that reached
-  it, so it is clamped at the estimated extent. Awaiting the owner's decision on a public
-  `ScrollToEnd()` that would carry the intention.
+  Tracked as https://github.com/lurebat/VellumText/issues/17.
+- **Dragging the scrollbar to its maximum stopped short of the end when the extent was
+  underestimated.** Fixed by `RichTextView.ScrollToEnd` (1a540c4): the scroll bar taken to its end
+  and `ScrollToEnd` are settled from the end up, as Ctrl+End is, so the view ends at the
+  document's end however far the estimates are from the truth.
