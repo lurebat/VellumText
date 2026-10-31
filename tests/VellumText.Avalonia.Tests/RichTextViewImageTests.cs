@@ -232,8 +232,9 @@ public class RichTextViewImageTests
 
         var rect = view.ImageRect(Image(view))!.Value;
 
+        // The middle of a selected picture picks it up and moves it.
         window.MouseMove(rect.Center);
-        Assert.Same(RichTextView.TextCursor, view.Cursor);
+        Assert.Same(RichTextView.MoveCursor, view.Cursor);
 
         window.MouseMove(rect.TopLeft);
         Assert.Same(RichTextView.HandleCursors[0], view.Cursor);

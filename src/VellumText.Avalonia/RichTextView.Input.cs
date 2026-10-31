@@ -27,7 +27,9 @@ public partial class RichTextView
     private bool _dragging;
     private double? _goalX;
     private int _cellOrigin;
-    private DispatcherTimer? _autoScroll;
+    private bool _autoScrollRunning;
+    private bool _autoScrollFrameRequested;
+    private long _autoScrollLast;
     private int _autoScrollDirection;
     private Point _autoScrollPoint;
 
@@ -409,20 +411,8 @@ public partial class RichTextView
 
         if (!_dragging)
         {
-            UpdateLinkAffordance(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
-
-            // An I-beam everywhere says every part of the control is text, which is wrong for
-            // the space below the last block and to the right of a short line. Only recomputed
-            // when it changes: assigning Cursor raises a property change and re-reads the
-            // pointer on every move otherwise.
-            var wanted = ResizeCursor(point)
-                ?? ColumnResizeCursor(point)
-                ?? (_linkCursor ? HandCursor : IsOverContent(point) ? TextCursor : ArrowCursor);
-
-            if (!ReferenceEquals(Cursor, wanted))
-            {
-                Cursor = wanted;
-            }
+            _hoverAt = point;
+            UpdateHoverCursor(point, e.KeyModifiers.HasFlag(KeyModifiers.Control));
 
             return;
         }
@@ -446,9 +436,10 @@ public partial class RichTextView
     /// Starts, steers or stops the scroll that runs while a drag is held outside the viewport.
     /// </summary>
     /// <remarks>
-    /// A timer rather than scrolling from the move handler: once the pointer stops moving no more
-    /// move events arrive, and a drag held still just past the bottom edge must keep scrolling
-    /// rather than stall one line short of the text the user is reaching for.
+    /// Driven by frames rather than by the pointer: once the pointer stops moving no more move
+    /// events arrive, and a drag held still just past the bottom edge must keep scrolling rather
+    /// than stall one line short of the text the user is reaching for. Frames rather than a timer,
+    /// because a 50 ms timer moved the text in 20 jerks a second whatever the display could show.
     /// </remarks>
     /// <param name="point">Where the pointer is, in this control's coordinates.</param>
     private void UpdateAutoScroll(Point point)
@@ -457,59 +448,110 @@ public partial class RichTextView
 
         if (_autoScrollDirection == 0)
         {
-            _autoScroll?.Stop();
+            StopAutoScroll();
 
             return;
         }
 
         _autoScrollPoint = point;
 
-        if (_autoScroll is null)
+        if (!_autoScrollRunning)
         {
-            _autoScroll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
-            _autoScroll.Tick += (_, _) => AutoScrollTick();
+            _autoScrollRunning = true;
+            _autoScrollLast = Time.GetTimestamp();
+            RequestAutoScrollFrame();
         }
-
-        _autoScroll.Start();
     }
 
-    /// <summary>Whether a drag past the edge has armed the auto-scroll timer.</summary>
+    private void StopAutoScroll() => _autoScrollRunning = false;
+
+    private void RequestAutoScrollFrame()
+    {
+        if (_autoScrollFrameRequested || global::Avalonia.Controls.TopLevel.GetTopLevel(this) is not { } top)
+        {
+            return;
+        }
+
+        _autoScrollFrameRequested = true;
+        top.RequestAnimationFrame(_ =>
+        {
+            _autoScrollFrameRequested = false;
+
+            if (!_autoScrollRunning)
+            {
+                return;
+            }
+
+            var now = Time.GetTimestamp();
+            var elapsed = Time.GetElapsedTime(_autoScrollLast, now);
+
+            _autoScrollLast = now;
+            AutoScrollFrame(elapsed);
+
+            if (_autoScrollRunning)
+            {
+                RequestAutoScrollFrame();
+            }
+        });
+    }
+
+    /// <summary>Whether a drag past the edge has started the auto-scroll.</summary>
     /// <remarks>
     /// Exposed for a test only. Without it the wiring is untestable headlessly and can be removed
     /// entirely without any test noticing — which a mutation run confirmed.
     /// </remarks>
-    internal bool AutoScrolling => _autoScroll?.IsEnabled == true;
+    internal bool AutoScrolling => _autoScrollRunning;
 
-    /// <summary>Scrolls one step and drags the selection with it.</summary>
+    /// <summary>What <see cref="AutoScrollStep"/> per 50 ms comes to, in pixels a second.</summary>
+    private const double AutoScrollSpeed = AutoScrollStep * 20;
+
+    /// <summary>How far the auto-scroll moves in a frame that took <paramref name="elapsed"/>.</summary>
+    /// <remarks>
+    /// A long gap - the window was busy - is capped at 100 ms, so the text does not leap screens on
+    /// the first frame after it.
+    /// </remarks>
+    internal static double AutoScrollDistance(TimeSpan elapsed) =>
+        AutoScrollSpeed * Math.Clamp(elapsed.TotalSeconds, 0, 0.1);
+
+    /// <summary>Scrolls one 50 ms step: the step the auto-scroll took per tick before it ran on frames.</summary>
+    internal void AutoScrollTick() => AutoScrollFrame(TimeSpan.FromMilliseconds(50));
+
+    /// <summary>Scrolls as far as the time since the last frame says, and drags the selection with it.</summary>
     /// <remarks>
     /// The selection is extended to the edge the pointer is past, not to where the pointer is:
     /// the pointer is outside the control, so hit-testing it would clamp to the same position on
-    /// every tick and the selection would stop growing the moment the scroll started.
+    /// every frame and the selection would stop growing the moment the scroll started.
     ///
-    /// Internal rather than private so a test can drive one step directly. A
-    /// <see cref="DispatcherTimer"/> does not fire under the headless dispatcher's job pump, so a
-    /// test that only pumped would pass whether this ran or not — it did, which is how this was
-    /// found. What the timer adds over the pointer move is *continuing* while the pointer is held
-    /// still outside the viewport, and that is what stepping directly exercises.
+    /// Internal rather than private so a test can drive a frame directly: a test that only pumped
+    /// the dispatcher would pass whether this ran or not.
     /// </remarks>
-    internal void AutoScrollTick()
+    /// <param name="elapsed">The time since the last frame.</param>
+    internal void AutoScrollFrame(TimeSpan elapsed)
     {
         if (!_dragging)
         {
-            _autoScroll?.Stop();
+            StopAutoScroll();
 
             return;
         }
 
+        var distance = AutoScrollDistance(elapsed);
+
+        if (distance <= 0)
+        {
+            return;
+        }
+
+        StopScrollAnimation();
         var before = _offset;
 
-        ApplyOffset(_offset + new Vector(0, _autoScrollDirection * AutoScrollStep), relayout: true);
+        ApplyOffset(_offset + new Vector(0, _autoScrollDirection * distance), relayout: true);
 
         if (_offset == before)
         {
-            // Already at the end of the document. Stopping keeps a timer from repainting for
+            // Already at the end of the document. Stopping keeps frames from repainting for
             // nothing for as long as the button is held.
-            _autoScroll?.Stop();
+            StopAutoScroll();
 
             return;
         }
@@ -561,7 +603,7 @@ public partial class RichTextView
 
         // The drag is what the autoscroll exists to serve, so it ends with it. A timer left
         // running after the button came up keeps scrolling the document under a still pointer.
-        _autoScroll?.Stop();
+        StopAutoScroll();
     }
 
     /// <inheritdoc/>
@@ -570,6 +612,11 @@ public partial class RichTextView
         ArgumentNullException.ThrowIfNull(e);
 
         base.OnKeyDown(e);
+
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl)
+        {
+            RefreshHoverCursor(control: true);
+        }
 
         if (e.Handled)
         {

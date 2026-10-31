@@ -267,8 +267,34 @@ public partial class RichTextView
 
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = CanAcceptDrop() ? DragDropEffects.Copy : DragDropEffects.None;
+        var accept = CanAcceptDrop();
+
+        e.DragEffects = accept ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
+
+        // Where the drop would land, worked out the way OnDrop works it out, so the caret drawn
+        // during the drag is the caret the content arrives at.
+        int? target = accept ? PositionAt(e.GetPosition(this)) : null;
+
+        if (target != _externalDropTarget)
+        {
+            _externalDropTarget = target;
+            InvalidatePaint();
+        }
+    }
+
+    /// <summary>Where a drag from outside would land, or null when none is over the view.</summary>
+    private int? _externalDropTarget;
+
+    private void OnDragLeave(object? sender, DragEventArgs e) => ClearExternalDrop();
+
+    private void ClearExternalDrop()
+    {
+        if (_externalDropTarget is not null)
+        {
+            _externalDropTarget = null;
+            InvalidateVisual();
+        }
     }
 
     /// <summary>The import a drop started, for a test to await; completed when there is none.</summary>
@@ -276,6 +302,8 @@ public partial class RichTextView
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
+        ClearExternalDrop();
+
         if (!CanAcceptDrop())
         {
             e.DragEffects = DragDropEffects.None;

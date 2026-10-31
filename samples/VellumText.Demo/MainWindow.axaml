@@ -141,7 +141,9 @@
                            Padding="56,48"
                            FontSize="15.5"
                            FontFamily="Segoe UI Variable Text,Segoe UI,Inter,system-ui"
-                           Foreground="{DynamicResource Ink}" />
+                           Foreground="{DynamicResource Ink}"
+                           SmoothCaret="True"
+                           CaretBlink="Smooth" />
 
     <!-- The find bar floats over the top-right of the page rather than pushing it down, so that
          opening it does not reflow the document the user is reading. Collapsed until Ctrl+F. -->

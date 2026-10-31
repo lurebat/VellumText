@@ -50,6 +50,40 @@ awaits `PasteAsync`.
 
 ### Added
 
+- **The editor moves less stiffly.** Each of these is an option on
+  `RichTextView` (or `DocumentPresenter`, for the viewer too), forwarded by
+  `RichTextEditor`:
+  - **`CaretBlink`** (`CaretBlinkStyle.System`, `Smooth` or `Solid`; default
+    `System`). `System` blinks at the operating system's rate and not at all
+    where the user has turned blinking off; Windows reports both, and elsewhere
+    the rate is `RichTextView.BlinkInterval`. `Smooth` fades out and back in, as
+    VS Code's `smooth` does, and still honours "no blink".
+  - **`SmoothCaret`** (default off): the caret glides to where an arrow key, a
+    click or the host moves it, over 80 ms. Typing never glides.
+  - **`Motion`** (`MotionPreference.Auto`, `Reduced` or `Full`; default `Auto`).
+    `Auto` follows Windows' "Show animations in Windows" and macOS's "Reduce
+    motion". Under reduced motion every animated movement happens at once.
+    Remote Desktop sessions usually report animations off.
+  - **`SmoothScrolling`** (default **on**): a wheel notch, Page Up and Page Down
+    ease over 125 ms, and a far jump to the caret — Ctrl+End, find — eases over
+    its last viewport, as VS Code's `editor.smoothScrolling` does. A precision
+    touchpad, an arrow key and typing at the edge still scroll at once. At either
+    end of the document the wheel is left unhandled, so a page the editor sits in
+    scrolls instead.
+  - **`SelectionCornerRadius`** (default 0): above zero, a selection is drawn as
+    one shape rounded at its outer corners, like VS Code's `roundedSelection`.
+  - **`IsContrastAdaptationEnabled`** (default **on**): text the document
+    colours explicitly is drawn in a readable colour where, as written, it would
+    barely show against the background behind it. Black text pasted into a
+    dark-themed editor is drawn light. Only drawing changes: the document, copy
+    and every export keep the colour as written.
+- A drag from another application shows a drop caret where the drop would
+  land. The pointer is an arrow over selected text that a press would pick up,
+  the four-way move pointer over a selected picture, and the drag-move pointer
+  while selected content is being dragged. Ctrl over a link switches the hand on
+  and off without waiting for the pointer to move.
+
+
 - **`ReplaceTextStep`**, a step that replaces several stretches of paragraph
   text at once, and **`TextReplacement`**, one stretch and its new content.
   The replacements must be in document order, must not overlap or touch, and
@@ -674,6 +708,18 @@ and the static importer and exporter types), public positional records,
   restoring an address the sanitizer never checked.
 
 ### Changed
+
+- **The caret is drawn by a layer of its own**, so a blink tick no longer
+  repaints the document. A host that renders the view by calling
+  `RichTextView.Render` directly no longer gets the caret; render the control's
+  subtree (`RenderTargetBitmap.Render(view)`) instead. **The caret now blinks at
+  the operating system's rate** where the platform reports one, instead of a
+  fixed 500 ms.
+- **Drag-selecting past an edge scrolls every frame**, at the speed it had (480
+  pixels a second), instead of in 24-pixel steps 20 times a second.
+- **The pointer over the middle of a selected picture** is the four-way move
+  pointer, where it was the I-beam.
+
 
 - **HtmlSanitizer 9.2.1039 and AngleSharp 1.8.5** (were 9.1.982 and 1.8.3). The
   sanitizer tightens URI-list attributes, `srcdoc`, `cite`/`longdesc`,

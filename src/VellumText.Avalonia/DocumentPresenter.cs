@@ -112,6 +112,10 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
     private protected DocumentPresenter()
     {
+        // Resources follow the theme in the same pass, so the backgrounds they feed are read after it.
+        ActualThemeVariantChanged += (_, _) =>
+            global::Avalonia.Threading.Dispatcher.UIThread.Post(
+                RefreshBackdrop, global::Avalonia.Threading.DispatcherPriority.Background);
     }
 
     /// <summary>The fill behind the whole control.</summary>
@@ -142,6 +146,7 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
         {
             _styles = value;
             _derivedStyles = value is null;
+            ResetRenderStyles();
             DropLayout();
             InvalidateMeasure();
         }
@@ -279,15 +284,31 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
 
         var size = base.ArrangeOverride(finalSize);
 
+        OnArranged(finalSize);
         FlushScroll();
 
         return size;
     }
 
+    /// <summary>Called at the end of every arrange, for a subclass's own layers.</summary>
+    private protected virtual void OnArranged(Size finalSize)
+    {
+    }
+
+    /// <summary>Called whenever the scroll offset moves.</summary>
+    private protected virtual void OnOffsetMoved()
+    {
+    }
+
+    /// <summary>How many times the view has drawn its blocks, for tests of what repaints it.</summary>
+    internal long RenderCount { get; private set; }
+
     /// <inheritdoc/>
     public override void Render(DrawingContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+
+        RenderCount++;
 
         if (Background is { } background)
         {
@@ -399,11 +420,20 @@ public abstract partial class DocumentPresenter : global::Avalonia.Controls.Cont
     {
         base.OnPropertyChanged(change);
 
+        OnContrastPropertyChanged(change);
+        OnScrollPropertyChanged(change);
+
+        if (change.Property == SelectionCornerRadiusProperty)
+        {
+            InvalidateVisual();
+        }
+
         // A derived resolver is only as current as the properties it was derived from, so a
         // font change has to invalidate it. An explicitly set one is the caller's to manage.
         if (_derivedStyles && TextProperties.Contains(change.Property))
         {
             _styles = null;
+            ResetRenderStyles();
             DropLayout();
             InvalidateMeasure();
         }

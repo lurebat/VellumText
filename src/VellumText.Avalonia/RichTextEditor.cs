@@ -38,7 +38,7 @@ namespace VellumText.Avalonia;
 /// <see cref="IsSelectionToolbarEnabled"/>.
 /// </para>
 /// </remarks>
-public sealed class RichTextEditor : TemplatedControl
+public sealed partial class RichTextEditor : TemplatedControl
 {
     /// <summary>The name of the <see cref="RichTextView"/> in the template.</summary>
     public const string ViewPart = "PART_View";
@@ -718,7 +718,8 @@ public sealed class RichTextEditor : TemplatedControl
         else if (change.Property == IsReadOnlyProperty
             || change.Property == AcceptsReturnProperty
             || change.Property == AcceptsTabProperty
-            || change.Property == UndoLimitProperty)
+            || change.Property == UndoLimitProperty
+            || IsFeelProperty(change.Property))
         {
             PushOptions();
 
@@ -835,7 +836,7 @@ public sealed class RichTextEditor : TemplatedControl
             handlers?.GetInvocationList().Cast<T>() ?? [];
     }
 
-    /// <summary>Copies the four behaviour properties into the templated view.</summary>
+    /// <summary>Copies the behaviour and motion properties into the templated view.</summary>
     /// <remarks>
     /// Assignment rather than binding. A binding would have to be torn down when the control is
     /// retemplated, and a subscription left behind on a discarded view is the kind of leak that
@@ -852,6 +853,7 @@ public sealed class RichTextEditor : TemplatedControl
         view.AcceptsReturn = AcceptsReturn;
         view.AcceptsTab = AcceptsTab;
         view.UndoLimit = UndoLimit;
+        PushFeel(view);
     }
 
     /// <summary>Puts the floating toolbar beside the selection, or takes it away.</summary>

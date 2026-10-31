@@ -395,6 +395,10 @@ public class RichTextViewTests
         var other = new Button();
         var panel = new StackPanel();
 
+        // A blinking caret, whatever this machine's own setting is: one with blinking turned off
+        // would never start the timer this test watches stop.
+        view.SystemCaretBlinkInterval = () => RichTextView.BlinkInterval;
+
         panel.Children.Add(view);
         panel.Children.Add(other);
         root.Content = panel;
@@ -533,10 +537,9 @@ public class RichTextViewTests
 
             using var bitmap = new RenderTargetBitmap(new PixelSize(400, 200));
 
-            using (var context = bitmap.CreateDrawingContext())
-            {
-                view.Render(context);
-            }
+            // The subtree, not the view alone: the caret is drawn by a layer of its own.
+
+            bitmap.Render(view);
 
             var pixels = RenderedPixels.Argb(bitmap);
 

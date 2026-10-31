@@ -59,6 +59,10 @@ public partial class RichTextViewer
     /// <summary>The higher end of the selection.</summary>
     public int SelectionEnd => Math.Max(_anchor, _head);
 
+    /// <inheritdoc/>
+    private protected override (int From, int To)? HighlightedRange =>
+        SelectionStart == SelectionEnd ? null : (SelectionStart, SelectionEnd);
+
     /// <summary>The plain text covered by the selection, empty when nothing is selected.</summary>
     public string SelectedText() =>
         SelectionStart == SelectionEnd
@@ -388,7 +392,7 @@ public partial class RichTextViewer
     {
         if (SelectionBrush is { } brush && SelectionStart != SelectionEnd)
         {
-            EnumerateRange(SelectionStart, SelectionEnd, rect => context.FillRectangle(brush, rect));
+            FillRange(context, brush, SelectionStart, SelectionEnd);
         }
 
         RenderBlocks(context);

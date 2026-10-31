@@ -85,7 +85,7 @@ internal sealed class ParagraphView : BlockView
         _indentStep = indentStep;
         _chunking = chunking ?? ParagraphChunking.Default;
         _style = _kinds.Resolve(paragraph.Kind);
-        _styles = KindStyles.Wrap(styles, _style);
+        _styles = Styled();
     }
 
     /// <summary>The default width of one indent step, in device pixels.</summary>
@@ -148,6 +148,62 @@ internal sealed class ParagraphView : BlockView
 
         return true;
     }
+
+    /// <summary>
+    /// Tells the view what fill its paragraph sits on inside a table cell, for contrast adaptation.
+    /// </summary>
+    /// <remarks>
+    /// Like the lead, not part of the paragraph: the fill belongs to the cell. A paragraph that is
+    /// not adapting colours ignores it.
+    /// </remarks>
+    /// <param name="fill">The cell's fill, or null for none.</param>
+    internal void SetBackdrop(Color? fill)
+    {
+        if (fill == _cellFill)
+        {
+            return;
+        }
+
+        _cellFill = fill;
+
+        if (_base is not ContrastStyles)
+        {
+            return;
+        }
+
+        // Every run's colour may have changed, so neither the layout nor the shaped runs survive.
+        _styles = Styled();
+        _runCache = new TextRunCache();
+        _markerLayout = null;
+        Invalidate();
+        _staleChunks = null;
+    }
+
+    /// <summary>The resolver this paragraph draws with: its kind's, read against its own fill.</summary>
+    private ITextStyleResolver Styled()
+    {
+        var styles = _base;
+
+        if (styles is ContrastStyles contrast)
+        {
+            if (_cellFill is { } cell)
+            {
+                contrast = contrast.Over(cell);
+            }
+
+            if (_style.Background is ISolidColorBrush { Color: var colour } fill)
+            {
+                contrast = contrast.Over(
+                    Color.FromArgb((byte)Math.Round(colour.A * fill.Opacity), colour.R, colour.G, colour.B));
+            }
+
+            styles = contrast;
+        }
+
+        return KindStyles.Wrap(styles, _style);
+    }
+
+    private Color? _cellFill;
 
     /// <summary>Where the text sits inside the block, past the indent and the space above.</summary>
     private Point Origin => new(Indent, _style.SpaceBefore + _style.Padding.Top);
@@ -259,7 +315,7 @@ internal sealed class ParagraphView : BlockView
             // A kind change is a font change — a different size, weight or family for every run
             // in the paragraph — so the shaped runs are worthless and the cache goes with them.
             _style = _kinds.Resolve(paragraph.Kind);
-            _styles = KindStyles.Wrap(_base, _style);
+            _styles = Styled();
             _runCache = new TextRunCache();
 
             // The marker is drawn in the paragraph's own font, which the kind just changed.
