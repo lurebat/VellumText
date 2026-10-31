@@ -228,6 +228,8 @@ public class RichTextToolbar : TemplatedControl
             HookBoxes(e.NameScope);
             CloseOnPick(e.NameScope.Find<Button>("PART_ForegroundButton"));
             CloseOnPick(e.NameScope.Find<Button>("PART_HighlightButton"));
+            CloseOnEscape(e.NameScope.Find<Button>("PART_ForegroundButton"));
+            CloseOnEscape(e.NameScope.Find<Button>("PART_HighlightButton"));
         };
     }
 
@@ -386,6 +388,56 @@ public class RichTextToolbar : TemplatedControl
         {
             content.AddHandler(Button.ClickEvent, (_, _) => Dispatcher.UIThread.Post(flyout.Hide));
         }
+    }
+
+    /// <summary>Closes a colour button's flyout on Escape, wherever the keyboard is.</summary>
+    /// <remarks>
+    /// Avalonia closes a flyout on Escape only from inside it (<c>FlyoutPresenter</c>), and nothing
+    /// in a colour flyout takes the keyboard: the swatches are not focusable, like every button in
+    /// the bar, so the keyboard stays in the document and the flyout ignored Escape. So while the
+    /// flyout is open its window, and the popup's own window where that is a separate one, close it
+    /// on Escape on the way in. The key is handled, so the editor does not also act on it: Escape
+    /// is spent closing the flyout, as it is in Word and Docs.
+    /// </remarks>
+    private static void CloseOnEscape(Button? button)
+    {
+        if (button?.Flyout is not Flyout flyout)
+        {
+            return;
+        }
+
+        var watched = new List<TopLevel>(2);
+
+        void OnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && flyout.IsOpen)
+            {
+                flyout.Hide();
+                e.Handled = true;
+            }
+        }
+
+        flyout.Opened += (_, _) =>
+        {
+            foreach (var visual in new Visual?[] { button, flyout.Content as Visual })
+            {
+                if (visual is not null && TopLevel.GetTopLevel(visual) is { } top && !watched.Contains(top))
+                {
+                    top.AddHandler(KeyDownEvent, OnKeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                    watched.Add(top);
+                }
+            }
+        };
+
+        flyout.Closed += (_, _) =>
+        {
+            foreach (var top in watched)
+            {
+                top.RemoveHandler(KeyDownEvent, OnKeyDown);
+            }
+
+            watched.Clear();
+        };
     }
     /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
     private void HookBoxes(INameScope scope)

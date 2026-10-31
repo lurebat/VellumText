@@ -196,6 +196,11 @@ and the static importer and exporter types), public positional records,
 
 ### Fixed
 
+- **Escape closes the toolbar's colour flyout.** Picking a colour closes it, as
+  does a click outside it, but Escape did nothing: Avalonia closes a flyout on
+  Escape only when the keyboard is inside it, and nothing in the colour flyout
+  takes the keyboard, by design. Escape now closes it and colours nothing, as in
+  Word and Docs, and the editor does not also act on that Escape.
 - **A transaction of many steps records them in linear time.** Each step's
   position map was appended to an immutable mapping, which copied every map
   before it: 8,000 steps allocated 768 MB on bookkeeping alone. `Transaction`
