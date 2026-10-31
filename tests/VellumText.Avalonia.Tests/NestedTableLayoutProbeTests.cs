@@ -19,6 +19,7 @@ namespace VellumText.Tests.Avalonia;
 /// kept by the first layout, and 26 MB by a resize, against 5.2 MB, 1.6 MB and 54 KB at the top.
 /// </para>
 /// </remarks>
+[Collection(ChildProcessCollection.Name)]
 public class NestedTableLayoutProbeTests
 {
     private const int Rows = 10_000;
@@ -63,29 +64,74 @@ public class NestedTableLayoutProbeTests
 
     /// <summary>
     /// Scrolling through the whole of a nested table a page at a time ends, and keeps about what
-    /// scrolling through the same table at the top keeps: rows once laid out stay laid out, at
-    /// every depth, as they do at the top.
+    /// its first layout kept — a few screenfuls of rows, not the table: rows of a table in a cell
+    /// that the window has left give up their views and keep their heights. The same table at the
+    /// top of the document keeps every row it has laid out, as it always did.
     /// </summary>
+    /// <remarks>
+    /// Before nested rows were let go, every depth kept what the top level does, 116 MB, and three
+    /// deep beside a line of text 562 MB.
+    /// </remarks>
     [Theory]
-    [InlineData(1)]
-    [InlineData(3)]
-    public void ScrollingThroughANestedTenThousandRowTableKeepsAboutWhatATopLevelOneDoes(int depth)
+    [InlineData(1, "")]
+    [InlineData(3, "")]
+    [InlineData(3, "side")]
+    [InlineData(1, "hosts")]
+    [InlineData(2, "hosts")]
+    public void ScrollingThroughANestedTenThousandRowTableKeepsAboutWhatItsFirstLayoutDid(int depth, string variant)
     {
         var top = TopLevelTraversal.Value;
-        var nested = Traverse(depth);
+        var nested = Traverse(depth, Rows, variant);
 
         Assert.True(nested.ExitCode == 0, nested.ToString());
         Assert.True(top.ExitCode == 0, top.ToString());
 
-        AssertClose(nested, top, "retainedAfterTraverseBytes", slack: 1_000_000);
+        var first = nested.Value("retainedAfterFirstLayoutBytes");
+        var after = nested.Value("retainedAfterTraverseBytes");
+
+        Assert.True(
+            after <= (first * 4) + 2_000_000,
+            $"scrolling through kept {after:N0} bytes, against {first:N0} after the first layout\n{nested}");
+        Assert.True(top.Value("retainedAfterTraverseBytes") > 50_000_000, $"the top level let rows go\n{top}");
         Assert.True(nested.Value("pages") >= top.Value("pages") / 2, nested.ToString());
+    }
+
+    /// <summary>
+    /// What scrolling through a nested table keeps does not grow with the table: 2,500, 5,000 and
+    /// 10,000 rows keep the same few screenfuls, beyond what a row costs before it is ever laid out.
+    /// </summary>
+    [Theory]
+    [InlineData(1, "")]
+    [InlineData(3, "side")]
+    [InlineData(2, "hosts")]
+    public void ScrollingThroughLongerNestedTablesKeepsNoMore(int depth, string variant)
+    {
+        var runs = new[] { 2_500, 5_000, 10_000 }.Select(rows => Traverse(depth, rows, variant)).ToArray();
+
+        foreach (var run in runs)
+        {
+            Assert.True(run.ExitCode == 0, run.ToString());
+        }
+
+        // A row nobody has laid out still costs its slots in the table's arrays; that part grows
+        // with the rows from the first layout on, and is taken out.
+        var grown = runs.Select(run => run.Value("retainedAfterTraverseBytes") - run.Value("retainedAfterFirstLayoutBytes")).ToArray();
+
+        Assert.True(
+            grown[2] <= grown[0] + 2_000_000,
+            $"scrolling through kept {string.Join(", ", grown.Select(g => g.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)))} bytes beyond the first layout at 2,500, 5,000 and 10,000 rows\n{runs[2]}");
     }
 
     private static LayoutProbeResult Profile(int depth) =>
         LayoutProbeRunner.Run(Timeout, depth.ToString(System.Globalization.CultureInfo.InvariantCulture), Rows.ToString(System.Globalization.CultureInfo.InvariantCulture), "profile");
 
-    private static LayoutProbeResult Traverse(int depth) =>
-        LayoutProbeRunner.Run(Timeout, depth.ToString(System.Globalization.CultureInfo.InvariantCulture), Rows.ToString(System.Globalization.CultureInfo.InvariantCulture), "traverse");
+    private static LayoutProbeResult Traverse(int depth, int rows = Rows, string variant = "") =>
+        LayoutProbeRunner.Run(
+            Timeout,
+            depth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            rows.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "traverse",
+            variant);
 
     private static void AssertClose(LayoutProbeResult nested, LayoutProbeResult top, string key, long slack)
     {
