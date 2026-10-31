@@ -1470,6 +1470,155 @@ public class NestedTableVirtualizationTests
     }
 
     /// <summary>
+    /// A window held further from a cell's content than the table now reaches — past the table's
+    /// end or before its start: a point captured in space an estimate had given a row, which the
+    /// row no longer has — is measured around the table's edge, where the presenter shows it,
+    /// not around the point past it: every row next to that edge is laid out, at every depth.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Fuzz seed 10,042 on Linux's metrics: a jump left the viewport held 2,912 pixels below a
+    /// cell's last paragraph, past the end of its table. The presenter clamps the point to the
+    /// table's height; the table measured around the point itself, so a table in that cell was
+    /// given no window above its last row, and the last screen of it was left unlaid and repaired.
+    /// </para>
+    /// <para>
+    /// The cases: held below a paragraph after a table in the cell; below the last paragraph of a
+    /// short two-row table, which the row walk alone lays out; below the last paragraph inside the
+    /// table in the cell, which is passed down to it; and above the table's first block on a view
+    /// already laid out further down (rubber-duck review of the fix, findings 1–3).
+    /// </para>
+    /// </remarks>
+    /// <param name="shape">Which case.</param>
+    [AvaloniaTheory]
+    [InlineData("after the table in the cell")]
+    [InlineData("two short rows")]
+    [InlineData("inside the table in the cell")]
+    [InlineData("before the start, laid out further down")]
+    [InlineData("past the end of the table in the cell, beside a taller cell")]
+    [InlineData("past the end, until the table grows back over it")]
+    public void AWindowHeldPastTheTablesEdgeIsMeasuredAroundTheEdge(string shape)
+    {
+        if (shape.StartsWith("past the end of the table in the cell", StringComparison.Ordinal))
+        {
+            AWindowHeldPastTheEndOfATableInACellBesideATallerCell();
+
+            return;
+        }
+
+        if (shape.StartsWith("past the end, until", StringComparison.Ordinal))
+        {
+            AWindowHeldPastTheEndUntilTheTableGrowsBackOverIt();
+
+            return;
+        }
+
+        var end = !shape.StartsWith("before", StringComparison.Ordinal);
+        var table = shape switch
+        {
+            "two short rows" => new TableNode([
+                new TableRowNode([TableCellNode.FromText("first"), TableCellNode.FromText("beside")]),
+                new TableRowNode([TableCellNode.FromText("second"), TableCellNode.FromText("beside")]),
+            ]),
+            "inside the table in the cell" => new TableNode([new TableRowNode([new TableCellNode([Uniform(400)])])]),
+            _ => new TableNode([
+                new TableRowNode([new TableCellNode([Uniform(400), ParagraphNode.FromText("after the table"), ParagraphNode.FromText("last")])]),
+            ]),
+        };
+        var whole = new TableBlockView(table, Create, Brushes.Gray);
+
+        whole.SetWindow(0, 0, double.PositiveInfinity);
+        whole.Measure(Width);
+
+        var held = whole.CaptureAnchor(end ? whole.Size.Height - 1 : 1);
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        if (!end)
+        {
+            // Laid out far down first, so the anchor resolves at once rather than from rows the
+            // first measure lays out from the top.
+            view.SetWindow(whole.Size.Height / 2, 200, 600);
+            view.Measure(Width);
+        }
+
+        view.SetWindow(held with { Dy = end ? 3_000 : -3_000 }, 200, 600);
+        view.Measure(Width);
+
+        var edge = end ? view.Size.Height : 0;
+
+        Assert.True(view.Covers(edge - 200, edge + 600), $"{shape}: the 200 pixels next to the {(end ? "bottom" : "top")} of a table {view.Size.Height:F0} tall are not laid out ({held.Kind} at {held.Position})");
+    }
+
+    /// <summary>
+    /// The window held below a short cell's paragraph, at a point past where the table ends while
+    /// the tall last rows of the table beside are priced like the rest, and inside it once they are
+    /// laid out: measured around the table's edge while the point is past it, and around the point
+    /// again once the table reaches it, so the rows around the point are laid out — not only those
+    /// at the bottom (rubber-duck review of the fix's rework, finding 1).
+    /// </summary>
+    private static void AWindowHeldPastTheEndUntilTheTableGrowsBackOverIt()
+    {
+        var nested = new TableNode(Enumerable.Range(0, 100).Select(r => new TableRowNode([
+            new TableCellNode([.. Enumerable.Range(0, r >= 97 ? 30 : 1).Select(i => (BlockNode)ParagraphNode.FromText($"n{r} {i}"))]),
+        ])));
+        var table = new TableNode([new TableRowNode([TableCellNode.FromText("left"), new TableCellNode([nested])])]);
+        var below = new LocalAnchor(TextAt(new DocumentNode([table]), "left") - 1, 0, AnchorKind.BoxBottom);
+        var whole = new TableBlockView(table, Create, Brushes.Gray);
+
+        whole.SetWindow(0, 0, double.PositiveInfinity);
+        whole.Measure(Width);
+
+        // Inside the table laid out whole, above its tall last rows; past the end of one that has
+        // priced them like the others.
+        var rowsOf = whole.NestedTables.Single();
+        var tail = rowsOf.RowTopOf(100) - rowsOf.RowTopOf(97);
+        var held = below with { Dy = whole.Size.Height - (tail / 2) - (whole.AnchorPoint(below) ?? double.NaN) };
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        view.SetWindow(held, 200, 600);
+        view.Measure(Width);
+
+        var at = Math.Clamp(view.AnchorPoint(held) ?? double.NaN, 0, view.Size.Height);
+
+        Assert.True(at < view.Size.Height - 200, $"the point {at:F0} is not well inside the table, {view.Size.Height:F0} tall");
+        Assert.True(view.Covers(at - 200, at + 600), $"the window around {at:F0}, inside a table {view.Size.Height:F0} tall, has rows not laid out");
+    }
+
+    /// <summary>
+    /// The window held 100 pixels below the last block inside a table in a cell, in the space a
+    /// taller cell beside it gives the row: the point is inside the outer table, past the end of
+    /// the table in the cell, which is passed the anchor and must lay out its last 100 pixels.
+    /// </summary>
+    private static void AWindowHeldPastTheEndOfATableInACellBesideATallerCell()
+    {
+        var table = new TableNode([
+            new TableRowNode([
+                new TableCellNode([Uniform(400)]),
+                new TableCellNode([.. Enumerable.Range(0, 1_200).Select(i => (BlockNode)ParagraphNode.FromText($"beside {i}"))]),
+            ]),
+        ]);
+        var whole = new TableBlockView(table, Create, Brushes.Gray);
+
+        whole.SetWindow(0, 0, double.PositiveInfinity);
+        whole.Measure(Width);
+
+        var nestedBottom = whole.NestedTables.Single().Size.Height;
+        var held = whole.CaptureAnchor(nestedBottom);
+
+        Assert.True(whole.Size.Height > nestedBottom + 1_000, $"the cell beside is not taller: {whole.Size.Height:F0} against {nestedBottom:F0}");
+
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        view.SetWindow(held with { Dy = held.Dy + 100 }, 200, 600);
+        view.Measure(Width);
+
+        var at = view.AnchorPoint(view.WindowAnchor) ?? double.NaN;
+
+        Assert.InRange(at, nestedBottom, view.Size.Height);
+        Assert.True(view.Covers(at - 200, at + 600), $"the window around {at:F0}, past the end of the table in the cell at {nestedBottom:F0}, has rows not laid out ({held.Kind} at {held.Position})");
+    }
+
+    /// <summary>
     /// Windows at and past their limits — negative, not a number, infinite, beyond the table's
     /// end — are clamped to the table: no fallback, nothing thrown, and every row of the clamped
     /// window laid out, in the table and in the tables in its cells.
