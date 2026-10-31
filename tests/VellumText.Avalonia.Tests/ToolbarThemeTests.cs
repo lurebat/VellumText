@@ -411,15 +411,29 @@ public class ToolbarThemeTests
         Assert.True(flyout.IsOpen);
 
         var window = WindowOf(bar);
+        var view = editor.View!;
+        var reachedTheEditor = 0;
+
+        view.AddHandler(InputElement.KeyDownEvent, (_, e) => reachedTheEditor += e.Key == Key.Escape ? 1 : 0, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
         // Where the keyboard is when a user opens the flyout: in the document. Nothing in the
         // flyout can take it, which is why Avalonia's own Escape handling never saw the key.
-        editor.View!.Focus();
+        view.Focus();
         window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
         Dispatcher.UIThread.RunJobs();
 
         Assert.False(flyout.IsOpen);
         Assert.Same(before, editor.State.Doc);
+
+        // That Escape was spent closing the flyout, so the editor did not also act on it.
+        Assert.Equal(0, reachedTheEditor);
+
+        // And only that one: with the flyout closed, the next Escape is the editor's again. A
+        // handler left behind would swallow every Escape typed into the document from then on.
+        window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, reachedTheEditor);
     }
 
     /// <summary>A click outside the flyout closes it without changing the text.</summary>

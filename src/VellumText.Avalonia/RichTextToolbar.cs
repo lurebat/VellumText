@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 
@@ -423,7 +424,7 @@ public class RichTextToolbar : TemplatedControl
             {
                 if (visual is not null && TopLevel.GetTopLevel(visual) is { } top && !watched.Contains(top))
                 {
-                    top.AddHandler(KeyDownEvent, OnKeyDown, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
+                    top.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
                     watched.Add(top);
                 }
             }
@@ -439,6 +440,7 @@ public class RichTextToolbar : TemplatedControl
             watched.Clear();
         };
     }
+
     /// <summary>Watches the template's font and size boxes for a pick from their lists.</summary>
     private void HookBoxes(INameScope scope)
     {
