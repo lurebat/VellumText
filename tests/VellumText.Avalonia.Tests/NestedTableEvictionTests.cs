@@ -282,6 +282,54 @@ public class NestedTableEvictionTests
         AssertNoRepairs();
     }
 
+    /// <summary>
+    /// Scrolled far down a nested table, with rows let go behind and the caret far above,
+    /// <c>ScrollToEnd</c> ends the view at the document's end — laid out from the end up, with
+    /// everything on screen laid out — and the caret's paragraph is still the view it was.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void ScrollToEndAfterRowsWereLetGoShowsTheEndAndKeepsTheCaret(int depth) =>
+        Isolated.Run(typeof(NestedTableEvictionTests), nameof(ScrollToEndAfterRowsWereLetGoShowsTheEndAndKeepsTheCaretHere), depth);
+
+    /// <summary>The body of <see cref="ScrollToEndAfterRowsWereLetGoShowsTheEndAndKeepsTheCaret"/>, run in a child process.</summary>
+    internal static void ScrollToEndAfterRowsWereLetGoShowsTheEndAndKeepsTheCaretHere(int depth)
+    {
+        var doc = NestedTableVirtualizationTests.Nested(depth, NestedTableVirtualizationTests.Irregular(3_000), outerRows: 20, hostRow: 10);
+        var (window, view) = Shown(doc);
+
+        ToNested(window, view);
+
+        var caret = view.PositionAt(new Point(20, Height / 2));
+
+        view.MoveTo(caret, extend: false);
+        Layout(window);
+
+        var paragraph = ParagraphViewAt(view, caret);
+
+        ScrollDown(window, view, 100);
+        view.ScrollToEnd();
+        Layout(window);
+
+        var last = view.Blocks.Count - 1;
+        var end = view.BlockOrigin(last).Y + view.Blocks[last].Size.Height;
+
+        Assert.True(Math.Abs(end - Height) <= 1, $"the document ends at {end:F1} on screen, not at the bottom of the viewport");
+        NestedTableVirtualizationTests.AssertScreenLaidOut(view);
+        Assert.Same(paragraph, ParagraphViewAt(view, caret));
+        Draw(window, view);
+
+        // Held by the end, the rows above the held content that the window cuts through are made
+        // exact, which three deep lays the long table out whole (owner decision Q1); the next pass,
+        // with a window again, lets its far rows go.
+        view.Offset -= new Vector(0, 1);
+        Layout(window);
+
+        Assert.True(Innermost(view, depth).RealizedRows <= 200, $"the table keeps {Innermost(view, depth).RealizedRows} rows");
+        AssertNoRepairs();
+    }
+
     // ---- what is known ------------------------------------------------------------------------
 
     /// <summary>
