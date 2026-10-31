@@ -297,9 +297,20 @@ public class NestedTableFuzzTests
             return ": no far paragraph to edit";
         }
 
-        Place(window, view);
+        // The caret on the line held at the top, as for a structural edit: an edit scrolls a caret
+        // off screen into view, and a caret in another cell of the row can be moved off it. What
+        // stays still is the held line and the lines in its cell; a line in another cell of the
+        // same row moves when the edit grows what is above it in that cell, as it must — both
+        // cannot be held.
+        var held = PlaceOnHeldLine(window, view) ? view.HeldLine : null;
+        var cell = held is { } line ? CellOf(view.State.Doc, line) : (-1, -1);
+        var probes = Probes(view).Where(probe => held is null || CellOf(view.State.Doc, probe.Position) == cell).ToList();
 
-        var probes = Probes(view);
+        if (held is { } kept)
+        {
+            probes.Add((kept, ScreenTop(view, kept)));
+        }
+
         var text = random.Next(2) == 0 ? " x" : string.Concat(Enumerable.Repeat(" more words in a far cell", random.Next(1, 30)));
         var tr = view.State.Transaction().InsertText(at, text);
 
@@ -555,6 +566,41 @@ public class NestedTableFuzzTests
         }
     }
 
+    /// <summary>
+    /// Where the innermost table cell holding a position starts and ends, or (-1, -1) for a
+    /// position in no table.
+    /// </summary>
+    private static (int Start, int End) CellOf(DocumentNode doc, int position)
+    {
+        var found = (-1, -1);
+
+        Walk(doc.Blocks, 0);
+
+        return found;
+
+        void Walk(IReadOnlyList<Node> nodes, int start)
+        {
+            var at = start;
+
+            foreach (var node in nodes)
+            {
+                if (position > at && position < at + node.NodeSize)
+                {
+                    if (node is TableCellNode)
+                    {
+                        found = (at, at + node.NodeSize);
+                    }
+
+                    Walk(node.Children, at + 1);
+
+                    return;
+                }
+
+                at += node.NodeSize;
+            }
+        }
+    }
+
     /// <summary>Lines on screen, by a position on each and where its top is.</summary>
     private static List<(int Position, double Y)> Probes(RichTextView view)
     {
@@ -702,6 +748,11 @@ public class NestedTableFuzzTests
     /// Puts the caret on the line held at the top of the viewport, or, with none held, on a line
     /// on screen (<see cref="Place"/>).
     /// </summary>
+    /// <remarks>
+    /// A held line partly above the viewport is scrolled wholly onto it first: an edit brings a
+    /// caret that is partly off screen into view, which moved it to the top by the part that was
+    /// off — fuzz seeds 10,015 and 10,042, where the held line was 10 pixels above the top.
+    /// </remarks>
     private static bool PlaceOnHeldLine(Window window, RichTextView view)
     {
         if (view.HeldLine is not { } line)
@@ -711,6 +762,12 @@ public class NestedTableFuzzTests
 
         view.MoveTo(line, extend: false);
         Layout(window);
+
+        if (ScreenTop(view, line) is var top and < 0)
+        {
+            view.Offset = new Vector(0, Math.Max(0, view.Offset.Y + top));
+            Layout(window);
+        }
 
         return true;
     }
