@@ -198,7 +198,9 @@ void Scan(string origin, byte[] data)
             var path = match.Value;
             var classification = path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "content-or-repository-URL" :
                 path.StartsWith("/_/", StringComparison.Ordinal) || path.StartsWith(sourceRoot, StringComparison.Ordinal) ||
-                path.StartsWith(buildRoot, StringComparison.Ordinal) ? "neutral-build-path" :
+                path.StartsWith(buildRoot, StringComparison.Ordinal) ||
+                path == sourceRoot.TrimEnd(Path.DirectorySeparatorChar) ||
+                path == buildRoot.TrimEnd(Path.DirectorySeparatorChar) ? "neutral-build-path" :
                 path == "/usr/lib/libobjc.A.dylib" ? "platform-library-import" :
                 path.StartsWith("/VellumText.Avalonia/Themes/", StringComparison.Ordinal) ? "Avalonia-resource-URI" :
                 path == "/package/services/metadata/core-properties/nuget.psmdcp" ? "NuGet-package-relationship" :
