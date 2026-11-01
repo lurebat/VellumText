@@ -8,6 +8,7 @@ namespace VellumText.Interop.Html.Tests;
 /// <summary>
 /// Table spans multiply; the importer bounds the area its tables may cover.
 /// </summary>
+[Collection(VellumText.Tests.Interop.Html.ProcessWideAllocation.Name)]
 public sealed class TableSlotBudgetTests
 {
     private static async Task<(ImportResult Result, long Ms, long AllocatedMb)> Measure(string html, HtmlImportOptions? options = null)

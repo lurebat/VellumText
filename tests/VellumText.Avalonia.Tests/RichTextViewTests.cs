@@ -538,19 +538,7 @@ public class RichTextViewTests
                 view.Render(context);
             }
 
-            var pixels = new uint[400 * 200];
-
-            unsafe
-            {
-                fixed (uint* buffer = pixels)
-                {
-                    bitmap.CopyPixels(
-                        new PixelRect(new PixelSize(400, 200)),
-                        (nint)buffer,
-                        pixels.Length * sizeof(uint),
-                        400 * sizeof(uint));
-                }
-            }
+            var pixels = RenderedPixels.Argb(bitmap);
 
             return pixels;
         }

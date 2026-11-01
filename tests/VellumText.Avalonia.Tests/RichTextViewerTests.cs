@@ -30,6 +30,7 @@ namespace VellumText.Tests.Avalonia;
 /// every other test passing and the control pointless.
 /// </para>
 /// </remarks>
+[Collection(ProcessWideAllocation.Name)]
 public class RichTextViewerTests
 {
     private const double Width = 400;

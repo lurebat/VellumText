@@ -129,10 +129,16 @@ public class RichTextViewListTests
     public void NothingIsDrawnInTheGutterOfAPlainParagraph()
     {
         var view = Shown(new DocumentNode([ParagraphNode.FromText("item")]));
+        var painted = PaintedColumns(view);
 
         // Same text at the same place, minus the list. Whatever appears left of a list item's
-        // text must be the marker and not the text itself creeping left.
-        Assert.DoesNotContain(PaintedColumns(view), x => x >= ParagraphView.DefaultIndentStep);
+        // text must be the marker and not the text itself creeping left. Bounded by the text's
+        // own laid-out width rather than by the indent step: whether "item" is narrower than one
+        // indent step is a property of the font, and in a wide one it is not.
+        var end = Math.Ceiling(Paragraph(view, 0).Layout.Width);
+
+        Assert.NotEmpty(painted);
+        Assert.DoesNotContain(painted, x => x > end);
     }
 
     [AvaloniaFact]
@@ -231,19 +237,7 @@ public class RichTextViewListTests
             view.Render(context);
         }
 
-        var pixels = new uint[width * height];
-
-        unsafe
-        {
-            fixed (uint* buffer = pixels)
-            {
-                bitmap.CopyPixels(
-                    new PixelRect(new PixelSize(width, height)),
-                    (nint)buffer,
-                    pixels.Length * sizeof(uint),
-                    width * sizeof(uint));
-            }
-        }
+        var pixels = RenderedPixels.Argb(bitmap);
 
         var columns = new List<double>();
 

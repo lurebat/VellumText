@@ -5,16 +5,64 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Release runs this whole workflow on the tagged commit, every platform included, and cannot
+  # publish unless it passes. See release.yml.
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  # Decides where `build` runs. Linux and Windows run on everything. macOS costs ten times the
+  # minutes of Linux on a private repository, so it runs on pushes to main, on releases (which
+  # arrive here as the tag's push), on a manual run, and on pull requests that change what macOS
+  # actually catches: the Avalonia control and its tests, the demo, and the build itself. A pull
+  # request that only touches the platform-independent libraries is still covered on macOS by
+  # the push to main that merges it.
+  platforms:
+    runs-on: ubuntu-latest
+
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      - name: Pick platforms
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mac=true
+          if [ "$EVENT" = pull_request ]; then
+            # The list of paths that need macOS lives in the script, with its tests beside it.
+            changed=$(git diff --name-only "$BASE...$HEAD")
+            mac=$(bash .github/scripts/needs-macos.sh <<<"$changed")
+            if [ "$mac" = true ]; then
+              echo "This pull request touches Avalonia or build files; macOS runs."
+            else
+              echo "Nothing macOS-specific changed; macOS runs on the merge to main instead."
+            fi
+          fi
+          if [ "$mac" = true ]; then
+            echo 'os=["ubuntu-latest","windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest","windows-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: platforms
+
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.platforms.outputs.os) }}
 
     runs-on: ${{ matrix.os }}
 
@@ -52,6 +100,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The platform picker decides whether macOS runs at all, so a bug in it fails silently.
+      - name: Workflow script tests
+        run: bash .github/scripts/needs-macos.test.sh
+
       - name: Install ast-grep
         run: npm install --global @ast-grep/cli@0.51.0
 
@@ -64,6 +116,10 @@ jobs:
   pack:
     runs-on: ubuntu-latest
     needs: build
+
+    # On a release this workflow runs inside Release's own run, whose verify job packs and
+    # uploads `packages` itself. A second artifact of that name in one run fails the upload.
+    if: github.ref_type != 'tag'
 
     steps:
       - uses: actions/checkout@v4

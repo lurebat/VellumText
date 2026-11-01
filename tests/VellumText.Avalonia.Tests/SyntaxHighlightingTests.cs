@@ -234,31 +234,7 @@ public class SyntaxHighlightingTests
         using var stream = new MemoryStream(png);
         using var bitmap = new global::Avalonia.Media.Imaging.Bitmap(stream);
 
-        var pixels = new byte[bitmap.PixelSize.Width * bitmap.PixelSize.Height * 4];
-        var handle = System.Runtime.InteropServices.GCHandle.Alloc(
-            pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
-
-        try
-        {
-            bitmap.CopyPixels(
-                new global::Avalonia.PixelRect(bitmap.PixelSize),
-                handle.AddrOfPinnedObject(),
-                pixels.Length,
-                bitmap.PixelSize.Width * 4);
-        }
-        finally
-        {
-            handle.Free();
-        }
-
-        var seen = new HashSet<uint>();
-
-        for (var i = 0; i + 3 < pixels.Length; i += 4)
-        {
-            seen.Add(BitConverter.ToUInt32(pixels, i));
-        }
-
-        return seen.Count;
+        return RenderedPixels.Argb(bitmap).Distinct().Count();
     }
 
     private sealed class Throwing : ISyntaxHighlighter

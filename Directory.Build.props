@@ -48,4 +48,16 @@
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
+  <!--
+    The public API of every shipping package is recorded in PublicAPI.Shipped.txt and
+    PublicAPI.Unshipped.txt beside its project, and the analyzer fails the build (warnings are
+    errors) on any public or protected member that is added, removed or changed without the
+    files saying so. That makes an API change a reviewed diff in those files rather than an
+    accident. Unshipped holds what has not been in a release; when a version ships, its
+    Unshipped lines move to Shipped. See CONTRIBUTING.md.
+  -->
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>

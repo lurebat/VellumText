@@ -1,0 +1,60 @@
+#nullable enable
+override VellumText.Interop.Markdown.MarkdownExportResult.GetHashCode() -> int
+override VellumText.Interop.Markdown.MarkdownImportOptions.Equals(object? obj) -> bool
+override VellumText.Interop.Markdown.MarkdownImportOptions.GetHashCode() -> int
+override VellumText.Interop.Markdown.MarkdownImportOptions.ToString() -> string!
+static readonly VellumText.Interop.Markdown.MarkdownFormat.Instance -> VellumText.Interop.Markdown.MarkdownFormat!
+static VellumText.Interop.Markdown.MarkdownExporter.Instance.get -> VellumText.Interop.Markdown.MarkdownExporter!
+static VellumText.Interop.Markdown.MarkdownExportResult.operator !=(VellumText.Interop.Markdown.MarkdownExportResult left, VellumText.Interop.Markdown.MarkdownExportResult right) -> bool
+static VellumText.Interop.Markdown.MarkdownExportResult.operator ==(VellumText.Interop.Markdown.MarkdownExportResult left, VellumText.Interop.Markdown.MarkdownExportResult right) -> bool
+static VellumText.Interop.Markdown.MarkdownImporter.ImportAsync(string! markdown, VellumText.Interop.Markdown.MarkdownImportOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+static VellumText.Interop.Markdown.MarkdownImportOptions.Default.get -> VellumText.Interop.Markdown.MarkdownImportOptions!
+static VellumText.Interop.Markdown.MarkdownImportOptions.operator !=(VellumText.Interop.Markdown.MarkdownImportOptions? left, VellumText.Interop.Markdown.MarkdownImportOptions? right) -> bool
+static VellumText.Interop.Markdown.MarkdownImportOptions.operator ==(VellumText.Interop.Markdown.MarkdownImportOptions? left, VellumText.Interop.Markdown.MarkdownImportOptions? right) -> bool
+VellumText.Interop.Markdown.MarkdownExporter
+VellumText.Interop.Markdown.MarkdownExporter.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
+VellumText.Interop.Markdown.MarkdownExporter.Export(VellumText.DocumentNode! doc) -> string!
+VellumText.Interop.Markdown.MarkdownExporter.ExportWithDiagnostics(VellumText.DocumentNode! doc) -> VellumText.Interop.Markdown.MarkdownExportResult
+VellumText.Interop.Markdown.MarkdownExporter.Format.get -> string!
+VellumText.Interop.Markdown.MarkdownExporter.MarkdownExporter() -> void
+VellumText.Interop.Markdown.MarkdownExporter.MediaType.get -> string!
+VellumText.Interop.Markdown.MarkdownExporter.TextEncoding.get -> System.Text.Encoding?
+VellumText.Interop.Markdown.MarkdownExportResult
+VellumText.Interop.Markdown.MarkdownExportResult.AnythingDropped.get -> bool
+VellumText.Interop.Markdown.MarkdownExportResult.Deconstruct(out string! Text, out System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic> Diagnostics) -> void
+VellumText.Interop.Markdown.MarkdownExportResult.Diagnostics.get -> System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic>
+VellumText.Interop.Markdown.MarkdownExportResult.Diagnostics.init -> void
+VellumText.Interop.Markdown.MarkdownExportResult.Equals(VellumText.Interop.Markdown.MarkdownExportResult other) -> bool
+VellumText.Interop.Markdown.MarkdownExportResult.MarkdownExportResult() -> void
+VellumText.Interop.Markdown.MarkdownExportResult.MarkdownExportResult(string! Text, System.Collections.Immutable.ImmutableArray<VellumText.ImportDiagnostic> Diagnostics) -> void
+VellumText.Interop.Markdown.MarkdownExportResult.Text.get -> string!
+VellumText.Interop.Markdown.MarkdownExportResult.Text.init -> void
+VellumText.Interop.Markdown.MarkdownFormat
+VellumText.Interop.Markdown.MarkdownFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
+VellumText.Interop.Markdown.MarkdownFormat.Export(VellumText.DocumentNode! doc) -> string!
+VellumText.Interop.Markdown.MarkdownFormat.Format.get -> string!
+VellumText.Interop.Markdown.MarkdownFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Markdown.MarkdownFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
+VellumText.Interop.Markdown.MarkdownFormat.ImportOptions.get -> VellumText.Interop.Markdown.MarkdownImportOptions!
+VellumText.Interop.Markdown.MarkdownFormat.MediaType.get -> string!
+VellumText.Interop.Markdown.MarkdownFormat.TextEncoding.get -> System.Text.Encoding?
+VellumText.Interop.Markdown.MarkdownFormat.With(VellumText.Interop.Markdown.MarkdownImportOptions! importOptions) -> VellumText.Interop.Markdown.MarkdownFormat!
+VellumText.Interop.Markdown.MarkdownImporter
+VellumText.Interop.Markdown.MarkdownImportOptions
+VellumText.Interop.Markdown.MarkdownImportOptions.<Clone>$() -> VellumText.Interop.Markdown.MarkdownImportOptions!
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowDataImages.get -> bool
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowDataImages.init -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowRawHtml.get -> bool
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowRawHtml.init -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowRemoteImages.get -> bool
+VellumText.Interop.Markdown.MarkdownImportOptions.AllowRemoteImages.init -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.BaseUri.get -> System.Uri?
+VellumText.Interop.Markdown.MarkdownImportOptions.BaseUri.init -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.Equals(VellumText.Interop.Markdown.MarkdownImportOptions? other) -> bool
+VellumText.Interop.Markdown.MarkdownImportOptions.MarkdownImportOptions() -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.MaxDataImageBytes.get -> int
+VellumText.Interop.Markdown.MarkdownImportOptions.MaxDataImageBytes.init -> void
+VellumText.Interop.Markdown.MarkdownImportOptions.MaxTableSlots.get -> int
+VellumText.Interop.Markdown.MarkdownImportOptions.MaxTableSlots.init -> void
+~override VellumText.Interop.Markdown.MarkdownExportResult.Equals(object obj) -> bool
+~override VellumText.Interop.Markdown.MarkdownExportResult.ToString() -> string
