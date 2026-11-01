@@ -7,6 +7,33 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
+var paths = new Regex(@"(?<![A-Za-z0-9_:])(?:[A-Z]:[\\/](?!/)[^\x00\r\n""<>]{1,250}|https?://[^\x00\r\n""<>]{1,250}|/(?!/)[\p{L}_][\p{L}\p{N}_.-]*(?:/[\p{L}\p{N}_.~ -]+)+)", RegexOptions.IgnoreCase);
+if (args is ["--self-test"])
+{
+    string[] rootedPaths = ["/Users/builder/project/File.cs", "/workspace/build/File.cs",
+        "/tmp/vellumtext-source/src/File.cs", "/_/src/File.cs", @"C:\Users\builder\File.cs",
+        "https://raw.githubusercontent.com/lurebat/VellumText/commit/src/File.cs"];
+    foreach (var path in rootedPaths)
+    {
+        if (paths.Match(path).Value != path)
+        {
+            Console.Error.WriteLine($"Path scanner missed: {path}");
+            return 1;
+        }
+    }
+    string[] methodNames = ["Build:/Themes/RichTextToolbar.axaml", "Populate:/Themes/VellumText.axaml",
+        "NamespaceInfo:/Themes/VellumText.axaml"];
+    foreach (var name in methodNames)
+    {
+        if (paths.IsMatch(name))
+        {
+            Console.Error.WriteLine($"Path scanner misclassified an Avalonia generated method: {name}");
+            return 1;
+        }
+    }
+    Console.WriteLine("Package path scanner: 6 rooted paths and 3 generated-method controls passed.");
+    return 0;
+}
 if (args.Length != 5)
 {
     Console.Error.WriteLine("Usage: PackageInspector <artifact-root> <version> <commit> <source-root> <build-root>");
@@ -27,7 +54,6 @@ var hashes = new List<object>();
 var matches = new HashSet<string>(StringComparer.Ordinal);
 var classifiedPaths = new HashSet<string>(StringComparer.Ordinal);
 var forbidden = new Regex(@"[A-Z]:[\\/]Users[\\/]|[\\/]worktrees[\\/]|\.copilot[\\/]session-state|refs/heads/user[\\/]|/home/(?!runner/)[^/\s]+/", RegexOptions.IgnoreCase);
-var paths = new Regex(@"(?<![A-Za-z])(?:[A-Z]:[\\/](?!/)|/_/|/tmp/|/home/|https?://)[^\x00\r\n""<>]{1,250}", RegexOptions.IgnoreCase);
 Require(Regex.IsMatch(commit, "^[0-9a-f]{40}$"), "Expected a full source SHA.");
 var packages = Directory.GetFiles(Path.Combine(root, "packages"), "*.nupkg");
 Require(packages.Length == ids.Length && Directory.GetFiles(Path.Combine(root, "packages"), "*.snupkg").Length == ids.Length,

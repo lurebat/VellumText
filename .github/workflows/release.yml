@@ -281,3 +281,16 @@ jobs:
             --notes-file "$notes" \
             artifacts/packages/*.nupkg artifacts/packages/*.snupkg \
             artifacts/package-provenance.json artifacts/SHA256SUMS
+
+      - name: Verify public release downloads match the inspected bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --dir published/packages --pattern '*.nupkg' --pattern '*.snupkg'
+          gh release download "$TAG" --dir published --pattern SHA256SUMS --pattern package-provenance.json
+          cmp artifacts/SHA256SUMS published/SHA256SUMS
+          cmp artifacts/package-provenance.json published/package-provenance.json
+          cd published
+          sha256sum --check SHA256SUMS

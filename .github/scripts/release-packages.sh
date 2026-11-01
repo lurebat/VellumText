@@ -30,6 +30,7 @@ dotnet test --no-build -c Release --artifacts-path "$artifact_root/build" "${pro
   --logger trx --results-directory "$artifact_root/test-results"
 dotnet pack --no-build -c Release --artifacts-path "$artifact_root/build" "${properties[@]}" -o "$artifact_root/packages"
 dotnet build tools/PackageInspector/PackageInspector.csproj -c Release --artifacts-path "$artifact_root/inspector"
+dotnet "$artifact_root/inspector/bin/PackageInspector/release/PackageInspector.dll" --self-test
 dotnet "$artifact_root/inspector/bin/PackageInspector/release/PackageInspector.dll" \
   "$artifact_root" "$version" "$commit" "$source_root" "$artifact_root/build" > "$artifact_root/package-provenance.json"
 # Publication downloads these exact archives, not another build.
