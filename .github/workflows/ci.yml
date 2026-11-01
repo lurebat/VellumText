@@ -110,10 +110,12 @@ jobs:
         run: |
           set -euo pipefail
           for rows in 2500 5000 10000; do
-            echo "rows=$rows ordinary heap (without instrumentation)"
-            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" traverse side
-            echo "rows=$rows weak-view diagnostics (heap includes diagnostic references)"
-            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" retention-diagnostics side
+            for sample in {1..10}; do
+              echo "rows=$rows sample=$sample ordinary heap (without instrumentation)"
+              dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" traverse side
+              echo "rows=$rows sample=$sample weak-view diagnostics (heap includes diagnostic references)"
+              dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" retention-diagnostics side
+            done
           done
 
       - name: Upload test results

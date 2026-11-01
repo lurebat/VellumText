@@ -207,11 +207,16 @@ public static class Program
             Console.Out.WriteLine($"reachableBlockViews={reachable.Count}");
             Console.Out.WriteLine($"observedBlockViewsStillAlive={alive.Count}");
             Console.Out.WriteLine($"evictedBlockViewsStillAlive={alive.Count(item => !reachable.Contains(item))}");
+            Console.Out.WriteLine($"realizedNestedRows={reachable.Sum(RealizedRows)}");
         }
 
         GC.KeepAlive(window);
         window.Close();
     }
+
+    private static int RealizedRows(object view) =>
+        view.GetType().GetProperty("RealizedRows", System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic)?.GetValue(view) is int count ? count : 0;
 
     private static IEnumerable<object> RealizedViews(object parent)
     {
