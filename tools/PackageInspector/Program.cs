@@ -25,7 +25,9 @@ var failures = new List<string>();
 var reports = new List<object>();
 var hashes = new List<object>();
 var matches = new HashSet<string>(StringComparer.Ordinal);
+var classifiedPaths = new HashSet<string>(StringComparer.Ordinal);
 var forbidden = new Regex(@"[A-Z]:[\\/]Users[\\/]|[\\/]worktrees[\\/]|\.copilot[\\/]session-state|refs/heads/user[\\/]|/home/(?!runner/)[^/\s]+/", RegexOptions.IgnoreCase);
+var paths = new Regex(@"(?<![A-Za-z])(?:[A-Z]:[\\/](?!/)|/_/|/tmp/|/home/|https?://)[^\x00\r\n""<>]{1,250}", RegexOptions.IgnoreCase);
 Require(Regex.IsMatch(commit, "^[0-9a-f]{40}$"), "Expected a full source SHA.");
 var packages = Directory.GetFiles(Path.Combine(root, "packages"), "*.nupkg");
 Require(packages.Length == ids.Length && Directory.GetFiles(Path.Combine(root, "packages"), "*.snupkg").Length == ids.Length,
@@ -144,7 +146,8 @@ foreach (var id in ids)
     }
 }
 Console.WriteLine(JsonSerializer.Serialize(new { repository, version, commit, passed = failures.Count == 0, failures,
-    packages = reports, hashes, identityMatches = matches.Order().ToArray() }, new JsonSerializerOptions { WriteIndented = true }));
+    packages = reports, hashes, identityMatches = matches.Order().ToArray(),
+    classifiedPaths = classifiedPaths.Order().ToArray() }, new JsonSerializerOptions { WriteIndented = true }));
 return failures.Count == 0 ? 0 : 1;
 
 void Require(bool condition, string failure)
@@ -158,10 +161,20 @@ void Scan(string origin, byte[] data)
 {
     foreach (var encoding in new[] { Encoding.UTF8, Encoding.Unicode, Encoding.BigEndianUnicode })
     {
-        foreach (Match match in forbidden.Matches(encoding.GetString(data)))
+        var text = encoding.GetString(data);
+        foreach (Match match in forbidden.Matches(text))
         {
             matches.Add($"{origin}: {match.Value}");
             failures.Add($"{origin}: personal builder path '{match.Value}'");
+        }
+        foreach (Match match in paths.Matches(text))
+        {
+            var path = match.Value;
+            var classification = path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "content-or-repository-URL" :
+                path.StartsWith("/_/", StringComparison.Ordinal) || path.StartsWith(sourceRoot, StringComparison.Ordinal) ||
+                path.StartsWith(buildRoot, StringComparison.Ordinal) ? "neutral-build-path" : "unknown-rooted-path";
+            classifiedPaths.Add($"{origin}: {classification}: {path}");
+            Require(classification != "unknown-rooted-path", $"{origin}: unclassified embedded path '{path}'");
         }
     }
 }
