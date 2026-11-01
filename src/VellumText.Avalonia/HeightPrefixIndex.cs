@@ -7,6 +7,7 @@ internal sealed class HeightPrefixIndex
 {
     private double[] _tree = [0];
     private int[] _pending = [0];
+    private double[] _height = [];
     private int _count;
 
     /// <summary>Builds both Fenwick trees in linear time.</summary>
@@ -16,17 +17,18 @@ internal sealed class HeightPrefixIndex
 
         for (var i = 1; i <= _count; i++)
         {
-            _tree[i] = measured[i - 1] ? heights[i - 1] : 0;
+            _height[i - 1] = measured[i - 1] ? heights[i - 1] : 0;
             _pending[i] = measured[i - 1] ? 0 : 1;
         }
 
         for (var i = 1; i <= _count; i++)
         {
+            SumNode(i);
+
             var parent = i + (i & -i);
 
             if (parent <= _count)
             {
-                _tree[parent] += _tree[i];
                 _pending[parent] += _pending[i];
             }
         }
@@ -43,10 +45,12 @@ internal sealed class HeightPrefixIndex
 
             _tree = new double[capacity];
             _pending = new int[capacity];
+            _height = new double[capacity - 1];
         }
         else
         {
             Array.Clear(_tree, 0, count + 1);
+            Array.Clear(_height, 0, count);
         }
 
         for (var i = 1; i <= count; i++)
@@ -59,19 +63,37 @@ internal sealed class HeightPrefixIndex
     internal void SetHeight(int index, double previous, double height)
     {
         var pending = double.IsNaN(previous) ? -1 : 0;
-        var delta = height - (pending == -1 ? 0 : previous);
 
-        if (pending == 0 && delta == 0)
+        if (pending == 0 && height.Equals(previous))
         {
             return;
         }
 
+        _height[index] = height;
+
         for (var i = index + 1; i <= _count; i += i & -i)
         {
             WorkCounters.HeightPrefixSteps++;
-            _tree[i] += delta;
+            SumNode(i);
             _pending[i] += pending;
         }
+    }
+
+    // Recompute from unchanged child nodes rather than adding a height delta: subtracting a
+    // formerly tall row leaves rounding behind, so identical final heights otherwise produce
+    // different geometry depending on the edit history. Rebuild uses exactly the same grouping.
+    private void SumNode(int index)
+    {
+        var sum = _height[index - 1];
+        var first = index - (index & -index);
+
+        for (var child = index - 1; child > first; child -= child & -child)
+        {
+            WorkCounters.HeightPrefixSteps++;
+            sum += _tree[child];
+        }
+
+        _tree[index] = sum;
     }
 
     /// <summary>The height of the first count entries at the caller's current estimate.</summary>

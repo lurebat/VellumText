@@ -239,18 +239,26 @@ rather than rediscovered.
 ### To fix before 1.0
 Deferred from the nested-table virtualization series (10.4) by the owner (2026-10-30), to be done
 before 1.0 rather than accepted as limitations.
-- **A change only to what is known of a nested table rebuilds every outer row edge.** When a host
-  row's known height (`ExactHeight`) changes without its placed height changing, the outer table's
-  estimate changes, and with it the estimated contribution of every unmeasured outer row; the row
-  edges are recomputed from the first changed row to the end, which is O(outer rows) per page
-  scrolled (review 3, finding 4). The fix is an indexed row-edge structure for placement edges (a
-  Fenwick or prefix-sum tree) in which unmeasured rows contribute the estimate lazily. A first
+- **Nested-table knowledge changes must not walk unrelated outer-row prefixes.** With unindexed
+  row edges, a host row's known height (`ExactHeight`) changing without its placed height changing
+  changes the outer estimate and rebuilds every outer edge: O(outer rows) per page scrolled
+  (review 3, finding 4; https://github.com/lurebat/VellumText/issues/17).
+  `HeightPrefixIndex` shares measured-height and unmeasured-count trees between block and table
+  layout, pricing the estimated contribution only when read. Updates re-sum indexed child nodes
+  instead of accumulating deltas, so identical final measured heights give bit-identical prefixes
+  regardless of edit history. Table sampling remains separate from placement. A first
   attempt that replaced the sequential sums with "measured prefix + unmeasured count × estimate"
   was reverted: it changed exact row-boundary arithmetic (two exact-equality boundary tests and a
   paint-purity check failed), and host-row size drift at the last bit kept the recomputation
   O(rows) anyway. The attempt is kept outside the repository (`finding4-lazy-edges.diff` in the
-  10.4 session files); any new attempt must keep row edges bit-identical to sequential sums.
-  Tracked as https://github.com/lurebat/VellumText/issues/17.
+  10.4 session files). Owner decision (2026-11-01): whole/windowed geometry may differ by at most
+  1e-8 DIP from summation grouping; equivalent near-edge hit-test points are aligned to each
+  layout's own boundary and the same side of it. Exact top/adjacent-double row classification and
+  fresh-versus-edited geometry remain strict. Recheck with `HeightPrefixIndexTests`,
+  `TableVirtualizationTests`, `TableRowUpdateTests`, and
+  `ScrollingInsideANestedTableDoesNotWalkUnrelatedOuterRowPrefixes`; the latter holds the inner
+  length and twenty-page scroll fixed while growing unrelated outer rows, also after an anchored
+  resize, and counts actual prefix-index work alongside laid-out geometry and anchor checks.
 - **Dragging the scrollbar to its maximum stopped short of the end when the extent was
   underestimated.** Fixed by `RichTextView.ScrollToEnd` (1a540c4): the scroll bar taken to its end
   and `ScrollToEnd` are settled from the end up, as Ctrl+End is, so the view ends at the

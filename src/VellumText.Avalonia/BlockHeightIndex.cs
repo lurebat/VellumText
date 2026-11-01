@@ -8,8 +8,9 @@ namespace VellumText.Avalonia;
 /// <para>
 /// Virtualization needs two answers that are cheap only if something keeps them: where does
 /// block <c>i</c> start, and which block covers pixel <c>y</c>. Both are prefix sums over block
-/// heights, so a Fenwick tree over the heights answers each in logarithmic time and updates a
-/// height in the same. A running array would answer the first in constant time and the second
+/// heights, so a Fenwick tree over the heights answers each in logarithmic time. Updating a
+/// height re-sums its logarithmically many ancestors from their logarithmically many children,
+/// avoiding edit-history roundoff without walking the prefix. A running array would answer the first in constant time and the second
 /// in logarithmic, but would cost linear time on every measurement, which is the operation
 /// that happens most.
 /// </para>
@@ -28,7 +29,7 @@ namespace VellumText.Avalonia;
 /// and linear in the document on the operation that happens most. Instead there are two trees
 /// over the same indices: measured heights, and the number of unmeasured blocks. A prefix sum is
 /// then <c>measured + unmeasured × estimate</c>, so the estimate moving costs nothing at all and
-/// a measurement costs one logarithmic update to each tree.
+/// a measurement touches only the changed height's ancestors and their child nodes.
 /// </para>
 /// </remarks>
 internal sealed class BlockHeightIndex
@@ -183,7 +184,7 @@ internal sealed class BlockHeightIndex
         _sample[index] = sample;
 
         // No rewrite of the other blocks. They never held the estimate, so the estimate moving
-        // is already reflected everywhere it is used - which is what makes this logarithmic
+        // is already reflected everywhere it is used - which is what makes this indexed
         // rather than linear in the document.
     }
 

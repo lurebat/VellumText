@@ -61,9 +61,11 @@ public class TableVirtualizationTests
 
         for (var y = top; y < top + 250; y += 5)
         {
+            var windowY = EquivalentEdgePoint(whole, windowed, y);
+
             for (var x = 2.0; x < Width; x += 37)
             {
-                Assert.True(whole.HitTest(new Point(x, y)) == windowed.HitTest(new Point(x, y)), $"hit at {x}, {y}");
+                Assert.True(whole.HitTest(new Point(x, y)) == windowed.HitTest(new Point(x, windowY)), $"hit at {x}, {y}");
             }
         }
 
@@ -154,6 +156,31 @@ public class TableVirtualizationTests
         Assert.Equal(expected.Y, actual.Y, 8);
         Assert.Equal(expected.Width, actual.Width);
         Assert.Equal(expected.Height, actual.Height, 8);
+    }
+
+    private static double EquivalentEdgePoint(TableBlockView whole, TableBlockView windowed, double y)
+    {
+        var row = whole.RowAnchor(y).Row;
+
+        // At an edge, compare the same side of each layout's boundary rather than letting
+        // permitted summation roundoff put the same raw double on opposite sides.
+        foreach (var edge in new[] { row, row + 1 })
+        {
+            var from = whole.RowTopOf(edge);
+
+            if (Math.Abs(y - from) > 1e-8)
+            {
+                continue;
+            }
+
+            var to = windowed.RowTopOf(edge);
+
+            Assert.InRange(Math.Abs(to - from), 0, 1e-8);
+
+            return y < from ? Math.BitDecrement(to) : y > from ? Math.BitIncrement(to) : to;
+        }
+
+        return y;
     }
 
     [AvaloniaFact]
