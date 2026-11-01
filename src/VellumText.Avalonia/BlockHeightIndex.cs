@@ -33,10 +33,7 @@ namespace VellumText.Avalonia;
 /// </remarks>
 internal sealed class BlockHeightIndex
 {
-    // One longer than the heights: a Fenwick tree is indexed from one, and the empty index still
-    // has its root slot.
-    private double[] _tree = new double[1];
-    private int[] _pending = new int[1];
+    private readonly HeightPrefixIndex _prefix = new();
     private double[] _height = [];
     private double[] _sample = [];
     private bool[] _measured = [];
@@ -127,41 +124,7 @@ internal sealed class BlockHeightIndex
             throw new InvalidOperationException("An empty index covers no position.");
         }
 
-        if (!(y > 0))
-        {
-            return 0;
-        }
-
-        // Fenwick descent: walk the tree from its highest power of two down, taking a branch
-        // whenever the prefix sum there still fits under y. What is left is the count of whole
-        // blocks that end at or before y, which is the index of the one covering it.
-        //
-        // Both trees are descended together, because a node's real contribution is its measured
-        // height plus its unmeasured blocks at the current estimate. They have identical shape,
-        // so this is one descent reading two arrays rather than two descents.
-        var index = 0;
-        var remaining = y;
-        var estimate = Estimate;
-
-        for (var step = HighestPowerOfTwo(_count + 1); step > 0; step >>= 1)
-        {
-            var next = index + step;
-
-            if (next > _count)
-            {
-                continue;
-            }
-
-            var covered = _tree[next] + (_pending[next] * estimate);
-
-            if (covered <= remaining)
-            {
-                index = next;
-                remaining -= covered;
-            }
-        }
-
-        return Math.Min(index, _count - 1);
+        return _prefix.IndexAt(y, Estimate);
     }
 
     /// <summary>
@@ -210,16 +173,10 @@ internal sealed class BlockHeightIndex
         if (_measured[index])
         {
             _estimate.Remove(_sample[index]);
-            AddMeasured(index, height - _height[index]);
         }
-        else
-        {
-            _measured[index] = true;
 
-            // The block stops being counted as unmeasured and starts contributing its height.
-            AddPending(index, -1);
-            AddMeasured(index, height);
-        }
+        _prefix.SetHeight(index, _measured[index] ? _height[index] : double.NaN, height);
+        _measured[index] = true;
 
         _estimate.Add(sample);
         _height[index] = height;
@@ -351,79 +308,17 @@ internal sealed class BlockHeightIndex
         _height = heights;
         _sample = samples;
         _measured = measured;
-        _tree = new double[capacity + 1];
-        _pending = new int[capacity + 1];
     }
 
     /// <summary>Builds both trees from the first <see cref="Count"/> heights.</summary>
-    private void RebuildTree()
-    {
-        Array.Clear(_tree, 0, _count + 1);
-        Array.Clear(_pending, 0, _count + 1);
-
-        // Building in place: each node adds itself to its parent, which is linear rather than
-        // the n log n of inserting one at a time. A block contributes to exactly one of the two
-        // trees - its height if it has been measured, otherwise a count of one.
-        for (var i = 0; i < _count; i++)
-        {
-            if (_measured[i])
-            {
-                _tree[i + 1] += _height[i];
-            }
-            else
-            {
-                _pending[i + 1] += 1;
-            }
-
-            var parent = i + 1 + ((i + 1) & -(i + 1));
-
-            if (parent <= _count)
-            {
-                _tree[parent] += _tree[i + 1];
-                _pending[parent] += _pending[i + 1];
-            }
-        }
-    }
-
-    private void AddMeasured(int index, double delta)
-    {
-        if (delta == 0)
-        {
-            return;
-        }
-
-        for (var i = index + 1; i <= _count; i += i & -i)
-        {
-            _tree[i] += delta;
-        }
-    }
-
-    private void AddPending(int index, int delta)
-    {
-        for (var i = index + 1; i <= _count; i += i & -i)
-        {
-            _pending[i] += delta;
-        }
-    }
+    private void RebuildTree() => _prefix.Rebuild(_height.AsSpan(0, _count), _measured.AsSpan(0, _count));
 
     /// <summary>The height of the first <paramref name="count"/> blocks.</summary>
     /// <remarks>
     /// Measured heights are summed; unmeasured blocks are counted and priced at the current
     /// estimate. Keeping the two apart is what lets the estimate move without touching anything.
     /// </remarks>
-    private double SumTo(int count)
-    {
-        var sum = 0d;
-        var unmeasured = 0;
-
-        for (var i = count; i > 0; i -= i & -i)
-        {
-            sum += _tree[i];
-            unmeasured += _pending[i];
-        }
-
-        return sum + (unmeasured * Estimate);
-    }
+    private double SumTo(int count) => _prefix.OffsetOf(count, Estimate);
 
     private void CheckIndex(int index)
     {
@@ -433,15 +328,4 @@ internal sealed class BlockHeightIndex
         }
     }
 
-    private static int HighestPowerOfTwo(int value)
-    {
-        var power = 1;
-
-        while (power << 1 < value)
-        {
-            power <<= 1;
-        }
-
-        return value <= 1 ? 0 : power;
-    }
 }

@@ -57,7 +57,7 @@ public class NestedTableVirtualizationTests
                     AssertLineAt(view, text, into, y);
                 }
 
-                WorkCounters.TableRowPrefixSteps = 0;
+                WorkCounters.HeightPrefixSteps = 0;
 
                 for (var page = 0; page < 20; page++)
                 {
@@ -65,7 +65,7 @@ public class NestedTableVirtualizationTests
                     Layout(window);
                 }
 
-                var steps = WorkCounters.TableRowPrefixSteps;
+                var steps = WorkCounters.HeightPrefixSteps;
 
                 AssertScreenLaidOut(view);
                 AssertNoRepairs();

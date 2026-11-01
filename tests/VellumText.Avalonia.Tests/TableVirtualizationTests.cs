@@ -46,7 +46,8 @@ public class TableVirtualizationTests
         windowed.Measure(Width);
 
         Assert.InRange(windowed.RealizedRows, 10, 40);
-        Assert.Equal(whole.Size, windowed.Size);
+        Assert.Equal(whole.Size.Width, windowed.Size.Width);
+        Assert.Equal(whole.Size.Height, windowed.Size.Height, 8);
 
         var visible = new Rect(0, top, Width, 250);
 
@@ -55,7 +56,7 @@ public class TableVirtualizationTests
         // Positions in the rows the window holds, and in the spanning cell above its top.
         for (var p = PositionIn(table, 199, 0); p < PositionIn(table, 215, 0); p++)
         {
-            Assert.True(whole.GetCaretRect(p) == windowed.GetCaretRect(p), $"caret at {p}");
+            AssertSameGeometry(whole.GetCaretRect(p), windowed.GetCaretRect(p));
         }
 
         for (var y = top; y < top + 250; y += 5)
@@ -101,9 +102,58 @@ public class TableVirtualizationTests
         var far = PositionIn(table, 350, 2);
 
         Assert.True(before < 20);
-        Assert.Equal(whole.GetCaretRect(far), windowed.GetCaretRect(far));
-        Assert.Equal(whole.ParagraphAt(far)!.Value.Origin, windowed.ParagraphAt(far)!.Value.Origin);
+        AssertSameGeometry(whole.GetCaretRect(far), windowed.GetCaretRect(far));
+        Assert.Equal(whole.ParagraphAt(far)!.Value.Origin.X, windowed.ParagraphAt(far)!.Value.Origin.X);
+        Assert.Equal(whole.ParagraphAt(far)!.Value.Origin.Y, windowed.ParagraphAt(far)!.Value.Origin.Y, 8);
         Assert.True(windowed.RealizedRows > before);
+    }
+
+    /// <summary>
+    /// Geometry may differ in the last bits when sums are grouped, but a row's exact top must
+    /// still name that row, and the immediately preceding double must name its predecessor.
+    /// </summary>
+    [AvaloniaFact]
+    public void ExactRowBoundariesKeepTheirHalfOpenMeaningAfterMeasurementAndResize()
+    {
+        var table = Uniform(400, span: (200, 10));
+        var view = new TableBlockView(table, Create, Brushes.Gray);
+
+        view.SetWindow(0, 0, 200);
+        view.Measure(Width);
+        Check();
+
+        view.SetWindow(view.RowTopOf(205), 50, 250);
+        view.Measure(Width);
+        Check();
+
+        view.Measure(Width - 120);
+        Check();
+
+        view.SetWindow(0, 0, double.PositiveInfinity);
+        view.Measure(Width - 120);
+        Check();
+
+        void Check()
+        {
+            for (var row = 1; row < view.RowCount; row++)
+            {
+                var top = view.RowTopOf(row);
+
+                Assert.Equal((row, 0d), view.RowAnchor(top));
+                Assert.Equal(row - 1, view.RowAnchor(Math.BitDecrement(top)).Row);
+                Assert.Equal(row, view.RowAnchor(Math.BitIncrement(top)).Row);
+            }
+        }
+    }
+
+    // Grouping height prefixes changes roundoff, not geometry. Keep the tolerance far below a
+    // visible DIP; boundary classification above is deliberately exact rather than tolerant.
+    private static void AssertSameGeometry(Rect expected, Rect actual)
+    {
+        Assert.Equal(expected.X, actual.X);
+        Assert.Equal(expected.Y, actual.Y, 8);
+        Assert.Equal(expected.Width, actual.Width);
+        Assert.Equal(expected.Height, actual.Height, 8);
     }
 
     [AvaloniaFact]

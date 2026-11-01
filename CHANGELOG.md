@@ -10,6 +10,11 @@ NuGet; packages are published to a local feed, and
 
 ## [Unreleased]
 
+- Nested-table scrolling keeps measured row-height prefixes indexed rather than rebuilding
+  unrelated outer rows when the inner table learns more of its height, including after resizing
+  around an anchor inside the inner table. Row-boundary comparisons and height sampling are
+  unchanged.
+
 These changes ship as 0.8.0 (`VersionPrefix` is set; nothing is published until
 the release is made). Importing became asynchronous, which breaks every caller
 and implementer of an importer, and the public API was trimmed to what 1.0 will

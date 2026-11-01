@@ -31,9 +31,9 @@ namespace VellumText.Avalonia;
 /// the row — and a row nobody has measured is priced at an estimate: the mean of the rows that
 /// have been, as <see cref="BlockHeightIndex"/> does for blocks. Rows are realized and measured in
 /// <em>bands</em>, the runs of rows that cells spanning rows tie together, because a spanning cell
-/// settles its height against every row it covers. Row tops are prefix sums kept in an array and
-/// recomputed from the first row whose height moved, in order, so a table every row of which has
-/// been measured is laid out with exactly the arithmetic it always was.
+/// settles its height against every row it covers. Row tops use the same measured-height and
+/// unmeasured-count prefix index as the presenter, so learning more of a table inside a cell
+/// changes the estimate without walking unrelated outer rows.
 /// </para>
 /// <para>
 /// Column widths follow the table when it states them and are divided evenly when it does not.
@@ -75,9 +75,7 @@ internal sealed partial class TableBlockView : BlockView
     private double[] _rowSamples = [];
     private double _sampleSum;
     private int _unmeasuredBands;
-    private double[] _rowEdges = [0];
-    private int _edgesFrom;
-    private double _edgesEstimate = double.NaN;
+    private readonly HeightPrefixIndex _rowPrefix = new();
     private readonly HeightEstimate _estimate = new(SeedEstimate);
     private int _version;
     private int _remapPrefix = int.MaxValue;
@@ -204,7 +202,6 @@ internal sealed partial class TableBlockView : BlockView
 
         _rowHeights = new double[rows.Length];
         _rowSamples = new double[rows.Length];
-        _rowEdges = new double[rows.Length + 1];
         ForgetHeights();
 
         // The rows the edit did not touch, from each end.
@@ -1007,7 +1004,7 @@ internal sealed partial class TableBlockView : BlockView
         RowsUnlaid();
         _changes++;
         _estimate.Restart();
-        _edgesFrom = 0;
+        _rowPrefix.Reset(_rows.Length);
     }
 
     /// <summary>
@@ -1270,10 +1267,7 @@ internal sealed partial class TableBlockView : BlockView
         _rowHeights[row] = height;
         _changes++;
 
-        if (!was.Equals(height))
-        {
-            _edgesFrom = Math.Min(_edgesFrom, row);
-        }
+        _rowPrefix.SetHeight(row, was, height);
     }
 
     /// <summary>How many times <see cref="Update"/> has changed the table, for <see cref="RowAfterUpdate"/>.</summary>
@@ -1314,38 +1308,11 @@ internal sealed partial class TableBlockView : BlockView
     }
 
     /// <summary>The distance from the top of the table to the top of a row; the row count gives the height.</summary>
-    private double RowTop(int row)
-    {
-        var estimate = Estimate;
-
-        // Every unmeasured row is priced at the estimate, so a new estimate moves every row
-        // below the first of them.
-        if (!estimate.Equals(_edgesEstimate))
-        {
-            _edgesEstimate = estimate;
-            _edgesFrom = 0;
-        }
-
-        // Recomputed in order from the first row whose height moved, so the sums are the ones a
-        // single pass over the heights gives.
-        for (var r = _edgesFrom; r < _rows.Length; r++)
-        {
-            WorkCounters.TableRowPrefixSteps++;
-            var height = _rowHeights[r];
-
-            _rowEdges[r + 1] = _rowEdges[r] + (double.IsNaN(height) ? estimate : height);
-        }
-
-        _edgesFrom = int.MaxValue;
-
-        return _rowEdges[row];
-    }
+    private double RowTop(int row) => _rowPrefix.OffsetOf(row, Estimate);
 
     /// <summary>The row covering a vertical position, clamped to the table.</summary>
     private int RowAtY(double y)
     {
-        RowTop(0);
-
         var low = 0;
         var high = _rows.Length - 1;
 
@@ -1353,7 +1320,7 @@ internal sealed partial class TableBlockView : BlockView
         {
             var middle = low + ((high - low + 1) / 2);
 
-            if (_rowEdges[middle] <= y)
+            if (RowTop(middle) <= y)
             {
                 low = middle;
             }
@@ -1807,8 +1774,6 @@ internal sealed partial class TableBlockView : BlockView
 
     private (int First, int Last) RowsMeeting(double top, double bottom)
     {
-        RowTop(0);
-
         // The first row ending below the top of the area.
         var low = 0;
         var high = _rows.Length;
@@ -1817,7 +1782,7 @@ internal sealed partial class TableBlockView : BlockView
         {
             var middle = low + ((high - low) / 2);
 
-            if (_rowEdges[middle + 1] > top)
+            if (RowTop(middle + 1) > top)
             {
                 high = middle;
             }
@@ -1837,7 +1802,7 @@ internal sealed partial class TableBlockView : BlockView
         {
             var middle = low + ((high - low + 1) / 2);
 
-            if (_rowEdges[middle] < bottom)
+            if (RowTop(middle) < bottom)
             {
                 low = middle;
             }
@@ -1860,8 +1825,6 @@ internal sealed partial class TableBlockView : BlockView
     /// </remarks>
     private (int First, int Last) RowsTouching(double top, double bottom)
     {
-        RowTop(0);
-
         var low = 0;
         var high = _rows.Length;
 
@@ -1869,7 +1832,7 @@ internal sealed partial class TableBlockView : BlockView
         {
             var middle = low + ((high - low) / 2);
 
-            if (_rowEdges[middle + 1] >= top)
+            if (RowTop(middle + 1) >= top)
             {
                 high = middle;
             }
@@ -1888,7 +1851,7 @@ internal sealed partial class TableBlockView : BlockView
         {
             var middle = low + ((high - low + 1) / 2);
 
-            if (_rowEdges[middle] <= bottom)
+            if (RowTop(middle) <= bottom)
             {
                 low = middle;
             }
