@@ -1330,6 +1330,7 @@ internal sealed partial class TableBlockView : BlockView
         // single pass over the heights gives.
         for (var r = _edgesFrom; r < _rows.Length; r++)
         {
+            WorkCounters.TableRowPrefixSteps++;
             var height = _rowHeights[r];
 
             _rowEdges[r + 1] = _rowEdges[r] + (double.IsNaN(height) ? estimate : height);

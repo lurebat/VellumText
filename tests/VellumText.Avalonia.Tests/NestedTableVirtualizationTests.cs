@@ -25,6 +25,59 @@ public class NestedTableVirtualizationTests
 
     // ---- bounded work -------------------------------------------------------------------------
 
+    /// <summary>
+    /// Learning more of a fixed-length inner table must not rebuild unrelated outer rows' height
+    /// prefixes on each page, including after a resize held inside the inner table.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ScrollingInsideANestedTableDoesNotWalkUnrelatedOuterRowPrefixes(bool resize)
+    {
+        var work = Growth.Measure(
+            [500, 2_000, 8_000],
+            n =>
+            {
+                var doc = Nested(1, Uniform(1_000), outerRows: n, hostRow: 10);
+                var (window, view) = Shown(doc);
+
+                view.MoveTo(TextAt(doc, "r200c0"), extend: false);
+                Layout(window);
+                Place(window, view);
+
+                if (resize)
+                {
+                    var top = view.PositionAt(new Point(20, 2));
+                    var text = Paragraph(doc, top);
+                    var into = top - TextAt(doc, text);
+                    var y = ScreenTop(view, top);
+
+                    window.Width = Width - 120;
+                    Layout(window);
+                    AssertLineAt(view, text, into, y);
+                }
+
+                WorkCounters.TableRowPrefixSteps = 0;
+
+                for (var page = 0; page < 20; page++)
+                {
+                    view.Offset += new Vector(0, Height);
+                    Layout(window);
+                }
+
+                var steps = WorkCounters.TableRowPrefixSteps;
+
+                AssertScreenLaidOut(view);
+                AssertNoRepairs();
+                AssertTruthOnScreenIsLaidOut(view, GeometryTransactionTests.FullyLaidOut(doc, window.Width));
+                window.Close();
+
+                return steps;
+            });
+
+        Growth.AssertFlat(work, $"height-prefix work scrolling a fixed inner table (resize: {resize})");
+    }
+
     /// <summary>Laying out the top of a long table in a cell measures what is on screen, however long it is.</summary>
     [AvaloniaTheory]
     [InlineData(1)]

@@ -83,6 +83,10 @@ internal static class WorkCounters
     [ThreadStatic]
     internal static long TableRowsChecked;
 
+    /// <summary>Rows or index nodes visited to update or read a table's height prefixes.</summary>
+    [ThreadStatic]
+    internal static long TableRowPrefixSteps;
+
     /// <summary>Table cells a table view has walked to build or update their views.</summary>
     [ThreadStatic]
     internal static long TableCellsBuilt;
