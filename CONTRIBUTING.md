@@ -160,7 +160,8 @@ build, so what ships is what was tested. Downloaded hashes and source/version
 provenance are checked again before the irreversible push. The GitHub release
 includes these same packages, symbols and provenance.
 
-Starting with 1.0, changes to the shipped public API follow semantic versioning.
+The 0.9 release remains pre-1.0: the recorded shipped API is a release baseline,
+not a promise that the public API will remain unchanged before 1.0.
 
 ## Reporting a bug
 

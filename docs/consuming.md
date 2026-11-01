@@ -1,17 +1,17 @@
 # Consuming VellumText
 
-Use the same exact version of every VellumText package. For the stable 1.0 API:
+Use the same exact version of every VellumText package. For the pre-1.0 0.9 release:
 
 ```xml
-<PackageReference Include="VellumText.Avalonia" Version="1.0.0" />
-<PackageReference Include="VellumText.Interop.Html" Version="1.0.0" />
+<PackageReference Include="VellumText.Avalonia" Version="0.9.0" />
+<PackageReference Include="VellumText.Interop.Html" Version="0.9.0" />
 ```
 
 Download the `.nupkg` assets from the
-[GitHub release](https://github.com/lurebat/VellumText/releases/tag/v1.0.0) into
+[GitHub release](https://github.com/lurebat/VellumText/releases/tag/v0.9.0) into
 a local feed, or commit those immutable assets into the consuming repository.
 The release also carries symbols, `SHA256SUMS` and exact-source provenance.
-VellumText 1.0.0 is distributed through GitHub release assets, not nuget.org.
+VellumText 0.9.0 is distributed through GitHub release assets, not nuget.org.
 
 ## Local validation feeds
 
@@ -39,7 +39,7 @@ dotnet pack -c Release -o G:\packages\VellumText-local
 Six packages plus symbols. The folder is the feed; nothing else is needed.
 
 Give every unpublished build a unique prerelease identity, for example
-`dotnet pack -c Release -p:Version=1.0.1-local.gabcdef1 -o G:\packages\VellumText-local`.
+`dotnet pack -c Release -p:Version=0.9.1-local.gabcdef1 -o G:\packages\VellumText-local`.
 NuGet caches by id and version: never replace already-delivered bytes at the same identity,
 and never label a private validation build as a published stable release.
 
