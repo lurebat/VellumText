@@ -1,8 +1,7 @@
 # Contributing to VellumText
 
-Thanks for looking. VellumText is a rich text editor control for Avalonia, and it
-is early — the model and the editing surface exist, the interop packages are
-being built out.
+Thanks for looking. VellumText is a rich text editor control for Avalonia, with
+a dependency-free model and separate interchange packages.
 
 ## Getting set up
 
@@ -138,20 +137,28 @@ To release:
    on, removing one of them is a breaking change the analyzer reports.
 4. Commit, then tag: `git tag vx.y.z && git push origin vx.y.z`.
 5. The `ci` job runs the whole CI workflow — Linux, Windows and macOS — on the
-   tagged commit, and the `verify` job builds, tests and packs. The `publish`
-   job needs both, so a commit that fails on any platform cannot be published.
-   It then waits on the `nuget` environment, which should have a required
-   reviewer configured — that approval is the only real protection against
-   publishing the wrong thing.
-6. On approval it pushes to NuGet and opens a GitHub release whose notes are the
-   changelog section for that version.
+   tagged commit, and the `verify` job builds, tests and packs using
+   `.github/scripts/release-packages.sh`. Its compiler-input profile omits the
+   branch, maps source paths and covers Avalonia's post-compiler XAML documents
+   with exact-commit SourceLink. `tools/PackageInspector` checks all six package
+   and symbol pairs against the tested DLL/PDB bytes and records SHA256 hashes.
+   Both publication jobs need these gates, so a commit that fails on any platform
+   cannot be published.
+6. The `github-release` job publishes the package and symbol assets, hashes and
+   provenance with the changelog section as its notes. It does not require NuGet
+   credentials or a `nuget` environment approval.
+7. NuGet publication is separately opt-in: set the repository variable
+   `NUGET_PUBLISH_ENABLED=true` only after configuring the `NUGET_API_KEY` secret
+   and reviewer protection on the `nuget` environment. That job still waits for
+   environment approval and performs the immutable-version checks. Without a key
+   it skips NuGet publication; GitHub assets are unaffected.
 
-Publishing needs a `NUGET_API_KEY` secret on the `nuget` environment. The
-packages that get pushed are the artifacts the `verify` job built, not a second
-build, so what ships is what was tested.
+The packages that get published are the artifacts the `verify` job built, not a second
+build, so what ships is what was tested. Downloaded hashes and source/version
+provenance are checked again before the irreversible push. The GitHub release
+includes these same packages, symbols and provenance.
 
-VellumText is pre-1.0, so the public API is still allowed to move; once 1.0 is out,
-semantic versioning applies in the usual way.
+Starting with 1.0, changes to the shipped public API follow semantic versioning.
 
 ## Reporting a bug
 

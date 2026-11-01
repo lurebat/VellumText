@@ -1,11 +1,1 @@
 #nullable enable
-const VellumText.Interop.Json.JsonFormat.SchemaVersion = 1 -> int
-static readonly VellumText.Interop.Json.JsonFormat.Instance -> VellumText.Interop.Json.JsonFormat!
-VellumText.Interop.Json.JsonFormat
-VellumText.Interop.Json.JsonFormat.Export(System.IO.Stream! destination, VellumText.DocumentNode! doc) -> void
-VellumText.Interop.Json.JsonFormat.Export(VellumText.DocumentNode! doc) -> string!
-VellumText.Interop.Json.JsonFormat.Format.get -> string!
-VellumText.Interop.Json.JsonFormat.ImportAsync(string! text, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
-VellumText.Interop.Json.JsonFormat.ImportAsync(System.IO.Stream! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<VellumText.ImportResult!>!
-VellumText.Interop.Json.JsonFormat.MediaType.get -> string!
-VellumText.Interop.Json.JsonFormat.TextEncoding.get -> System.Text.Encoding?

@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <PublishRepositoryUrl>false</PublishRepositoryUrl>
+    <PathMap>$(PackageArtifactsRoot)=/_/build/,$(PackageSourceRoot)=/_/</PathMap>
+  </PropertyGroup>
+  <!-- Avalonia emits XAML document paths after Roslyn, without applying PathMap.
+       Cover both source spellings in the compiler input, not by editing a PDB. -->
+  <Target Name="ReleaseSourceLinkInput" AfterTargets="_GenerateSourceLinkFile">
+    <Error Condition="'$(PackageSourceRoot)' == '' Or '$(PackageArtifactsRoot)' == '' Or !Exists('$(PackageSourceLinkFile)')"
+           Text="Release packaging requires source/artifact roots and an exact-commit SourceLink input." />
+    <Copy SourceFiles="$(PackageSourceLinkFile)" DestinationFiles="$(_SourceLinkFilePath)" />
+  </Target>
+</Project>

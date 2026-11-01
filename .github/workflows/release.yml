@@ -83,31 +83,36 @@ jobs:
             exit 1
           fi
 
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build --no-restore -c Release
-
-      - name: Test
-        run: dotnet test --no-build -c Release
-
-      - name: Pack
-        run: dotnet pack --no-build -c Release -o artifacts
+      - name: Build, test and inspect package bytes
+        shell: bash
+        run: bash .github/scripts/release-packages.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: |
-            artifacts/*.nupkg
-            artifacts/*.snupkg
+            /tmp/vellumtext-packages/packages/*.nupkg
+            /tmp/vellumtext-packages/packages/*.snupkg
+            /tmp/vellumtext-packages/package-provenance.json
+            /tmp/vellumtext-packages/SHA256SUMS
           if-no-files-found: error
+
+      - name: Upload package-build test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-release-packages
+          path: /tmp/vellumtext-packages/test-results/*.trx
+          if-no-files-found: ignore
 
   # Split out so that publishing sits behind an environment. Give the `nuget`
   # environment a required reviewer and every release needs a human to press
   # the button, which is the only protection that actually exists against
   # publishing the wrong thing.
   publish:
+    # NuGet is opt-in; GitHub release assets remain available without credentials
+    # or a NuGet environment approval. Enable only after configuring its API key.
+    if: vars.NUGET_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     needs: [ci, verify]
     environment: nuget
@@ -121,6 +126,18 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+
+      - name: Check NuGet credentials are configured
+        id: credentials
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -n "${NUGET_API_KEY:-}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No NuGet API key is configured; packages are available from the GitHub release."
+          fi
 
       # global.json holds the SDK to one feature band (10.0.4xx) and takes its security patches.
       # A new band can bring new analyzers, which fail a warnings-as-errors build with no commit
@@ -143,6 +160,17 @@ jobs:
           name: packages
           path: artifacts
 
+      - name: Verify downloaded package identity and hashes
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum --check SHA256SUMS
+          jq -e --arg version "$VERSION" --arg commit "$GITHUB_SHA" \
+            '.passed == true and .version == $version and .commit == $commit and
+             (.packages | length) == 6 and (.hashes | length) == 12' package-provenance.json
+
       # A published NuGet version can never be replaced or withdrawn, so a
       # version that already exists is a stop, not something to skip past.
       # --skip-duplicate would accept it silently and then the GitHub release
@@ -150,12 +178,13 @@ jobs:
       # disagreeing about what this version is - exactly the divergence the
       # tag check in `verify` exists to prevent.
       - name: Check these versions are not already on NuGet
+        if: steps.credentials.outputs.configured == 'true'
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
           fail=0
-          for pkg in artifacts/*.nupkg; do
+          for pkg in artifacts/packages/*.nupkg; do
             id=$(basename "$pkg" ".$VERSION.nupkg")
             lower=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
             # `|| code=000` rather than `|| echo 000`: on a transport failure curl
@@ -185,6 +214,7 @@ jobs:
           exit $fail
 
       - name: Push to NuGet
+        if: steps.credentials.outputs.configured == 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
@@ -196,9 +226,33 @@ jobs:
           # No --skip-duplicate: the check above already established that none
           # of these versions exist, so a duplicate here means something
           # changed underneath the release and is worth stopping for.
-          dotnet nuget push "artifacts/*.nupkg" \
+          dotnet nuget push "artifacts/packages/*.nupkg" \
             --source https://api.nuget.org/v3/index.json \
             --api-key "$NUGET_API_KEY"
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs: [ci, verify]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts
+
+      - name: Verify downloaded package identity and hashes
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum --check SHA256SUMS
+          jq -e --arg version "$VERSION" --arg commit "$GITHUB_SHA" \
+            '.passed == true and .version == $version and .commit == $commit and
+             (.packages | length) == 6 and (.hashes | length) == 12' package-provenance.json
 
       - name: Create the GitHub release
         env:
@@ -215,6 +269,8 @@ jobs:
           awk -v ver="$VERSION" \
             '$0 ~ "^## \\["ver"\\]"{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > "$notes"
           gh release create "$TAG" \
+            --verify-tag \
             --title "VellumText $VERSION" \
             --notes-file "$notes" \
-            artifacts/*.nupkg artifacts/*.snupkg
+            artifacts/packages/*.nupkg artifacts/packages/*.snupkg \
+            artifacts/package-provenance.json artifacts/SHA256SUMS

@@ -158,13 +158,24 @@ jobs:
 
       # Proves the packages are packable on every change rather than only at
       # release, when a missing bit of metadata is most expensive to discover.
-      - name: Pack
-        run: dotnet pack -c Release -o artifacts
+      - name: Build, test and inspect package bytes
+        shell: bash
+        run: bash .github/scripts/release-packages.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: |
-            artifacts/*.nupkg
-            artifacts/*.snupkg
+            /tmp/vellumtext-packages/packages/*.nupkg
+            /tmp/vellumtext-packages/packages/*.snupkg
+            /tmp/vellumtext-packages/package-provenance.json
+            /tmp/vellumtext-packages/SHA256SUMS
           if-no-files-found: error
+
+      - name: Upload package-build test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-packages
+          path: /tmp/vellumtext-packages/test-results/*.trx
+          if-no-files-found: ignore

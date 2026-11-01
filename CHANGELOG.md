@@ -4,21 +4,26 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-VellumText is pre-1.0, so the public API is still allowed to move. Nothing is on
-NuGet; packages are published to a local feed, and
-[`docs/consuming.md`](docs/consuming.md) explains how to reference them.
+Starting with 1.0, the recorded public API follows semantic versioning.
+[`docs/consuming.md`](docs/consuming.md) explains how to reference published
+packages and how to keep unpublished validation builds distinct.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-01
+
+The first stable release freezes the selected public API of all six packages:
+Core, Avalonia, HTML, RTF, Markdown and JSON. It includes the asynchronous import
+API, dependency updates, editor-feel options and scaling fixes below.
 
 - Nested-table scrolling keeps measured row-height prefixes indexed rather than rebuilding
   unrelated outer rows when the inner table learns more of its height, including after resizing
   around an anchor inside the inner table. Row-boundary comparisons and height sampling are
   unchanged.
 
-These changes ship as 0.8.0 (`VersionPrefix` is set; nothing is published until
-the release is made). Importing became asynchronous, which breaks every caller
-and implementer of an importer, and the public API was trimmed to what 1.0 will
-freeze — see [Migrating](#migrating), [Breaking](#breaking) and
+Importing became asynchronous during the pre-release API transition, which breaks every caller
+and implementer of an older synchronous importer, and the public API was trimmed to the 1.0
+contract — see [Migrating](#migrating), [Breaking](#breaking) and
 [migrating to 0.8](docs/migration-0.8.md).
 
 ### Migrating

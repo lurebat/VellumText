@@ -2,7 +2,11 @@
 
 A free, MIT-licensed **rich text editor control for [Avalonia UI](https://avaloniaui.net)**.
 
-> **Status: in development, pre-release.** The document model and the editing surface work and are covered by tests; the interop packages are being built out. Nothing is published to NuGet yet. See the [user guide](docs/guide.md) to use it, [`docs/consuming.md`](docs/consuming.md) to reference it before it is published, and [`docs/architecture.md`](docs/architecture.md) for the design and implementation plan.
+> **VellumText 1.0** provides an Avalonia rich-text editor, a dependency-free document model, and HTML, RTF, Markdown and JSON interchange packages. The recorded public API follows semantic versioning. See the [user guide](docs/guide.md), [package consumption guide](docs/consuming.md), and [architecture](docs/architecture.md).
+
+Install from the `.nupkg` assets in the
+[1.0.0 GitHub release](https://github.com/lurebat/VellumText/releases/tag/v1.0.0),
+using a local NuGet feed. This release is not distributed through nuget.org.
 
 Avalonia's own [Rich Text Editor](https://avaloniaui.net/rich-text-editor) is a commercial Accelerate component. The open-source alternatives are either a *code* editor ([AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit)) or unmaintained. VellumText aims to be a genuinely good, permissively-licensed WYSIWYG editor built on Avalonia's own text stack.
 

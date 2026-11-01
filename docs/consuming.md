@@ -1,6 +1,21 @@
-# Consuming VellumText from a local feed
+# Consuming VellumText
 
-The supported way to consume VellumText is a **local package feed** — a folder of `.nupkg` files
+Use the same exact version of every VellumText package. For the stable 1.0 API:
+
+```xml
+<PackageReference Include="VellumText.Avalonia" Version="1.0.0" />
+<PackageReference Include="VellumText.Interop.Html" Version="1.0.0" />
+```
+
+Download the `.nupkg` assets from the
+[GitHub release](https://github.com/lurebat/VellumText/releases/tag/v1.0.0) into
+a local feed, or commit those immutable assets into the consuming repository.
+The release also carries symbols, `SHA256SUMS` and exact-source provenance.
+VellumText 1.0.0 is distributed through GitHub release assets, not nuget.org.
+
+## Local validation feeds
+
+Unpublished builds can be consumed from a **local package feed** — a folder of `.nupkg` files
 that NuGet treats as a source. This gives you versioned, immutable packages without forking the
 source, and switching to a hosted feed later changes one line.
 
@@ -10,10 +25,10 @@ To find out whether a version is on nuget.org rather than assuming either way:
 Invoke-WebRequest https://api.nuget.org/v3-flatcontainer/vellumtext.core/index.json
 ```
 
-404 means nothing is published under that id. Publishing is a deliberate, irreversible act — a
+404 means nothing is published under that id. NuGet publishing is a deliberate, irreversible act — a
 version number is consumed permanently, since a package can be unlisted but never withdrawn — so it
-happens on request rather than as part of a release, and `.github/workflows/release.yml` is what
-does it, driven by a `v<version>` tag and an API key the repository owner holds.
+happens only when separately configured in `.github/workflows/release.yml`, with an API key
+and the protected `nuget` environment. GitHub release assets do not require NuGet access.
 
 ## Packing
 
@@ -23,10 +38,10 @@ dotnet pack -c Release -o G:\packages\VellumText-local
 
 Six packages plus symbols. The folder is the feed; nothing else is needed.
 
-Bump `VersionPrefix` in `Directory.Build.props` before packing if consumers need to tell two builds
-apart — a local feed will happily hold `0.1.0` twice, and NuGet caches by id and version, so
-re-packing the *same* version and expecting a consumer to pick it up will not work. Either bump, or
-clear the consumer's `NUGET_PACKAGES` cache for that id.
+Give every unpublished build a unique prerelease identity, for example
+`dotnet pack -c Release -p:Version=1.0.1-local.gabcdef1 -o G:\packages\VellumText-local`.
+NuGet caches by id and version: never replace already-delivered bytes at the same identity,
+and never label a private validation build as a published stable release.
 
 ## Consuming
 
@@ -71,9 +86,8 @@ versions is never what you want.
 
 ### Two things worth knowing
 
-**1. Map the source anyway, even though the name is now clear.** `VellumText.*` is free and
-unreserved on nuget.org, so nothing will impersonate it — but without a mapping, resolution of a
-package that exists in a local folder *and* could one day exist on a remote feed is a race between
+**1. Map the source when using a local feed.** Without a mapping, resolution of a
+package that exists in a local folder *and* on a remote feed is a race between
 a fast folder and a slow HTTP source. Mapping makes it a rule instead of a race.
 
 > **Why this section used to be a warning.** The project was called `Vellum` until 2026-08-17, and
