@@ -1,0 +1,29 @@
+name: Layout diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  retention:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Build probe
+        run: dotnet build tests/VellumText.LayoutProbe -c Release
+      - name: Compare retention and live views
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rows in 2500 5000 10000; do
+            echo "rows=$rows ordinary heap (without instrumentation)"
+            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" traverse side
+            echo "rows=$rows weak-view diagnostics (heap includes diagnostic references)"
+            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" retention-diagnostics side
+          done

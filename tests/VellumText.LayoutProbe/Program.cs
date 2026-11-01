@@ -67,6 +67,9 @@ public static class Program
             case "traverse":
                 Traverse(depth, rows);
                 break;
+            case "retention-diagnostics":
+                Traverse(depth, rows, diagnostics: true);
+                break;
             default:
                 Console.Error.WriteLine($"unknown scenario '{scenario}'");
 
@@ -155,7 +158,7 @@ public static class Program
         window.Close();
     }
 
-    private static void Traverse(int depth, int rows)
+    private static void Traverse(int depth, int rows, bool diagnostics = false)
     {
         var doc = Document(depth, rows);
 
@@ -167,11 +170,16 @@ public static class Program
         var afterFirst = GC.GetTotalMemory(forceFullCollection: true) - retainedBefore;
         var watch = Stopwatch.StartNew();
         var pages = 0;
+        var observed = new List<WeakReference>();
 
         for (var offset = 0.0; offset < view.Extent.Height - Height; offset += Height)
         {
             view.Offset = new Vector(0, offset);
             Layout(window);
+            if (diagnostics && pages % 100 == 0)
+            {
+                observed.AddRange(RealizedViews(view).Select(item => new WeakReference(item)));
+            }
             pages++;
         }
 
@@ -191,9 +199,61 @@ public static class Program
         Console.Out.WriteLine($"pages={pages}");
         Console.Out.WriteLine($"extentAfterTraverse={(long)view.Extent.Height}");
         Console.Out.WriteLine($"traverseMs={watch.ElapsedMilliseconds}");
+        if (diagnostics)
+        {
+            var reachable = RealizedViews(view).ToHashSet(ReferenceEqualityComparer.Instance);
+            var alive = observed.Select(reference => reference.Target).OfType<object>()
+                .ToHashSet(ReferenceEqualityComparer.Instance);
+            Console.Out.WriteLine($"reachableBlockViews={reachable.Count}");
+            Console.Out.WriteLine($"observedBlockViewsStillAlive={alive.Count}");
+            Console.Out.WriteLine($"evictedBlockViewsStillAlive={alive.Count(item => !reachable.Contains(item))}");
+        }
 
         GC.KeepAlive(window);
         window.Close();
+    }
+
+    private static IEnumerable<object> RealizedViews(object parent)
+    {
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        var blocks = parent.GetType().GetProperty("Blocks", flags)?.GetValue(parent) as System.Collections.IEnumerable;
+        if (blocks is not null)
+        {
+            foreach (var block in blocks)
+            {
+                yield return block;
+                foreach (var nested in RealizedViews(block))
+                {
+                    yield return nested;
+                }
+            }
+        }
+        var rows = parent.GetType().GetField("_rows", flags)?.GetValue(parent) as System.Collections.IEnumerable;
+        if (rows is null)
+        {
+            yield break;
+        }
+        foreach (var row in rows)
+        {
+            if (row.GetType().GetProperty("Cells", flags)?.GetValue(row) is not System.Collections.IEnumerable cells)
+            {
+                continue;
+            }
+            foreach (var cell in cells)
+            {
+                var children = (System.Collections.IEnumerable)cell.GetType().GetProperty("Blocks", flags)!.GetValue(cell)!;
+                foreach (var child in children)
+                {
+                    var block = child.GetType().GetProperty("View", flags)!.GetValue(child)!;
+                    yield return block;
+                    foreach (var nested in RealizedViews(block))
+                    {
+                        yield return nested;
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>A rows × 3 table, nested in a one-row table <paramref name="depth"/> times.</summary>
