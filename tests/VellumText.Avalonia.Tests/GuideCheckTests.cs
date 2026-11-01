@@ -308,17 +308,29 @@ public class GuideCheckTests
 
     private static string RepositoryRoot()
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        // Package qualification runs tested binaries from an out-of-tree artifacts root.
+        var sourceRoot = typeof(GuideCheckTests).Assembly
+            .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
+            .Single(attribute => attribute.Key == "RepositoryRoot").Value!;
 
-        while (directory is not null
-            && !File.Exists(Path.Combine(directory.FullName, "docs", "guide.md")))
+        foreach (var start in new[] { AppContext.BaseDirectory, sourceRoot })
         {
-            directory = directory.Parent;
+            var directory = new DirectoryInfo(start);
+
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "docs", "guide.md")))
+                {
+                    return directory.FullName;
+                }
+
+                directory = directory.Parent;
+            }
         }
 
-        Assert.NotNull(directory);
+        Assert.Fail("Cannot locate docs/guide.md from the test output or working directory.");
 
-        return directory.FullName;
+        throw new InvalidOperationException("The repository guide is required by these tests.");
     }
 
     private static string ReadGuide() =>

@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <!-- Test hosts run from their output folder, including out-of-tree release builds. -->
+    <AssemblyMetadata Include="RepositoryRoot" Value="$([System.IO.Path]::GetFullPath($([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '..', '..'))))" />
   </ItemGroup>
 
   <ItemGroup>
