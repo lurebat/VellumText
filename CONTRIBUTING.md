@@ -147,11 +147,13 @@ To release:
 6. The `github-release` job publishes the package and symbol assets, hashes and
    provenance with the changelog section as its notes. It does not require NuGet
    credentials or a `nuget` environment approval.
-7. NuGet publication is separately opt-in: set the repository variable
+7. A tag push never publishes to NuGet. NuGet publication is separately opt-in: set the repository variable
    `NUGET_PUBLISH_ENABLED=true` only after configuring the `NUGET_API_KEY` secret
    and reviewer protection on the `nuget` environment. That job still waits for
-   environment approval and performs the immutable-version checks. Without a key
-   it skips NuGet publication; GitHub assets are unaffected.
+   environment approval and performs the immutable-version checks. Run Release
+   manually on an existing release tag with `publish_nuget=true` only when that
+   publication is authorized. Without a key it skips NuGet publication; GitHub
+   assets are unaffected.
 
 The packages that get published are the artifacts the `verify` job built, not a second
 build, so what ships is what was tested. Downloaded hashes and source/version

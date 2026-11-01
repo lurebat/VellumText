@@ -9,10 +9,10 @@ if [ -e "$source_root" ] || [ -e "$artifact_root" ]; then
   echo "::error::Release build roots already exist; refusing to mix builds."
   exit 1
 fi
-ln -s "$PWD" "$source_root"
+commit=$(git rev-parse HEAD)
+git worktree add --detach "$source_root" "$commit"
 mkdir "$artifact_root"
 cd "$source_root"
-commit=$(git rev-parse HEAD)
 version=$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)
 test -n "$version"
 jq -n --arg target "https://raw.githubusercontent.com/lurebat/VellumText/$commit/*" \

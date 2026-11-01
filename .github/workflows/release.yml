@@ -7,6 +7,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_nuget:
+        description: "Publish an existing release tag to NuGet through its protected environment"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -112,7 +118,7 @@ jobs:
   publish:
     # NuGet is opt-in; GitHub release assets remain available without credentials
     # or a NuGet environment approval. Enable only after configuring its API key.
-    if: vars.NUGET_PUBLISH_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_nuget && vars.NUGET_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     needs: [ci, verify]
     environment: nuget
@@ -231,6 +237,7 @@ jobs:
             --api-key "$NUGET_API_KEY"
 
   github-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [ci, verify]
     permissions:
