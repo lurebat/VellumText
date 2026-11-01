@@ -20,7 +20,8 @@ namespace VellumText.LayoutProbe;
 /// <para>
 /// Scenarios: <c>profile</c> (the default) times and weighs a first layout, a resize, a keystroke
 /// at the top of the long table, a frame and a jump to its middle row; <c>traverse</c> scrolls
-/// through it a page at a time and reports the heap left after.
+/// through it a page at a time and reports the heap left after; <c>retention</c> also counts
+/// realized rows and checks sampled evicted views through weak references.
 /// </para>
 /// </remarks>
 public static class Program
@@ -39,7 +40,7 @@ public static class Program
     {
         if (args.Length < 2 || !int.TryParse(args[0], out var depth) || !int.TryParse(args[1], out var rows))
         {
-            Console.Error.WriteLine("usage: VellumText.LayoutProbe <depth> <rows> [profile|traverse] [side|hosts]");
+            Console.Error.WriteLine("usage: VellumText.LayoutProbe <depth> <rows> [profile|traverse|retention] [side|hosts]");
 
             return 2;
         }
@@ -67,7 +68,7 @@ public static class Program
             case "traverse":
                 Traverse(depth, rows);
                 break;
-            case "retention-diagnostics":
+            case "retention":
                 Traverse(depth, rows, diagnostics: true);
                 break;
             default:
@@ -214,9 +215,14 @@ public static class Program
         window.Close();
     }
 
+    private static readonly Type TableViewType = typeof(RichTextView).Assembly
+        .GetType("VellumText.Avalonia.TableBlockView", throwOnError: true)!;
+
     private static int RealizedRows(object view) =>
-        view.GetType().GetProperty("RealizedRows", System.Reflection.BindingFlags.Instance |
-            System.Reflection.BindingFlags.NonPublic)?.GetValue(view) is int count ? count : 0;
+        TableViewType.IsInstanceOfType(view)
+            ? (int)TableViewType.GetProperty("RealizedRows", System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!
+            : 0;
 
     private static IEnumerable<object> RealizedViews(object parent)
     {
@@ -234,14 +240,14 @@ public static class Program
                 }
             }
         }
-        var rows = parent.GetType().GetField("_rows", flags)?.GetValue(parent) as System.Collections.IEnumerable;
-        if (rows is null)
+        if (!TableViewType.IsInstanceOfType(parent))
         {
             yield break;
         }
+        var rows = (System.Collections.IEnumerable)TableViewType.GetField("_rows", flags)!.GetValue(parent)!;
         foreach (var row in rows)
         {
-            if (row.GetType().GetProperty("Cells", flags)?.GetValue(row) is not System.Collections.IEnumerable cells)
+            if (row.GetType().GetProperty("Cells", flags)!.GetValue(row) is not System.Collections.IEnumerable cells)
             {
                 continue;
             }

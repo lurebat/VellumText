@@ -97,8 +97,8 @@ public class NestedTableLayoutProbeTests
     }
 
     /// <summary>
-    /// What scrolling through a nested table keeps does not grow with the table: 2,500, 5,000 and
-    /// 10,000 rows keep the same few screenfuls, beyond what a row costs before it is ever laid out.
+    /// Traversing 2,500, 5,000 and 10,000 rows keeps bounded realized rows, and sampled views
+    /// no longer reachable from the presenter are collected.
     /// </summary>
     [Theory]
     [InlineData(1, "")]
@@ -106,20 +106,21 @@ public class NestedTableLayoutProbeTests
     [InlineData(2, "hosts")]
     public void ScrollingThroughLongerNestedTablesKeepsNoMore(int depth, string variant)
     {
-        var runs = new[] { 2_500, 5_000, 10_000 }.Select(rows => Traverse(depth, rows, variant)).ToArray();
+        var runs = new[] { 2_500, 5_000, 10_000 }.Select(rows =>
+            LayoutProbeRunner.Run(Timeout, depth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                rows.ToString(System.Globalization.CultureInfo.InvariantCulture), "retention", variant)).ToArray();
 
         foreach (var run in runs)
         {
             Assert.True(run.ExitCode == 0, run.ToString());
+            // Count owned rows, not total GC heap (which also includes platform/runtime caches).
+            // The hosts variant counts its two-row child tables too; eviction keeps screenfuls,
+            // whereas retaining cells keeps at least 2,500 rows even in the smallest scenario.
+            Assert.True(run.Value("realizedNestedRows") > 0, run.ToString());
+            Assert.True(run.Value("realizedNestedRows") <= 512,
+                $"traversal keeps {run.Value("realizedNestedRows")} realized nested rows\n{run}");
+            Assert.Equal(0, run.Value("evictedBlockViewsStillAlive"));
         }
-
-        // A row nobody has laid out still costs its slots in the table's arrays; that part grows
-        // with the rows from the first layout on, and is taken out.
-        var grown = runs.Select(run => run.Value("retainedAfterTraverseBytes") - run.Value("retainedAfterFirstLayoutBytes")).ToArray();
-
-        Assert.True(
-            grown[2] <= grown[0] + 2_000_000,
-            $"scrolling through kept {string.Join(", ", grown.Select(g => g.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)))} bytes beyond the first layout at 2,500, 5,000 and 10,000 rows\n{runs[2]}");
     }
 
     private static LayoutProbeResult Profile(int depth) =>

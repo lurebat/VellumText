@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
+using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using VellumText.Avalonia;
@@ -101,15 +102,37 @@ public class CaretLayerTests
     public void ASmoothBlinkFadesRatherThanSwitching()
     {
         // VS Code's "smooth": solid for one interval after a move, then a fade out and back.
+        using var clock = new CompositionTime();
         var (window, view) = Shown("hello", style: CaretBlinkStyle.Smooth);
 
         Assert.False(Timer(view).IsEnabled);
 
-        var samples = Sample(window, TimeSpan.FromMilliseconds(1500));
+        var samples = SampleBlinkCycle(window, clock);
 
-        Assert.True(samples[0] > 200, "the caret should be solid as soon as it arrives");
-        Assert.Contains(samples, s => s < 20);
-        Assert.Contains(samples, s => s is > 40 and < 200);
+        AssertSmoothBlink(samples);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(CaretBlinkStyle.System)]
+    [InlineData(CaretBlinkStyle.Solid)]
+    public void TheSmoothBlinkAssertionsRejectSwitchingAndConstantOpacity(CaretBlinkStyle style)
+    {
+        using var clock = new CompositionTime();
+        var (window, view) = Shown("hello", style: style, blink: TimeSpan.FromHours(1));
+
+        var samples = SampleBlinkCycle(
+            window, clock, style == CaretBlinkStyle.System ? view.BlinkTick : null);
+
+        Assert.All(samples, s => Assert.True(s is < 20 or > 200));
+        Assert.True(samples[0] > 200);
+        if (style == CaretBlinkStyle.System)
+        {
+            Assert.True(samples[3] < 20);
+            Assert.True(samples[^1] > 200);
+        }
+
+        var failure = Assert.Throws<Xunit.Sdk.TrueException>(() => AssertSmoothBlink(samples));
+        Assert.Contains("the caret should fade out", failure.Message);
     }
 
     [AvaloniaFact]
@@ -167,17 +190,27 @@ public class CaretLayerTests
         // The compositor holds the opacity a stopped animation last reached. Writing back the value
         // the control already had sent nothing, and a caret switched to Solid while faded out
         // stayed invisible.
+        using var clock = new CompositionTime();
         var (window, view) = Shown("hello", style: CaretBlinkStyle.Smooth);
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-
-        while (Sample(window, TimeSpan.FromMilliseconds(40)).Last() > 20)
-        {
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), "the caret never faded");
-        }
+        Assert.True(Redness(window) > 200);
+        Redness(window);
+        clock.Advance(TimeSpan.FromMilliseconds(850));
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Assert.True(Redness(window) < 20, "the caret should be transparent before stopping the fade");
 
         view.CaretBlink = CaretBlinkStyle.Solid;
 
-        Assert.All(Sample(window, TimeSpan.FromMilliseconds(300)), s => Assert.True(s > 200, $"the caret stayed at {s}"));
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Assert.True(Redness(window) > 200, "stopping a transparent fade should restore opacity immediately");
+        clock.Advance(TimeSpan.FromMilliseconds(300));
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Assert.True(Redness(window) > 200, "the solid caret should stay opaque after the animation would have advanced");
     }
     // ------------------------------------------------------------------ gliding
 
@@ -380,9 +413,83 @@ public class CaretLayerTests
             .GetField("_blink", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .GetValue(view)!;
 
+    private static int[] SampleBlinkCycle(Window window, CompositionTime clock, Action? tick = null)
+    {
+        // Commit the animation at the frozen time before advancing. CaptureRenderedFrame pumps
+        // pending UI/render work; neither it nor ForceRenderTimerTick advances the server clock.
+        Redness(window);
+        var samples = new List<int> { Redness(window) };
+        var previous = 0;
+
+        // A 500 ms delay followed by alternating 500 ms halves: hold, fade, off, fade, on.
+        foreach (var ms in new[] { 550, 700, 850, 1150, 1300, 1450 })
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(ms - previous));
+            previous = ms;
+            if (ms is 850 or 1450)
+            {
+                tick?.Invoke();
+            }
+
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            samples.Add(Redness(window));
+        }
+
+        return samples.ToArray();
+    }
+
+    private static void AssertSmoothBlink(int[] samples)
+    {
+        var seen = string.Join(",", samples);
+        Assert.True(samples[0] > 200, $"the caret should be solid as soon as it arrives: {seen}");
+        Assert.True(samples[1] > 200, $"the beginning of the half-cycle should hold: {seen}");
+        Assert.True(samples[2] is > 40 and < 200, $"the caret should fade out: {seen}");
+        Assert.True(samples[3] < 20, $"the caret should become transparent: {seen}");
+        Assert.True(samples[4] < 20, $"the reverse half-cycle should begin transparent: {seen}");
+        Assert.True(samples[5] is > 40 and < 200, $"the caret should fade back in: {seen}");
+        Assert.True(samples[6] > 200, $"the caret should return to opaque: {seen}");
+    }
+
+    /// <summary>Drives the actual composition animation clock, not the view's glide clock.</summary>
+    private sealed class CompositionTime : IDisposable
+    {
+        private readonly System.Diagnostics.Stopwatch _clock;
+        private readonly System.Reflection.FieldInfo _elapsed;
+
+        public CompositionTime()
+        {
+            // Avalonia exposes no clock injection for composition animations. Its server samples
+            // Clock.Elapsed and stamps animation commits with the same clock. Freeze that clock
+            // rather than replacing animation evaluation or depending on dispatcher scheduling.
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var compositor = typeof(AvaloniaHeadlessPlatform)
+                .GetProperty("Compositor", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(null)!;
+            var server = typeof(Compositor).GetProperty("Server", flags)!.GetValue(compositor)!;
+            _clock = (System.Diagnostics.Stopwatch)server.GetType().GetProperty("Clock")!.GetValue(server)!;
+            _elapsed = typeof(System.Diagnostics.Stopwatch).GetField("_elapsed", flags)!;
+            Assert.True(_clock.IsRunning);
+            _clock.Stop();
+        }
+
+        public void Advance(TimeSpan by)
+        {
+            var before = _clock.Elapsed;
+            var ticks = (long)Math.Round(by.TotalSeconds * System.Diagnostics.Stopwatch.Frequency);
+            _elapsed.SetValue(_clock, (long)_elapsed.GetValue(_clock)! + ticks);
+            Assert.InRange((_clock.Elapsed - before - by).Ticks, -1L, 1L);
+        }
+
+        // Keep time monotonic for the assembly's shared compositor and resume its normal clock.
+        public void Dispose() => _clock.Start();
+    }
+
     /// <summary>
     /// Frames sampled over a stretch of real time: a composition animation runs on the
-    /// compositor's clock, which no test clock reaches.
+    /// compositor's clock. Deterministic phase assertions instead use <see cref="CompositionTime"/>.
     /// </summary>
     private static List<int> Sample(Window window, TimeSpan span, Action? tick = null, bool invalidate = false)
     {
