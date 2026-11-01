@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      retention_diagnostics:
+        description: "Run isolated retention diagnostics instead of release qualification"
+        type: boolean
+        default: false
   # Release runs this whole workflow on the tagged commit, every platform included, and cannot
   # publish unless it passes. See release.yml.
   workflow_call:
@@ -96,7 +101,20 @@ jobs:
 
       # The Avalonia tests run headlessly, so no display server is needed.
       - name: Test
+        if: inputs.retention_diagnostics != true
         run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      - name: Retention diagnostics
+        if: inputs.retention_diagnostics == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          for rows in 2500 5000 10000; do
+            echo "rows=$rows ordinary heap (without instrumentation)"
+            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" traverse side
+            echo "rows=$rows weak-view diagnostics (heap includes diagnostic references)"
+            dotnet tests/VellumText.LayoutProbe/bin/Release/net10.0/VellumText.LayoutProbe.dll 3 "$rows" retention-diagnostics side
+          done
 
       - name: Upload test results
         if: always()
@@ -135,7 +153,7 @@ jobs:
 
     # On a release this workflow runs inside Release's own run, whose verify job packs and
     # uploads `packages` itself. A second artifact of that name in one run fails the upload.
-    if: github.ref_type != 'tag'
+    if: github.ref_type != 'tag' && inputs.retention_diagnostics != true
 
     steps:
       - uses: actions/checkout@v4
