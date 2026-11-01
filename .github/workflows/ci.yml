@@ -129,7 +129,9 @@ jobs:
 
   pack:
     runs-on: ubuntu-latest
-    needs: build
+    # This job builds and tests its own inspected bytes. Run it independently so
+    # a platform failure cannot hide a separate packaging defect.
+    needs: platforms
 
     # On a release this workflow runs inside Release's own run, whose verify job packs and
     # uploads `packages` itself. A second artifact of that name in one run fails the upload.

@@ -163,6 +163,7 @@ public static class Program
 
         var retainedBefore = GC.GetTotalMemory(forceFullCollection: true);
         var (window, view) = Show(doc);
+        Settle();
         var afterFirst = GC.GetTotalMemory(forceFullCollection: true) - retainedBefore;
         var watch = Stopwatch.StartNew();
         var pages = 0;
@@ -176,8 +177,15 @@ public static class Program
 
         watch.Stop();
 
+        var beforeFinalizers = GC.GetTotalMemory(forceFullCollection: true) - retainedBefore;
+
+        // Use the same finalizer-drained boundary as the baseline; also report the
+        // raw collection so disposal backlog can be distinguished from live retention.
+        Settle();
+
         var afterTraverse = GC.GetTotalMemory(forceFullCollection: true) - retainedBefore;
 
+        Console.Out.WriteLine($"retainedBeforeFinalizersBytes={beforeFinalizers}");
         Console.Out.WriteLine($"retainedAfterFirstLayoutBytes={afterFirst}");
         Console.Out.WriteLine($"retainedAfterTraverseBytes={afterTraverse}");
         Console.Out.WriteLine($"pages={pages}");
