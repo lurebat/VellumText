@@ -32,6 +32,9 @@ dotnet pack --no-build -c Release --artifacts-path "$artifact_root/build" "${pro
 dotnet build tools/PackageInspector/PackageInspector.csproj -c Release --artifacts-path "$artifact_root/inspector"
 dotnet "$artifact_root/inspector/bin/PackageInspector/release/PackageInspector.dll" --self-test
 dotnet "$artifact_root/inspector/bin/PackageInspector/release/PackageInspector.dll" \
-  "$artifact_root" "$version" "$commit" "$source_root" "$artifact_root/build" > "$artifact_root/package-provenance.json"
+  "$artifact_root" "$version" "$commit" "$source_root" "$artifact_root/build" > "$artifact_root/package-provenance.json" || {
+    jq -r '.failures[]' "$artifact_root/package-provenance.json"
+    exit 1
+  }
 # Publication downloads these exact archives, not another build.
 (cd "$artifact_root" && sha256sum packages/*.nupkg packages/*.snupkg > SHA256SUMS)

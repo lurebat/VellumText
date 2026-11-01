@@ -181,3 +181,11 @@ jobs:
           name: test-results-packages
           path: /tmp/vellumtext-packages/test-results/*.trx
           if-no-files-found: ignore
+
+      - name: Upload package inspection evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-inspection
+          path: /tmp/vellumtext-packages/package-provenance.json
+          if-no-files-found: ignore

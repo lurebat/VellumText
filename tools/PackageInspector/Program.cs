@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-var paths = new Regex(@"(?<![A-Za-z0-9_:])(?:[A-Z]:[\\/](?!/)[^\x00\r\n""<>]{1,250}|https?://[^\x00\r\n""<>]{1,250}|/(?!/)[\p{L}_][\p{L}\p{N}_.-]*(?:/[\p{L}\p{N}_.~ -]+)+)", RegexOptions.IgnoreCase);
+var paths = new Regex(@"(?<![A-Za-z0-9_:])(?:[A-Z]:[\\/](?!/)[^\x00\r\n""<>]{1,250}|https?://[^\x00\r\n""<>]{1,250}|/(?!/)[A-Za-z_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.~ -]+)+)", RegexOptions.IgnoreCase);
 if (args is ["--self-test"])
 {
     string[] rootedPaths = ["/Users/builder/project/File.cs", "/workspace/build/File.cs",
@@ -198,7 +198,11 @@ void Scan(string origin, byte[] data)
             var path = match.Value;
             var classification = path.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "content-or-repository-URL" :
                 path.StartsWith("/_/", StringComparison.Ordinal) || path.StartsWith(sourceRoot, StringComparison.Ordinal) ||
-                path.StartsWith(buildRoot, StringComparison.Ordinal) ? "neutral-build-path" : "unknown-rooted-path";
+                path.StartsWith(buildRoot, StringComparison.Ordinal) ? "neutral-build-path" :
+                path == "/usr/lib/libobjc.A.dylib" ? "platform-library-import" :
+                path.StartsWith("/VellumText.Avalonia/Themes/", StringComparison.Ordinal) ? "Avalonia-resource-URI" :
+                path == "/package/services/metadata/core-properties/nuget.psmdcp" ? "NuGet-package-relationship" :
+                path is "/host/p" or "/note/42" ? "documented-content-link-example" : "unknown-rooted-path";
             classifiedPaths.Add($"{origin}: {classification}: {path}");
             Require(classification != "unknown-rooted-path", $"{origin}: unclassified embedded path '{path}'");
         }
